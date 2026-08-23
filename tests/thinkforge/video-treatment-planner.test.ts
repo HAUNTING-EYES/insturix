@@ -346,6 +346,91 @@ describe('video treatment planner', () => {
     } satisfies Partial<VideoTreatmentPlannerError>);
   });
 
+  it('canonicalizes the observed server-context evidence labels against one declared decision policy', async () => {
+    let capturedRequest: Parameters<NonNullable<VideoTreatmentPlannerDependencies['generate']>>[0] | undefined;
+    const accepted = modelOutputFrom(abstractExplainerTreatment);
+    accepted.decisionTrace.decisions = [
+      {
+        id: 'd_02_visual_verbal_relationship',
+        decision: 'Use complementary visuals for the causal explanation.',
+        rationale: 'The editorial plan establishes the explanatory relationship.',
+        evidenceIds: ['editorial_plan'],
+        confidence: 0.8,
+      },
+      {
+        id: 'd_03_visual_rhythm',
+        decision: 'Vary visual intensity at the strongest signal turns.',
+        rationale: 'The content signal profile identifies where emphasis matters.',
+        evidenceIds: ['contentSignalProfile'],
+        confidence: 0.8,
+      },
+      {
+        id: 'd_04_information_hierarchy',
+        decision: 'Present the core claim before supporting proof.',
+        rationale: 'The editorial plan defines the order of explanation.',
+        evidenceIds: ['editorial_plan'],
+        confidence: 0.8,
+      },
+      {
+        id: 'd_05_audio_voice_strategy',
+        decision: 'Keep narration measured and let sound support transitions.',
+        rationale: 'The brand and editorial plan both require a calm explanation.',
+        evidenceIds: ['brandContext', 'editorial_plan'],
+        confidence: 0.8,
+      },
+      {
+        id: 'd_06_capture_requirements',
+        decision: 'Request capture only where direct evidence is genuinely needed.',
+        rationale: 'The production brief and content signals bound the evidence need.',
+        evidenceIds: ['productionBrief', 'contentSignalProfile'],
+        confidence: 0.8,
+      },
+    ];
+
+    const result = await planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: async (request) => {
+        capturedRequest = request;
+        return { result: accepted, cacheStatus: 'inline', modelName: 'gemini-test' };
+      },
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    });
+
+    if (!capturedRequest) throw new Error('Expected video treatment generator to receive a request.');
+    expect(result.treatment.decisionTrace.decisions.map(({ id, evidenceIds }) => ({ id, evidenceIds }))).toEqual([
+      { id: 'd_02_visual_verbal_relationship', evidenceIds: ['context_editorial_plan'] },
+      { id: 'd_03_visual_rhythm', evidenceIds: ['context_content_signal_profile'] },
+      { id: 'd_04_information_hierarchy', evidenceIds: ['context_editorial_plan'] },
+      {
+        id: 'd_05_audio_voice_strategy',
+        evidenceIds: ['context_brand_context', 'context_editorial_plan'],
+      },
+      {
+        id: 'd_06_capture_requirements',
+        evidenceIds: ['context_production_brief', 'context_content_signal_profile'],
+      },
+    ]);
+    expect(capturedRequest.prompt).toContain('"decisionEvidenceIds"');
+    expect(capturedRequest.prompt).toContain('context_editorial_plan');
+    expect(capturedRequest.prompt).toContain('context_content_signal_profile');
+  });
+
+  it('fails closed for an undeclared decision-evidence ID', async () => {
+    const invalid = modelOutputFrom(abstractExplainerTreatment);
+    invalid.decisionTrace.decisions[0]!.evidenceIds = ['invented_decision_evidence'];
+
+    await expect(planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: async () => ({ result: invalid, cacheStatus: 'inline', modelName: 'gemini-test' }),
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    })).rejects.toMatchObject({
+      code: 'provenance_invalid',
+      message: expect.stringContaining('decision_evidence:decision_1:invented_decision_evidence'),
+    } satisfies Partial<VideoTreatmentPlannerError>);
+  });
+
   it('uses a bounded model contract rather than accepting unbounded treatment prose', () => {
     const output = modelOutputFrom(abstractExplainerTreatment);
     output.narrativeArc = 'x'.repeat(1_801);

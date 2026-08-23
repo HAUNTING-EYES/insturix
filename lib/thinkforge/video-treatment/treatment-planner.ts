@@ -42,10 +42,35 @@ const VIDEO_TREATMENT_TEMPERATURE = 0.35;
 const VIDEO_TREATMENT_MAX_TOKENS = 20_480;
 const VIDEO_TREATMENT_THINKING_BUDGET_TOKENS = 4_096;
 const VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS = 2_048;
-const VIDEO_TREATMENT_CACHE_VERSION = 1;
+// The provenance policy changed in V2. Do not revive cached V1 treatments
+// whose model-authored decision evidence was validated against the old policy.
+const VIDEO_TREATMENT_CACHE_VERSION = 2;
 const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
 const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
-const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v1';
+const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v2';
+
+const TREATMENT_CONTEXT_DECISION_EVIDENCE = {
+  authoringRequest: 'context_authoring_request',
+  editorialPlan: 'context_editorial_plan',
+  productionBrief: 'context_production_brief',
+  userBrief: 'context_user_brief',
+  brandContext: 'context_brand_context',
+  contentSignalProfile: 'context_content_signal_profile',
+} as const;
+
+type TreatmentTraceEvidencePolicy = {
+  sourceRefs: readonly string[];
+  creativeReferenceIds: readonly string[];
+  creativeReferenceEvidenceIds: readonly string[];
+  graphConstraintIds: readonly string[];
+  writingConstraintIds: readonly string[];
+  contextDecisionEvidenceIds: readonly string[];
+  decisionEvidenceIds: readonly string[];
+  allowedSourceRefs: ReadonlySet<string>;
+  allowedDecisionEvidenceIds: ReadonlySet<string>;
+  allowedConstraintIds: ReadonlySet<string>;
+  legacyDecisionEvidenceAliases: ReadonlyMap<string, string>;
+};
 
 export type VideoTreatmentPlanCacheStatus = 'hit' | 'miss' | 'unavailable';
 
@@ -166,6 +191,12 @@ export async function planVideoTreatment(
     contentSignalProfile: input.contentSignalProfile,
     creativeReferenceContext: input.authoringContext.creativeReferenceContext,
   }, dependencies.knowledge);
+  const provenancePolicy = buildTreatmentTraceEvidencePolicy({
+    sourceLedger,
+    authoringContext: input.authoringContext,
+    contentSignalProfile: input.contentSignalProfile,
+    knowledge,
+  });
   const inputFingerprint = buildVideoTreatmentInputFingerprint({
     input,
     editorialPlan,
@@ -182,9 +213,8 @@ export async function planVideoTreatment(
   ) {
     assertTreatmentProvenance(
       cacheRead.record.treatment,
-      sourceLedger,
       input.authoringContext,
-      knowledge,
+      provenancePolicy,
     );
     await (dependencies.recordReceipt ?? recordVideoTreatmentPlanningReceipt)({
       inputFingerprint,
@@ -216,6 +246,7 @@ export async function planVideoTreatment(
     editorialPlan,
     sourceLedger,
     knowledge,
+    provenancePolicy,
     inputFingerprint,
   });
   assertNoCriticalPromptTruncation(promptParts.truncatedFields);
@@ -260,8 +291,9 @@ export async function planVideoTreatment(
     treatmentId,
     input,
     knowledge,
+    provenancePolicy,
   });
-  assertTreatmentProvenance(treatment, sourceLedger, input.authoringContext, knowledge);
+  assertTreatmentProvenance(treatment, input.authoringContext, provenancePolicy);
 
   const cacheWrite = await cache.write({
     version: VIDEO_TREATMENT_CACHE_VERSION,
@@ -370,6 +402,7 @@ function buildTreatmentPromptParts(input: {
   editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   sourceLedger: SourceLedger;
   knowledge: VideoTreatmentKnowledge;
+  provenancePolicy: TreatmentTraceEvidencePolicy;
   inputFingerprint: string;
 }) {
   return buildIsolatedPromptParts({
@@ -397,12 +430,13 @@ function buildTreatmentPromptParts(input: {
         note: 'The server owns these values and will attach them after model output validation.',
       },
       allowedTraceEvidence: {
-        sourceRefs: input.sourceLedger.entries.map((entry) => entry.referenceId),
-        creativeReferenceIds: input.input.authoringContext.creativeReferenceContext.selectedReferenceIds,
-        creativeReferenceEvidenceIds: input.input.authoringContext.creativeReferenceContext.referenceSet.references
-          .flatMap((reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? []),
-        graphConstraintIds: input.knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-        writingConstraintIds: input.knowledge.writingKnowledge.traceConstraintIds,
+        sourceRefs: input.provenancePolicy.sourceRefs,
+        creativeReferenceIds: input.provenancePolicy.creativeReferenceIds,
+        creativeReferenceEvidenceIds: input.provenancePolicy.creativeReferenceEvidenceIds,
+        graphConstraintIds: input.provenancePolicy.graphConstraintIds,
+        writingConstraintIds: input.provenancePolicy.writingConstraintIds,
+        contextDecisionEvidenceIds: input.provenancePolicy.contextDecisionEvidenceIds,
+        decisionEvidenceIds: input.provenancePolicy.decisionEvidenceIds,
       },
     },
     fieldLimits: {
@@ -442,7 +476,7 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - Treat sourceLedger as the only factual source. Use only listed source reference IDs; no invented claims, proof, dates, statistics, outcomes, people, UI states, or logos.
 - Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
 - Treat selected creative-content knowledge and selected Editron semantic evidence as binding guidance. They constrain attention, accessibility, continuity, rhythm, and audiovisual relationships; they do not license final form choices.
-- "allowedTraceEvidence" is the server-owned allowlist for trace IDs. In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
+- "allowedTraceEvidence" is the server-owned allowlist for trace IDs. Every "decisionTrace.decisions[].evidenceIds" entry must come from "decisionEvidenceIds". Use the supplied "context_*" IDs for server inputs; never use payload field names such as "editorial_plan" or "brandContext". In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
 - Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
 - Keep the treatment decision-dense and complete: state each top-level strategy once, keep lists to distinct material decisions, and never restate Brand Vault, source-ledger, or reference input verbatim. Visual events represent meaningful audiovisual/narrative turns, never every line, shot, or edit.
 </video_treatment_planner_contract>`;
@@ -479,9 +513,20 @@ function materializeVideoTreatment(input: {
   treatmentId: string;
   input: PlanVideoTreatmentInput;
   knowledge: VideoTreatmentKnowledge;
+  provenancePolicy: TreatmentTraceEvidencePolicy;
 }): VideoTreatment {
+  const modelDecisionTrace = {
+    ...input.modelOutput.decisionTrace,
+    decisions: input.modelOutput.decisionTrace.decisions.map((decision) => ({
+      ...decision,
+      evidenceIds: canonicalizeDecisionEvidenceIds(
+        decision.evidenceIds,
+        input.provenancePolicy,
+      ),
+    })),
+  };
   const inheritedUnknowns = [
-    ...input.modelOutput.decisionTrace.unresolvedAssumptions,
+    ...modelDecisionTrace.unresolvedAssumptions,
     ...input.input.authoringContext.creativeReferenceContext.unresolved.map((unknown) => unknown.message),
     ...input.knowledge.editronGraph.unresolvedAssumptions,
   ];
@@ -501,7 +546,7 @@ function materializeVideoTreatment(input: {
     treatmentId: input.treatmentId,
     ...input.modelOutput,
     decisionTrace: {
-      ...input.modelOutput.decisionTrace,
+      ...modelDecisionTrace,
       inputFingerprint: input.inputFingerprint,
       ...(traceBrand ? { brand: traceBrand } : {}),
       contentSignalProfileVersion: input.input.contentSignalProfile
@@ -519,43 +564,122 @@ function materializeVideoTreatment(input: {
   });
 }
 
+function buildTreatmentTraceEvidencePolicy(input: {
+  sourceLedger: SourceLedger;
+  authoringContext: ThinkForgeResolvedAuthoringContext;
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+  knowledge: VideoTreatmentKnowledge;
+}): TreatmentTraceEvidencePolicy {
+  const sourceRefs = unique(input.sourceLedger.entries.map((entry) => entry.referenceId));
+  const creativeReferenceIds = unique(input.authoringContext.creativeReferenceContext.selectedReferenceIds);
+  const creativeReferenceEvidenceIds = unique(
+    input.authoringContext.creativeReferenceContext.referenceSet.references.flatMap(
+      (reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? [],
+    ),
+  );
+  const graphConstraintIds = unique(input.knowledge.editronGraph.evidence.map((evidence) => evidence.id));
+  const writingConstraintIds = unique(input.knowledge.writingKnowledge.traceConstraintIds);
+  const contextDecisionEvidenceIds = [
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.authoringRequest,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.editorialPlan,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.productionBrief,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.userBrief,
+    TREATMENT_CONTEXT_DECISION_EVIDENCE.brandContext,
+    ...(input.contentSignalProfile
+      ? [TREATMENT_CONTEXT_DECISION_EVIDENCE.contentSignalProfile]
+      : []),
+  ];
+  const decisionEvidenceIds = unique([
+    ...sourceRefs,
+    ...creativeReferenceIds,
+    ...creativeReferenceEvidenceIds,
+    ...graphConstraintIds,
+    ...writingConstraintIds,
+    ...contextDecisionEvidenceIds,
+  ]);
+  const allowedDecisionEvidenceIds = new Set(decisionEvidenceIds);
+  const legacyDecisionEvidenceAliases = new Map<string, string>();
+  const registerLegacyAliases = (canonicalId: string, aliases: readonly string[]) => {
+    if (!allowedDecisionEvidenceIds.has(canonicalId)) return;
+    aliases.forEach((alias) => legacyDecisionEvidenceAliases.set(alias, canonicalId));
+  };
+
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.authoringRequest, [
+    'authoringDestination',
+    'authoring_destination',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.editorialPlan, [
+    'editorialPlan',
+    'editorial_plan',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.productionBrief, [
+    'productionBrief',
+    'production_brief',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.userBrief, [
+    'userBrief',
+    'user_brief',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.brandContext, [
+    'brandContext',
+    'brand_context',
+  ]);
+  registerLegacyAliases(TREATMENT_CONTEXT_DECISION_EVIDENCE.contentSignalProfile, [
+    'contentSignalProfile',
+    'content_signal_profile',
+  ]);
+
+  return {
+    sourceRefs,
+    creativeReferenceIds,
+    creativeReferenceEvidenceIds,
+    graphConstraintIds,
+    writingConstraintIds,
+    contextDecisionEvidenceIds,
+    decisionEvidenceIds,
+    allowedSourceRefs: new Set(sourceRefs),
+    allowedDecisionEvidenceIds,
+    allowedConstraintIds: new Set([
+      ...graphConstraintIds,
+      ...writingConstraintIds,
+    ]),
+    legacyDecisionEvidenceAliases,
+  };
+}
+
+function canonicalizeDecisionEvidenceIds(
+  evidenceIds: readonly string[],
+  policy: TreatmentTraceEvidencePolicy,
+): string[] {
+  return evidenceIds.map((id) => {
+    if (policy.allowedDecisionEvidenceIds.has(id)) return id;
+    return policy.legacyDecisionEvidenceAliases.get(id) ?? id;
+  });
+}
+
 function assertTreatmentProvenance(
   treatment: VideoTreatment,
-  sourceLedger: SourceLedger,
   authoringContext: ThinkForgeResolvedAuthoringContext,
-  knowledge: VideoTreatmentKnowledge,
+  policy: TreatmentTraceEvidencePolicy,
 ): void {
   assertVideoTreatmentReferences(treatment, authoringContext.creativeReferenceContext.referenceSet);
 
-  const allowedSourceRefs = new Set(sourceLedger.entries.map((entry) => entry.referenceId));
-  const allowedDecisionEvidence = new Set([
-    ...allowedSourceRefs,
-    ...authoringContext.creativeReferenceContext.selectedReferenceIds,
-    ...authoringContext.creativeReferenceContext.referenceSet.references.flatMap(
-      (reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? [],
-    ),
-    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-  ]);
-  const allowedConstraintIds = new Set([
-    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
-    ...knowledge.writingKnowledge.traceConstraintIds,
-  ]);
   const issues: string[] = [];
-  const check = (ids: readonly string[], allowed: Set<string>, owner: string) => {
+  const check = (ids: readonly string[], allowed: ReadonlySet<string>, owner: string) => {
     ids.forEach((id) => {
       if (!allowed.has(id)) issues.push(`${owner}:${id}`);
     });
   };
 
-  check(treatment.decisionTrace.sourceRefs, allowedSourceRefs, 'trace_source_ref');
-  check(treatment.decisionTrace.appliedConstraintIds, allowedConstraintIds, 'trace_constraint');
+  check(treatment.decisionTrace.sourceRefs, policy.allowedSourceRefs, 'trace_source_ref');
+  check(treatment.decisionTrace.appliedConstraintIds, policy.allowedConstraintIds, 'trace_constraint');
   treatment.decisionTrace.decisions.forEach((decision) => {
-    check(decision.evidenceIds, allowedDecisionEvidence, `decision_evidence:${decision.id}`);
+    check(decision.evidenceIds, policy.allowedDecisionEvidenceIds, `decision_evidence:${decision.id}`);
   });
-  treatment.visualEvents.forEach((event) => check(event.sourceRefs, allowedSourceRefs, `visual_event_source:${event.id}`));
+  treatment.visualEvents.forEach((event) => check(event.sourceRefs, policy.allowedSourceRefs, `visual_event_source:${event.id}`));
   treatment.captureRequirements.forEach((requirement) => check(
     requirement.sourceRefs,
-    allowedSourceRefs,
+    policy.allowedSourceRefs,
     `capture_requirement_source:${requirement.id}`,
   ));
 
