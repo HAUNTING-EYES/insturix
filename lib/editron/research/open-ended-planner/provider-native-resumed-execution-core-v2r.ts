@@ -43,6 +43,7 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
   artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>;
+  requireDurableProviderAttemptPersistence?: boolean;
   heartbeat(): Promise<void>;
   persistCheckpoint(input: Readonly<{
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
@@ -57,6 +58,16 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
     latestProposalRecoveryState,
   );
   await input.heartbeat();
+  const persistProviderCheckpoint = async (inputCheckpoint: Readonly<{
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  }>): Promise<void> => {
+    await input.heartbeat();
+    await input.persistCheckpoint({
+      checkpoint: inputCheckpoint.checkpoint,
+      ...(latestProposalRecoveryState
+        ? { proposalRecoveryState: latestProposalRecoveryState } : {}),
+    });
+  };
   const episodeReceipt = await runProviderNativeToolEpisodeV2R({
     route: input.checkpoint.route,
     context: input.artifacts.context,
@@ -89,6 +100,12 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
       await input.heartbeat();
       return result;
     },
+    ...(input.requireDurableProviderAttemptPersistence ? {
+      // Both phases reuse the lifecycle adapter's existing resume-state CAS.
+      // The episode cannot invoke until the dispatch callback returns.
+      onProviderDispatchCommitted: persistProviderCheckpoint,
+      onProviderAttemptCommitted: persistProviderCheckpoint,
+    } : {}),
     onTurnCommitted: async ({ checkpoint }) => {
       await input.heartbeat();
       const nextProposalRecoveryState = await captureProposalRecoveryState({

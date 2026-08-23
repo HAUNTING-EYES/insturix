@@ -95,6 +95,7 @@ export function createProviderNativePlanResumedExecutionOwnerV2R(input: Readonly
           ...(resumed.proposalRecoveryState
             ? { proposalRecoveryState: resumed.proposalRecoveryState } : {}),
           artifacts,
+          requireDurableProviderAttemptPersistence: true,
           heartbeat: lifecycle.heartbeat,
           persistCheckpoint: async ({ checkpoint, proposalRecoveryState }) => {
             const encoded = encodeProviderNativeCheckpointStateV2R({
@@ -109,9 +110,9 @@ export function createProviderNativePlanResumedExecutionOwnerV2R(input: Readonly
             latestCheckpointSha256 = checkpoint.checkpointSha256;
           },
         });
-        // Provider attempts are terminal here until failed-attempt budget
-        // accounting has its own durable resume contract. Retrying from the
-        // last committed tool turn would otherwise forget a billed attempt.
+        // Dispatch intent and attempt outcome have now crossed the same leased
+        // resume-state CAS as tool turns. Automatic retry remains a separate,
+        // explicitly unauthorised lifecycle decision.
         await lifecycle.heartbeat();
         const outcome = await finalizeProviderNativeExecutionBoundDurableOutcomeV2R({
           scope,

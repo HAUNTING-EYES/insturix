@@ -8,6 +8,10 @@ import type { ProviderNativeDurableArtifactOwnersV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-owner-artifact-resolver-v2r';
 import { ProviderNativeDurableRetryableErrorV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-durable-worker-v2r';
+import type { ProviderNativeDurableAttemptReceiptV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-durable-attempt-receipt-v2r';
+import type { ProviderNativeDurableDispatchIntentV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-durable-dispatch-intent-v2r';
 import type { ProviderNativeEpisodeResumeCheckpointV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
 import {
@@ -26,8 +30,12 @@ import {
   type ProviderNativeEpisodeContextV2R,
   type ProviderNativeRuntimeGuardV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
-import { PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R }
-  from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
+import {
+  PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R,
+  PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R,
+  PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+  type ProviderNativeRuntimeGuardResumeStateV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
 import { hashEditronCanonicalJsonV1 }
   from '@/lib/editron/services/canonical-json-v1';
 import { createOrGetEditorialPlanDurableJobV1 }
@@ -100,7 +108,7 @@ describe('provider-native PlanService resumed execution owner V2R', () => {
     });
   });
 
-  it('terminalizes a provider transient when attempt accounting cannot resume', async () => {
+  it('persists dispatch and attempt checkpoints before terminalizing a transient', async () => {
     const setup = await prepared('resumed', {
       status: 429, body: { error: { message: 'test rate limit' } },
     });
@@ -117,6 +125,19 @@ describe('provider-native PlanService resumed execution owner V2R', () => {
 
     expect(result).toMatchObject({
       kind: 'completed', jobId: setup.jobId, disposition: 'UNVERIFIABLE',
+    });
+    const persisted = await setup.jobStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-a', userId: 'user-a',
+    });
+    expect(persisted?.resumeState?.sequence).toBe(2);
+    const payload = persisted?.resumeState?.payload as JsonRecord;
+    const checkpoint = payload.checkpoint as ProviderNativeEpisodeResumeCheckpointV2R;
+    expect('pendingProviderDispatchIntent' in checkpoint).toBe(false);
+    expect('accountedProviderAttempts' in checkpoint
+      ? checkpoint.accountedProviderAttempts : []).toHaveLength(1);
+    expect('accountedProviderAttempts' in checkpoint
+      ? checkpoint.accountedProviderAttempts[0].result : null).toMatchObject({
+      kind: 'RESPONSE_RECEIVED', responseStatus: 429,
     });
   });
 
@@ -141,6 +162,27 @@ describe('provider-native PlanService resumed execution owner V2R', () => {
 
     expect(result).toEqual({
       kind: 'retry_wait', jobId: setup.jobId, errorCode: 'ARTIFACT_STORE_TIMEOUT',
+    });
+    expect(setup.invoke).not.toHaveBeenCalled();
+  });
+
+  it('refuses a legacy runtime guard before provider invocation', async () => {
+    const setup = await prepared('resumed', finishResponse());
+    const artifactOwners: ProviderNativeDurableArtifactOwnersV2R = {
+      ...setup.artifactOwners,
+      runtimeGuard: { resolve: async () => legacyRuntimeGuard() },
+    };
+    const result = await runEditorialPlanDurableWorkerV1({
+      jobStore: setup.jobStore,
+      planStore: setup.planStore(),
+      jobId: setup.jobId,
+      workerId: 'plan-provider-worker-legacy-guard',
+      executionOwner: createProviderNativePlanResumedExecutionOwnerV2R({ artifactOwners }),
+      clock: () => START,
+    });
+
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId, errorCode: 'PLAN_EXECUTION_FAILED',
     });
     expect(setup.invoke).not.toHaveBeenCalled();
   });
@@ -324,28 +366,102 @@ async function writerCheckpoint(): Promise<Readonly<ProviderNativeEpisodeResumeC
 }
 
 function runtimeGuard(): ProviderNativeRuntimeGuardV2R {
-  const allow = () => ({ status: 'ALLOW' as const, audit: { policy: 'TEST_ZERO_INFERENCE' } });
+  const allow = (audit: Readonly<JsonRecord>) => ({ status: 'ALLOW' as const, audit });
   return {
-    createResumeState: ({ completedTurns }) => runtimeResumeState(completedTurns),
+    createResumeState: ({ completedTurns, accountedProviderAttempts }) =>
+      runtimeResumeState({ completedTurns, accountedProviderAttempts }),
+    createPendingDispatchResumeState: ({
+      completedTurns, accountedProviderAttempts, pendingProviderDispatchIntent,
+    }) => runtimeResumeState({
+      completedTurns, accountedProviderAttempts, pendingProviderDispatchIntent,
+    }),
     restoreResumeState: () => undefined,
-    beforeTurn: allow,
-    beforeInvoke: allow,
-    afterInvoke: allow,
-    beforeExecute: allow,
-    afterExecute: allow,
+    beforeTurn: ({ turn }) => allow({
+      phase: 'BEFORE_TURN', status: 'ALLOW', turn,
+    }),
+    beforeInvoke: ({ turn, request, maxOutputTokens }) => allow({
+      phase: 'BEFORE_INVOKE', status: 'ALLOW', turn,
+      requestHash: request.requestHash, inputTokensUpperBound: 1,
+      reservedWorstCaseNanoUsd: maxOutputTokens,
+    }),
+    afterInvoke: ({ turn, request, response, maxOutputTokens }) =>
+      response.status < 200 || response.status >= 300
+        ? allow({ phase: 'AFTER_INVOKE_HTTP_FAILURE_CONSERVATIVE_RESERVATION',
+          status: 'ALLOW', turn, requestHash: request.requestHash,
+          accountingMode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
+          accountedCostNanoUsd: maxOutputTokens,
+          accountedOutputTokens: maxOutputTokens })
+        : allow({ phase: 'AFTER_INVOKE', status: 'ALLOW', turn,
+          requestHash: request.requestHash, actualCostNanoUsd: 0,
+          usage: { outputTokens: 0, thoughtTokens: 0 } }),
+    settleUnknownInvoke: ({ turn, request, maxOutputTokens }) => allow({
+      phase: 'AFTER_INVOKE_RESULT_UNAVAILABLE_CONSERVATIVE_RESERVATION',
+      status: 'ALLOW', turn, requestHash: request.requestHash,
+      accountingMode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
+      accountedCostNanoUsd: maxOutputTokens,
+      accountedOutputTokens: maxOutputTokens,
+    }),
+    settleRecoveredDispatchIntent: ({ pendingProviderDispatchIntent }) => allow({
+      phase: 'RECOVERED_DISPATCH_INTENT_CONSERVATIVE_RESERVATION',
+      status: 'ALLOW', turn: pendingProviderDispatchIntent.dispatch.turn,
+      requestHash: pendingProviderDispatchIntent.dispatch.requestHash,
+      accountingMode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
+      accountedCostNanoUsd:
+        pendingProviderDispatchIntent.reservation.reservedWorstCaseNanoUsd,
+      accountedOutputTokens: pendingProviderDispatchIntent.dispatch.maxOutputTokens,
+    }),
+    beforeExecute: ({ turn, operatorId }) => allow({
+      phase: 'BEFORE_EXECUTE', status: 'ALLOW', turn, operatorId,
+    }),
+    afterExecute: ({ turn, operatorId }) => allow({
+      phase: 'AFTER_EXECUTE', status: 'ALLOW', turn, operatorId,
+    }),
   };
 }
 
-function runtimeResumeState(completedTurns: readonly Readonly<JsonRecord>[]) {
+function legacyRuntimeGuard(): ProviderNativeRuntimeGuardV2R {
+  const guard = runtimeGuard();
+  return {
+    createResumeState: guard.createResumeState,
+    restoreResumeState: guard.restoreResumeState,
+    beforeTurn: guard.beforeTurn,
+    beforeInvoke: guard.beforeInvoke,
+    afterInvoke: guard.afterInvoke,
+    beforeExecute: guard.beforeExecute,
+    afterExecute: guard.afterExecute,
+  };
+}
+
+function runtimeResumeState(input: Readonly<{
+  completedTurns: readonly Readonly<JsonRecord>[];
+  accountedProviderAttempts?: readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+  pendingProviderDispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+}>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R> {
+  const completedTurns = input.completedTurns;
+  const attempts = input.accountedProviderAttempts ?? [];
   const completedTurnsSha256 = hashCanonicalJsonV1(completedTurns);
+  const attemptBound = attempts.length > 0 || Boolean(input.pendingProviderDispatchIntent);
   const material = {
-    version: PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+    version: input.pendingProviderDispatchIntent
+      ? PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R
+      : attempts.length
+      ? PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
+      : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
     authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION' as const,
     guardKind: 'TEST_RUNTIME_GUARD',
     guardIdentitySha256: GUARD_HASH,
     completedTurnsSha256,
     nextTurn: completedTurns.length + 1,
-    state: { usage: { providerTurns: completedTurns.length } },
+    ...(attemptBound ? {
+      accountedProviderAttemptsSha256: hashCanonicalJsonV1(attempts),
+    } : {}),
+    ...(input.pendingProviderDispatchIntent ? {
+      pendingProviderDispatchIntentSha256:
+        input.pendingProviderDispatchIntent.receiptSha256,
+    } : {}),
+    state: { usage: { providerTurns: completedTurns.length,
+      accountedProviderAttempts: attempts.length,
+      pendingDispatch: Boolean(input.pendingProviderDispatchIntent) } },
   };
   return { ...material, resumeStateSha256: hashCanonicalJsonV1(material) };
 }
