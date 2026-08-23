@@ -1,6 +1,8 @@
 import type { WalletRef } from './project-ownership';
 import type { ProviderNativeProductBudgetReservationLocatorV2R }
   from './provider-native-product-budget-owner-v2r';
+import type { ProviderNativeProductTerminalReservationLocatorV2R }
+  from './provider-native-product-terminal-settlement-v2r';
 import {
   assertProviderNativeProductBudgetAuthorizationV2R,
   assertProviderNativeProductBudgetReservationV2R,
@@ -83,7 +85,8 @@ export interface ProviderNativeProductBudgetCreditLedgerV2R {
 
 export type ProviderNativeProductBudgetCreditsOwnerV2R =
   ProviderNativeProductBudgetWalletPortV2R
-  & ProviderNativeProductBudgetReservationLocatorV2R;
+  & ProviderNativeProductBudgetReservationLocatorV2R
+  & ProviderNativeProductTerminalReservationLocatorV2R;
 
 /**
  * Sole product-budget policy coordinator. The injected ledger must execute the
@@ -201,6 +204,23 @@ export function createProviderNativeProductBudgetCreditsOwnerV2R(input: Readonly
         fail('CREDIT_RESERVATION_GUARD_MISMATCH');
       }
       return { authorization: record.authorization, reservation: record.reservation };
+    },
+
+    resolveTerminal: async (request) => {
+      const stored = await input.ledger.getByGuardIdentity(
+        request.expectedGuardIdentitySha256,
+      );
+      if (!stored) fail('CREDIT_RESERVATION_NOT_FOUND');
+      const record = assertProviderNativeProductBudgetCreditRecordV2R(stored);
+      if (record.reservation.reservationId !== request.reservationId
+        || record.reservation.guardIdentitySha256
+          !== request.expectedGuardIdentitySha256) {
+        fail('CREDIT_TERMINAL_RESERVATION_BINDING_MISMATCH');
+      }
+      return {
+        authorization: record.authorization,
+        reservation: record.reservation,
+      };
     },
   };
 }

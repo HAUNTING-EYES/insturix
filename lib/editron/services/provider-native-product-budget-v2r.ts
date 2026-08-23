@@ -430,7 +430,7 @@ export function createProviderNativeProductBudgetSettlementV2R(input: Readonly<{
       'ACTUAL_PROVIDER_SPEND',
     );
     if (actualProviderSpendNanoUsd > reservation.reservedProviderSpendNanoUsd
-      || attemptReceipts.length === 0 || input.customerChargeComputationSha256 === null
+      || input.customerChargeComputationSha256 === null
       || executionEvidence.kind !== 'ACTUAL_USAGE_COMPLETE') {
       fail('PRODUCT_BUDGET_ACTUAL_SETTLEMENT_INVALID');
     }
