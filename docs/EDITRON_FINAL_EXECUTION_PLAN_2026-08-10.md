@@ -5338,10 +5338,25 @@ canonicalizer, `0917a6c4e` streams the existing demux file path and
 `54273324d` registers its derived artifacts, `a70a37158` binds those receipts
 into newly issued V2 source envelopes, and `849ecc8a5` streams the remote frame
 sampler plus JPEG materialization. The next bounded reliability order is
-therefore: one execution-root composition, signed route export,
-non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
-paid preflight with explicit approval.
+therefore: signed route export, a non-production QStash/Atlas
+crash/redelivery exercise, and only then a fresh paid preflight with explicit
+approval.
 Canonical project mutation remains disabled.
+
+**Product execution-root checkpoint (2026-08-23):** commit `f5b192f2c`
+completes the former first item in that order. One composition root now binds
+the existing definition-bound Plan execution owner to canonical-media ports,
+the CreditsService runtime guard, exact live route transport/token counters,
+the ProjectService isolated clone, existing cut/keyframe writers and proof,
+and terminal settlement. It admits exactly `cut_section` and `set_keyframes`;
+research-catalog operations without a concrete isolated writer are rejected
+before budget, media, project or provider resource use. The root has no route,
+performs no provider call by construction, and cannot mutate the canonical
+project. Its composed-owner battery passes 107/107 plus repository typecheck
+and quiet ESLint. This is product composition, not production certification,
+operator-catalog completion, live-store proof or authorization for paid
+inference. The next bounded slice is the authenticated signed route, followed
+by non-production QStash/Atlas/CreditsService recovery proof.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
