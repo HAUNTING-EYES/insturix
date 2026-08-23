@@ -345,7 +345,9 @@ Migrated from the prior Claude-Code sessions. Layout:
    MatchPlan, CreditsService, ProjectService mutation and proof owners.
    `8e29b80d7` is the required Step-0 cleanup for the >300-line demux owner: it
    removes only a zero-caller persistence writer and unused public constants.
-   It does not implement streaming or artifact registration. Full-source
+   `442b692bf` likewise removes console-only progress logs before extending the
+   >300-line R2 owner. Neither commit implements streaming or artifact
+   registration. Full-source
    buffering is provisional and live
    Mongo/R2/GCS proof is absent. Do not describe project-wide reference
    materialization or long-form ingest as converged.

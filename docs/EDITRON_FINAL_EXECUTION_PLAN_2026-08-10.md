@@ -1683,6 +1683,12 @@ canonicalization tests pass 18/18 with repository typecheck and quiet ESLint.
 This is cleanup only: full-buffer reads, provisional thresholds and unregistered
 demux artifacts remain unchanged.
 
+Commit 442b692bf performs the corresponding Step-0 cleanup on the 449-line R2
+storage owner before file-stream upload is added. It removes eight console-only
+progress/debug writes without changing upload, delete, read-URL or multipart
+control flow. Focused R2/multipart/storage tests pass 16/16 with repository
+typecheck and quiet ESLint. Streaming upload is still pending.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project

@@ -938,7 +938,8 @@ before advancing. This does not add a secret signer or second revision owner.
     generation route now returns a non-retryable capability gap before reading
     caller input; it may be activated only through the existing plan, credit,
     project and proof owners. Commit `8e29b80d7` then performs the mandatory
-    demux-owner Step-0 cleanup only; it does not change media flow. Next replace full-file
+    demux-owner Step-0 cleanup, and `442b692bf` performs the same prerequisite
+    for the R2 owner. Neither changes media flow. Next replace full-file
     buffering/provisional bounds and register required demux artifacts without
     adding a second media authority.
 47. Compose the canonical-media ports, CreditsService guard, route transport,
