@@ -36,7 +36,7 @@ production-ready and no live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract; `d16caaa5b` revalidates a leased job against fresh stores; `b9cf5e820` carries those records across a process exit; `c69a845ea` enforces deadline/cancel/tenant/approval-lineage gates. No authenticated approval route or live Atlas/QStash proof exists. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -87,12 +87,17 @@ Completed foundation:
   user cancellation cleanup, enforces tenant-scoped cancellation and binds
   approval requirements to an immutable USER-accepted plan revision. It does
   not authenticate that user actor or implement a wait/wake route.
+- `aff06c8d4` uses `NEEDS_REVIEW` as the durable PlanService wait and appends
+  exactly one owner-scoped `READY_TO_APPLY` or `CANCELLED` successor after an
+  exact-head review decision. It provides immutable domain history without a
+  sleeping worker or second event store. Session-derived route authentication
+  remains open.
 
 Open work:
 
 - artifact-owner resolution for scopes, locks, approvals and proof;
 - remaining artifact resolution for scopes, locks, approvals and proof;
-- authenticated approval wait/wake, event history and authenticated dispatch;
+- authenticated review UI/API ingress and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
 ### B. Upstash or Vercel durable workflow runtime — transport candidate only
@@ -214,6 +219,11 @@ prior user cancellation across deadline and lease expiry; and requires USER
 lineage for approval-bound job creation. The remaining approval boundary is
 authentication and durable wait/wake—not another plan or job authority.
 
+Commit `aff06c8d4` completes the domain wait/wake transition: immutable plan
+revisions are the review event history, and raw SYSTEM/MODEL promotion is
+rejected. It does not claim that the not-yet-wired web route authenticated the
+actor.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -228,9 +238,9 @@ authentication and durable wait/wake—not another plan or job authority.
 5. **Complete at `b9cf5e820`:** serialized separate-OS-process product
    recovery with envelope/inner-forgery, old-lease and duplicate-delivery
    rejection.
-6. **Partial at `c69a845ea`:** cancellation, expiry, tenant isolation and
-   immutable approval-lineage tests. Authenticated approval wait/wake and event
-   history remain.
+6. **Domain complete at `c69a845ea` + `aff06c8d4`:** cancellation, expiry,
+   tenant isolation, approval lineage and immutable PlanService review
+   wait/wake/history tests. Authenticated UI/API ingress remains step 8 work.
 7. ProjectService clone/proposal execution and exact receipt handoff.
 8. Only then: authenticated non-production QStash/Atlas crash/restart and
    redelivery exercise.
@@ -239,7 +249,7 @@ authentication and durable wait/wake—not another plan or job authority.
 
 ## Evidence basis
 
-- Repository code at `c69a845ea` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `aff06c8d4` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
