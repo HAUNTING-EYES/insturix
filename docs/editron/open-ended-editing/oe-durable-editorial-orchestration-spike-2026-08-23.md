@@ -1092,6 +1092,14 @@ before advancing. This does not add a secret signer or second revision owner.
     identities, request budgets and a `$1.5051264` absolute ceiling are bound.
     Five adversarial preflight tests pass; a real metadata/countTokens preflight
     and all inference remain pending and unauthorized.
+62. **Long-form live zero-inference preflight complete:** production Vercel
+    credentials verified all three exact model identities and Google's official
+    tokenizer bounded each Gemini presentation. Manifest `59a022edc...` and
+    receipt `4ae58954...` bind nine request captures, three metadata GETs, three
+    `countTokens` POSTs, zero inference calls, zero project reads/mutations and
+    `dispatchAuthorized=false`. The request-specific upper bound is
+    `$0.91800165`; the immutable absolute ceiling remains `$1.5051264`.
+    Paid dispatch still requires the sole operator's explicit authorization.
 
 ## Evidence basis
 
