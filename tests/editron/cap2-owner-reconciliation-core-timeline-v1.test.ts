@@ -9,9 +9,11 @@ import {
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v2';
 import {
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5,
-  getCap2CurrentTruthDomainEvidencePathsV5,
-  hashNormalizedCap2SourceSnapshotV5,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
+import {
+  assertCap2CurrentTruthSourcesMatchV7,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v7';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -61,14 +63,14 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('binds the reconciled current core evidence over immutable v1 history', () => {
+  it('preserves the historical core binding while the latest reissue owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
-    expect(hashNormalizedCap2SourceSnapshotV5(
-      getCap2CurrentTruthDomainEvidencePathsV5('CORE_PROJECT_TIMELINE_CHECKPOINT'),
-    )).toBe(binding.normalizedEvidenceHash);
     expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7.priorAuditBinding.artifactType)
+      .toBe('EditronCapabilityCurrentTruthReissueAuditV6');
+    expect(() => assertCap2CurrentTruthSourcesMatchV7()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
