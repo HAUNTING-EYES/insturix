@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `582c927d0` on
+programme code checkpoint represented by this ledger is `9931ae77a` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 582c927d0. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 9931ae77a. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1433,11 +1433,25 @@ replays fail closed. The 15 focused and 83 adjacent tests pass with repository
 typecheck and quiet ESLint. Its ledger is injected and tested in memory: no
 Mongo collection, multi-document transaction, CreditsService wallet write,
 live credit movement or production reservation locator is thereby proven.
-The next gate is the concrete same-database Mongo transaction adapter through
-the existing CreditsService wallet owner, followed by concrete canonical-media
-ports, their single execution-root composition, signed route export and a
-non-production Atlas/QStash exercise. The inline research reference artifact
-and sealed-holdout controller remain ineligible as product authorities.
+Commit 5f7428248 then implements that port through the existing CreditsService
+owner and the same configured Mongoose database. One majority-write/snapshot-
+read transaction contains the user/org main-pool movement, permanent product-
+budget reservation record and org reporting row. The record has deterministic
+reserve/settle receipts, a unique guard identity, exact record-hash CAS and no
+TTL; capped embedded history is audit only. Injected transaction tests prove
+user and org reserve/settle, duplicate replay, exact guard lookup, rollback when
+the record insert fails and rejection of unsupported wallet precision. Commit
+9931ae77a separately corrects a stale billing assertion to the already-current
+subscription/top-up split refund behavior. The combined wallet/durable cluster
+passes 153/153 with repository typecheck and quiet ESLint. This is
+`CONCRETE_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: the default connection path is
+not yet exercised against non-production Atlas and no product execution root
+or route invokes it.
+The next gate is concrete canonical-media ports plus single execution-root
+composition, followed by signed route export and a non-production Atlas/QStash
+crash/redelivery exercise that proves the real transaction. The inline research
+reference artifact and sealed-holdout controller remain ineligible as product
+authorities.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
