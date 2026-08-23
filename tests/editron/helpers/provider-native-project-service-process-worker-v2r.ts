@@ -251,7 +251,7 @@ function createCloneOwner(canonical: Project, hooks: Readonly<{
           tenantId: input.tenantId,
           userId: input.userId,
           projectId: input.projectId,
-          episodeId: input.checkpoint.episodeId,
+          episodeId: input.episodeId,
           subject: {
             episodeReceiptSha256: input.episodeReceipt.receiptSha256,
             resumedReceiptSha256: input.resumedReceiptSha256,

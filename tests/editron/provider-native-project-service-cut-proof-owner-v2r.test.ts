@@ -89,14 +89,21 @@ describe('ProjectService isolated cut rendered-proof owner V2R', () => {
     });
   });
 
-  it('rejects fresh execution before invoking the resumed-proof renderer', async () => {
+  it('proves a fresh execution without inventing checkpoint history', async () => {
     const render = vi.fn(async (_project, options) =>
       renderedEvidence('completed', options.requestedSampleFrames ?? []));
 
-    await expect(exercise(render, 'FRESH_EPISODE_RECEIPT')).rejects.toThrow(
-      'PROVIDER_NATIVE_CUT_OUTCOME_PROOF_FRESH_EXECUTION_PROOF_NOT_SUPPORTED',
-    );
-    expect(render).not.toHaveBeenCalled();
+    const result = await exercise(render, 'FRESH_EPISODE_RECEIPT');
+    expect(result.proof).toMatchObject({
+      disposition: 'PASS',
+      subject: {
+        executionTrace: {
+          kind: 'FRESH_EPISODE_RECEIPT',
+          receiptSha256: result.episodeReceipt.receiptSha256,
+        },
+      },
+    });
+    expect(render).toHaveBeenCalledOnce();
   });
 
   it('keeps completed but uninspected stills UNVERIFIABLE', async () => {
@@ -204,10 +211,15 @@ async function exercise(
       now: () => '2026-08-23T10:05:00.000Z',
     }),
   });
-  const resolved = await cloneOwner.resolve({
-    tenantId: 'tenant-1', userId: 'user-1', projectId: 'project-1',
-    checkpoint: CHECKPOINT,
-  });
+  const resolved = executionTraceKind === 'FRESH_EPISODE_RECEIPT'
+    ? await cloneOwner.resolveFresh!({
+        tenantId: 'tenant-1', userId: 'user-1', projectId: 'project-1',
+        episodeId: CHECKPOINT.episodeId,
+      })
+    : await cloneOwner.resolve({
+        tenantId: 'tenant-1', userId: 'user-1', projectId: 'project-1',
+        checkpoint: CHECKPOINT,
+      });
   const call = {
     operatorId: 'cut_section',
     arguments: {
@@ -233,7 +245,7 @@ async function exercise(
     proposalReceipt,
   });
   if (!proof) throw new Error('TEST_OUTCOME_PROOF_MISSING');
-  return { proof, canonical };
+  return { proof, canonical, episodeReceipt };
 }
 
 async function exerciseCombined(

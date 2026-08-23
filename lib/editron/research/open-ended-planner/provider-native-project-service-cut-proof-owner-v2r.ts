@@ -218,7 +218,7 @@ export function createProviderNativeProjectServiceCutProofOwnerV2R(
         tenantId: input.tenantId,
         userId: input.userId,
         projectId: input.projectId,
-        episodeId: input.checkpoint.episodeId,
+        episodeId: input.episodeId,
         subject: {
           episodeReceiptSha256: input.episodeReceipt.receiptSha256,
           resumedReceiptSha256: input.resumedReceiptSha256,
@@ -245,9 +245,6 @@ export function createProviderNativeProjectServiceCutProofOwnerV2R(
   return {
     ...legacyOwner,
     proveExecutionBound: async (input: Readonly<ExecutionBoundProofInput>) => {
-      if (input.executionTrace.kind !== 'RESUMED_EPISODE_RECEIPT') {
-        fail('FRESH_EXECUTION_PROOF_NOT_SUPPORTED');
-      }
       const { executionTrace, ...legacyInput } = input;
       const legacy = await legacyOwner.prove({
         ...legacyInput,
@@ -257,7 +254,7 @@ export function createProviderNativeProjectServiceCutProofOwnerV2R(
         tenantId: input.tenantId,
         userId: input.userId,
         projectId: input.projectId,
-        episodeId: input.checkpoint.episodeId,
+        episodeId: input.episodeId,
         subject: {
           episodeReceiptSha256: input.episodeReceipt.receiptSha256,
           executionTrace,

@@ -74,7 +74,8 @@ export interface ProjectServiceIsolatedOutcomeProofOwnerV2R {
     tenantId: string;
     userId: string;
     projectId: string;
-    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    episodeId: string;
+    checkpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Readonly<Project>;
     baselineProject: Readonly<Project>;
     baseRevision: Readonly<ProjectRevisionV1>;
@@ -86,7 +87,8 @@ export interface ProjectServiceIsolatedOutcomeProofOwnerV2R {
     tenantId: string;
     userId: string;
     projectId: string;
-    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    episodeId: string;
+    checkpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Readonly<Project>;
     baselineProject: Readonly<Project>;
     baseRevision: Readonly<ProjectRevisionV1>;
@@ -274,7 +276,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           tenantId: scope.tenantId,
           userId: scope.userId,
           projectId: scope.projectId,
-          checkpoint: checkpoint!,
+          episodeId: scope.episodeId,
+          ...(checkpoint ? { checkpoint } : {}),
           project: structuredClone(workingProject),
           baselineProject: structuredClone(initial.project),
           baseRevision: structuredClone(baseRevision),
@@ -329,7 +332,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           tenantId: scope.tenantId,
           userId: scope.userId,
           projectId: scope.projectId,
-          checkpoint: checkpoint!,
+          episodeId: scope.episodeId,
+          ...(checkpoint ? { checkpoint } : {}),
           project: structuredClone(workingProject),
           baselineProject: structuredClone(initial.project),
           baseRevision: structuredClone(baseRevision),
@@ -475,7 +479,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           finalizeProposalReceipt,
           ...(checkpoint && input.isolatedOutcomeProofOwner
             ? { finalizeOutcomeProof } : {}),
-          ...(checkpoint && input.isolatedOutcomeProofOwner?.proveExecutionBound
+          ...(input.isolatedOutcomeProofOwner?.proveExecutionBound
             ? { finalizeExecutionBoundOutcomeProof } : {}),
         },
       };
