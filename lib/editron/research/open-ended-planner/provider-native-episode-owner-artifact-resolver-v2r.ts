@@ -1,6 +1,8 @@
 import { hashCanonicalJsonV1 } from './contracts-v1';
 import type { ProviderNativeEpisodeResumeCheckpointV2R }
   from './provider-native-episode-resume-v2r';
+import type { ProviderNativeProposalRecoveryStateV2R }
+  from './provider-native-proposal-recovery-v2r';
 import type {
   ProviderNativeDurableArtifactResolverV2R,
   ProviderNativeDurableIsolatedCloneV2R,
@@ -51,6 +53,7 @@ export interface ProviderNativeDurableProjectCloneOwnerV2R {
     userId: string;
     projectId: string;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
   }>): Promise<Readonly<{
     currentRevision: Readonly<ProviderNativeDurableCurrentRevisionReadV2R>;
     isolatedClone: Readonly<ProviderNativeDurableIsolatedCloneV2R>;
@@ -101,7 +104,12 @@ export function createProviderNativeDurableOwnerArtifactResolverV2R(
   owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
 ): Readonly<ProviderNativeDurableArtifactResolverV2R> {
   return {
-    resolve: async ({ job, checkpoint }) => resolveArtifacts(owners, job, checkpoint),
+    resolve: async ({ job, checkpoint, proposalRecoveryState }) => resolveArtifacts(
+      owners,
+      job,
+      checkpoint,
+      proposalRecoveryState,
+    ),
   };
 }
 
@@ -109,6 +117,7 @@ async function resolveArtifacts(
   owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
   job: Readonly<DurableWorkflowJobSnapshotV1>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
 ): Promise<Readonly<ProviderNativeDurableResolvedArtifactsV2R>> {
   const projectId = requireProjectScope(job, checkpoint);
   assertExactDependencyBindings(job, checkpoint);
@@ -132,6 +141,7 @@ async function resolveArtifacts(
     userId: job.userId,
     projectId,
     checkpoint,
+    ...(proposalRecoveryState ? { proposalRecoveryState } : {}),
   });
   const invoke = await owners.transport.resolve({
     route: checkpoint.route,

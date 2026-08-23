@@ -5,7 +5,13 @@ import { hashCanonicalJsonV1 }
 import {
   buildProviderNativeEpisodeDurableJobInputV2R,
   persistProviderNativeEpisodeCheckpointV2R,
+  restoreProviderNativeEpisodeDurableStateV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-episode-durable-job-v2r';
+import {
+  createProviderNativeProposalRecoveryStateV2R,
+  proposalRecoveryWriterTurnsV2R,
+  type ProviderNativeProposalRecoveryStateV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-proposal-recovery-v2r';
 import {
   ProviderNativeDurableRetryableErrorV2R,
   runProviderNativeEpisodeDurableWorkerV2R,
@@ -78,6 +84,10 @@ const BEAT_CONSTRAINTS = {
   protectedBoundaryToleranceFrames: 3,
   sourceDurationFramesByAssetId: { 'asset-1': 600 }, requireSourceHandles: true,
 };
+const CANONICAL_BASE_REVISION = 'project-revision-v1:canonical-r7';
+const BASE_STATE_SHA = 'e'.repeat(64);
+const PREFIX_STATE_SHA = 'f'.repeat(64);
+const FINAL_STATE_SHA = '1'.repeat(64);
 
 describe('provider-native durable recovery worker V2R', () => {
   it('resumes only the suffix and settles READY_FOR_PROOF as UNVERIFIABLE once', async () => {
@@ -90,10 +100,9 @@ describe('provider-native durable recovery worker V2R', () => {
     const executeIsolated = vi.fn(async () => execution({
       receipt: { status: 'PASS', projectRevision: 'revision-44' },
     }));
-    const proposalReceipt = durableProposalReceipt();
     const resolver = vi.fn(async () => artifacts({
       invoke, executeIsolated,
-      finalizeProposalReceipt: async () => proposalReceipt,
+      proposalReceiptFactory: durableProposalReceipt,
     }));
 
     const result = await runProviderNativeEpisodeDurableWorkerV2R({
@@ -110,7 +119,7 @@ describe('provider-native durable recovery worker V2R', () => {
         selectedOperatorIds: ELIGIBLE,
         terminal: { disposition: 'READY_FOR_PROOF' },
       },
-      proposalReceiptSha256: proposalReceipt.receiptSha256,
+      proposalReceiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(executeIsolated).toHaveBeenCalledTimes(1);
@@ -125,7 +134,7 @@ describe('provider-native durable recovery worker V2R', () => {
         disposition: 'UNVERIFIABLE',
         proofReferences: [
           { proofSha256: result.resumedReceiptSha256, disposition: 'UNVERIFIABLE' },
-          { proofSha256: proposalReceipt.receiptSha256, disposition: 'PASS' },
+          { proofSha256: result.proposalReceiptSha256, disposition: 'PASS' },
         ],
       },
     });
@@ -136,6 +145,15 @@ describe('provider-native durable recovery worker V2R', () => {
     });
     expect(duplicate).toEqual({ kind: 'skipped', reason: 'terminal' });
     expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledWith(expect.objectContaining({
+      proposalRecoveryState: setup.proposalRecoveryState,
+    }));
+    const durableState = restoreProviderNativeEpisodeDurableStateV2R(persisted!);
+    expect(durableState.proposalRecoveryState).toMatchObject({
+      isolatedWorkingProjectRevision: 'revision-44',
+      isolatedWorkingStateSha256: FINAL_STATE_SHA,
+      operations: [{ turn: 3 }, { turn: 4 }],
+    });
   });
 
   it('dead-letters a hash-mismatched context before provider or tool execution', async () => {
@@ -161,8 +179,6 @@ describe('provider-native durable recovery worker V2R', () => {
   it('dead-letters a forged ProjectService proposal receipt before durable completion', async () => {
     const setup = await preparedJob();
     let suffixCall = 0;
-    const valid = durableProposalReceipt();
-    const forged = { ...valid, finalStateSha256: '0'.repeat(64) };
     const result = await runProviderNativeEpisodeDurableWorkerV2R({
       store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
       artifactResolver: { resolve: async () => artifacts({
@@ -173,7 +189,9 @@ describe('provider-native durable recovery worker V2R', () => {
         executeIsolated: async () => execution({
           receipt: { status: 'PASS', projectRevision: 'revision-44' },
         }),
-        finalizeProposalReceipt: async () => forged,
+        proposalReceiptFactory: (state) => ({
+          ...durableProposalReceipt(state), finalStateSha256: '0'.repeat(64),
+        }),
       }) },
       clock: () => RESUME_AT,
     });
@@ -198,7 +216,7 @@ describe('provider-native durable recovery worker V2R', () => {
       store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
       artifactResolver: { resolve: async () => artifacts({
         invoke, executeIsolated,
-        finalizeProposalReceipt: async () => durableProposalReceipt(),
+        proposalReceiptFactory: durableProposalReceipt,
         omitProposalRevisionBinding: true,
       }) },
       clock: () => RESUME_AT,
@@ -219,8 +237,6 @@ describe('provider-native durable recovery worker V2R', () => {
       store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
       artifactResolver: { resolve: async () => artifacts({
         invoke, executeIsolated: vi.fn(),
-        canonicalBaseProjectRevision: 'project-revision-v1:canonical-r7',
-        isolatedWorkingProjectRevision: 'revision-43',
       }) },
       clock: () => RESUME_AT,
     });
@@ -243,6 +259,24 @@ describe('provider-native durable recovery worker V2R', () => {
     expect(result).toEqual({
       kind: 'dead_letter', jobId: setup.jobId,
       errorCode: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_INVALID',
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('rejects a recovery-capable proposal owner that cannot capture the next state', async () => {
+    const setup = await preparedJob();
+    const invoke = vi.fn();
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke, executeIsolated: vi.fn(), omitProposalRecoveryCapture: true,
+      }) },
+      clock: () => RESUME_AT,
+    });
+
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_CAPTURE_REQUIRED',
     });
     expect(invoke).not.toHaveBeenCalled();
   });
@@ -350,13 +384,15 @@ async function preparedJob() {
   }), START);
   const claim = await store.claim({ jobId: created.job.jobId, workerId: 'worker-a', now: START });
   if (claim.kind !== 'claimed') throw new Error('expected initial claim');
+  const proposalRecoveryState = recoveryState(checkpoint);
   await persistProviderNativeEpisodeCheckpointV2R({
     store, jobId: created.job.jobId, tenantId: 'tenant-1', userId: 'user-1',
     leaseToken: claim.leaseToken, expectedSequence: 0, checkpoint,
+    proposalRecoveryState,
     now: new Date(START.getTime() + 1),
   });
   return {
-    jobId: created.job.jobId, checkpoint,
+    jobId: created.job.jobId, checkpoint, proposalRecoveryState,
     freshStore: new DurableWorkflowJobStoreV1(async () => collection.asCollection()),
   };
 }
@@ -364,24 +400,27 @@ async function preparedJob() {
 function artifacts(overrides: Readonly<{
   invoke: ProviderNativeDurableResolvedArtifactsV2R['invoke'];
   executeIsolated: ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['executeIsolated'];
-  finalizeProposalReceipt?: NonNullable<
-    ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['finalizeProposalReceipt']
-  >;
+  proposalReceiptFactory?: (
+    state: Readonly<ProviderNativeProposalRecoveryStateV2R>,
+  ) => Readonly<ProviderNativeDurableProposalReceiptV2R>;
   context?: ProviderNativeEpisodeContextV2R;
   omitProposalRevisionBinding?: boolean;
   canonicalBaseProjectRevision?: string;
   isolatedWorkingProjectRevision?: string;
   forgeProposalRevisionBinding?: boolean;
+  omitProposalRecoveryCapture?: boolean;
 }>): ProviderNativeDurableResolvedArtifactsV2R {
-  const canonicalBaseProjectRevision = overrides.canonicalBaseProjectRevision ?? 'revision-43';
+  const canonicalBaseProjectRevision = overrides.canonicalBaseProjectRevision
+    ?? CANONICAL_BASE_REVISION;
   const isolatedWorkingProjectRevision = overrides.isolatedWorkingProjectRevision ?? 'revision-43';
+  let latestRecovery: Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined;
   const proposalRevisionMaterial = {
     schemaVersion: 1 as const,
     authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING' as const,
     canonicalBaseProjectRevision,
-    canonicalBaseStateSha256: 'e'.repeat(64),
+    canonicalBaseStateSha256: BASE_STATE_SHA,
     isolatedWorkingProjectRevision,
-    isolatedWorkingStateSha256: 'e'.repeat(64),
+    isolatedWorkingStateSha256: PREFIX_STATE_SHA,
   };
   return {
     context: overrides.context ?? CONTEXT,
@@ -393,43 +432,83 @@ function artifacts(overrides: Readonly<{
     },
     isolatedClone: {
       origin: 'PROJECTSERVICE_REVISION_CLONE', projectRevision: canonicalBaseProjectRevision,
-      stateSha256: 'e'.repeat(64),
+      stateSha256: BASE_STATE_SHA,
       ...(!overrides.omitProposalRevisionBinding ? { proposalRevisionBinding: {
         ...proposalRevisionMaterial,
         bindingSha256: overrides.forgeProposalRevisionBinding
           ? '0'.repeat(64) : hashCanonicalJsonV1(proposalRevisionMaterial),
       } } : {}),
       executeIsolated: overrides.executeIsolated,
-      ...(overrides.finalizeProposalReceipt
-        ? { finalizeProposalReceipt: overrides.finalizeProposalReceipt } : {}),
+      ...(!overrides.omitProposalRecoveryCapture ? {
+        captureProposalRecoveryState: async (checkpoint) => {
+          latestRecovery = recoveryState(checkpoint, canonicalBaseProjectRevision);
+          return latestRecovery;
+        },
+      } : {}),
+      ...(overrides.proposalReceiptFactory ? {
+        finalizeProposalReceipt: async () => {
+          if (!latestRecovery) throw new Error('TEST_RECOVERY_STATE_NOT_CAPTURED');
+          return overrides.proposalReceiptFactory!(latestRecovery);
+        },
+      } : {}),
     },
     invoke: overrides.invoke,
   };
 }
 
-function durableProposalReceipt(): Readonly<ProviderNativeDurableProposalReceiptV2R> {
-  const operationMaterial = {
-    operatorId: 'apply_camera_shake', turn: 4,
-    beforeStateSha256: 'e'.repeat(64), afterStateSha256: 'f'.repeat(64),
-  };
+function durableProposalReceipt(
+  recovery: Readonly<ProviderNativeProposalRecoveryStateV2R>,
+): Readonly<ProviderNativeDurableProposalReceiptV2R> {
+  const operationReceipts = recovery.operations.map((operation) => {
+    const operationMaterial = {
+      operatorId: operation.operatorId,
+      turn: operation.turn,
+      callSha256: operation.callSha256,
+      beforeStateSha256: operation.beforeStateSha256,
+      afterStateSha256: operation.afterStateSha256,
+      changedPaths: ['$.overlays[0].styles'],
+      executionSha256: operation.recordedExecutionSha256,
+    };
+    return {
+      ...operationMaterial,
+      operationReceiptSha256: hashCanonicalJsonV1(operationMaterial),
+    };
+  });
   const material = {
     schemaVersion: 1 as const,
     authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION' as const,
     episodeId: CONTEXT.episodeId,
     projectId: 'project-1',
-    baseProjectRevision: 'revision-43',
-    baseStateSha256: 'e'.repeat(64),
-    finalStateSha256: 'f'.repeat(64),
+    baseProjectRevision: recovery.canonicalBaseProjectRevision,
+    baseStateSha256: recovery.canonicalBaseStateSha256,
+    finalStateSha256: recovery.isolatedWorkingStateSha256,
     changedPaths: ['$.overlays[0].styles.shake'],
-    operationReceipts: [{
-      ...operationMaterial,
-      operationReceiptSha256: hashCanonicalJsonV1(operationMaterial),
-    }],
-    canonicalProjectRevisionAfter: 'revision-43',
-    canonicalStateSha256After: 'e'.repeat(64),
+    operationReceipts,
+    canonicalProjectRevisionAfter: recovery.canonicalBaseProjectRevision,
+    canonicalStateSha256After: recovery.canonicalBaseStateSha256,
     canonicalUnchanged: true as const,
   };
   return { ...material, receiptSha256: hashCanonicalJsonV1(material) };
+}
+
+function recoveryState(
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+  canonicalBaseProjectRevision = CANONICAL_BASE_REVISION,
+): Readonly<ProviderNativeProposalRecoveryStateV2R> {
+  const writers = proposalRecoveryWriterTurnsV2R(checkpoint);
+  const states = [BASE_STATE_SHA, PREFIX_STATE_SHA, FINAL_STATE_SHA];
+  if (writers.length > states.length - 1) throw new Error('TEST_RECOVERY_STATE_RANGE_EXHAUSTED');
+  return createProviderNativeProposalRecoveryStateV2R({
+    checkpoint,
+    projectId: 'project-1',
+    canonicalBaseProjectRevision,
+    canonicalBaseStateSha256: BASE_STATE_SHA,
+    operations: writers.map((writer, index) => ({
+      turn: writer.turn,
+      beforeStateSha256: states[index],
+      afterStateSha256: states[index + 1],
+    })),
+  });
 }
 
 async function interruptAfterWriter(): Promise<Readonly<ProviderNativeEpisodeResumeCheckpointV2R>> {

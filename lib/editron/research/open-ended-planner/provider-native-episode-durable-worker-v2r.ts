@@ -7,9 +7,14 @@ import {
   type ProviderNativeEpisodeResumeCheckpointV2R,
 } from './provider-native-episode-resume-v2r';
 import {
-  restoreProviderNativeEpisodeCheckpointV2R,
+  restoreProviderNativeEpisodeDurableStateV2R,
   persistProviderNativeEpisodeCheckpointV2R,
 } from './provider-native-episode-durable-job-v2r';
+import {
+  proposalRecoveryWriterTurnsV2R,
+  verifyProviderNativeProposalRecoveryStateV2R,
+  type ProviderNativeProposalRecoveryStateV2R,
+} from './provider-native-proposal-recovery-v2r';
 import {
   runProviderNativeToolEpisodeV2R,
   type ProviderNativeEpisodeReceiptV2R,
@@ -67,6 +72,9 @@ export interface ProviderNativeDurableIsolatedCloneV2R {
   stateSha256: string;
   proposalRevisionBinding?: Readonly<ProviderNativeDurableProposalRevisionBindingV2R>;
   executeIsolated: EpisodeInput['executeIsolated'];
+  captureProposalRecoveryState?: (
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+  ) => Promise<Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined>;
   finalizeProposalReceipt?: () => Promise<Readonly<ProviderNativeDurableProposalReceiptV2R>>;
 }
 
@@ -84,6 +92,7 @@ export interface ProviderNativeDurableArtifactResolverV2R {
   resolve(input: Readonly<{
     job: Readonly<DurableWorkflowJobSnapshotV1>;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
   }>): Promise<Readonly<ProviderNativeDurableResolvedArtifactsV2R>>;
 }
 
@@ -155,10 +164,17 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
     if (!claim.job.resumeState) {
       throw new Error('PROVIDER_NATIVE_DURABLE_CHECKPOINT_REQUIRED');
     }
-    const checkpoint = restoreProviderNativeEpisodeCheckpointV2R(claim.job);
+    const durableState = restoreProviderNativeEpisodeDurableStateV2R(claim.job);
+    const checkpoint = durableState.checkpoint;
+    let latestProposalRecoveryState = durableState.proposalRecoveryState;
     await heartbeat();
-    const artifacts = await input.artifactResolver.resolve({ job: claim.job, checkpoint });
-    assertResolvedArtifacts(checkpoint, artifacts);
+    const artifacts = await input.artifactResolver.resolve({
+      job: claim.job,
+      checkpoint,
+      ...(latestProposalRecoveryState
+        ? { proposalRecoveryState: latestProposalRecoveryState } : {}),
+    });
+    assertResolvedArtifacts(checkpoint, artifacts, latestProposalRecoveryState);
     await heartbeat();
 
     let resumeSequence = claim.job.resumeState.sequence;
@@ -174,7 +190,10 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
         ? { additionalInstructions: artifacts.additionalInstructions } : {}),
       ...(artifacts.runtimeGuard ? { runtimeGuard: artifacts.runtimeGuard } : {}),
       resumeCheckpoint: checkpoint,
-      resumeCurrentProjectRevision: resumeWorkingProjectRevision(artifacts),
+      resumeCurrentProjectRevision: resumeWorkingProjectRevision(
+        artifacts,
+        latestProposalRecoveryState,
+      ),
       invoke: async (request) => {
         await heartbeat();
         const response = await artifacts.invoke(request);
@@ -189,6 +208,12 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       },
       onTurnCommitted: async ({ checkpoint: nextCheckpoint }) => {
         await heartbeat();
+        const nextProposalRecoveryState = await captureProposalRecoveryState({
+          job: claim.job,
+          checkpoint: nextCheckpoint,
+          clone: artifacts.isolatedClone,
+          prior: latestProposalRecoveryState,
+        });
         const persisted = await persistProviderNativeEpisodeCheckpointV2R({
           store: input.store,
           jobId: input.jobId,
@@ -197,9 +222,12 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
           leaseToken: claim.leaseToken,
           expectedSequence: resumeSequence,
           checkpoint: nextCheckpoint,
+          ...(nextProposalRecoveryState
+            ? { proposalRecoveryState: nextProposalRecoveryState } : {}),
           now: clock(),
         });
         resumeSequence = persisted.sequence;
+        latestProposalRecoveryState = nextProposalRecoveryState;
       },
     });
     if (cancellationRequested) throw new CancellationRequested();
@@ -218,7 +246,12 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       ? await artifacts.isolatedClone.finalizeProposalReceipt()
       : null;
     if (proposalReceipt) {
-      assertProposalReceipt(claim.job, artifacts.isolatedClone, proposalReceipt);
+      assertProposalReceipt(
+        claim.job,
+        artifacts.isolatedClone,
+        proposalReceipt,
+        latestProposalRecoveryState,
+      );
     }
     await heartbeat();
     const terminal = episodeTerminalReceipt(
@@ -264,6 +297,7 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
 function assertResolvedArtifacts(
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
   artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>,
+  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
 ): void {
   if (hashCanonicalJsonV1(artifacts.context) !== checkpoint.contextSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_CONTEXT_ARTIFACT_MISMATCH');
@@ -293,6 +327,16 @@ function assertResolvedArtifacts(
     throw new Error('PROVIDER_NATIVE_DURABLE_ISOLATED_CLONE_BINDING_INVALID');
   }
   const proposalBinding = clone.proposalRevisionBinding;
+  if (proposalRecoveryState && !proposalBinding) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_REQUIRED');
+  }
+  if (proposalRecoveryState && !clone.captureProposalRecoveryState) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_CAPTURE_REQUIRED');
+  }
+  if (!proposalRecoveryState && proposalBinding
+    && proposalRecoveryWriterTurnsV2R(checkpoint).length) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_REQUIRED');
+  }
   if (!proposalBinding) {
     if (clone.finalizeProposalReceipt) {
       throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_REQUIRED');
@@ -312,6 +356,16 @@ function assertResolvedArtifacts(
     || proposalBinding.canonicalBaseProjectRevision !== revision.projectRevision
     || proposalBinding.canonicalBaseProjectRevision !== clone.projectRevision
     || proposalBinding.canonicalBaseStateSha256 !== clone.stateSha256
+    || (proposalRecoveryState && (
+      proposalBinding.canonicalBaseProjectRevision
+        !== proposalRecoveryState.canonicalBaseProjectRevision
+      || proposalBinding.canonicalBaseStateSha256
+        !== proposalRecoveryState.canonicalBaseStateSha256
+      || proposalBinding.isolatedWorkingProjectRevision
+        !== proposalRecoveryState.isolatedWorkingProjectRevision
+      || proposalBinding.isolatedWorkingStateSha256
+        !== proposalRecoveryState.isolatedWorkingStateSha256
+    ))
     || hashCanonicalJsonV1(bindingMaterial) !== bindingSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_INVALID');
   }
@@ -319,9 +373,46 @@ function assertResolvedArtifacts(
 
 function resumeWorkingProjectRevision(
   artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>,
+  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
 ): string {
-  return artifacts.isolatedClone.proposalRevisionBinding
+  return proposalRecoveryState?.isolatedWorkingProjectRevision
+    ?? artifacts.isolatedClone.proposalRevisionBinding
     ?.isolatedWorkingProjectRevision ?? artifacts.currentRevision.projectRevision;
+}
+
+async function captureProposalRecoveryState(input: Readonly<{
+  job: Readonly<DurableWorkflowJobSnapshotV1>;
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  clone: Readonly<ProviderNativeDurableIsolatedCloneV2R>;
+  prior?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+}>): Promise<Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined> {
+  const writerTurns = proposalRecoveryWriterTurnsV2R(input.checkpoint);
+  if (!writerTurns.length) return undefined;
+  if (!input.job.projectId) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROJECT_SCOPE_REQUIRED');
+  }
+  if (!input.clone.captureProposalRecoveryState) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_CAPTURE_REQUIRED');
+  }
+  const next = await input.clone.captureProposalRecoveryState(input.checkpoint);
+  if (!next) throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_CAPTURE_REQUIRED');
+  verifyProviderNativeProposalRecoveryStateV2R({
+    checkpoint: input.checkpoint,
+    projectId: input.job.projectId,
+    state: next,
+  });
+  if (next.canonicalBaseProjectRevision !== input.clone.projectRevision
+    || next.canonicalBaseStateSha256 !== input.clone.stateSha256) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_BASE_MISMATCH');
+  }
+  if (input.prior && (
+    next.operations.length < input.prior.operations.length
+    || hashCanonicalJsonV1(next.operations.slice(0, input.prior.operations.length))
+      !== hashCanonicalJsonV1(input.prior.operations)
+  )) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_NOT_AN_EXTENSION');
+  }
+  return next;
 }
 
 async function settleFailure(
@@ -416,7 +507,11 @@ function assertProposalReceipt(
   job: Readonly<DurableWorkflowJobSnapshotV1>,
   clone: Readonly<ProviderNativeDurableIsolatedCloneV2R>,
   receipt: Readonly<ProviderNativeDurableProposalReceiptV2R>,
+  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
 ): void {
+  if (!proposalRecoveryState) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_REQUIRED');
+  }
   const { receiptSha256, ...material } = receipt;
   if (receipt.schemaVersion !== 1
     || receipt.authority !== 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION'
@@ -424,16 +519,38 @@ function assertProposalReceipt(
     || receipt.projectId !== job.projectId
     || receipt.baseProjectRevision !== clone.projectRevision
     || receipt.baseStateSha256 !== clone.stateSha256
+    || receipt.baseProjectRevision !== proposalRecoveryState.canonicalBaseProjectRevision
+    || receipt.baseStateSha256 !== proposalRecoveryState.canonicalBaseStateSha256
+    || receipt.finalStateSha256 !== proposalRecoveryState.isolatedWorkingStateSha256
     || receipt.canonicalProjectRevisionAfter !== clone.projectRevision
     || receipt.canonicalStateSha256After !== clone.stateSha256
     || receipt.canonicalUnchanged !== true
     || !isSha256(receipt.finalStateSha256)
     || !receipt.changedPaths.every((path) => typeof path === 'string' && path.startsWith('$'))
     || new Set(receipt.changedPaths).size !== receipt.changedPaths.length
-    || !receipt.operationReceipts.every(validProposalOperationReceipt)
+    || receipt.operationReceipts.length !== proposalRecoveryState.operations.length
+    || !receipt.operationReceipts.every((operationReceipt, index) => (
+      validProposalOperationReceipt(operationReceipt)
+      && proposalOperationMatchesRecovery(
+        operationReceipt,
+        proposalRecoveryState.operations[index],
+      )
+    ))
     || hashCanonicalJsonV1(material) !== receiptSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECEIPT_INVALID');
   }
+}
+
+function proposalOperationMatchesRecovery(
+  receipt: Readonly<Record<string, unknown>>,
+  recovery: Readonly<ProviderNativeProposalRecoveryStateV2R['operations'][number]>,
+): boolean {
+  return receipt.operatorId === recovery.operatorId
+    && receipt.turn === recovery.turn
+    && receipt.callSha256 === recovery.callSha256
+    && receipt.beforeStateSha256 === recovery.beforeStateSha256
+    && receipt.afterStateSha256 === recovery.afterStateSha256
+    && receipt.executionSha256 === recovery.recordedExecutionSha256;
 }
 
 function validProposalOperationReceipt(receipt: Readonly<Record<string, unknown>>): boolean {
