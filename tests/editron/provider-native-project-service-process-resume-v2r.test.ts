@@ -39,7 +39,7 @@ describe('ProjectService proposal recovery across real OS processes V2R', () => 
       execution: { prefixProviderCalls: 2, suffixProviderCalls: 2,
         prefixWriterReplays: 1, suffixWriterExecutions: 1, paidInferenceCalls: 0 },
       proposal: { canonicalUnchanged: true, recoveredWriterCount: 2,
-        finalWorkingRevision: 'local-r44',
+        finalWorkingRevision: expect.stringMatching(/^project-proposal-v2r:[a-f0-9]{64}$/),
         proposalReceiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
       durable: { status: 'completed', resumeSequence: 2,
         disposition: 'UNVERIFIABLE' },

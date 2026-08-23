@@ -14,7 +14,10 @@ import {
 } from '@/lib/editron/research/open-ended-planner/provider-native-proposal-recovery-v2r';
 import { PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-result-references-v2r';
-import { createProviderNativeProjectServiceCloneOwnerV2R }
+import {
+  createProviderNativeProjectServiceCloneOwnerV2R,
+  issueProjectServiceIsolatedWriterRevisionV2R,
+}
   from '@/lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r';
 import { projectProposalStateV2R }
   from '@/lib/editron/research/open-ended-planner/project-service-proposal-state-v2r';
@@ -47,7 +50,16 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
   it('executes only on the clone and finalizes a hash-bound changed-path receipt', async () => {
     const canonical = project();
     const loadProjectForMutation = vi.fn(async () => snapshot(canonical));
-    const writerExecution = ok({ receipt: { projectRevision: 'local-proposal-r1' } });
+    const writerCall = {
+      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 2,
+    } as const;
+    const expectedProject = structuredClone(canonical);
+    (expectedProject.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
+    const writerExecution = issuedWriterExecution({
+      before: canonical,
+      after: expectedProject,
+      call: writerCall,
+    });
     const execute = vi.fn(async ({ project: clone }: { project: Project }) => {
       (clone.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
       return writerExecution;
@@ -84,9 +96,6 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
     const { bindingSha256, ...bindingMaterial } = proposalRevisionBinding;
     expect(bindingSha256).toBe(hashCanonicalJsonV1(bindingMaterial));
 
-    const writerCall = {
-      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 2,
-    } as const;
     await expect(resolved.isolatedClone.executeIsolated(writerCall)).resolves.toMatchObject({
       disposition: 'OK',
     });
@@ -97,7 +106,7 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
       ]),
     );
     expect(recovery).toMatchObject({
-      isolatedWorkingProjectRevision: 'local-proposal-r1',
+      isolatedWorkingProjectRevision: writerRevision(writerExecution),
       operations: [{ operatorId: 'set_keyframes', turn: 2 }],
     });
     expect((canonical.overlays[0].styles as Record<string, unknown>).opacity).toBe(1);
@@ -151,7 +160,7 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
     expect(replayCommitted).toHaveBeenCalledTimes(1);
     expect(execute).not.toHaveBeenCalled();
     expect(resolved.isolatedClone.proposalRevisionBinding).toMatchObject({
-      isolatedWorkingProjectRevision: 'local-proposal-r1',
+      isolatedWorkingProjectRevision: fixture.recovery.isolatedWorkingProjectRevision,
       isolatedWorkingStateSha256: fixture.recovery.isolatedWorkingStateSha256,
     });
     expect((canonical.overlays[0].styles as Record<string, unknown>).opacity).toBe(1);
@@ -201,7 +210,9 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
           },
         },
       }).resolve(scope(fixture.checkpoint, fixture.recovery))).rejects.toThrow(
-        'PROJECTSERVICE_PROPOSAL_REPLAY_RESULT_MISMATCH',
+        drift === 'execution'
+          ? 'PROJECTSERVICE_PROPOSAL_WRITER_PROOF_INVALID'
+          : 'PROJECTSERVICE_PROPOSAL_WRITER_PROOF_STATE_MISMATCH',
       );
     },
   );
@@ -219,6 +230,51 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
     await expect(resolved.isolatedClone.executeIsolated({
       operatorId: 'update_title', arguments: {}, turn: 2,
     })).rejects.toThrow('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_REQUIRED');
+    const receipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
+    expect(receipt).toMatchObject({ changedPaths: [], operationReceipts: [] });
+  });
+
+  it('rolls back a writer-shaped revision that omits issuer proof', async () => {
+    const canonical = project();
+    const resolved = await createProviderNativeProjectServiceCloneOwnerV2R({
+      projectService: { loadProjectForMutation: async () => snapshot(canonical) },
+      isolatedOperatorOwner: { execute: async ({ project: clone }) => {
+        clone.name = 'must-not-survive';
+        return ok({ receipt: {
+          projectRevision: `project-proposal-v2r:${'f'.repeat(64)}`,
+        } });
+      } },
+    }).resolve(scope());
+
+    await expect(resolved.isolatedClone.executeIsolated({
+      operatorId: 'update_title', arguments: {}, turn: 2,
+    })).rejects.toThrow('PROJECTSERVICE_PROPOSAL_WRITER_PROOF_INVALID');
+    const receipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
+    expect(receipt).toMatchObject({ changedPaths: [], operationReceipts: [] });
+  });
+
+  it('rolls back an issuer-conformant revision copied from a different call', async () => {
+    const canonical = project();
+    const after = structuredClone(canonical);
+    after.name = 'must-not-survive';
+    const copiedExecution = issuedWriterExecution({
+      before: canonical,
+      after,
+      call: {
+        operatorId: 'update_title', arguments: { title: 'copied' }, turn: 2,
+      },
+    });
+    const resolved = await createProviderNativeProjectServiceCloneOwnerV2R({
+      projectService: { loadProjectForMutation: async () => snapshot(canonical) },
+      isolatedOperatorOwner: { execute: async ({ project: clone }) => {
+        clone.name = 'must-not-survive';
+        return copiedExecution;
+      } },
+    }).resolve(scope());
+
+    await expect(resolved.isolatedClone.executeIsolated({
+      operatorId: 'update_title', arguments: { title: 'actual' }, turn: 2,
+    })).rejects.toThrow('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_ORIGIN_MISMATCH');
     const receipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
     expect(receipt).toMatchObject({ changedPaths: [], operationReceipts: [] });
   });
@@ -269,6 +325,16 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
   it('rejects proof when the canonical project changes during inspection', async () => {
     const canonical = project();
     const newer = project(revision(8));
+    const writerCall = {
+      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1,
+    } as const;
+    const expectedProject = structuredClone(canonical);
+    (expectedProject.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
+    const writerExecution = issuedWriterExecution({
+      before: canonical,
+      after: expectedProject,
+      call: writerCall,
+    });
     const loadProjectForMutation = vi.fn()
       .mockResolvedValueOnce(snapshot(canonical))
       .mockResolvedValueOnce(snapshot(canonical))
@@ -280,13 +346,11 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
       projectService: { loadProjectForMutation },
       isolatedOperatorOwner: { execute: async ({ project: clone }) => {
         (clone.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
-        return ok({ receipt: { projectRevision: 'local-proposal-r1' } });
+        return writerExecution;
       } },
       isolatedOutcomeProofOwner: { prove: async (input) => proofReceipt(input) },
     }).resolve(scope());
-    await resolved.isolatedClone.executeIsolated({
-      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1,
-    });
+    await resolved.isolatedClone.executeIsolated(writerCall);
     const receipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
     await expect(resolved.isolatedClone.finalizeOutcomeProof?.({
       episodeReceipt: episodeReceipt(),
@@ -345,8 +409,8 @@ function recoveryFixture() {
   const base = project();
   const after = project();
   (after.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
-  const writerExecution = ok({ receipt: { projectRevision: 'local-proposal-r1' } });
   const call = { operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1 };
+  const writerExecution = issuedWriterExecution({ before: base, after, call });
   const checkpoint = checkpointWith([committedWriterTurn(call, writerExecution)]);
   const recovery = createProviderNativeProposalRecoveryStateV2R({
     checkpoint,
@@ -427,6 +491,43 @@ function ok(output: Record<string, unknown>): Readonly<ProviderNativeToolExecuti
   return {
     authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION', disposition: 'OK', output, evidenceIds: [],
   };
+}
+
+function issuedWriterExecution(input: Readonly<{
+  before: Project;
+  after: Project;
+  call: Readonly<{
+    operatorId: string;
+    arguments: Readonly<Record<string, unknown>>;
+    turn: number;
+  }>;
+  previousProjectRevision?: string;
+}>): Readonly<ProviderNativeToolExecutionV2R> {
+  const authority = 'PROJECTSERVICE_ISOLATED_TEST_PROPOSAL_WRITER_V2R_1';
+  const beforeStateSha256 = hashCanonicalJsonV1(projectProposalStateV2R(input.before));
+  const afterStateSha256 = hashCanonicalJsonV1(projectProposalStateV2R(input.after));
+  const projectRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+    writerAuthority: authority,
+    tenantId: 'tenant-1',
+    userId: USER_ID,
+    projectId: PROJECT_ID,
+    canonicalBaseRevision: REVISION,
+    previousProjectRevision: input.previousProjectRevision
+      ?? `project-revision-v1:${hashCanonicalJsonV1(REVISION)}`,
+    operatorId: input.call.operatorId,
+    turn: input.call.turn,
+    argumentSha256: hashCanonicalJsonV1(input.call.arguments),
+    beforeStateSha256,
+    afterStateSha256,
+  });
+  return ok({ receipt: {
+    projectRevision,
+    proof: { authority, beforeStateSha256, afterStateSha256 },
+  } });
+}
+
+function writerRevision(execution: Readonly<ProviderNativeToolExecutionV2R>): string {
+  return String((execution.output.receipt as Record<string, unknown>).projectRevision);
 }
 
 function failure(code: string): Readonly<ProviderNativeToolExecutionV2R> {

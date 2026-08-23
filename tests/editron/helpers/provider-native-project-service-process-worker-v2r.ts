@@ -15,7 +15,11 @@ import { createProviderNativeDurableOwnerArtifactResolverV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-owner-artifact-resolver-v2r';
 import { createProviderNativeEpisodeResumeCheckpointV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
-import { createProviderNativeProjectServiceCloneOwnerV2R }
+import {
+  createProviderNativeProjectServiceCloneOwnerV2R,
+  issueProjectServiceIsolatedWriterRevisionV2R,
+  type ProjectServiceIsolatedOperatorOwnerV2R,
+}
   from '../../../lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r';
 import { buildOpaqueResultReferenceToolSetV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-result-references-v2r';
@@ -39,6 +43,9 @@ import { DurableWorkflowJobStoreV1 }
 import { StatefulMongoCollection } from './stateful-mongo-collection';
 
 type JsonRecord = Record<string, unknown>;
+type IsolatedOwnerInput = Parameters<
+  ProjectServiceIsolatedOperatorOwnerV2R['execute']
+>[0];
 type StoredState = Readonly<{
   version: 'EDITRON_PROJECTSERVICE_PROCESS_RECOVERY_V2R_1';
   authority: 'RESEARCH_ONLY_ZERO_INFERENCE_NO_PROJECT_MUTATION';
@@ -51,6 +58,13 @@ type StoredState = Readonly<{
 
 const START = new Date('2026-08-23T18:00:00.000Z');
 const RESUME_AT = new Date(START.getTime() + 5 * 60 * 1000 + 1);
+const CANONICAL_REVISION: ProjectRevisionV1 = {
+  schemaVersion: 1,
+  value: 7,
+  compatibilityUpdatedAt: '2026-08-23T17:30:00.000Z',
+};
+const SYNTHETIC_WRITER_AUTHORITY =
+  'PROJECTSERVICE_PROCESS_RECOVERY_FIXTURE_WRITER_V2R_1';
 const ROUTE = {
   routeId: 'OPENAI_TERRA', provider: 'openai', model: 'gpt-5.6-terra',
   claimedModelIdentity: 'gpt-5.6-terra', reasoningMode: 'medium',
@@ -210,22 +224,23 @@ async function resume(inputPath: string, outputPath: string): Promise<void> {
 function createCloneOwner(canonical: Project, hooks: Readonly<{
   replay: boolean; onReplay?: () => void; onExecute?: () => void;
 }>) {
-  const mutate = (call: Readonly<{ operatorId: string }>, clone: Project,
+  const mutate = (input: Readonly<IsolatedOwnerInput>,
     recorded?: Readonly<ProviderNativeToolExecutionV2R>) => {
-    if (call.operatorId === 'find_audio_moment') return execution({
+    if (input.call.operatorId === 'find_audio_moment') return execution({
       result: BEAT_PLAN, evidence: { evidenceId: 'ev-audio-1' },
     });
-    if (call.operatorId === 'sync_cuts_to_beats') {
-      (clone.overlays[0].styles as JsonRecord).beatAligned = true;
-      return recorded ?? execution({ receipt: { status: 'PASS', projectRevision: 'local-r43' },
+    const beforeStateSha256 = hashCanonicalJsonV1(projectProposalStateV2R(input.project));
+    if (input.call.operatorId === 'sync_cuts_to_beats') {
+      (input.project.overlays[0].styles as JsonRecord).beatAligned = true;
+      return recorded ?? writerExecution(input, beforeStateSha256, {
         result: { alignedBoundaries: [119, 239, 359, 479],
           finalHitOverlayId: 'overlay-video-1', finalStrongPeakFrame: 479 } });
     }
-    if (call.operatorId === 'apply_camera_shake') {
-      (clone.overlays[0].styles as JsonRecord).shake = 'restrained-impact';
-      return execution({ receipt: { status: 'PASS', projectRevision: 'local-r44' } });
+    if (input.call.operatorId === 'apply_camera_shake') {
+      (input.project.overlays[0].styles as JsonRecord).shake = 'restrained-impact';
+      return recorded ?? writerExecution(input, beforeStateSha256, {});
     }
-    return fail(`OPERATOR_${call.operatorId}`);
+    return fail(`OPERATOR_${input.call.operatorId}`);
   };
   return createProviderNativeProjectServiceCloneOwnerV2R({
     projectService: { loadProjectForMutation: async () => snapshot(canonical) },
@@ -274,15 +289,13 @@ function createCloneOwner(canonical: Project, hooks: Readonly<{
       },
     },
     isolatedOperatorOwner: {
-      execute: async ({ call, project: clone }) => {
+      execute: async (ownerInput) => {
         hooks.onExecute?.();
-        return mutate(call, clone);
+        return mutate(ownerInput);
       },
-      ...(hooks.replay ? { replayCommitted: async ({ call, project: clone,
-        recordedExecution }: { call: { operatorId: string }; project: Project;
-          recordedExecution: Readonly<ProviderNativeToolExecutionV2R> }) => {
+      ...(hooks.replay ? { replayCommitted: async (ownerInput) => {
         hooks.onReplay?.();
-        return mutate(call, clone, recordedExecution);
+        return mutate(ownerInput, ownerInput.recordedExecution);
       } } : {}),
     },
   });
@@ -332,6 +345,38 @@ function execution(output: JsonRecord): Readonly<ProviderNativeToolExecutionV2R>
   return { authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION', disposition: 'OK',
     output, evidenceIds: ['ev-audio-1'] };
 }
+function writerExecution(
+  input: Readonly<IsolatedOwnerInput>,
+  beforeStateSha256: string,
+  output: JsonRecord,
+): Readonly<ProviderNativeToolExecutionV2R> {
+  const afterStateSha256 = hashCanonicalJsonV1(projectProposalStateV2R(input.project));
+  const projectRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+    writerAuthority: SYNTHETIC_WRITER_AUTHORITY,
+    tenantId: input.tenantId,
+    userId: input.userId,
+    projectId: input.projectId,
+    canonicalBaseRevision: input.baseRevision,
+    previousProjectRevision: input.currentProjectRevision,
+    operatorId: input.call.operatorId,
+    turn: input.call.turn,
+    argumentSha256: hashCanonicalJsonV1(input.call.arguments),
+    beforeStateSha256,
+    afterStateSha256,
+  });
+  return execution({
+    receipt: {
+      status: 'PASS',
+      projectRevision,
+      proof: {
+        authority: SYNTHETIC_WRITER_AUTHORITY,
+        beforeStateSha256,
+        afterStateSha256,
+      },
+    },
+    ...output,
+  });
+}
 function project(): Project { return { projectId: 'project-1', userId: 'user-1',
   name: 'Project', overlays: [{ id: 'overlay-video-1', type: 'video', startFrame: 0,
     endFrame: 600, styles: { opacity: 1 } } as unknown as Project['overlays'][number]],
@@ -340,8 +385,7 @@ function project(): Project { return { projectId: 'project-1', userId: 'user-1',
   updatedAt: new Date('2026-08-23T17:30:00.000Z'), projectRevision: 7,
   visibility: 'private' }; }
 function snapshot(value: Project): { project: Project; revision: ProjectRevisionV1 } {
-  return { project: structuredClone(value), revision: { schemaVersion: 1,
-    value: 7, compatibilityUpdatedAt: '2026-08-23T17:30:00.000Z' } };
+  return { project: structuredClone(value), revision: CANONICAL_REVISION };
 }
 function reviveProject(value: JsonRecord): Project {
   const result = structuredClone(value) as unknown as Project;

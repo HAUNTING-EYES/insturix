@@ -327,6 +327,23 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
               throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_REQUIRED');
             }
             if (writerProjectRevision) {
+              try {
+                assertWriterRevisionOriginV2R({
+                  execution,
+                  writerProjectRevision,
+                  tenantId: scope.tenantId,
+                  userId: scope.userId,
+                  projectId: scope.projectId,
+                  canonicalBaseRevision: baseRevision,
+                  previousProjectRevision: workingProjectRevision,
+                  call,
+                  beforeStateSha256,
+                  afterStateSha256,
+                });
+              } catch (error) {
+                workingProject = beforeProject;
+                throw error;
+              }
               assertOperationOrder(operations, call.turn);
               operations.push(operationAudit({
                 call,
@@ -419,6 +436,20 @@ async function replayCommittedProposal(input: Readonly<{
     assertCloneIdentity(input.baseProject, input.workingProject);
     const afterState = projectProposalStateV2R(input.workingProject);
     const writerProjectRevision = executionWriterProjectRevision(execution);
+    if (execution.disposition === 'OK' && writerProjectRevision) {
+      assertWriterRevisionOriginV2R({
+        execution,
+        writerProjectRevision,
+        tenantId: input.scope.tenantId,
+        userId: input.scope.userId,
+        projectId: input.scope.projectId,
+        canonicalBaseRevision: input.baseRevision,
+        previousProjectRevision: workingProjectRevision,
+        call,
+        beforeStateSha256: hashCanonicalJsonV1(beforeState),
+        afterStateSha256: hashCanonicalJsonV1(afterState),
+      });
+    }
     if (execution.disposition !== 'OK'
       || hashCanonicalJsonV1(execution) !== expected.recordedExecutionSha256
       || hashCanonicalJsonV1(afterState) !== expected.afterStateSha256
@@ -490,6 +521,59 @@ function executionWriterProjectRevision(
     throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_INVALID');
   }
   return value;
+}
+
+/**
+ * A concrete owner cannot advance the proposal with an arbitrary receipt
+ * string. The clone independently derives the sole deterministic issuer value
+ * from the observed call and state transition, so copied or forged revisions
+ * are rejected before the working revision advances.
+ */
+function assertWriterRevisionOriginV2R(input: Readonly<{
+  execution: Readonly<ProviderNativeToolExecutionV2R>;
+  writerProjectRevision: string;
+  tenantId: string;
+  userId: string;
+  projectId: string;
+  canonicalBaseRevision: Readonly<ProjectRevisionV1>;
+  previousProjectRevision: string;
+  call: Readonly<IsolatedCallV2R>;
+  beforeStateSha256: string;
+  afterStateSha256: string;
+}>): void {
+  const receipt = input.execution.output.receipt;
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_RECEIPT_INVALID');
+  }
+  const proof = (receipt as Record<string, unknown>).proof;
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_PROOF_INVALID');
+  }
+  const material = proof as Record<string, unknown>;
+  const writerAuthority = material.authority;
+  if (typeof writerAuthority !== 'string' || !writerAuthority.trim()) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_PROOF_INVALID');
+  }
+  if (material.beforeStateSha256 !== input.beforeStateSha256
+    || material.afterStateSha256 !== input.afterStateSha256) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_PROOF_STATE_MISMATCH');
+  }
+  const expectedRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+    writerAuthority,
+    tenantId: input.tenantId,
+    userId: input.userId,
+    projectId: input.projectId,
+    canonicalBaseRevision: input.canonicalBaseRevision,
+    previousProjectRevision: input.previousProjectRevision,
+    operatorId: input.call.operatorId,
+    turn: input.call.turn,
+    argumentSha256: hashCanonicalJsonV1(input.call.arguments),
+    beforeStateSha256: input.beforeStateSha256,
+    afterStateSha256: input.afterStateSha256,
+  });
+  if (input.writerProjectRevision !== expectedRevision) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_ORIGIN_MISMATCH');
+  }
 }
 
 function assertOperationOrder(
