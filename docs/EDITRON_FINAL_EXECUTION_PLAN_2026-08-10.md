@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `b6171bed2` on
+programme code checkpoint represented by this ledger is `434563cd6` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: b6171bed2. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 434563cd6. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1394,10 +1394,17 @@ missing execution owner, widened payloads and ambiguous delivery fail closed.
 No app route or production execution-owner composition root is exported, no
 provider or renderer is invoked, and no project is mutated. The durable/
 provider-native regression battery passes 317 tests with two intentional skips,
-plus full typecheck and quiet ESLint. The next gate is a product composition
-root backed by canonical media and product budget owners—not the inline
-research reference artifact or sealed-holdout controller—followed by signed
-route export and non-production Atlas/QStash exercise.
+plus full typecheck and quiet ESLint. Commit 434563cd6 then removes the need
+for a static per-episode definition registry: one worker execution owner
+revalidates each accepted PlanService definition, derives only that Plan-bound
+episode-definition resolver and delegates all execution and proof behavior to
+the existing provider-native owner. Two different episodes reach their own
+downstream guard, while a forged definition stops before any downstream owner;
+the focused lifecycle cluster passes 37/37 with full typecheck and quiet
+ESLint. This is definition composition only, not a product composition root.
+The next gate is canonical media and a resumable product budget owner—not the
+inline research reference artifact or sealed-holdout controller—followed by
+signed route export and non-production Atlas/QStash exercise.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
