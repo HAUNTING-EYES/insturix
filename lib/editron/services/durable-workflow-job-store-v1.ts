@@ -112,7 +112,10 @@ export class DurableWorkflowJobStoreV1 {
     const result = await (await this.collectionProvider()).updateOne(
       {
         _id: requireIdentity(input.jobId, 'JOB_ID'),
-        status: { $in: ['queued', 'retry_wait'] },
+        // QStash can deliver and the worker can claim or even finish before the
+        // publish acknowledgement reaches this process. Dispatch metadata is
+        // audit evidence, not a lifecycle transition, so a valid late receipt
+        // must remain recordable without moving the job back to queued.
         expiresAt: { $gt: now },
       },
       {
