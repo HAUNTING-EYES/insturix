@@ -1742,15 +1742,30 @@ does not include canonical derived-stream registration receipts, upload and
 registration are not atomic, the HTTP frame sampler still buffers complete
 media via `arrayBuffer()`, and no live store was exercised.
 
+Commit 54273324d advances the demux result to V2 and composes it with the
+existing `mediaAssets` create-or-compare registration owner. A deterministic
+core receipt binds parent reference/user scope, source hash/kind, transform
+recipe and exact video/optional-audio byte identities while deliberately
+excluding volatile time and temporary paths. Each content-addressed derived
+asset registers USER/ORG owner, parent, stream kind and that core hash; the
+final receipt binds both registration-receipt hashes. Copied/forged receipt,
+owner, storage, byte, kind, parent and hash drift fail closed. The dependent
+reference cluster passes 64/64 with repository typecheck and quiet ESLint.
+This is `DEMUX_DERIVED_STREAMS_REGISTERED_SOURCE_ENVELOPE_BINDING_PENDING`:
+the source envelope still carries only stream byte hashes, not the V2 demux/
+core/registration receipt hashes; upload and registration remain separate
+actions; frame sampling remains buffered; and no live store was exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
    mutation and proof owners are composed. Provide the experimental visual
    observer's authorized canonical byte-reader, evaluation receipt and product
    caller only through the existing owners. Use the existing file-registration
-   owner to register the now-streamed video/audio demux artifacts through the
-   same media authority with a non-circular, stable receipt binding. Then
-   migrate the HTTP frame sampler away from complete-response buffering.
+   owner to extend the source envelope with the now-issued V2 demux/core and
+   derived-registration receipt hashes, so the source row cannot acknowledge
+   unbound children. Then migrate the HTTP frame sampler away from
+   complete-response buffering.
    Default remote source canonicalization and demux file I/O are already
    streamed by `7855aa90e` and `0917a6c4e`; do not regress either boundary.
 2. Compose, behind the existing definition-bound execution owner, the exact
@@ -3474,6 +3489,13 @@ default FFmpeg timeout, and propagates caller cancellation. Derived-stream
 registration receipts, the still-buffered HTTP frame-sampler path, durable
 caller cancellation/deadline binding and live storage verification remain
 open.
+
+Commit `54273324d` then issues a stable non-circular core receipt, registers
+content-addressed VIDEO/AUDIO children through the existing `mediaAssets`
+owner, and returns a V2 final receipt binding those registration hashes.
+The source canonical envelope does not yet bind the new receipt identities;
+the HTTP frame sampler, durable cancellation/deadline binding and live storage
+verification also remain open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
@@ -5283,9 +5305,10 @@ proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
 and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner; `7855aa90e` connects the default remote
-canonicalizer and `0917a6c4e` streams the existing demux file path. The next
-bounded reliability order is therefore: derived-stream receipt composition,
-HTTP frame-sampler streaming, one execution-root
+canonicalizer, `0917a6c4e` streams the existing demux file path and
+`54273324d` registers its derived artifacts. The next bounded reliability order
+is therefore: source-envelope receipt binding, HTTP frame-sampler streaming,
+one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
