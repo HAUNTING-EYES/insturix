@@ -70,6 +70,22 @@ describe('provider-native canonical-media product ports V2R', () => {
     expect(fixture.policies.indexes).toContain('uniq_provider_media_policy_authorization_v2r');
   });
 
+  it('treats Mongo _id as transport metadata rather than canonical record material', async () => {
+    const fixture = fixtureFor(nativeVideo());
+    fixture.bindings.rows[0] = { _id: 'binding-row', ...fixture.bindings.rows[0] };
+    fixture.policies.rows[0] = { _id: 'policy-row', ...fixture.policies.rows[0] };
+    fixture.artifacts.rows[0] = { _id: 'artifact-row', ...fixture.artifacts.rows[0] };
+    const owner = createProviderNativeCanonicalMediaReferenceOwnerV2R({
+      route: ROUTE,
+      ...createPorts(fixture, async () => fixture.bytesByArtifact.get('artifact-video')!),
+    });
+
+    await expect(owner.resolve({
+      ...SCOPE,
+      expectedManifestSha256: fixture.binding.materialization.manifestSha256,
+    })).resolves.toEqual(fixture.referenceInput);
+  });
+
   it('reconstructs ordered timestamped images through separate canonical media rows', async () => {
     const fixture = fixtureFor(orderedImages());
     const ports = createPorts(fixture, async ({ key }) => {

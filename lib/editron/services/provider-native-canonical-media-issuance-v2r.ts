@@ -19,6 +19,8 @@ type MediaOwner = ProviderNativeCanonicalMediaArtifactBindingV2R['mediaOwner'];
 
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_SOURCE_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_SOURCE_VERSION_V2R_1' as const;
+export const PROVIDER_NATIVE_CANONICAL_MEDIA_SOURCE_VERSION_COLLECTION_V2R =
+  'editron_provider_native_media_source_versions_v2r' as const;
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_ISSUANCE_RECEIPT_V2R =
   'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_ISSUANCE_RECEIPT_V2R_1' as const;
 
@@ -137,7 +139,12 @@ export function createProviderNativeCanonicalMediaIssuanceOwnerV2R(input: Readon
       const artifacts = request.artifactBindings.map(
         (artifact) => assertProviderNativeCanonicalMediaArtifactBindingV2R(artifact),
       );
-      assertIssuanceSet(sourceVersion, bindingRecord.binding, policyGrant, artifacts);
+      assertProviderNativeCanonicalMediaIssuanceSetV2R(
+        sourceVersion,
+        bindingRecord.binding,
+        policyGrant,
+        artifacts,
+      );
       if (policyGrant.disposition !== 'AUTHORIZED') fail('POLICY_NOT_AUTHORIZED');
       const now = timestamp(input.now?.() ?? new Date().toISOString(), 'ISSUANCE_NOW');
       if (Date.parse(now) < Date.parse(policyGrant.issuedAt)) fail('POLICY_NOT_YET_VALID');
@@ -170,7 +177,7 @@ export function createProviderNativeCanonicalMediaIssuanceOwnerV2R(input: Readon
 
 export class ProviderNativeCanonicalMediaIssuanceErrorV2R extends Error {}
 
-function assertIssuanceSet(
+export function assertProviderNativeCanonicalMediaIssuanceSetV2R(
   source: Readonly<ProviderNativeCanonicalMediaSourceVersionV2R>,
   binding: Readonly<ProviderNativeCanonicalMediaReferenceBindingV2R>,
   policy: Readonly<ProviderNativeCanonicalMediaPolicyGrantV2R>,

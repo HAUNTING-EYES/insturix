@@ -118,7 +118,9 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
           'binding.routeSha256': request.expectedRouteSha256,
         });
         if (!stored) fail('BINDING_NOT_FOUND');
-        return assertProviderNativeCanonicalMediaBindingRecordV2R(stored).binding;
+        return assertProviderNativeCanonicalMediaBindingRecordV2R(
+          withoutMongoId(stored),
+        ).binding;
       },
     },
     bytes: {
@@ -135,7 +137,7 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
         });
         if (!storedBinding) fail('ARTIFACT_BINDING_NOT_FOUND');
         const binding = assertProviderNativeCanonicalMediaArtifactBindingV2R(
-          storedBinding,
+          withoutMongoId(storedBinding),
         );
         assertArtifactRequest(binding, request);
         const stored = await resolved.mediaAssets.findOne(mediaAssetFilter(binding));
@@ -165,7 +167,9 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
           'privacyEgressPolicyRef.artifactSha256': request.privacyEgressPolicyRef.artifactSha256,
         });
         if (!stored) fail('POLICY_GRANT_NOT_FOUND');
-        const grant = assertProviderNativeCanonicalMediaPolicyGrantV2R(stored);
+        const grant = assertProviderNativeCanonicalMediaPolicyGrantV2R(
+          withoutMongoId(stored),
+        );
         assertPolicyRequest(grant, request.scope, routeSha256, request);
         if (grant.disposition !== 'AUTHORIZED') fail('POLICY_GRANT_REVOKED');
         const resolvedNow = Date.parse(now());
@@ -299,6 +303,11 @@ function sameScope(left: Readonly<Scope>, right: Readonly<Scope>): boolean {
 
 function sameRef(left: unknown, right: unknown): boolean {
   return hashEditronCanonicalJsonV1(left) === hashEditronCanonicalJsonV1(right);
+}
+
+function withoutMongoId(value: Readonly<MongoRecord>): MongoRecord {
+  const { _id: _mongoId, ...canonicalRecord } = value;
+  return canonicalRecord;
 }
 
 function boundedTimeout(value: number): number {
