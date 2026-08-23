@@ -7,6 +7,11 @@ interface ISupport extends Document {
   Help: string;
   message: string;
   telephone: string;
+  budget?: number;
+  read?: boolean;
+  readAt?: Date | null;
+  deleted?: boolean;
+  deletedAt?: Date | null;
 }
 
 const SupportSchema = new Schema<ISupport>(
@@ -17,6 +22,11 @@ const SupportSchema = new Schema<ISupport>(
     Help: { type: String, required: true },
     message: { type: String, required: true },
     telephone: { type: String, required: true },
+    budget: { type: Number, required: false },
+    read: { type: Boolean, default: false },
+    readAt: { type: Date, default: null },
+    deleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
