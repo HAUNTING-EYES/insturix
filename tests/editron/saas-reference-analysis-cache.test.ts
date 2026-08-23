@@ -107,15 +107,21 @@ describe('SaaS reference analysis cache', () => {
 
     const cacheReadIndex = workerSource.indexOf('readSaasReferenceAnalysisCache(referenceAnalysisCacheKey)');
     const frameSampleIndex = workerSource.indexOf('sampleReferenceVideoFrames({');
+    const canonicalizeIndex = workerSource.indexOf('canonicalizeReferenceVideo({');
     const canonicalIdIndex = workerSource.indexOf('referenceId = canonical.referenceAssetId;');
 
     expect(workerSource).toContain("import('@/lib/editron/reference-video/saas-reference-analysis-cache')");
     expect(workerSource).toContain('resolveReferenceVideoSource');
+    expect(workerSource).not.toContain("if (referenceSource.kind === 'remote-url')");
     expect(workerSource).toContain('refUrl = canonical.videoUrl;');
+    expect(workerSource).toContain('referenceDurationSec = canonical.durationSec ?? referenceDurationSec;');
+    expect(workerSource).toContain('sourceKind: referenceCanonicalKind');
     expect(workerSource).not.toContain('using URL fallback');
     expect(workerSource).toContain('sourceFingerprint: referenceSourceFingerprint');
     expect(workerSource).toContain("cacheStatus: 'hit'");
+    expect(canonicalizeIndex).toBeGreaterThan(0);
     expect(canonicalIdIndex).toBeGreaterThan(0);
+    expect(canonicalIdIndex).toBeGreaterThan(canonicalizeIndex);
     expect(cacheReadIndex).toBeGreaterThan(0);
     expect(cacheReadIndex).toBeGreaterThan(canonicalIdIndex);
     expect(frameSampleIndex).toBeGreaterThan(cacheReadIndex);

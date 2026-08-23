@@ -223,81 +223,75 @@ async function handler(request: NextRequest) {
           const referenceSource = referenceSourceResult.source;
           let refUrl = referenceSource.videoUrl;
           let referenceId = referenceSource.referenceId;
-          const referenceDurationSec = referenceSource.durationSec;
+          let referenceDurationSec = referenceSource.durationSec;
+          let referenceCanonicalKind: string = referenceSource.kind;
           const referenceSourceLabel = referenceSource.sourceLabel;
           const referenceSourceFingerprint = referenceSource.sourceFingerprint;
 
-          // R1-C currently materializes direct remote URLs with an exact
-          // envelope. Existing/imported asset promotion is a separate open
-          // boundary; do not describe those legacy rows as exact canonical
-          // sources until that owner is wired. Once materialized, every
-          // downstream stage must use the returned ID/URL pair.
-          if (referenceSource.kind === 'remote-url') {
-            try {
-              const { canonicalizeReferenceVideo } = await import('@/lib/editron/reference-video/canonicalize-reference');
-              const canonical = await canonicalizeReferenceVideo({
-                userId,
-                source: referenceSource,
-                audioUsageMode: 'preview-waveform-only',
-              });
-              if (canonical.referenceAssetId) {
-                // Canonicalization is an identity boundary, not metadata-only
-                // enrichment. Every downstream cache/read must use this exact
-                // returned source version rather than the floating intake URL.
-                refUrl = canonical.videoUrl;
-                referenceId = canonical.referenceAssetId;
-                referenceVideoAnalysis = {
-                  provider: 'canonical-reference',
-                  status: 'accepted',
-                  sourceKind: 'materialized-remote',
-                  referenceAssetId: canonical.referenceAssetId,
-                  sourceLabel: canonical.sourceLabel,
-                  sourceFingerprint: canonical.sourceFingerprint,
-                  canonicalKind: canonical.canonicalKind,
-                };
-                console.log(`[VideoAnalysisWorker] Materialized remote reference as canonical asset ${canonical.referenceAssetId}`);
+          // Canonicalization is an identity boundary, not metadata-only
+          // enrichment. Every resolved source kind must cross it, and every
+          // downstream cache/read consumes the returned exact source version.
+          try {
+            const { canonicalizeReferenceVideo } = await import('@/lib/editron/reference-video/canonicalize-reference');
+            const canonical = await canonicalizeReferenceVideo({
+              userId,
+              source: referenceSource,
+              audioUsageMode: 'preview-waveform-only',
+            });
+            refUrl = canonical.videoUrl;
+            referenceId = canonical.referenceAssetId;
+            referenceDurationSec = canonical.durationSec ?? referenceDurationSec;
+            referenceCanonicalKind = canonical.canonicalKind;
+            referenceVideoAnalysis = {
+              provider: 'canonical-reference',
+              status: 'accepted',
+              sourceKind: canonical.canonicalKind,
+              referenceAssetId: canonical.referenceAssetId,
+              sourceLabel: canonical.sourceLabel,
+              sourceFingerprint: canonical.sourceFingerprint,
+              canonicalKind: canonical.canonicalKind,
+            };
+            console.log(`[VideoAnalysisWorker] Canonicalized reference source as ${canonical.referenceAssetId}`);
 
-                // R2/R3: enrich the canonical reference with measured evidence
-                // (audio beats/silence) + soundtrack identity. Env-gated: the AudD
-                // recognizer activates only when AUDD_API_TOKEN is set; without it
-                // this resolves nothing (soundClass stays unknown). Evidence survives
-                // a recognizer outage (warnings[]), so this never breaks the edit.
-                try {
-                  const { enrichReferenceWithMeasuredEvidence } = await import('@/lib/editron/reference-video/enrich-reference-evidence');
-                  const enriched = await enrichReferenceWithMeasuredEvidence({
-                    userId,
-                    referenceAssetId: canonical.referenceAssetId,
-                    audioArtifact: canonical.audioArtifact ?? null,
-                  });
-                  if (enriched.soundtrackIdentity) {
-                    referenceVideoAnalysis = {
-                      ...referenceVideoAnalysis,
-                      soundtrackIdentity: enriched.soundtrackIdentity,
-                      audioEvidence: enriched.audioEvidence,
-                      canonicalFingerprint: enriched.canonicalFingerprint,
-                      adaptivePlan: enriched.adaptivePlan,
-                      enrichmentWarnings: enriched.warnings,
-                    };
-                    console.log(`[VideoAnalysisWorker] Reference soundtrack identity attached for ${canonical.referenceAssetId}`);
-                  } else if (enriched.audioEvidence) {
-                    referenceVideoAnalysis = {
-                      ...referenceVideoAnalysis,
-                      audioEvidence: enriched.audioEvidence,
-                      canonicalFingerprint: enriched.canonicalFingerprint,
-                      adaptivePlan: enriched.adaptivePlan,
-                      enrichmentWarnings: enriched.warnings,
-                    };
-                  }
-                } catch (err) {
-                  console.warn('[VideoAnalysisWorker] Reference enrichment skipped:',
-                    err instanceof Error ? err.message : err);
-                }
+            // R2/R3: enrich the canonical reference with measured evidence
+            // (audio beats/silence) + soundtrack identity. Env-gated: the AudD
+            // recognizer activates only when AUDD_API_TOKEN is set; without it
+            // this resolves nothing (soundClass stays unknown). Evidence survives
+            // a recognizer outage (warnings[]), so this never breaks the edit.
+            try {
+              const { enrichReferenceWithMeasuredEvidence } = await import('@/lib/editron/reference-video/enrich-reference-evidence');
+              const enriched = await enrichReferenceWithMeasuredEvidence({
+                userId,
+                referenceAssetId: canonical.referenceAssetId,
+                audioArtifact: canonical.audioArtifact ?? null,
+              });
+              if (enriched.soundtrackIdentity) {
+                referenceVideoAnalysis = {
+                  ...referenceVideoAnalysis,
+                  soundtrackIdentity: enriched.soundtrackIdentity,
+                  audioEvidence: enriched.audioEvidence,
+                  canonicalFingerprint: enriched.canonicalFingerprint,
+                  adaptivePlan: enriched.adaptivePlan,
+                  enrichmentWarnings: enriched.warnings,
+                };
+                console.log(`[VideoAnalysisWorker] Reference soundtrack identity attached for ${canonical.referenceAssetId}`);
+              } else if (enriched.audioEvidence) {
+                referenceVideoAnalysis = {
+                  ...referenceVideoAnalysis,
+                  audioEvidence: enriched.audioEvidence,
+                  canonicalFingerprint: enriched.canonicalFingerprint,
+                  adaptivePlan: enriched.adaptivePlan,
+                  enrichmentWarnings: enriched.warnings,
+                };
               }
-            } catch (canonicalErr) {
-              const msg = canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
-              console.warn(`[VideoAnalysisWorker] Reference canonicalization failed: ${msg}`);
-              throw canonicalErr;
+            } catch (err) {
+              console.warn('[VideoAnalysisWorker] Reference enrichment skipped:',
+                err instanceof Error ? err.message : err);
             }
+          } catch (canonicalErr) {
+            const msg = canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
+            console.warn(`[VideoAnalysisWorker] Reference canonicalization failed: ${msg}`);
+            throw canonicalErr;
           }
 
           if (isSaasReferenceGlmEnabled()) {
@@ -337,7 +331,7 @@ async function handler(request: NextRequest) {
                   referenceVideoAnalysis = {
                     provider: 'glm-saas-reference',
                     status: 'accepted',
-                    sourceKind: referenceSource.kind,
+                    sourceKind: referenceCanonicalKind,
                     referenceId,
                     sourceLabel: referenceSourceLabel,
                     sourceFingerprint: referenceSourceFingerprint,
@@ -356,7 +350,7 @@ async function handler(request: NextRequest) {
                   referenceVideoAnalysis = {
                     provider: 'glm-saas-reference',
                     status: 'rejected',
-                    sourceKind: referenceSource.kind,
+                    sourceKind: referenceCanonicalKind,
                     referenceId,
                     sourceLabel: referenceSourceLabel,
                     sourceFingerprint: referenceSourceFingerprint,
@@ -399,7 +393,7 @@ async function handler(request: NextRequest) {
                   referenceVideoAnalysis = {
                     provider: 'glm-saas-reference',
                     status: 'accepted',
-                    sourceKind: referenceSource.kind,
+                    sourceKind: referenceCanonicalKind,
                     referenceId,
                     sourceLabel: referenceSourceLabel,
                     sourceFingerprint: referenceSourceFingerprint,
@@ -434,7 +428,7 @@ async function handler(request: NextRequest) {
                   referenceVideoAnalysis = {
                     provider: 'glm-saas-reference',
                     status: saasResult.reason === 'not_a_saas_reference_video' ? 'rejected' : 'failed',
-                    sourceKind: referenceSource.kind,
+                    sourceKind: referenceCanonicalKind,
                     referenceId,
                     sourceLabel: referenceSourceLabel,
                     sourceFingerprint: referenceSourceFingerprint,
@@ -471,7 +465,7 @@ async function handler(request: NextRequest) {
               referenceVideoAnalysis = {
                 provider: 'glm-saas-reference',
                 status: 'failed',
-                sourceKind: referenceSource.kind,
+                sourceKind: referenceCanonicalKind,
                 referenceId,
                 sourceLabel: referenceSourceLabel,
                 sourceFingerprint: referenceSourceFingerprint,

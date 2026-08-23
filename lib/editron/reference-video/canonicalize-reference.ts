@@ -5,22 +5,18 @@
  * This service guarantees a resolved reference is (or becomes) a canonical
  * MediaAsset before the caller consumes it:
  *
- *   - 'asset' kind (already uploaded / imported)  -> canonical, no fetch.
+ *   - 'asset' kind (already uploaded / imported)  -> exact bytes are hashed,
+ *     demuxed and registered under a content-addressed alias over the same
+ *     managed storage object (or a private copy when storage is unmanaged).
  *   - 'youtube-url' / 'instagram-url' kinds        -> materialized to an asset
  *     by the importers before this runs, so they arrive as 'asset'.
  *   - 'remote-url' (direct .mp4/.mov/.webm/.m4v)   -> materialized NOW:
  *     download -> upload to a private scoped asset -> attach the R1 envelope
  *     (content hash + audio usage mode + demux receipt).
  *
- * Demuxes are only built for the materialized remote-url path (which has local
- * bytes). Imported assets keep their importer provenance; their envelope is
- * attached by the caller when a demux runs later, not double-fetched here.
- *
  * Deterministic + fail-loud (R18N). Throws CanonicalizeReferenceError with a
  * stable code so the intake can surface the rejection reason.
  */
-
-import { createHash } from 'node:crypto';
 
 import type {
   ReferenceCanonicalEnvelope,
@@ -34,6 +30,11 @@ import {
   type ReferenceMaterializedMediaRegistrationInputV1,
   type ReferenceMaterializedMediaRegistrationReceiptV1,
 } from './reference-materialized-media-registration-v1';
+import {
+  buildCanonicalReferenceSourceAssetIdV1,
+  resolveCanonicalReferenceStorageV1,
+  type CanonicalReferenceStorageKindV1,
+} from './reference-source-storage-v1';
 
 const MIN_DL_BYTES = 10_000; // ⚠️ INVENTED sanity floor — a real video file is ≥100KB
 const DL_TIMEOUT_MS = 90_000; // ⚠️ INVENTED — generous fetch bound; matches yt-dlp default
@@ -53,10 +54,9 @@ export interface CanonicalizeReferenceOutput {
   videoUrl: string;
   /** Canonical record; present when materialized here or already attached. */
   envelope?: ReferenceCanonicalEnvelope;
-  /** Where the bytes physically live ('asset' | 'materialized-remote'). */
-  canonicalKind: 'asset' | 'materialized-remote';
-  /** Demuxed audio artifact (storage key + content type) for R3 recognition.
-   *  Present only when this step materialized + demuxed a direct remote URL. */
+  /** Whether managed bytes were reused or privately materialized. */
+  canonicalKind: CanonicalReferenceStorageKindV1;
+  /** Demuxed audio artifact (storage key + content type) for R3 recognition. */
   audioArtifact?: { key: string; contentType: string } | null;
   durationSec?: number;
   sourceLabel?: string;
@@ -66,14 +66,15 @@ export interface CanonicalizeReferenceOutput {
 }
 
 export interface CanonicalizeReferenceDeps {
-  /** Download a remote URL to local bytes. Injected for tests (no network). */
-  downloadRemoteBytes?: (url: string) => Promise<Buffer>;
-  /** Upload local bytes as a private scoped asset. Injected for tests. */
-  uploadRemoteBytes?: (
+  /** Read the resolved source URL to exact bytes. Injected for tests. */
+  downloadSourceBytes?: (url: string) => Promise<Buffer>;
+  /** Upload bytes only when no existing managed R2/GCS object can be reused. */
+  uploadCanonicalBytes?: (
     file: Buffer,
     userId: string,
     fileName: string,
-    referenceAssetId: string,
+    contentType: string,
+    canonicalAssetId: string,
   ) => Promise<UploadResult>;
   /** Register the source and its envelope in existing mediaAssets. */
   registerSource?: (
@@ -89,10 +90,10 @@ export interface CanonicalizeReferenceDeps {
 export class CanonicalizeReferenceError extends Error {
   constructor(
     public readonly code:
-      | 'remote_download_failed'
-      | 'remote_too_small'
-      | 'remote_upload_failed'
-      | 'remote_demux_failed'
+      | 'source_download_failed'
+      | 'source_too_small'
+      | 'source_storage_failed'
+      | 'source_demux_failed'
       | 'source_registration_failed',
     message: string,
     public readonly diagnostics: string[] = [message],
@@ -102,11 +103,7 @@ export class CanonicalizeReferenceError extends Error {
   }
 }
 
-function defaultSha256(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex');
-}
-
-async function defaultDownloadRemoteBytes(url: string): Promise<Buffer> {
+async function defaultDownloadSourceBytes(url: string): Promise<Buffer> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DL_TIMEOUT_MS);
   try {
@@ -120,21 +117,21 @@ async function defaultDownloadRemoteBytes(url: string): Promise<Buffer> {
   }
 }
 
-async function defaultUploadRemoteBytes(
+async function defaultUploadCanonicalBytes(
   file: Buffer,
   userId: string,
   fileName: string,
-  referenceAssetId: string,
+  contentType: string,
+  canonicalAssetId: string,
 ): Promise<UploadResult> {
   const { uploadMedia } = await import('@/lib/editron/services/upload-service');
-  return uploadMedia(file, userId, fileName, 'video/mp4', { customAssetId: referenceAssetId });
+  return uploadMedia(file, userId, fileName, contentType, { customAssetId: canonicalAssetId });
 }
 
 /**
  * Ensure a resolved reference is canonical before downstream consumption.
- * 'asset' / imported references pass through; direct remote URLs are
- * materialized (download -> upload -> envelope + demux) and returned with their
- * canonical asset id.
+ * All source kinds receive one exact content-addressed identity. Managed asset
+ * storage is reused; only remote/unmanaged bytes are copied.
  */
 export async function canonicalizeReferenceVideo(
   input: CanonicalizeReferenceInput,
@@ -142,66 +139,43 @@ export async function canonicalizeReferenceVideo(
 ): Promise<CanonicalizeReferenceOutput> {
   const { source, userId, audioUsageMode } = input;
 
-  if (source.kind !== 'remote-url') {
-    // Asset / youtube / instagram arrive with an asset already (importers
-    // materialize them). Use the canonical id + existing URL; envelope is
-    // attached when a demux runs (avoid double-fetching imported bytes).
-    return {
-      referenceAssetId: source.referenceId,
-      videoUrl: source.videoUrl,
-      canonicalKind: source.asset ? 'asset' : 'asset',
-      durationSec: source.durationSec,
-      sourceLabel: source.sourceLabel,
-      sourceFingerprint: source.sourceFingerprint,
-    };
-  }
-
-  const downloadRemoteBytes = deps.downloadRemoteBytes ?? defaultDownloadRemoteBytes;
-  const uploadRemoteBytes = deps.uploadRemoteBytes ?? defaultUploadRemoteBytes;
+  const downloadSourceBytes = deps.downloadSourceBytes ?? defaultDownloadSourceBytes;
+  const uploadCanonicalBytes = deps.uploadCanonicalBytes ?? defaultUploadCanonicalBytes;
   const registerSource = deps.registerSource ?? registerReferenceMaterializedMediaAssetV1;
   const demux = deps.demux ?? demuxReferenceVideo;
-  const sha256 = deps.sha256 ?? defaultSha256;
 
-  // 1. Download the direct file to local bytes.
+  // Exact source bytes are required for both the envelope and immutable ID.
   let bytes: Buffer;
   try {
-    bytes = await downloadRemoteBytes(source.videoUrl);
+    bytes = await downloadSourceBytes(source.videoUrl);
   } catch (error) {
     throw new CanonicalizeReferenceError(
-      'remote_download_failed',
-      'Remote reference download failed: ' + (error instanceof Error ? error.message : String(error)),
+      'source_download_failed',
+      'Reference source read failed: ' + (error instanceof Error ? error.message : String(error)),
       [source.videoUrl],
     );
   }
   if (bytes.byteLength < MIN_DL_BYTES) {
     throw new CanonicalizeReferenceError(
-      'remote_too_small',
-      `Remote reference too small to be video (${bytes.byteLength} bytes): ${source.videoUrl}`,
+      'source_too_small',
+      `Reference source too small to be video (${bytes.byteLength} bytes): ${source.videoUrl}`,
     );
   }
 
-  // 2. Upload into a private scoped asset. The canonical asset id MUST be
-  //    per-user: source.referenceId is URL-derived (same for every user) and
-  //    would collide cross-user since assetId == R2 key. Derive a scoped id,
-  //    and keep the URL fingerprint as provenance on the asset row.
-  const canonicalAssetId = buildCanonicalRemoteAssetId(
-    input.userId,
-    source.referenceId,
-    defaultSha256(bytes),
-  );
-  const sourceFilenameBase = sanitizeAssetPart(source.sourceLabel) || 'remote-reference';
-  const sourceFilename = sourceFilenameBase.toLowerCase().endsWith('.mp4')
-    ? sourceFilenameBase
-    : `${sourceFilenameBase}.mp4`;
-  let uploaded: UploadResult;
+  let storage: Awaited<ReturnType<typeof resolveCanonicalReferenceStorageV1>>;
   try {
-    uploaded = await uploadRemoteBytes(bytes, userId, sourceFilename, canonicalAssetId);
+    storage = await resolveCanonicalReferenceStorageV1(
+      { userId, source, bytes },
+      { uploadCanonicalBytes },
+    );
   } catch (error) {
     throw new CanonicalizeReferenceError(
-      'remote_upload_failed',
-      'Remote reference upload failed: ' + (error instanceof Error ? error.message : String(error)),
+      'source_storage_failed',
+      'Reference source storage resolution failed: '
+        + (error instanceof Error ? error.message : String(error)),
     );
   }
+  const uploaded = storage.upload;
 
   // 3. Demux + attach the canonical envelope (content hash = source hash).
   //    Write bytes to a temp file for the demux (it reads from disk).
@@ -232,8 +206,8 @@ export async function canonicalizeReferenceVideo(
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     throw error instanceof CanonicalizeReferenceError
       ? error
-      : new CanonicalizeReferenceError('remote_demux_failed',
-        'Demux failed for remote reference: ' + (error instanceof Error ? error.message : String(error)));
+      : new CanonicalizeReferenceError('source_demux_failed',
+        'Reference source demux failed: ' + (error instanceof Error ? error.message : String(error)));
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -249,7 +223,7 @@ export async function canonicalizeReferenceVideo(
         ? { type: 'ORG', orgId: input.orgId }
         : { type: 'USER', userId },
       mediaKind: 'video',
-      filename: sourceFilename,
+      filename: storage.filename,
       role: { kind: 'SOURCE', referenceEnvelope: envelope },
     });
   } catch (error) {
@@ -263,22 +237,15 @@ export async function canonicalizeReferenceVideo(
     referenceAssetId: uploaded.assetId,
     videoUrl: uploaded.signedUrl,
     envelope,
-    canonicalKind: 'materialized-remote',
+    canonicalKind: storage.canonicalKind,
     audioArtifact: demuxedAudio,
     sourceLabel: source.sourceLabel,
     sourceFingerprint: source.sourceFingerprint,
     sourceRegistration,
+    durationSec: envelope.demux?.durationMs === null || envelope.demux?.durationMs === undefined
+      ? source.durationSec
+      : envelope.demux.durationMs / 1_000,
   };
-}
-
-function sanitizeAssetPart(value: string): string {
-  return value
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/[^A-Za-z0-9_.-]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 60);
 }
 
 /** Content-addressed per-user source ID: changed URL bytes never overwrite prior evidence. */
@@ -287,9 +254,7 @@ export function buildCanonicalRemoteAssetId(
   sourceReferenceId: string,
   sourceContentSha256: string,
 ): string {
-  if (!/^[a-f0-9]{64}$/.test(sourceContentSha256)) {
-    throw new Error('Canonical remote source content hash must be a lowercase SHA-256.');
-  }
-  const identity = `${userId}|${sourceReferenceId}|${sourceContentSha256}`;
-  return `ref_canon_${createHash('sha256').update(identity).digest('hex').slice(0, 20)}`;
+  return buildCanonicalReferenceSourceAssetIdV1(
+    userId, sourceReferenceId, sourceContentSha256,
+  );
 }
