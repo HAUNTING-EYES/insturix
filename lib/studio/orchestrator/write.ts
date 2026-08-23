@@ -22,6 +22,13 @@ import { authorizeBrandScope, listAuthorizedBrandScopes } from "@/lib/shared/bra
 import { createThinkForgeSessionBrandBinding } from "@/lib/thinkforge/context/brand-authoring-context";
 import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
+import { WRITE_DOMAIN_MANIFEST } from "./manifests/write";
+
+const WRITE_TOOL = (name: string) => {
+  const tool = WRITE_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
+  if (!tool) throw new Error(`write manifest missing tool: ${name}`);
+  return tool;
+};
 
 export interface WriteTurnContext {
   userId: string;
@@ -104,25 +111,31 @@ export async function* runWriteTurn(
   const turnId = `t_${crypto.randomUUID().slice(0, 8)}`;
   yield { type: "turn.received", turnId, deliverableId: "del_live" };
 
+  /* plan metadata comes from the write domain manifest — never inlined */
+  const mFormat = WRITE_TOOL("inferOutputFormat");
+  const mSession = WRITE_TOOL("thinkforge/session");
+  const mWriter = WRITE_TOOL("post-writer-agent");
+  const writerCost = getCreditCost("thinkforge", "chat_message");
+
   yield {
     type: "turn.plan",
     turnId,
     planId: `${turnId}_p`,
     summary: ctx.thinkforgeSessionId ? "Continuing the draft." : "Writing it — one document, on brand.",
     steps: [
-      { stepId: "w1", capability: "write", toolName: "inferOutputFormat", label: "Resolved the format", riskLevel: "read" },
-      { stepId: "w2", capability: "write", toolName: "thinkforge/session", label: ctx.thinkforgeSessionId ? "Opened the doc" : "Opened a new doc", riskLevel: "read" },
-      { stepId: "w3", capability: "write", toolName: "post-writer-agent", label: "Writing the draft", riskLevel: "medium", quotedCost: getCreditCost("thinkforge", "chat_message") },
+      { stepId: "w1", capability: "write", toolName: mFormat.name, label: mFormat.label, riskLevel: mFormat.riskLevel },
+      { stepId: "w2", capability: "write", toolName: mSession.name, label: ctx.thinkforgeSessionId ? "Opened the doc" : "Opened a new doc", riskLevel: mSession.riskLevel },
+      { stepId: "w3", capability: "write", toolName: mWriter.name, label: mWriter.label, riskLevel: mWriter.riskLevel, quotedCost: writerCost },
     ],
   };
 
   /* step 1 — format resolution is the engine's job; surfaced as a read step */
-  yield { type: "step.start", turnId, stepId: "w1", toolName: "inferOutputFormat" };
+  yield { type: "step.start", turnId, stepId: "w1", toolName: mFormat.name };
   await sleep(350);
-  yield { type: "step.done", turnId, stepId: "w1", receipt: { label: "Format resolved", detail: "from the brief", artifactIds: [], creditsConsumed: 0 } };
+  yield { type: "step.done", turnId, stepId: "w1", receipt: { label: mFormat.receiptLabel, detail: "from the brief", artifactIds: [], creditsConsumed: 0 } };
 
   /* step 2 — brand scope + session */
-  yield { type: "step.start", turnId, stepId: "w2", toolName: "thinkforge/session" };
+  yield { type: "step.start", turnId, stepId: "w2", toolName: mSession.name };
   let brandId = ctx.brandId ?? null;
   try {
     if (!brandId) {
@@ -183,10 +196,10 @@ export async function* runWriteTurn(
   if (!sessionId) throw new Error("ThinkForge session could not be resolved.");
   ctx.thinkforgeSessionId = sessionId;
   await sleep(250);
-  yield { type: "step.done", turnId, stepId: "w2", receipt: { label: "Session opened", detail: brandId, artifactIds: [], creditsConsumed: 0 } };
+  yield { type: "step.done", turnId, stepId: "w2", receipt: { label: mSession.receiptLabel, detail: brandId, artifactIds: [], creditsConsumed: 0 } };
 
   /* step 3 — admission (mirrors the ThinkForge chat route) + generation */
-  yield { type: "step.start", turnId, stepId: "w3", toolName: "post-writer-agent", loadingMessage: "reading the brief…" };
+  yield { type: "step.start", turnId, stepId: "w3", toolName: mWriter.name, loadingMessage: mWriter.loadingMessages[0] };
   await CreditsMigrationService.ensureMigrated(ctx.userId);
   const billingWallet = resolveContextBillingOwner(ctx.userId, ctx.orgId, isOrgWalletBillingEnabled());
   const creditCheck = await checkCredits(ctx.userId, "thinkforge", "chat_message", { taskId: ctx.thinkforgeSessionId }, billingWallet);
@@ -286,7 +299,7 @@ export async function* runWriteTurn(
       turnId,
       stepId: "w3",
       receipt: {
-        label: "Draft written",
+        label: mWriter.receiptLabel,
         detail: `${wordCount} words · v${script?.version ?? 1}`,
         artifactIds: artifact ? [artifact.id] : [],
         creditsConsumed: getCreditCost("thinkforge", "chat_message"),
