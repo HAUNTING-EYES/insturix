@@ -228,3 +228,11 @@ the later two-editor moving-reference pilot.
    contribute to provider ranking, routing or production claims.
 6. Future status reports must cite this register when they rely on any listed
    constant, threshold, capability or architecture assumption.
+
+## I. Reference materialization and storage assumptions
+
+| ID | Hardcode or assumption | Flag | Current evidence and required disposition |
+| --- | --- | --- | --- |
+| MEDIA-01 | `uploadFileToR2` selects one streaming PUT at or below 64 MiB and multipart ranges above 64 MiB. | PROVISIONAL_INFRASTRUCTURE_POLICY | Commit `219c0e7ab` proves bounded streams, multipart completion/abort and backend failure behavior. The split is an operational memory/retry choice, not a content duration, format, quality, account-tier or compatibility limit. Calibrate it with real R2 latency, retry, memory and cost telemetry before treating it as production policy. |
+| MEDIA-02 | The file-stream upload boundary is present, therefore long-form reference ingest is streaming. | MISSING_WIRING | False today. `canonicalize-reference.ts` still downloads the whole source into memory before writing a temporary file; `reference-demux.ts` still reads complete source/video/audio files into buffers; and no reference caller invokes `uploadMediaFromFile`. File-based hashing/registration and caller migration remain required. |
+| MEDIA-03 | A successful file upload is a canonical media-registration receipt. | MISSING_CONTRACT | Upload and `mediaAssets` registration remain separate owner actions. Source and derived-frame rows are registered, but demux video/audio artifacts lack a role/provenance contract and registration receipt. Never treat an R2/GCS object alone as canonical evidence. |

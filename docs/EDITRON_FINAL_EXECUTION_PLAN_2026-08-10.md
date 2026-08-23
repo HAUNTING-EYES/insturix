@@ -1689,15 +1689,29 @@ progress/debug writes without changing upload, delete, read-URL or multipart
 control flow. Focused R2/multipart/storage tests pass 16/16 with repository
 typecheck and quiet ESLint. Streaming upload is still pending.
 
+Commit 219c0e7ab adds the file-backed streaming boundary to the existing upload
+owners without redirecting a production caller. R2 uses one streaming PUT for
+files up to the provisional 64 MiB infrastructure threshold and bounded,
+abort-on-failure multipart ranges above it; GCS uses its resumable CRC32C write
+stream. The existing upload service remains the R2-primary/GCS-availability
+decision owner, preserves an explicitly requested GCS mirror and returns both
+backend failures when neither accepts the file. Focused storage proof passes
+18/18 with repository typecheck and quiet ESLint. This is
+`FILE_STREAM_UPLOAD_OWNER_PROVEN_NOT_REFERENCE_PATH_WIRED`: the 64 MiB split is
+not a media-quality or compatibility limit, no canonicalizer/demux caller uses
+the new path yet, source and demux registration still operate from whole-file
+buffers, and no live R2/GCS transfer was exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
    mutation and proof owners are composed. Provide the experimental visual
    observer's authorized canonical byte-reader, evaluation receipt and product
-   caller only through the existing owners. Then replace full-file buffering
-   and provisional 90-second/10-KB assumptions with a streaming, probed,
-   long-form-safe owner and register required demux artifacts through the same
-   media authority.
+   caller only through the existing owners. Extend the existing media
+   registration owner to hash/register local files, migrate canonicalization
+   and demux to the verified file-stream upload boundary, replace provisional
+   90-second/10-KB assumptions with probed failure policy, and register video/
+   audio demux artifacts through the same media authority.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3390,6 +3404,17 @@ caller input or provider access; safe activation remains open. This remains
 partial convergence: the visual observer's product caller, canonical byte-reader
 composition and accepted evaluation receipt, streaming long-form materialization,
 demux-artifact registration and live Mongo/R2/GCS proof are open.
+
+**Stage 2 file-stream checkpoint (2026-08-23):** commit `219c0e7ab`
+supersedes wording that says no file-stream upload owner exists. The existing
+R2/GCS upload service now accepts local files without materializing one
+full-file Buffer: R2 streams one PUT or sequential multipart ranges and aborts
+an incomplete multipart upload; GCS uses a resumable CRC32C stream. Its 64 MiB
+R2 split is a provisional infrastructure policy recorded in the evidence-debt
+register, not a duration, format, quality or long-form product limit. No
+reference caller is wired yet, so full reference materialization remains
+buffered and demux artifacts remain unregistered. Live storage proof is also
+open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
@@ -5199,8 +5224,8 @@ proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
 and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner but does not yet connect upload callers. The
-next bounded reliability order is therefore: source/frame materializer wiring,
-one execution-root
+next bounded reliability order is therefore: file-based media registration,
+canonicalizer/demux migration and demux-artifact registration, one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.

@@ -92,6 +92,9 @@ pnpm test                # vitest run
   as current truth. Record the exact commit, verified boundary, tests/proof,
   remaining blockers and next execution order. Plan maintenance is required
   implementation work, not optional documentation deferred to a later agent.
+- A bounded implementation commit is not a finished phase until that ledger
+  update is committed; complete the documentation checkpoint before starting
+  another code phase so compaction and other agents inherit current truth.
 - During autonomous multi-phase work, refresh the ledger after every bounded
   commit before starting the next phase, and leave concise adjacent authority/
   invariant comments wherever code alone would not preserve the reason across
