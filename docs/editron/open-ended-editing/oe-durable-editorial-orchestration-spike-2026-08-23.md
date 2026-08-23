@@ -37,7 +37,7 @@ production-ready and no live workflow reaches the store.
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
-| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay; all other family/live gates remain below. |
+| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. Arbitrary future injected owners are not yet cryptographically forced to use it; all other family/live gates remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
 | Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. It is zero-network tested; live Lambda evidence and production apply remain unproven. |
@@ -168,6 +168,15 @@ Completed foundation:
   unchanged. Focused proof/cut/clone/worker/Phase-0 tests pass 51/51, with full
   typecheck and quiet ESLint. The renderer seam is injected in tests, so this
   is not a live Lambda-render certification.
+- `1af638999` gives isolated execution and committed replay the clone's exact
+  current proposal revision, supplies one deterministic concrete-writer issuer
+  and removes `cut_section`'s private `WeakMap` revision authority. The
+  separate-process fixture now meets the mandatory proof gate with a receipt
+  bound to the exact episode/resume/proposal/final-state hashes and disposition
+  `UNVERIFIABLE`, because no renderer runs there. Clone/cut/proof/durable/
+  process tests pass 31/31; repository typecheck and quiet ESLint pass. The
+  clone does not yet prove that every arbitrary injected owner used the shared
+  issuer, so this is concrete-owner convergence, not universal enforcement.
 
 Open work:
 
@@ -177,7 +186,9 @@ Open work:
 - add scope/lock/approval artifact resolution and a production canonical-media
   locator behind the now proven reference owner contract;
 - expand the now-proven `cut_section` bridge to other certified/pure operator
-  owners without introducing another operation registry or project authority;
+  owners through the same revision origin without introducing another
+  operation registry or project authority; add clone-side issuer enforcement
+  or an issuer port before treating arbitrary injected owners as trusted;
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
@@ -348,6 +359,13 @@ defaults it to the existing Phase-0 producer, but only zero-network seam tests
 have run. A live exact-state render, semantic/audio proof, multiple-operation
 policies and production apply remain open.
 
+Commit `1af638999` then centralizes the current concrete proposal-revision
+origin at the clone boundary and removes the cut owner's private map. It also
+updates the process-recovery fixture to report rendered acceptance as
+`UNVERIFIABLE` rather than bypassing the mandatory proof gate. This does not
+certify a second operator or enforce issuer use for arbitrary future injected
+owners.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -390,15 +408,19 @@ policies and production apply remain open.
     cut call/state and paired boundary artifacts through the existing Phase-0
     owner. Live non-production Remotion execution, semantic/audio obligations,
     multiple operations and rational-timebase certification remain separate.
-14. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+14. **Concrete revision origin complete at `1af638999`:** pass one clone-owned
+    current proposal revision through execution/replay and issue the current
+    cut writer revision without a private map. Add another concrete owner,
+    multi-operation proof and clone-enforced issuer use separately.
+15. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
    authority.
-15. Only after fresh zero-inference preflight and explicit spend approval:
+16. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `53baee0f3` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `1af638999` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can

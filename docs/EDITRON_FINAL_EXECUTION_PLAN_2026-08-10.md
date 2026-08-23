@@ -1280,18 +1280,22 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `53baee0f3` on
+programme code checkpoint represented by this ledger is `1af638999` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 53baee0f3. Deterministic proposal recovery, one
+<!-- CURRENT RESUME CHECKPOINT: 1af638999. Deterministic proposal recovery, one
 real cut_section owner, immutable reference/runtime-budget owners, strict
-outcome-proof completion mechanics and a concrete single-cut Phase-0 proof
-adapter are implemented with zero-network tests. No live Remotion execution or
-production apply is proven. Next exercise the real renderer only with explicit
-external-cost authorization, add semantic/audio/multi-operation proof and
-expand concrete operator coverage; do not rerun paid cohorts without fresh
-zero-inference preflight plus explicit spend authorization. -->
+outcome-proof completion mechanics, a concrete single-cut Phase-0 proof adapter
+and one clone-supplied current proposal revision plus deterministic concrete-
+owner issuer are implemented with zero-network tests. The cut owner no longer
+keeps a private revision map. Future injected owners are not yet
+cryptographically forced to use the shared issuer. No live Remotion execution
+or production apply is proven. Next expand concrete operator coverage through
+the same revision origin, prove a multi-operation chain, then exercise the real
+renderer only with explicit external-cost authorization; do not rerun paid
+cohorts without fresh zero-inference preflight plus explicit spend
+authorization. -->
 
 **Immediate native-handoff reliability reconciliation:** the previously listed
 CAP-2A/native-V3R closeout is no longer pending. Its CAP-2A snapshot was
@@ -1977,6 +1981,24 @@ render was purchased or executed in this checkpoint. The policy proves only
 one numeric-FPS cut and boundary stills. It does not yet prove transcript
 semantics, audio continuity, multiple operations, rational timebase support or
 production apply. Those gaps remain mandatory before promotion.
+
+**Concrete proposal-revision origin checkpoint (2026-08-23):** commit
+`1af638999` makes the ProjectService isolated clone pass its one current
+proposal revision into execution and committed replay, and exposes one
+deterministic revision issuer for concrete isolated writers. The existing
+`cut_section` adapter now consumes that value and no longer owns a private
+`WeakMap`, counter or parallel revision chain. The cross-process recovery
+fixture also satisfies the mandatory proof gate with an exact hash-bound
+`UNVERIFIABLE` render obligation instead of fabricating `PASS` where no render
+owner ran. Clone/cut/proof/durable/process tests pass 31/31; repository
+typecheck and quiet ESLint pass.
+
+This closes revision-origin duplication for the current concrete cut owner and
+provides the required handoff for the next owner. It does **not** yet prove that
+an arbitrary future injected owner called the issuer; clone-side validation or
+an issuer port remains a hardening task. It also does not add a keyframe/audio
+owner, multi-operation proof, live render, canonical apply or production
+certification.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -2811,6 +2833,14 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 6 - global scalable professional NLE | Some editor, proxy, chapter render and isolated 60 fps SaaS-explainer mechanisms exist. | Professional source/record editing, mixed rates, rational timebase, VFR, SMPTE/drop-frame display, multicam, relink, project/reel subdivision, shared storage coordination, interchange/conform and genuinely scalable long-form playback/render remain partial or missing. |
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
+
+**Stage 2 row correction (2026-08-23):** commit `1af638999` supersedes the
+table's previous concrete-owner revision wording. The clone now supplies one
+current proposal revision to execution and committed replay, and the current
+`cut_section` owner uses the shared deterministic concrete-writer issuer
+instead of a private `WeakMap`. The next owner must consume that same origin;
+clone-enforced issuer use, multi-operation proof, live rendering and canonical
+apply/reload are still open.
 
 **Stage 2.5 row correction (2026-08-23):** the row's former combined
 `runtime-budget/reference-input binding` clause predates commits `ec1432446`
