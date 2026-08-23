@@ -1666,6 +1666,16 @@ beside the Mongo-shaped test record; it is not yet issued or retrieved by a
 live tenant-scoped PlanService/artifact owner, embedded in the shared job input,
 or recovered from Atlas. Product plan persistence therefore remains open.
 
+**Durable orchestration ownership decision (2026-08-23):** the bounded
+[orchestration spike](./editron/open-ended-editing/oe-durable-editorial-orchestration-spike-2026-08-23.md)
+selects one native, tenant/project-scoped Mongo `PlanService` as the accepted
+Sequence/Range Plan and episode-definition owner. The existing shared durable
+job record remains the execution-lifecycle owner, QStash remains a replaceable
+delivery transport, and ProjectService remains the sole project/timeline owner.
+Upstash/Vercel workflow runtimes and JCode/OpenCode remain optional
+transport/session/UI adapters only. This freezes the owner split; it does not
+claim that product PlanService is implemented.
+
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
 and zero-add/zero-drop compiled graph to the Stage-2.5 dependency scheduler
@@ -3012,9 +3022,12 @@ foundation and is no longer the active queue. The next three slices are:
    inference. Commit `2bdb05d80` binds the existing live HTTP transport to one
    exact durable route without requiring an unrelated provider secret. Commit
    `e3ac9b082` replaces the inline research episode definition with one
-   serialized manifest-bound artifact. Next run the bounded orchestration spike
-   and choose the sole product PlanService/definition-persistence owner; bind
-   ProjectService clone/execution, reference-media and runtime-budget adapters; add
+   serialized manifest-bound artifact. The 2026-08-23 orchestration spike then
+   selects one native Mongo PlanService as the product plan/definition owner
+   while retaining the shared job record and replaceable QStash transport. Next
+   implement immutable PlanService revisions and bind one accepted node into
+   the shared job input; then bind ProjectService clone/execution,
+   reference-media and runtime-budget adapters; add
    authenticated fail-closed ingress/dispatch; prove suffix-only recovery
    against non-production Atlas and QStash; then run a fresh
    zero-inference preflight and obtain explicit authorization before any paid
