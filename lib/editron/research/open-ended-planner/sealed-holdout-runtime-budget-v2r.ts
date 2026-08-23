@@ -88,6 +88,20 @@ type Usage = Readonly<{
   totalTokens: number;
 }>;
 
+type RuntimeUsage = {
+  providerTurns: number;
+  selectedOperations: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  thoughtTokens: number;
+  reasoningTokens: number;
+  spentNanoUsd: number;
+  conservativeReservedOutputTokens?: number;
+  conservativeReservedNanoUsd?: number;
+};
+
 const CANDIDATE_OUTPUT_PATHS: Readonly<Record<string, readonly (readonly string[])[]>> =
   deepFreezeV1({
     find_transcript_moment: [['result', 'observations'], ['result', 'candidates'], ['candidates']],
@@ -129,6 +143,8 @@ implements ProviderNativeRuntimeGuardV2R {
   private totalThoughtTokens = 0;
   private totalReasoningTokens = 0;
   private spentNanoUsd = 0;
+  private conservativeReservedOutputTokens = 0;
+  private conservativeReservedNanoUsd = 0;
 
   constructor(input: Readonly<{
     publicCase: Readonly<JsonRecord>;
@@ -248,6 +264,8 @@ implements ProviderNativeRuntimeGuardV2R {
     this.totalThoughtTokens = usage.thoughtTokens;
     this.totalReasoningTokens = usage.reasoningTokens;
     this.spentNanoUsd = usage.spentNanoUsd;
+    this.conservativeReservedOutputTokens = usage.conservativeReservedOutputTokens ?? 0;
+    this.conservativeReservedNanoUsd = usage.conservativeReservedNanoUsd ?? 0;
   }
 
   beforeTurn(input: Readonly<{
@@ -320,14 +338,15 @@ implements ProviderNativeRuntimeGuardV2R {
       || pending.maxOutputTokens !== input.maxOutputTokens) {
       return this.accountingDenial('RESPONSE_REQUEST_BINDING_INVALID', input);
     }
-    this.pendingRequest = null;
     if ((input.response.status < 200 || input.response.status >= 300)
       && !record(input.response.body).usage) {
-      return this.allow('AFTER_INVOKE_HTTP_FAILURE', {
-        turn: input.turn, requestHash: input.request.requestHash,
-        responseStatus: input.response.status, chargedUsage: 'NOT_REPORTED',
-      });
+      return this.settlePendingConservatively(
+        'AFTER_INVOKE_HTTP_FAILURE_CONSERVATIVE_RESERVATION',
+        pending,
+        { responseStatus: input.response.status },
+      );
     }
+    this.pendingRequest = null;
     const usage = parseUsage(input.request.provider, input.response.body);
     if (!usage) return this.accountingDenial('PROVIDER_USAGE_MISSING_OR_INVALID', {
       turn: input.turn, requestHash: input.request.requestHash,
@@ -360,6 +379,29 @@ implements ProviderNativeRuntimeGuardV2R {
       return this.budgetDenial('ABSOLUTE_SPEND_BUDGET_EXCEEDED_ACTUAL', audit);
     }
     return this.allow('AFTER_INVOKE', audit);
+  }
+
+  settleUnknownInvoke(input: Readonly<{
+    turn: number;
+    request: Readonly<SerializedProviderNativeTurnV2R>;
+    maxOutputTokens: number;
+    transportErrorCode: string;
+  }>): ProviderNativeRuntimeGuardDecisionV2R {
+    const pending = this.pendingRequest;
+    if (!pending || pending.turn !== input.turn
+      || pending.requestHash !== input.request.requestHash
+      || pending.maxOutputTokens !== input.maxOutputTokens
+      || !input.transportErrorCode.trim()) {
+      return this.accountingDenial('UNKNOWN_RESULT_REQUEST_BINDING_INVALID', {
+        turn: input.turn,
+        requestHash: input.request.requestHash,
+      });
+    }
+    return this.settlePendingConservatively(
+      'AFTER_INVOKE_RESULT_UNAVAILABLE_CONSERVATIVE_RESERVATION',
+      pending,
+      { transportErrorCode: input.transportErrorCode },
+    );
   }
 
   beforeExecute(input: Readonly<{
@@ -449,6 +491,29 @@ implements ProviderNativeRuntimeGuardV2R {
     };
   }
 
+  private settlePendingConservatively(
+    phase: string,
+    pending: PendingRequest,
+    details: Readonly<JsonRecord>,
+  ): ProviderNativeRuntimeGuardDecisionV2R {
+    this.pendingRequest = null;
+    this.totalOutputTokens += pending.maxOutputTokens;
+    this.spentNanoUsd += pending.reservedWorstCaseNanoUsd;
+    this.conservativeReservedOutputTokens += pending.maxOutputTokens;
+    this.conservativeReservedNanoUsd += pending.reservedWorstCaseNanoUsd;
+    return this.allow(phase, {
+      turn: pending.turn,
+      requestHash: pending.requestHash,
+      inputTokensUpperBound: pending.inputTokensUpperBound,
+      accountingMode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
+      accountedOutputTokens: pending.maxOutputTokens,
+      accountedCostNanoUsd: pending.reservedWorstCaseNanoUsd,
+      cumulativeOutputTokens: this.totalOutputTokens,
+      cumulativeSpentNanoUsd: this.spentNanoUsd,
+      ...details,
+    });
+  }
+
   private event(value: Readonly<JsonRecord>): Readonly<JsonRecord> {
     const event = deepFreezeV1({ ordinal: this.events.length + 1, ...value });
     this.events.push(event);
@@ -466,6 +531,10 @@ implements ProviderNativeRuntimeGuardV2R {
       thoughtTokens: this.totalThoughtTokens,
       reasoningTokens: this.totalReasoningTokens,
       spentNanoUsd: this.spentNanoUsd,
+      ...(this.conservativeReservedOutputTokens ? {
+        conservativeReservedOutputTokens: this.conservativeReservedOutputTokens,
+        conservativeReservedNanoUsd: this.conservativeReservedNanoUsd,
+      } : {}),
       pendingRequest: this.pendingRequest,
     };
   }
@@ -507,8 +576,13 @@ function assertRuntimeEventsBoundToTurns(
   }
 }
 
-function deriveRuntimeUsageFromEvents(events: readonly Readonly<JsonRecord>[]) {
-  const usage = {
+function deriveRuntimeUsageFromEvents(
+  events: readonly Readonly<JsonRecord>[],
+): RuntimeUsage {
+  const usage: RuntimeUsage & {
+    conservativeReservedOutputTokens: number;
+    conservativeReservedNanoUsd: number;
+  } = {
     providerTurns: 0,
     selectedOperations: 0,
     inputTokens: 0,
@@ -518,6 +592,8 @@ function deriveRuntimeUsageFromEvents(events: readonly Readonly<JsonRecord>[]) {
     thoughtTokens: 0,
     reasoningTokens: 0,
     spentNanoUsd: 0,
+    conservativeReservedOutputTokens: 0,
+    conservativeReservedNanoUsd: 0,
   };
   events.forEach((event, index) => {
     if (event.ordinal !== index + 1 || event.status !== 'ALLOW') {
@@ -525,6 +601,16 @@ function deriveRuntimeUsageFromEvents(events: readonly Readonly<JsonRecord>[]) {
     }
     if (event.phase === 'BEFORE_INVOKE') usage.providerTurns += 1;
     if (event.phase === 'AFTER_EXECUTE') usage.selectedOperations += 1;
+    if (event.phase === 'AFTER_INVOKE_RESULT_UNAVAILABLE_CONSERVATIVE_RESERVATION'
+      || event.phase === 'AFTER_INVOKE_HTTP_FAILURE_CONSERVATIVE_RESERVATION') {
+      const outputTokens = resumeInteger(event.accountedOutputTokens);
+      const costNanoUsd = resumeInteger(event.accountedCostNanoUsd);
+      usage.outputTokens += outputTokens;
+      usage.spentNanoUsd += costNanoUsd;
+      usage.conservativeReservedOutputTokens += outputTokens;
+      usage.conservativeReservedNanoUsd += costNanoUsd;
+      return;
+    }
     if (event.phase !== 'AFTER_INVOKE') return;
     const eventUsage = record(event.usage);
     const inputTokens = resumeInteger(eventUsage.inputTokens);
@@ -541,10 +627,18 @@ function deriveRuntimeUsageFromEvents(events: readonly Readonly<JsonRecord>[]) {
     usage.thoughtTokens += thoughtTokens;
     usage.reasoningTokens += reasoningTokens;
     usage.spentNanoUsd += actualCostNanoUsd;
-    if (Object.values(usage).some((value) => !Number.isSafeInteger(value))) {
-      fail('SEALED_RUNTIME_RESUME_USAGE_OVERFLOW');
-    }
   });
+  if (Object.values(usage).some((value) => !Number.isSafeInteger(value))) {
+    fail('SEALED_RUNTIME_RESUME_USAGE_OVERFLOW');
+  }
+  if (!usage.conservativeReservedOutputTokens) {
+    const {
+      conservativeReservedOutputTokens: _output,
+      conservativeReservedNanoUsd: _cost,
+      ...reportedOnly
+    } = usage;
+    return reportedOnly;
+  }
   return usage;
 }
 
