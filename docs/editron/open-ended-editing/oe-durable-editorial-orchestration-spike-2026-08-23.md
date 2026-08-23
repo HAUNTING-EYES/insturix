@@ -37,7 +37,7 @@ production-ready and no live workflow reaches the store.
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
-| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. Product/live wiring remains blocked on the later gates below. |
+| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay; all other family/live gates remain below. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -124,13 +124,23 @@ Completed foundation:
   suffix writer, reaches `local-r44`, preserves the canonical state hash and
   completes with two bound operations. Recovery cluster 36/36, repository
   typecheck and quiet ESLint pass.
+- `7c9e7e6ea` binds `cut_section` to the existing pure
+  `timeline-range-cut.ts#cutTimelineRange` owner rather than a dummy session.
+  It enforces project/proposal revision, range, evidence and constraint shape;
+  returns coordinate-transform and split-child evidence; issues a hash-bound
+  proposal-local writer revision; and deterministically replays a committed
+  cut in a fresh owner before a suffix cut. Canonical state stays unchanged.
+  The slice also fixes five canonical cut paths that emitted explicit
+  `keyframeTracks: undefined`, which deterministic proposal state correctly
+  rejected. Concrete-owner/cut regressions pass 21/21; full typecheck and quiet
+  ESLint pass.
 
 Open work:
 
 - remaining artifact resolution for scopes, locks, approvals, reference media,
   runtime budget and rendered proof;
-- bind concrete certified/pure operator owners to the proposal clone without
-  introducing another operation registry or project authority;
+- expand the now-proven `cut_section` bridge to other certified/pure operator
+  owners without introducing another operation registry or project authority;
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
@@ -278,6 +288,11 @@ research-only state-restoration claim. They do not provide live Atlas/QStash,
 authenticated ingress, a certified production operator owner, paid-provider
 resume, canonical apply/reload or rendered acceptance.
 
+Commit `7c9e7e6ea` adds the first concrete owner to that recovered proposal:
+`cut_section` delegates to the canonical pure range-cut owner, not a fixture or
+second timeline. This is limited research proof for one operation; it is not
+family certification, rendered proof or a canonical apply path.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -303,15 +318,19 @@ resume, canonical apply/reload or rendered acceptance.
    `9f955033e`:** deterministically recover the exact isolated proposal state
    across process loss and reject missing, altered or unowned recovery before
    inference.
-9. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+9. **First concrete owner complete at `7c9e7e6ea`:** execute and replay the
+   canonical `cutTimelineRange` owner on the recovered clone, reject forged
+   revisions/replay and keep canonical ProjectService state unchanged. Expand
+   other families and rendered proof separately.
+10. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
    authority.
-10. Only after fresh zero-inference preflight and explicit spend approval:
+11. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `9f955033e` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `7c9e7e6ea` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
