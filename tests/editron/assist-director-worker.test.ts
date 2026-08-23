@@ -4,9 +4,10 @@
  * an assist project reaches ready_for_chat and the Director NEVER runs, while
  * auto is unchanged.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  verifySignatureAppRouter: vi.fn((handler: any) => handler),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
   findOne: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   recordProjectOutcome: vi.fn(async () => ({ recorded: true })),
 }));
 
-vi.mock('@upstash/qstash/nextjs', () => ({ verifySignatureAppRouter: (h: unknown) => h }));
+vi.mock('@upstash/qstash/nextjs', () => ({ verifySignatureAppRouter: mocks.verifySignatureAppRouter }));
 vi.mock('@/lib/editron/db/mongodb', () => ({
   getDatabase: vi.fn(async () => ({ collection: () => ({ findOneAndUpdate: mocks.findOneAndUpdate, updateOne: mocks.updateOne, findOne: mocks.findOne }) })),
 }));
@@ -35,7 +36,37 @@ beforeEach(() => {
   mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   mocks.executeDirectorPlan.mockResolvedValue({ actionsExecuted: 3, decisionAuthority: {} });
   mocks.recordProjectOutcome.mockResolvedValue({ recorded: true });
-  delete process.env.QSTASH_CURRENT_SIGNING_KEY; // POST = handler directly
+  mocks.verifySignatureAppRouter.mockImplementation((handler: any) => handler);
+  vi.stubEnv('QSTASH_CURRENT_SIGNING_KEY', 'current-signing-key');
+  vi.stubEnv('QSTASH_NEXT_SIGNING_KEY', 'next-signing-key');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe('director worker QStash boundary', () => {
+  it.each([
+    ['QSTASH_CURRENT_SIGNING_KEY', ''],
+    ['QSTASH_NEXT_SIGNING_KEY', '   '],
+  ])('fails closed with no project mutation when %s is unavailable', async (missingKey, value) => {
+    vi.stubEnv(missingKey, value);
+
+    const response = await POST(request({ projectId: 'p1', userId: 'u1', profileId: 'A-01' }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: {
+        code: 'INTERNAL_WORKER_AUTH_NOT_CONFIGURED',
+        routeId: 'director',
+      },
+    });
+    expect(mocks.verifySignatureAppRouter).not.toHaveBeenCalled();
+    expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+  });
 });
 
 describe('director worker assist guard', () => {
