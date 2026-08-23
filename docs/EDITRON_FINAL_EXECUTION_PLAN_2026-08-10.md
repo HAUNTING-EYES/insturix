@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `9cf3cde0f` on
+programme code checkpoint represented by this ledger is `8a2f4d535` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 9cf3cde0f. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 8a2f4d535. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1351,12 +1351,18 @@ intent is conservatively charged and durably converted to an attempt before
 retry; stale ProjectService revisions fail before reconciliation or invoke;
 and the same logic survives a crash after an earlier accounted attempt. The
 focused recovery suite passes 20/20, with repository typecheck and quiet
-ESLint clean. This remains opt-in research plumbing: the product Plan lifecycle
-does not yet supply the durable callbacks, fresh provider execution remains
-disabled there, and automatic retry is not authorised. Next wire both attempt
-phases through the store-neutral Plan lifecycle, add truthful native fresh
-execution/proof, then run authenticated non-production QStash/Atlas recovery
-with zero inference.
+ESLint clean. Commit 8a2f4d535 then closes the product callback seam without a
+second store or lifecycle: the shared resumed core requires both attempt phases
+when invoked by the Plan owner, and the existing leased Plan resume-state CAS
+persists the pending dispatch intent before provider invocation and the
+reconciled attempt afterward. The Plan integration test proves sequence 1 is
+the pending intent, sequence 2 contains the reconciled 429 attempt with no
+pending intent, and an incompatible runtime guard dead-letters before invoke.
+The focused Plan/core/worker suite passes 25/25, with repository typecheck and
+quiet ESLint clean. Fresh provider execution remains disabled and automatic
+retry is still not authorised. Next add truthful native fresh execution/proof,
+then run zero-inference crash/redelivery and authenticated non-production
+QStash/Atlas recovery.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -4750,7 +4756,7 @@ built around it.
 
 **Durable provider-dispatch checkpoint (2026-08-23):** commits
 `f57d0cb1c`, `88114ec5a`, `55b06b9e8`, `5f2c3b1f9`, `7cc90f161`,
-`da252954b` and `9cf3cde0f` supersede older plan
+`da252954b`, `9cf3cde0f` and `8a2f4d535` supersede older plan
 wording that listed all failed-attempt accounting as absent. The current
 research episode core can hash-bind a provider request/result, conservatively
 charge an unknown transport outcome, persist the attempt and runtime budget in
@@ -4761,11 +4767,13 @@ intent before network invocation. On restart, an unresolved intent is charged
 at its frozen conservative reservation and committed as an attempt before any
 retry; exact intent/request/attempt-chain and unchanged project revision are
 mandatory. The focused restart/adversarial suite passes 20/20; repository
-typecheck and quiet ESLint pass. This is **partial durable retry groundwork**,
-not automatic retry authorization: the durable callback is an owner port whose
-real storage semantics remain adapter-owned, and the product Plan lifecycle
-does not yet pass either dispatch/attempt callback. The next bounded reliability
-order is therefore: wire both phases through the store-neutral Plan lifecycle,
+typecheck and quiet ESLint pass. Commit `8a2f4d535` wires both callbacks through
+the shared resumed core and the product Plan worker's existing leased resume
+CAS. Its 429 integration proves pending intent before invocation and a separate
+reconciled-attempt checkpoint afterward; an incompatible guard stops before
+invocation. The focused Plan/core/worker suite passes 25/25 with full typecheck
+and quiet ESLint. This is **partial durable retry groundwork**, not automatic
+retry authorization. The next bounded reliability order is therefore:
 truthful fresh execution plus native fresh V2 proof, zero-inference crash/
 redelivery tests, authenticated non-production QStash/Atlas exercise, and only
 then a fresh paid preflight with explicit approval. Canonical project mutation
