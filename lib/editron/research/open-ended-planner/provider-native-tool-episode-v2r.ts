@@ -514,7 +514,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         selectedOperatorIds, settlement,
       );
     }
-    await commitProviderAttempt({
+    const attemptReceipt = await commitProviderAttempt({
       turn: pendingProviderDispatchIntent.dispatch.turn,
       requestHash: pendingProviderDispatchIntent.dispatch.requestHash,
       maxOutputTokens: pendingProviderDispatchIntent.dispatch.maxOutputTokens,
@@ -533,6 +533,25 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       accountingAudit: settlement.audit,
       dispatchIntent: pendingProviderDispatchIntent,
     });
+    turns.push({
+      turn: pendingProviderDispatchIntent.dispatch.turn,
+      requestHash: pendingProviderDispatchIntent.dispatch.requestHash,
+      providerAttemptReceipt: attemptReceipt,
+      runtimeGuardAudit: [
+        ...pendingProviderDispatchIntent.reservation.runtimeGuardAudit,
+        settlement.audit,
+      ],
+    });
+    // Accounting an unknown delivery is not authorization to repeat it. A
+    // separate, explicit retry decision may start a later attempt; this
+    // recovered episode must stop without invoking the provider again.
+    return finalize(input, toolSet.toolSetSha256, contextSha256,
+      turns, selectedOperatorIds, {
+        disposition: 'PROVIDER_ERROR',
+        reasonCodes: ['PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT'],
+        evidenceIds: [],
+        summary: 'The provider result is unknown after process exit; automatic retry is not authorized.',
+      });
   }
 
   for (let turn = resumed?.nextTurn ?? 1;

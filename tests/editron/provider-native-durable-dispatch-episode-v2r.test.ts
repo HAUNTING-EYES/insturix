@@ -32,7 +32,7 @@ const CONTEXT: ProviderNativeEpisodeContextV2R = {
 };
 
 describe('provider-native durable dispatch episode', () => {
-  it('recovers an unresolved write-ahead intent before retrying', async () => {
+  it('accounts an unresolved write-ahead intent without retrying', async () => {
     const firstInvoke = vi.fn(async () => finishResponse());
     const pending = await capturePendingCheckpoint(firstInvoke);
     expect(firstInvoke).not.toHaveBeenCalled();
@@ -49,19 +49,22 @@ describe('provider-native durable dispatch episode', () => {
         expect(dispatchIntent?.deliveryState).toBe('AUTHORIZED_NOT_PROVEN_DISPATCHED');
         order.push('reconcile-intent');
       },
-      onProviderDispatchCommitted: async () => { order.push('commit-retry-intent'); },
+      onProviderDispatchCommitted: async () => { order.push('unexpected-retry-intent'); },
       invoke: async (request) => {
         expect(request.body.max_output_tokens).toBe(88);
-        order.push('invoke-retry');
+        order.push('unexpected-retry-invoke');
         return finishResponse();
       },
       executeIsolated: mustNotExecute(),
     });
-    expect(order).toEqual(['reconcile-intent', 'commit-retry-intent', 'invoke-retry']);
-    expect(completed.terminal.disposition).toBe('READY_FOR_PROOF');
+    expect(order).toEqual(['reconcile-intent']);
+    expect(completed.terminal).toMatchObject({
+      disposition: 'PROVIDER_ERROR',
+      reasonCodes: ['PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT'],
+    });
     expect(resumedGuard.receipt(completed.terminal.disposition).usage)
-      .toMatchObject({ providerTurns: 2, conservativeReservedOutputTokens: 512,
-        outputTokens: 532, pendingRequest: null });
+      .toMatchObject({ providerTurns: 1, conservativeReservedOutputTokens: 512,
+        outputTokens: 512, pendingRequest: null });
   });
 
   it('rejects a stale project before reconciling or retrying', async () => {
@@ -119,17 +122,18 @@ describe('provider-native durable dispatch episode', () => {
       resumeCurrentProjectRevision: 'revision-1',
       now: () => '2026-08-23T14:12:00.000Z',
       onProviderAttemptCommitted: async () => { order.push('reconcile-second-intent'); },
-      onProviderDispatchCommitted: async () => { order.push('commit-third-intent'); },
-      invoke: async () => { order.push('invoke-third-attempt'); return finishResponse(); },
+      onProviderDispatchCommitted: async () => { order.push('unexpected-third-intent'); },
+      invoke: async () => { order.push('unexpected-third-invoke'); return finishResponse(); },
       executeIsolated: mustNotExecute(),
     });
-    expect(order).toEqual([
-      'reconcile-second-intent', 'commit-third-intent', 'invoke-third-attempt',
-    ]);
-    expect(completed.terminal.disposition).toBe('READY_FOR_PROOF');
+    expect(order).toEqual(['reconcile-second-intent']);
+    expect(completed.terminal).toMatchObject({
+      disposition: 'PROVIDER_ERROR',
+      reasonCodes: ['PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT'],
+    });
     expect(guard.receipt(completed.terminal.disposition).usage).toMatchObject({
-      providerTurns: 3, conservativeReservedOutputTokens: 1_024,
-      outputTokens: 1_044, pendingRequest: null,
+      providerTurns: 2, conservativeReservedOutputTokens: 1_024,
+      outputTokens: 1_024, pendingRequest: null,
     });
   });
 });

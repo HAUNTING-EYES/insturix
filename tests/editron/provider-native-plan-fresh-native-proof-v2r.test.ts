@@ -23,6 +23,8 @@ import {
 } from '@/lib/editron/research/open-ended-planner/provider-native-plan-execution-envelope-v2r';
 import { createProviderNativePlanExecutionOwnerV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-plan-resumed-execution-owner-v2r';
+import { decodeProviderNativeCheckpointStateV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-checkpoint-state-codec-v2r';
 import { createProviderNativeProjectServiceCloneOwnerV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r';
 import { createProviderNativeProjectServiceCutOwnerV2R }
@@ -37,6 +39,8 @@ import { hashEditronCanonicalJsonV1 }
   from '@/lib/editron/services/canonical-json-v1';
 import { createOrGetEditorialPlanDurableJobV1 }
   from '@/lib/editron/services/editorial-plan-durable-job-binding-v1';
+import { resolveEditorialPlanDurableJobV1 }
+  from '@/lib/editron/services/editorial-plan-durable-job-resolver-v1';
 import { runEditorialPlanDurableWorkerV1 }
   from '@/lib/editron/services/editorial-plan-durable-worker-v1';
 import {
@@ -47,6 +51,10 @@ import { createEditorialPlanRevisionV1, type EditorialPlanArtifactRefV1 }
   from '@/lib/editron/services/editorial-plan-v1';
 import type { Phase0RenderedStillEvidence }
   from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import {
+  DURABLE_WORKFLOW_JOB_LEASE_MS_V1,
+  hashDurableWorkflowJobJsonV1,
+} from '@/lib/editron/services/durable-workflow-job-v1';
 import type { Project, ProjectRevisionV1 }
   from '@/lib/editron/services/project-service';
 
@@ -142,6 +150,210 @@ describe('provider-native fresh Plan to ProjectService proof integration V2R', (
           { proofId: `isolated_outcome_proof_${CONTEXT.episodeId}`, disposition: 'PASS' },
         ],
       },
+    });
+  });
+
+  it('accounts a crash after dispatch intent without automatically invoking again', async () => {
+    const canonical = project();
+    const canonicalBefore = hashCanonicalJsonV1(projectProposalStateV2R(canonical));
+    const render = vi.fn(async (_project, options) => renderedEvidence(
+      options.requestedSampleFrames ?? [],
+    ));
+    const setup = await prepared({
+      projectClone: createProviderNativeProjectServiceCloneOwnerV2R({
+        projectService: { loadProjectForMutation: async () => ({
+          project: structuredClone(canonical), revision: REVISION,
+        }) },
+        isolatedOperatorOwner: createProviderNativeProjectServiceCutOwnerV2R(),
+        isolatedOutcomeProofOwner: createProviderNativeProjectServiceCutProofOwnerV2R({
+          buildRenderedEvidence: render,
+          now: () => '2026-08-23T14:05:00.000Z',
+        }),
+      }),
+      responses: [cutResponse(), finishResponse()],
+    });
+    const firstClaim = await setup.jobStore.claim({
+      jobId: setup.jobId, workerId: 'crash-before-provider-worker', now: START,
+    });
+    if (firstClaim.kind !== 'claimed') throw new Error('TEST_INITIAL_CLAIM_REQUIRED');
+    const resolved = await resolveEditorialPlanDurableJobV1({
+      planStore: setup.planStore(), job: firstClaim.job,
+    });
+    const firstOwner = createProviderNativePlanExecutionOwnerV2R({
+      artifactOwners: setup.artifactOwners,
+    });
+    firstOwner.assertDefinitionSupported(resolved);
+
+    await expect(firstOwner.execute({
+      ...resolved,
+      job: firstClaim.job,
+      lifecycle: {
+        heartbeat: async () => undefined,
+        persistResumeState: async (state) => {
+          await setup.jobStore.saveResumeState({
+            jobId: setup.jobId,
+            leaseToken: firstClaim.leaseToken,
+            expectedSequence: 0,
+            state: {
+              schemaId: state.schemaId,
+              stateSha256: hashDurableWorkflowJobJsonV1(state.payload),
+              payload: state.payload,
+            },
+            now: START,
+          });
+          throw new Error('EXPECTED_PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT');
+        },
+      },
+    })).rejects.toThrow('EXPECTED_PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT');
+    expect(setup.invoke).not.toHaveBeenCalled();
+
+    const interrupted = await setup.jobStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-a', userId: 'user-a',
+    });
+    const pending = decodeProviderNativeCheckpointStateV2R({
+      state: interrupted?.resumeState ?? null,
+      projectId: 'project-a',
+    });
+    expect(pending.checkpoint).toHaveProperty('pendingProviderDispatchIntent');
+
+    const reclaimedAt = new Date(
+      START.getTime() + DURABLE_WORKFLOW_JOB_LEASE_MS_V1 + 1,
+    );
+    const result = await runEditorialPlanDurableWorkerV1({
+      jobStore: setup.jobStore,
+      planStore: setup.planStore(),
+      jobId: setup.jobId,
+      workerId: 'recovered-without-implicit-retry-worker',
+      executionOwner: createProviderNativePlanExecutionOwnerV2R({
+        artifactOwners: setup.artifactOwners,
+      }),
+      clock: () => reclaimedAt,
+    });
+
+    expect(result).toMatchObject({ kind: 'completed', disposition: 'UNVERIFIABLE' });
+    expect(setup.invoke).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(hashCanonicalJsonV1(projectProposalStateV2R(canonical))).toBe(canonicalBefore);
+    const persisted = await setup.jobStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-a', userId: 'user-a',
+    });
+    const recovered = decodeProviderNativeCheckpointStateV2R({
+      state: persisted?.resumeState ?? null,
+      projectId: 'project-a',
+    });
+    expect(recovered.checkpoint).not.toHaveProperty('pendingProviderDispatchIntent');
+    expect(recovered.checkpoint).toMatchObject({
+      accountedProviderAttempts: [{
+        result: {
+          kind: 'TRANSPORT_RESULT_UNAVAILABLE',
+          transportErrorCode: 'PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT',
+        },
+      }],
+    });
+    expect(persisted).toMatchObject({
+      status: 'completed',
+      terminalReceipt: {
+        disposition: 'UNVERIFIABLE',
+        proofReferences: [{
+          proofId: `provider_native_resumed_${CONTEXT.episodeId}`,
+          disposition: 'UNVERIFIABLE',
+        }, {
+          proofId: `projectservice_isolated_proposal_${CONTEXT.episodeId}`,
+          disposition: 'PASS',
+        }],
+      },
+    });
+  });
+
+  it('cancels a crashed pending dispatch before recovery can resolve or invoke it', async () => {
+    const canonical = project();
+    const canonicalBefore = hashCanonicalJsonV1(projectProposalStateV2R(canonical));
+    const render = vi.fn(async (_project, options) => renderedEvidence(
+      options.requestedSampleFrames ?? [],
+    ));
+    const setup = await prepared({
+      projectClone: createProviderNativeProjectServiceCloneOwnerV2R({
+        projectService: { loadProjectForMutation: async () => ({
+          project: structuredClone(canonical), revision: REVISION,
+        }) },
+        isolatedOperatorOwner: createProviderNativeProjectServiceCutOwnerV2R(),
+        isolatedOutcomeProofOwner: createProviderNativeProjectServiceCutProofOwnerV2R({
+          buildRenderedEvidence: render,
+          now: () => '2026-08-23T14:05:00.000Z',
+        }),
+      }),
+      responses: [cutResponse(), finishResponse()],
+    });
+    const firstClaim = await setup.jobStore.claim({
+      jobId: setup.jobId, workerId: 'crash-before-cancel-worker', now: START,
+    });
+    if (firstClaim.kind !== 'claimed') throw new Error('TEST_INITIAL_CLAIM_REQUIRED');
+    const resolved = await resolveEditorialPlanDurableJobV1({
+      planStore: setup.planStore(), job: firstClaim.job,
+    });
+    const firstOwner = createProviderNativePlanExecutionOwnerV2R({
+      artifactOwners: setup.artifactOwners,
+    });
+
+    await expect(firstOwner.execute({
+      ...resolved,
+      job: firstClaim.job,
+      lifecycle: {
+        heartbeat: async () => undefined,
+        persistResumeState: async (state) => {
+          await setup.jobStore.saveResumeState({
+            jobId: setup.jobId,
+            leaseToken: firstClaim.leaseToken,
+            expectedSequence: 0,
+            state: {
+              schemaId: state.schemaId,
+              stateSha256: hashDurableWorkflowJobJsonV1(state.payload),
+              payload: state.payload,
+            },
+            now: START,
+          });
+          throw new Error('EXPECTED_PROCESS_EXIT_BEFORE_CANCEL');
+        },
+      },
+    })).rejects.toThrow('EXPECTED_PROCESS_EXIT_BEFORE_CANCEL');
+    await setup.jobStore.requestCancellation({
+      jobId: setup.jobId,
+      tenantId: 'tenant-a',
+      userId: 'user-a',
+      requestedBy: 'user-a',
+      reason: 'Stop the pending provider episode.',
+      now: new Date(START.getTime() + 1),
+    });
+
+    const reclaimedAt = new Date(
+      START.getTime() + DURABLE_WORKFLOW_JOB_LEASE_MS_V1 + 1,
+    );
+    const result = await runEditorialPlanDurableWorkerV1({
+      jobStore: setup.jobStore,
+      planStore: setup.planStore(),
+      jobId: setup.jobId,
+      workerId: 'cancel-pending-dispatch-worker',
+      executionOwner: createProviderNativePlanExecutionOwnerV2R({
+        artifactOwners: setup.artifactOwners,
+      }),
+      clock: () => reclaimedAt,
+    });
+
+    expect(result).toEqual({ kind: 'cancelled', jobId: setup.jobId });
+    expect(setup.invoke).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(hashCanonicalJsonV1(projectProposalStateV2R(canonical))).toBe(canonicalBefore);
+    const persisted = await setup.jobStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-a', userId: 'user-a',
+    });
+    const pending = decodeProviderNativeCheckpointStateV2R({
+      state: persisted?.resumeState ?? null,
+      projectId: 'project-a',
+    });
+    expect(pending.checkpoint).toHaveProperty('pendingProviderDispatchIntent');
+    expect(persisted).toMatchObject({
+      status: 'cancelled',
+      terminalReceipt: { disposition: 'CANCELLED' },
     });
   });
 });
