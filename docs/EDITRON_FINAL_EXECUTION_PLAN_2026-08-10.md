@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `eaef92685` on
+programme code checkpoint represented by this ledger is `7fa11669b` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: eaef92685. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 7fa11669b. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1577,13 +1577,20 @@ carry the exact envelope/content identity required by issuance, the main
 analysis worker has not yet been proven to consume the canonicalized identity,
 and no live Mongo/R2/GCS path was exercised.
 
+Commit 7fa11669b closes the next remote-source dataflow gap. After successful
+canonicalization, the video-analysis worker now carries the returned canonical
+asset ID and URL through cache lookup, frame sampling, GLM analysis and legacy
+EditDNA extraction. Canonicalization failure exits the reference path and is
+recorded as `failed`; the former floating-URL fallback is removed. The focused
+reference cluster passes 20/20 with repository typecheck and quiet ESLint. This
+does not promote asset/imported references, and it does not prove live storage.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Extend the `eaef92685` wiring from remote URLs and derived frames to existing
    uploaded/YouTube/Instagram asset sources through the same `mediaAssets`
-   owner. Then make the main analysis worker use the canonicalizer's returned
-   asset ID/URL for sampling. Do not add another source registry or silently
-   synthesize a source envelope.
+   owner. The remote worker now uses the canonical result at `7fa11669b`; do not
+   add another source registry or silently synthesize an asset envelope.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof

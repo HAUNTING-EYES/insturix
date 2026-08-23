@@ -169,6 +169,12 @@ uploaded and imported asset sources still need an exact promotion path, the
 main analysis worker has not yet been proven to sample the returned canonical
 identity, and no live object/database path was exercised.
 
+Commit `7fa11669b` then makes the main video-analysis worker use the returned
+remote canonical ID/URL for cache, frame sampling, GLM analysis and legacy
+EditDNA extraction. Canonicalization failure is recorded and the URL fallback
+is removed. Focused 20/20 plus repository typecheck and quiet ESLint pass.
+Existing uploaded/imported asset promotion and live storage proof remain open.
+
 Commit `607212e02` implements the three read-side canonical-media ports behind
 the existing `498e018e6` owner. An exact scoped binding is read from immutable
 metadata; the policy owner requires a separate hash-bound, unexpired and
@@ -855,11 +861,12 @@ before advancing. This does not add a secret signer or second revision owner.
     one settlement; every terminal worker path and terminal redelivery invokes
     it. A failed post-job settlement cannot rerun the episode. Live wallet and
     transport proof remains part of step 46.
-44. **Remote-source and frame caller wiring complete at `eaef92685`:** the
+44. **Remote-source and frame caller wiring complete at `eaef92685` and
+    downstream identity fixed at `7fa11669b`:** the
     source canonicalizer and frame sampler now use the existing `d42c1af5b`
-    `mediaAssets` owner and content-address exact bytes before returning. Next,
-    promote existing uploaded/YouTube/Instagram asset sources through that same
-    owner and make the main analysis worker sample only the canonical result.
+    `mediaAssets` owner and content-address exact bytes before returning; the
+    main worker carries that result throughout. Next, promote existing uploaded/
+    YouTube/Instagram asset sources through that same owner.
 45. Compose the canonical-media ports, CreditsService guard, route transport,
     ProjectService isolated clone, existing native operator dispatcher and
     proof owner behind the existing definition-bound execution owner. Do not
@@ -872,7 +879,7 @@ before advancing. This does not add a secret signer or second revision owner.
 
 ## Evidence basis
 
-- Repository code through `eaef92685` and orchestration-decision commit
+- Repository code through `7fa11669b` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

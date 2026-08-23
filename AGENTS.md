@@ -312,12 +312,12 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commit `eaef92685` wires the exact `d42c1af5b` registration owner into the
-   remote-URL source canonicalizer and derived-frame sampler with content-
-   addressed object identities. Next, canonicalize or safely promote existing
-   uploaded/YouTube/Instagram asset sources through that same owner and make
-   the main analysis worker sample only the returned canonical identity. Do not
-   claim all reference materializers are wired until those paths pass.
+3. Commits `eaef92685` and `7fa11669b` wire exact remote-source/frame
+   registration and make the main analysis worker carry the returned canonical
+   ID/URL through cache, sampling, analysis and legacy extraction without URL
+   fallback. Next, canonicalize or safely promote existing uploaded/YouTube/
+   Instagram asset sources through that same owner. Do not claim all reference
+   materializers are wired until those paths pass.
 4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed
