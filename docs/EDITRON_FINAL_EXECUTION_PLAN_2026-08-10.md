@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `de472b32b` on
+programme code checkpoint represented by this ledger is `6d8fdf1ea` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: de472b32b. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 6d8fdf1ea. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1416,6 +1416,11 @@ approval, durable-job execution evidence and the existing job budget artifact
 identity. The 8 focused and 76 adjacent tests pass with full typecheck and
 quiet ESLint. It does not move credits: CreditsService still lacks the atomic
 hold plus partial-settlement ledger and durable locator required by the port.
+Commit 6d8fdf1ea corrects that unwired contract before persistence: customer
+pricing now hash-binds the existing `main` credit pool, revision-1 product-
+budget artifact/guard identifiers advance to revision 2, and an altered pool
+fails reconstruction. No revision-1 fallback or live artifact migration is
+needed because no product route or stored product reservation exists.
 The next gate is those concrete canonical-media ports plus that concrete
 CreditsService-owned reservation/settlement implementation—not the inline
 research reference artifact or sealed-holdout controller—followed by their
@@ -3176,7 +3181,7 @@ research recovery proof. It does not select or implement the product
 Commit `0c94bc059` later adds that non-wired product plan/definition database;
 it still does not make the worker reachable.
 
-**Stage 2/2.5 ingress correction (current at `de472b32b`):** the table and
+**Stage 2/2.5 ingress correction (current at `6d8fdf1ea`):** the table and
 chronological paragraphs above that say all authenticated dispatch/worker
 adapters are missing are superseded. Commit `0f54a0a2a` now binds an
 authenticated actor to the exact accepted Plan node, publishes only the opaque
