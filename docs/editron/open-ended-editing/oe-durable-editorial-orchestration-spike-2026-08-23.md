@@ -1077,10 +1077,17 @@ before advancing. This does not add a secret signer or second revision owner.
     a committed pinned historical-base input. Do not patch or rerun V3R4.
     Paid inference under a successor still requires its own fresh
     zero-inference preflight and explicit spend approval.
+60. **Long-form PlanService compilation holdout complete at `7319da514`:** one
+    no-inference 4.5-hour evidence directory and model-proposal contract compile
+    into the existing immutable `EditorialPlanV1` owner. Nine adversarial cases
+    reject invented scope/range/evidence/budget identities, cycles, shallow
+    decomposition, false readiness, omitted requirements/approvals and unsafe
+    post-picture ordering. This is structural planning evidence only; no model,
+    editor, renderer, project mutation or product store was exercised.
 
 ## Evidence basis
 
-- Repository code through `3703c0815` and orchestration-decision commit
+- Repository code through `7319da514` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

@@ -12,7 +12,8 @@ The executed current-context identity is
 `EDITRON_OE_SEALED_HOLDOUT_GENERALISATION_COHORT_V4R_1`:
 
 - base V3R2 manifest: `a468c2f4...`;
-- CAP-2A V6 manifest: `2549623e...`;
+- historical CAP-2A V6 manifest used by V4R: `2549623e...`;
+- current CAP-2A V7 manifest: `939ec670...` at `3703c0815`;
 - historical interpretation receipt: `20b5e1c2...` (96 rows);
 - H03-C1 V3R4 receipt: `47a57bf2...` (18 separate rows);
 - proof-eligibility fix: commit `ccbe5fc2d`;
@@ -87,15 +88,16 @@ Stage 2.5 remains `MODIFY_AND_PROCEED_RESEARCH`. The current run supports
 continuing the orchestration bet; it does not show reliable unattended editing,
 authorise production mutation or establish a provider rank.
 
-1. Force native, generated and hybrid alternatives on held-out targets.
-2. Exercise dependency/invalidation shapes beyond beat-sync then shake.
-3. Test stale edits, overlap conflicts, safe disjoint rebase and locked ranges.
-4. Resume mid-episode after context compaction without losing plan or result IDs.
-5. Run long-form sequence/range planning under bounded evidence/context limits.
-6. Close HREF-01 with the sole project owner's usable review receipt. The
-   complete source, one requested 180-frame dense motion window and separate
-   WAV already exist under public pack `4431c08b...`; no further technical
-   materialization is pending. Independent agreement stays `UNVERIFIABLE`
-   without a real second reviewer.
-7. Collect blind-editor quality, correction-time, latency and cost receipts,
-   then publish the frozen `GO`, `MODIFY` or `NO-GO` decision.
+| Gate | Verified current truth | What still blocks closure |
+| --- | --- | --- |
+| Forced route alternatives | DEV-02 has one real native alternative and one real generated-island/native-continuation hybrid at the same decoded scope. | No broader held-out set, full-route generated comparison, correction-time receipt or editor-quality conclusion. |
+| Dependency/invalidation diversity | Deterministic scheduler tests cover tracking fork/join, hazards, writer revision origins, stability and stale proof. V3R3 adds one provider six-operation fork/join chain. | Models have not been tested on another genuinely new dependency shape. |
+| User edits and locks | Commit `fd2eabcdb` passes nine deterministic stale/disjoint/transformed/conflict/lock/evidence cases. | Active ProjectService receipts do not emit those regions/transforms/locks; no provider episode or canonical apply/reload used them. |
+| Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. | No newly paid resumed inference and no canonical ProjectService apply/reload. |
+| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory, proposal contract and deterministic compiler into existing PlanService; 9/9 adversarial tests pass with zero inference/effects. | No model proposal, editorial-quality review, real-media range accuracy, context-limit curve, latency or cost receipt. |
+| HREF-01 | Full source, one requested 180-frame dense motion window and WAV exist under pack `4431c08b...`. | Sole project-owner review receipt is missing; independent agreement remains `UNVERIFIABLE` without a real second reviewer. |
+| Final quality/decision | Prior technical and user ordinal evidence remains useful but bounded. | Obtain hash-bound blind quality, correction-time, latency and cost receipts, then publish frozen `GO`, `MODIFY` or `NO-GO`. |
+
+The next executable slice is the immutable provider identity and **zero-
+inference** request/token/spend preflight for the long-form proposal holdout.
+No provider call is authorised by this matrix update.
