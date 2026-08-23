@@ -1280,18 +1280,20 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `be8e12871` on
+programme code checkpoint represented by this ledger is `ee650e18b` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: be8e12871. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: ee650e18b. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
 and one clone-supplied current proposal revision plus deterministic concrete-
 owner issuer are implemented with zero-network tests. The cut owner no longer
-keeps a private revision map. Future injected owners are not yet
-cryptographically forced to use the shared issuer. No live Remotion execution
+keeps a private revision map. The clone now independently derives every
+admitted writer revision from exact scope, base/previous revision, call and
+before/after state, rejecting missing proof, state drift and copied/forged
+revision material before the working revision advances. No live Remotion execution
 or production apply is proven. The exact cut-then-focal-scale state chain now
 has one versioned multi-operation outcome policy, two separate baseline-bound
 render requests and required per-frame pixel inspection; zero-network tests
@@ -1301,8 +1303,7 @@ the isolated proposal, replays only the committed cut, consumes the writer-
 issued cut revision through an opaque result reference, executes only the focal
 mutation and preserves canonical state. Its injected renderer intentionally
 returns skipped evidence, so rendered obligations remain UNVERIFIABLE. Next
-enforce the clone-supplied issuer contract for every admitted concrete owner,
-then exercise authenticated non-production Atlas/QStash recovery with zero
+exercise authenticated non-production Atlas/QStash recovery with zero
 inference. Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -2060,7 +2061,25 @@ obligations remain `UNVERIFIABLE`. The neighboring durability/owner suite passes
 This closes serialized fresh-process replay and suffix-only execution for these
 two concrete owners only. It does not prove live Atlas, QStash delivery,
 authenticated ingress, resumed paid inference, live rendered acceptance,
-canonical apply/reload or arbitrary-owner issuer enforcement.
+or canonical apply/reload.
+
+**Clone-enforced writer-revision origin checkpoint (2026-08-23):** commit
+`ee650e18b` closes the remaining convention-only revision seam. The clone now
+independently recomputes the sole deterministic writer revision from the
+receipt's declared writer authority plus the exact tenant/user/project,
+canonical base revision, previous proposal revision, operator/turn/arguments
+and observed before/after state hashes. It rejects a missing writer proof,
+proof/state mismatch, a valid-looking revision copied from another call and a
+forged revision before advancing the isolated working revision, rolling the
+speculative clone state back on execution failure. The older synthetic
+audio/beat-sync/shake process fixture was reissued with issuer-conformant
+receipts rather than exempted. The neighboring owner/durable/process suite
+passes 44/44; repository typecheck and quiet ESLint pass.
+
+This validates issuer-conformant output material for every owner admitted by
+the clone; it does not create an owner registry, secret signing authority or
+second revision chain. Authenticated ingress, live Atlas/QStash recovery, live
+rendered acceptance and canonical apply/reload remain unproved.
 
 This is `CONCRETE_OWNER_IMPLEMENTED_ZERO_NETWORK_TESTED`. The current V2R
 `set_keyframes` dossier still omits the real product tool's general `property`
@@ -4612,7 +4631,7 @@ built around it.
     `81ce63d9b` adds the transport-neutral zero-inference recovery core, and
     `fee52df57` adds strict owner-coordinated artifact validation. Two bounded
     native owner adapters and their serialized separate-process recovery now
-    exist at `be8e12871`; additional owner coverage, issuer enforcement,
+    exist at `be8e12871`; additional owner coverage,
     authenticated ingress/dispatch, paid resumed inference and live-store
     recovery remain before
     long-form/range trials. Product
