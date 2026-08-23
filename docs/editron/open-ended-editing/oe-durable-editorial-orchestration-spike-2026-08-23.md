@@ -779,26 +779,36 @@ before advancing. This does not add a secret signer or second revision owner.
     downstream owners separately for each already-validated Plan route and
     stop forged definitions before the factory runs. This is not the product
     root.
-40. Build one reusable product runtime-budget guard factory over the existing
-    CreditsService authorization/reservation/settlement owner. Do not copy or
-    promote the sealed-holdout controller as product authority.
-41. Connect the reference materializer to the existing `mediaAssets` owner so
+40. **Hidden durable HTTP retries removed at `7b81f6006`:** one durable
+    provider attempt now owns one network request; 429/5xx retry requires a new
+    separately authorized attempt rather than being hidden in transport.
+41. Extract one reusable provider runtime-accounting core, then build the
+    product runtime-budget guard over the existing CreditsService authorization
+    and reservation. Do not copy or promote the sealed-holdout controller as
+    product authority.
+42. Add a route-scoped product token-count owner whose evidence binds the exact
+    serialized request. The product path currently has no implementation of
+    this required pre-dispatch input bound.
+43. Add one durable terminal settlement boundary so committed attempt/job
+    evidence produces exactly one actual, conservative or pre-dispatch-cancel
+    CreditsService settlement. The current worker does not call `settle`.
+44. Connect the reference materializer to the existing `mediaAssets` owner so
     source and derived artifacts have the content hash, byte length, storage
     identity and canonical envelope required by the issuance transaction. The
     current frame sampler uploads object bytes without these database records.
-42. Compose the canonical-media ports, CreditsService guard, route transport,
+45. Compose the canonical-media ports, CreditsService guard, route transport,
     ProjectService isolated clone, existing native operator dispatcher and
     proof owner behind the existing definition-bound execution owner. Do not
     add a second media store, wallet writer, registry, job store, PlanService or
     project authority.
-43. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 42 exists.
-44. Only after fresh zero-inference preflight and explicit spend approval:
+46. Export authenticated routes and run the non-production QStash/Atlas
+    crash/restart/redelivery exercise only after step 45 exists.
+47. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `061fc5168` and orchestration-decision commit
+- Repository code through `7b81f6006` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

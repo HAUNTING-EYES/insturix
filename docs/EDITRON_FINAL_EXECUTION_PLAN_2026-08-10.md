@@ -1490,25 +1490,40 @@ form remains available for bounded tests. This is
 `ROUTE_SCOPED_OWNER_DERIVATION_PROVEN_NO_PRODUCT_ROOT`; it does not itself
 construct canonical media, budget, transport, ProjectService-clone or proof
 owners.
+Commit 7b81f6006 then removes a billing-policy violation from the existing
+durable transport: one durable provider attempt now performs exactly one HTTP
+request. The standalone research transport can still exercise retry behavior,
+but the Plan worker cannot hide a 429/5xx retry inside one authorization or one
+attempt receipt. Eight focused transport tests plus repository typecheck and
+quiet ESLint pass. No provider was called.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Extract or implement one reusable **product runtime-budget guard factory**
-   over the CreditsService authorization/reservation/settlement contract. The
-   only complete runtime controller today is the sealed-holdout research
-   authority and is ineligible for product reuse as-is; copying it would create
-   a second accounting authority.
-2. Make the reference materializer register every source and derived artifact
+1. Extract one reusable **provider runtime-accounting core** and implement the
+   product runtime-budget guard factory over the CreditsService authorization
+   and reservation. The only complete controller today is the sealed-holdout
+   research authority and is ineligible for product reuse as-is; copying it
+   would create a second accounting authority.
+2. Add the route-scoped product token-count owner used by that guard. It must
+   bind the exact serialized request and use the provider-specific measured or
+   conservative upper-bound policy; the current product composition has no such
+   owner.
+3. Add one durable terminal settlement boundary. It must turn committed
+   provider-attempt and workflow-job evidence into exactly one CreditsService
+   actual, conservative-maximum or pre-dispatch-cancellation settlement. The
+   current durable worker completes/dead-letters/cancels jobs but never invokes
+   the product wallet settlement port.
+4. Make the reference materializer register every source and derived artifact
    in the existing `mediaAssets` owner with content hash, byte length, storage
    identity and canonical envelope before issuance. The current reference-frame
    sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
    end to end.
-3. Compose, behind the existing definition-bound execution owner, the exact
+5. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
    owner, and durable live transport. This remains an isolated proposal path;
    it must not mutate the canonical project or create another timeline owner.
-4. Export the signed product route, then run the non-production Atlas/QStash
+6. Export the signed product route, then run the non-production Atlas/QStash
    crash/restart/redelivery exercise that proves the actual transactions and
    write-ahead recovery.
 
