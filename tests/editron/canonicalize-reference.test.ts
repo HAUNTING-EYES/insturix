@@ -56,7 +56,6 @@ function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): Canonical
       },
     }),
     readDurationMs: async () => 10_000,
-    sha256: (b: Buffer) => b.toString('hex'),
     ...overrides,
   };
 }

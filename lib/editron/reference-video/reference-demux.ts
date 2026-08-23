@@ -19,7 +19,8 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -30,11 +31,6 @@ import type {
 
 export const DEMUX_RECEIPT_VERSION = 'editron-r1-demux-receipt-v1' as const;
 export const REFERENCE_ENVELOPE_VERSION = 'editron-r1-reference-envelope-v1' as const;
-
-/** True positive: an input with a video stream always yields a re-muxed video file. */
-const DEMUX_FFMPEG_TIMEOUT_MS = 180_000; // ⚠️ INVENTED — generous upper bound; tune against real clocks
-const DEMUX_MIN_VIDEO_BYTES = 256; // ⚠️ INVENTED — an empty remux would be smaller than this
-const DEMUX_MIN_AUDIO_BYTES = 128; // ⚠️ INVENTED — silence-with-no-track edge; audio may be tiny
 
 /** AAC 192k — the same codec/bitrate the YouTube reference importer already uses. */
 const DEMUX_AUDIO_BITRATE = '192k';
@@ -50,6 +46,8 @@ export interface DemuxInput {
   sourceKind: 'asset' | 'youtube-url' | 'instagram-url' | 'remote-url';
   /** Human label for filename building. */
   sourceLabel?: string;
+  /** Product-job cancellation; no universal media-duration timeout is invented here. */
+  abortSignal?: AbortSignal;
 }
 
 export interface DemuxUploadResult {
@@ -93,33 +91,33 @@ export interface DemuxReceipt {
 export interface ReferenceDemuxDeps {
   /** Run an ffmpeg process; returns child process. Injected for tests. */
   spawnProcess?: (args: string[]) => ReturnType<typeof spawn>;
-  /** Upload a byte buffer; returns the storage key + size. Injected for tests. */
-  uploadBuffer?: (
-    file: Buffer,
+  /** Stream a local artifact through the existing upload owner. Injected for tests. */
+  uploadFile?: (
+    filePath: string,
     fileName: string,
     contentType: string,
     userId: string,
   ) => Promise<DemuxUploadResult>;
   /** Resolve the duration of the source (ms). Injected for tests. */
-  readDurationMs?: (sourcePath: string) => Promise<number | null>;
-  /** Hash override for tests. Defaults to sha256 of the buffer. */
-  sha256?: (buffer: Buffer) => string;
+  readDurationMs?: (sourcePath: string, abortSignal?: AbortSignal) => Promise<number | null>;
+  /** Optional caller policy; absence means cancellation is owned by AbortSignal. */
   timeoutMs?: number;
 }
 
 export class ReferenceDemuxError extends Error {
   constructor(
-    public readonly code: 'no_video_stream' | 'ffmpeg_failed' | 'upload_failed' | 'source_unreadable',
+    public readonly code:
+      | 'no_video_stream'
+      | 'ffmpeg_failed'
+      | 'upload_failed'
+      | 'source_unreadable'
+      | 'cancelled',
     message: string,
     public readonly diagnostics: string[] = [message],
   ) {
     super(message);
     this.name = 'ReferenceDemuxError';
   }
-}
-
-function defaultSha256(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex');
 }
 
 function realSpawn(args: string[]): ReturnType<typeof spawn> {
@@ -140,22 +138,20 @@ export async function demuxReferenceVideo(
 ): Promise<DemuxReceipt> {
   const { getFFmpegPath } = await import('@/lib/editron/services/media/ffmpeg-runtime');
   const ffmpegPath = getFFmpegPath();
-  const rawUploadBuffer = deps.uploadBuffer;
-  const uploadBuffer = (
-    file: Buffer,
+  const rawUploadFile = deps.uploadFile;
+  const uploadFile = (
+    filePath: string,
     fileName: string,
     contentType: string,
   ): Promise<DemuxUploadResult> =>
-    rawUploadBuffer
-      ? rawUploadBuffer(file, fileName, contentType, input.userId)
-      : realUploadBuffer(file, fileName, contentType, input.userId);
+    rawUploadFile
+      ? rawUploadFile(filePath, fileName, contentType, input.userId)
+      : realUploadFile(filePath, fileName, contentType, input.userId);
   const readDurationMs = deps.readDurationMs ?? probeDurationMs;
-  const sha256 = deps.sha256 ?? defaultSha256;
-  const timeoutMs = deps.timeoutMs ?? DEMUX_FFMPEG_TIMEOUT_MS;
 
-  let sourceSha256: string;
+  let sourceIdentity: Readonly<FileIdentity>;
   try {
-    sourceSha256 = sha256(await readFile(input.sourcePath));
+    sourceIdentity = await measureStableFile(input.sourcePath);
   } catch (error) {
     throw new ReferenceDemuxError(
       'source_unreadable',
@@ -163,7 +159,7 @@ export async function demuxReferenceVideo(
     );
   }
 
-  const durationMs = await readDurationMs(input.sourcePath);
+  const durationMs = await readDurationMs(input.sourcePath, input.abortSignal);
 
   const tempDir = await mkdtemp(path.join(tmpdir(), 'editron-demux-'));
   try {
@@ -196,51 +192,50 @@ export async function demuxReferenceVideo(
       audioOut,
     ];
 
-    await runFFmpeg(ffmpegArgs, deps, timeoutMs);
+    await runFFmpeg(ffmpegArgs, deps, deps.timeoutMs, input.abortSignal);
 
-    const videoBytes = await readFile(videoOut);
-    if (videoBytes.byteLength < DEMUX_MIN_VIDEO_BYTES) {
+    let videoIdentity: Readonly<FileIdentity>;
+    try {
+      videoIdentity = await measureStableFile(videoOut);
+    } catch (error) {
       throw new ReferenceDemuxError(
         'no_video_stream',
-        `No video stream extracted from ${input.sourcePath} (${videoBytes.byteLength} bytes).`,
+        `No readable video stream was extracted from ${input.sourcePath}: ${
+          error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    let audioBytes: Buffer | null = null;
-    try {
-      audioBytes = await readFile(audioOut);
-      if (audioBytes.byteLength < DEMUX_MIN_AUDIO_BYTES) {
-        audioBytes = null; // a zero-length m4a means no audio stream present
-      }
-    } catch {
-      audioBytes = null;
-    }
+    const audioIdentity = await measureOptionalStableFile(audioOut);
 
     const baseName = sanitizeAssetPart(input.sourceLabel ?? path.basename(input.sourcePath));
-    const videoUpload = await uploadBuffer(
-      videoBytes,
+    const videoUpload = await uploadArtifact(
+      uploadFile,
+      videoOut,
       `${input.referenceAssetId}-v-${baseName}.mp4`,
       'video/mp4',
+      videoIdentity.size,
     );
     const video = {
       key: videoUpload.storageKey,
       size: videoUpload.size,
       contentType: 'video/mp4',
-      sha256: sha256(videoBytes),
+      sha256: videoIdentity.sha256,
     };
 
     let audio: DemuxReceipt['audio'] = null;
-    if (audioBytes) {
-      const audioUpload = await uploadBuffer(
-        audioBytes,
+    if (audioIdentity) {
+      const audioUpload = await uploadArtifact(
+        uploadFile,
+        audioOut,
         `${input.referenceAssetId}-a-${baseName}.m4a`,
         'audio/mp4',
+        audioIdentity.size,
       );
       audio = {
         key: audioUpload.storageKey,
         size: audioUpload.size,
         contentType: 'audio/mp4',
-        sha256: sha256(audioBytes),
+        sha256: audioIdentity.sha256,
         present: true,
       };
     }
@@ -257,7 +252,7 @@ export async function demuxReferenceVideo(
         path: input.sourcePath,
         kind: input.sourceKind,
         label: input.sourceLabel,
-        sourceSha256,
+        sourceSha256: sourceIdentity.sha256,
       },
     };
     return receipt;
@@ -275,35 +270,57 @@ export async function demuxReferenceVideo(
 async function runFFmpeg(
   args: string[],
   deps: ReferenceDemuxDeps,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
+  abortSignal: AbortSignal | undefined,
 ): Promise<number> {
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
+    throw new ReferenceDemuxError('ffmpeg_failed', 'Invalid caller-supplied ffmpeg timeout.');
+  }
+  if (abortSignal?.aborted) {
+    throw new ReferenceDemuxError('cancelled', 'Reference demux was cancelled before ffmpeg started.');
+  }
   const spawnFns = deps.spawnProcess ?? realSpawn;
   return new Promise((resolveResult, rejectResult) => {
     const proc = spawnFns(args);
     let stderr = '';
     let settled = false;
-    const timeout = setTimeout(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout);
+      abortSignal?.removeEventListener('abort', onAbort);
+    };
+    const rejectOnce = (error: ReferenceDemuxError) => {
       if (settled) return;
       settled = true;
+      cleanup();
+      rejectResult(error);
+    };
+    const onAbort = () => {
+      rejectOnce(new ReferenceDemuxError('cancelled', 'Reference demux was cancelled.'));
       proc.kill('SIGKILL');
-      rejectResult(new ReferenceDemuxError('ffmpeg_failed', `ffmpeg timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
+    };
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    if (timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        rejectOnce(new ReferenceDemuxError(
+          'ffmpeg_failed', `ffmpeg timed out after caller-supplied ${timeoutMs}ms.`,
+        ));
+        proc.kill('SIGKILL');
+      }, timeoutMs);
+    }
 
     proc.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
     proc.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      rejectResult(
+      rejectOnce(
         new ReferenceDemuxError('ffmpeg_failed', `ffmpeg process error: ${error.message}`, [stderr]),
       );
     });
     proc.on('exit', (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      cleanup();
       if (code === 0) {
         resolveResult(code);
       } else {
@@ -315,16 +332,35 @@ async function runFFmpeg(
   });
 }
 
-async function probeDurationMs(sourcePath: string): Promise<number | null> {
+async function probeDurationMs(
+  sourcePath: string,
+  abortSignal?: AbortSignal,
+): Promise<number | null> {
   const { getFFmpegPath } = await import('@/lib/editron/services/media/ffmpeg-runtime');
   const ffmpegPath = getFFmpegPath();
-  return new Promise<number | null>((resolveDone) => {
+  if (abortSignal?.aborted) {
+    throw new ReferenceDemuxError('cancelled', 'Reference demux was cancelled before probing.');
+  }
+  return new Promise<number | null>((resolveDone, rejectDone) => {
     const proc = spawn(ffmpegPath, ['-hide_banner', '-i', sourcePath]);
     let stderr = '';
+    let settled = false;
+    const cleanup = () => abortSignal?.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      proc.kill('SIGKILL');
+      rejectDone(new ReferenceDemuxError('cancelled', 'Reference demux was cancelled.'));
+    };
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
     proc.stderr.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
     proc.on('exit', () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       const match = stderr.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}\.\d+)/);
       if (!match) {
         resolveDone(null);
@@ -334,23 +370,88 @@ async function probeDurationMs(sourcePath: string): Promise<number | null> {
       const ms = (Number(h) * 3600 + Number(m) * 60 + Number(s)) * 1000;
       resolveDone(Number.isFinite(ms) ? Math.round(ms) : null);
     });
-    proc.on('error', () => resolveDone(null));
+    proc.on('error', () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveDone(null);
+    });
   });
 }
 
-async function realUploadBuffer(
-  file: Buffer,
+async function realUploadFile(
+  filePath: string,
   fileName: string,
   contentType: string,
   userId: string,
 ): Promise<DemuxUploadResult> {
-  const { uploadMedia } = await import('@/lib/editron/services/upload-service');
-  const result = await uploadMedia(file, userId, fileName, contentType, {});
+  const { uploadMediaFromFile } = await import('@/lib/editron/services/upload-service');
+  const result = await uploadMediaFromFile(filePath, userId, fileName, contentType, {});
   const storageKey = result.r2Key ?? result.gcsPath ?? result.assetId;
   if (!storageKey) {
     throw new ReferenceDemuxError('upload_failed', 'Upload returned no storage key.');
   }
   return { storageKey, size: result.size };
+}
+
+interface FileIdentity {
+  size: number;
+  sha256: string;
+}
+
+async function measureStableFile(filePath: string): Promise<Readonly<FileIdentity>> {
+  const before = await stat(filePath);
+  if (!before.isFile() || !Number.isSafeInteger(before.size) || before.size < 1
+    || !Number.isFinite(before.mtimeMs)) {
+    throw new Error('file is absent, empty, or not a stable regular file');
+  }
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  const after = await stat(filePath);
+  if (!after.isFile() || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+    throw new Error('file changed while it was being hashed');
+  }
+  return { size: before.size, sha256: hash.digest('hex') };
+}
+
+async function measureOptionalStableFile(
+  filePath: string,
+): Promise<Readonly<FileIdentity> | null> {
+  try {
+    const candidate = await stat(filePath);
+    if (!candidate.isFile() || candidate.size < 1) return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  return measureStableFile(filePath);
+}
+
+async function uploadArtifact(
+  uploadFile: (filePath: string, fileName: string, contentType: string) => Promise<DemuxUploadResult>,
+  filePath: string,
+  fileName: string,
+  contentType: string,
+  expectedSize: number,
+): Promise<Readonly<DemuxUploadResult>> {
+  let result: DemuxUploadResult;
+  try {
+    result = await uploadFile(filePath, fileName, contentType);
+  } catch (error) {
+    throw error instanceof ReferenceDemuxError
+      ? error
+      : new ReferenceDemuxError(
+        'upload_failed',
+        `Failed to upload ${fileName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+  }
+  if (!result.storageKey?.trim() || result.size !== expectedSize) {
+    throw new ReferenceDemuxError(
+      'upload_failed',
+      `Upload receipt mismatch for ${fileName}: expected ${expectedSize} bytes.`,
+    );
+  }
+  return result;
 }
 
 function sanitizeAssetPart(value: string): string {

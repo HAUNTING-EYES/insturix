@@ -94,8 +94,7 @@ export interface CanonicalizeReferenceDeps {
   /** Demux delegation. Injected for tests. */
   demux?: typeof demuxReferenceVideo;
   /** Duration probe delegation (passes through to the demux). Injected for tests. */
-  readDurationMs?: (sourcePath: string) => Promise<number | null>;
-  sha256?: (buffer: Buffer) => string;
+  readDurationMs?: (sourcePath: string, abortSignal?: AbortSignal) => Promise<number | null>;
 }
 
 export class CanonicalizeReferenceError extends Error {
@@ -223,7 +222,8 @@ export async function canonicalizeReferenceVideo(
       const receipt = await demux({
         referenceAssetId: uploaded.assetId, userId, sourcePath: tmpPath,
         sourceKind: source.kind, sourceLabel: source.sourceLabel,
-      }, { sha256: deps.sha256, readDurationMs: deps.readDurationMs });
+        abortSignal: input.abortSignal,
+      }, { readDurationMs: deps.readDurationMs });
       envelope = buildReferenceCanonicalEnvelope(receipt, audioUsageMode);
       if (receipt.audio) {
         demuxedAudio = { key: receipt.audio.key, contentType: receipt.audio.contentType };

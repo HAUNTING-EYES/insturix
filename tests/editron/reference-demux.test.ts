@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -54,10 +55,10 @@ describe('R1-A canonical demux', () => {
     videoBytes?: Buffer | null;
     audioBytes?: Buffer | null;
     exitCode?: number;
-    sha256?: (b: Buffer) => string;
+    uploadSizeDelta?: number;
   }) {
     const uploaded: Array<{ fileName: string; contentType: string; userId: string }> = [];
-    const videoBytes = opts.videoBytes ?? Buffer.alloc(512, 0xab); // >= MIN_VIDEO_BYTES
+    const videoBytes = opts.videoBytes === undefined ? Buffer.alloc(512, 0xab) : opts.videoBytes;
     const receipt = await demuxReferenceVideo(
       {
         referenceAssetId: 'ref_abc123',
@@ -69,10 +70,12 @@ describe('R1-A canonical demux', () => {
       {
         spawnProcess: fakeSpawnWithOutputs(videoBytes, opts.audioBytes ?? null, opts.exitCode),
         readDurationMs: async () => 12_345,
-        sha256: opts.sha256,
-        uploadBuffer: async (file, fileName, contentType, userId) => {
+        uploadFile: async (filePath, fileName, contentType, userId) => {
           uploaded.push({ fileName, contentType, userId });
-          return { storageKey: `r2/${fileName}`, size: file.byteLength };
+          return {
+            storageKey: `r2/${fileName}`,
+            size: (await stat(filePath)).size + (opts.uploadSizeDelta ?? 0),
+          };
         },
       },
     );
@@ -102,14 +105,17 @@ describe('R1-A canonical demux', () => {
       const { receipt, uploaded } = await runDemux({
         sourcePath: p,
         audioBytes: Buffer.alloc(200, 0xcd),
-        sha256: (b) => b.toString('hex'),
       });
       expect(uploaded).toHaveLength(2);
       expect(uploaded[0].fileName).toContain('ref_abc123-v-');
       expect(uploaded[1].fileName).toContain('ref_abc123-a-');
       expect(uploaded.every(u => u.userId === 'user_1')).toBe(true);
       expect(receipt.audio).toEqual(
-        expect.objectContaining({ present: true, contentType: 'audio/mp4', sha256: Buffer.alloc(200, 0xcd).toString('hex') }),
+        expect.objectContaining({
+          present: true,
+          contentType: 'audio/mp4',
+          sha256: createHash('sha256').update(Buffer.alloc(200, 0xcd)).digest('hex'),
+        }),
       );
       expect(receipt.video.key).toBe('r2/ref_abc123-v-Match_Edit_Ref.mp4');
     } finally {
@@ -132,10 +138,10 @@ describe('R1-A canonical demux', () => {
     ).rejects.toBeInstanceOf(ReferenceDemuxError);
   });
 
-  it('fails loud on a missing video stream (tiny remux)', async () => {
+  it('fails loud when ffmpeg produces no video artifact', async () => {
     const { dir, p } = await makeSource(Buffer.alloc(10));
     try {
-      await expect(runDemux({ sourcePath: p, videoBytes: Buffer.alloc(10), audioBytes: null }))
+      await expect(runDemux({ sourcePath: p, videoBytes: null, audioBytes: null }))
         .rejects.toMatchObject({ code: 'no_video_stream' });
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -147,6 +153,62 @@ describe('R1-A canonical demux', () => {
     try {
       await expect(runDemux({ sourcePath: p, exitCode: 1, videoBytes: null }))
         .rejects.toMatchObject({ code: 'ffmpeg_failed' });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not reject a non-empty artifact through an invented byte threshold', async () => {
+    const { dir, p } = await makeSource();
+    try {
+      const { receipt } = await runDemux({ sourcePath: p, videoBytes: Buffer.from([1]) });
+      expect(receipt.video.size).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails loud when the upload receipt size does not match the streamed file', async () => {
+    const { dir, p } = await makeSource();
+    try {
+      await expect(runDemux({ sourcePath: p, uploadSizeDelta: 1 }))
+        .rejects.toMatchObject({ code: 'upload_failed' });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('kills the active ffmpeg process and returns a stable cancellation error', async () => {
+    const { dir, p } = await makeSource();
+    const controller = new AbortController();
+    let killed = false;
+    let reportSpawned: (() => void) | undefined;
+    const spawned = new Promise<void>((resolve) => { reportSpawned = resolve; });
+    const spawnProcess = () => {
+      const proc = new EventEmitter() as FakeProcess;
+      proc.stderr = new EventEmitter();
+      proc.kill = () => {
+        killed = true;
+        setImmediate(() => proc.emit('exit', 9));
+      };
+      reportSpawned?.();
+      return proc as ReturnType<typeof import('node:child_process').spawn>;
+    };
+    try {
+      const pending = demuxReferenceVideo({
+        referenceAssetId: 'ref_cancel', userId: 'user_1', sourcePath: p,
+        sourceKind: 'asset', abortSignal: controller.signal,
+      }, {
+        spawnProcess,
+        readDurationMs: async () => 1_000,
+        uploadFile: async () => {
+          throw new Error('upload must not run after cancellation');
+        },
+      });
+      await spawned;
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+      expect(killed).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -209,4 +271,3 @@ describe('R1-B canonical reference envelope', () => {
     expect(envelope.demux?.audioSha256).toBeNull();
   });
 });
-
