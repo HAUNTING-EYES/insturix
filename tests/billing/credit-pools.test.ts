@@ -149,8 +149,10 @@ describe("creditsService pool routing (source-level)", () => {
   });
 
   it("refund routes back to the originating pool", () => {
-    expect(src).toContain("const refundPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`");
-    expect(src).toContain("[refundPath]: amount");
+    expect(src).toContain("const subscriptionPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`");
+    expect(src).toContain("const topupPath = `creditsBalance.${POOL_FIELDS[pool].topup}`");
+    expect(src).toContain("[subscriptionPath]: fromSubscription");
+    expect(src).toContain("[topupPath]: fromTopup");
   });
 
   it("top-up can target a specific pool", () => {
