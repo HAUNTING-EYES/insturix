@@ -44,6 +44,19 @@ export function assertEditorialPlanSuccessorV1(
       && nextNode.scope.semanticScopes.some((scope) => !previousScopes.has(scope))) {
       fail('PLAN_SUCCESSOR_SCOPE_WIDENING_UNAUTHORIZED');
     }
+    if (nextNode.status === 'READY_TO_APPLY') {
+      if (previousNode.status !== 'NEEDS_REVIEW') {
+        fail('PLAN_SUCCESSOR_REVIEW_TRANSITION_INVALID');
+      }
+      if (next.acceptedBy.actorKind !== 'USER') {
+        fail('PLAN_SUCCESSOR_REVIEW_APPROVAL_REQUIRED');
+      }
+    }
+    if (previousNode.status === 'NEEDS_REVIEW'
+      && nextNode.status === 'CANCELLED'
+      && next.acceptedBy.actorKind !== 'USER') {
+      fail('PLAN_SUCCESSOR_REVIEW_CANCELLATION_REQUIRED');
+    }
   }
   validateLockTransition(previous, next);
   for (const node of next.nodes) {
