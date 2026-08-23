@@ -10,6 +10,7 @@ import {
   ProviderNativeDurableRetryableErrorV2R,
   runProviderNativeEpisodeDurableWorkerV2R,
   type ProviderNativeDurableResolvedArtifactsV2R,
+  type ProviderNativeDurableProposalReceiptV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-episode-durable-worker-v2r';
 import type { ProviderNativeEpisodeResumeCheckpointV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
@@ -89,7 +90,11 @@ describe('provider-native durable recovery worker V2R', () => {
     const executeIsolated = vi.fn(async () => execution({
       receipt: { status: 'PASS', projectRevision: 'revision-44' },
     }));
-    const resolver = vi.fn(async () => artifacts({ invoke, executeIsolated }));
+    const proposalReceipt = durableProposalReceipt();
+    const resolver = vi.fn(async () => artifacts({
+      invoke, executeIsolated,
+      finalizeProposalReceipt: async () => proposalReceipt,
+    }));
 
     const result = await runProviderNativeEpisodeDurableWorkerV2R({
       store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
@@ -105,6 +110,7 @@ describe('provider-native durable recovery worker V2R', () => {
         selectedOperatorIds: ELIGIBLE,
         terminal: { disposition: 'READY_FOR_PROOF' },
       },
+      proposalReceiptSha256: proposalReceipt.receiptSha256,
     });
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(executeIsolated).toHaveBeenCalledTimes(1);
@@ -117,10 +123,10 @@ describe('provider-native durable recovery worker V2R', () => {
       status: 'completed', resumeState: { sequence: 2 },
       terminalReceipt: {
         disposition: 'UNVERIFIABLE',
-        proofReferences: [{
-          proofSha256: result.resumedReceiptSha256,
-          disposition: 'UNVERIFIABLE',
-        }],
+        proofReferences: [
+          { proofSha256: result.resumedReceiptSha256, disposition: 'UNVERIFIABLE' },
+          { proofSha256: proposalReceipt.receiptSha256, disposition: 'PASS' },
+        ],
       },
     });
 
@@ -150,6 +156,38 @@ describe('provider-native durable recovery worker V2R', () => {
     });
     expect(invoke).not.toHaveBeenCalled();
     expect(executeIsolated).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters a forged ProjectService proposal receipt before durable completion', async () => {
+    const setup = await preparedJob();
+    let suffixCall = 0;
+    const valid = durableProposalReceipt();
+    const forged = { ...valid, finalStateSha256: '0'.repeat(64) };
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke: async (request) => {
+          suffixCall += 1;
+          return suffixCall === 1 ? shakeResponse(request) : finishResponse();
+        },
+        executeIsolated: async () => execution({
+          receipt: { status: 'PASS', projectRevision: 'revision-44' },
+        }),
+        finalizeProposalReceipt: async () => forged,
+      }) },
+      clock: () => RESUME_AT,
+    });
+
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_RECEIPT_INVALID',
+    });
+    expect(await setup.freshStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-1', userId: 'user-1',
+    })).toMatchObject({
+      status: 'dead_letter', terminalReceipt: null,
+      error: { code: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_RECEIPT_INVALID', retryable: false },
+    });
   });
 
   it('schedules only explicitly retryable artifact failures', async () => {
@@ -269,6 +307,9 @@ async function preparedJob() {
 function artifacts(overrides: Readonly<{
   invoke: ProviderNativeDurableResolvedArtifactsV2R['invoke'];
   executeIsolated: ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['executeIsolated'];
+  finalizeProposalReceipt?: NonNullable<
+    ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['finalizeProposalReceipt']
+  >;
   context?: ProviderNativeEpisodeContextV2R;
 }>): ProviderNativeDurableResolvedArtifactsV2R {
   return {
@@ -281,9 +322,36 @@ function artifacts(overrides: Readonly<{
     isolatedClone: {
       origin: 'PROJECTSERVICE_REVISION_CLONE', projectRevision: 'revision-43',
       stateSha256: 'e'.repeat(64), executeIsolated: overrides.executeIsolated,
+      ...(overrides.finalizeProposalReceipt
+        ? { finalizeProposalReceipt: overrides.finalizeProposalReceipt } : {}),
     },
     invoke: overrides.invoke,
   };
+}
+
+function durableProposalReceipt(): Readonly<ProviderNativeDurableProposalReceiptV2R> {
+  const operationMaterial = {
+    operatorId: 'apply_camera_shake', turn: 4,
+    beforeStateSha256: 'e'.repeat(64), afterStateSha256: 'f'.repeat(64),
+  };
+  const material = {
+    schemaVersion: 1 as const,
+    authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION' as const,
+    episodeId: CONTEXT.episodeId,
+    projectId: 'project-1',
+    baseProjectRevision: 'revision-43',
+    baseStateSha256: 'e'.repeat(64),
+    finalStateSha256: 'f'.repeat(64),
+    changedPaths: ['$.overlays[0].styles.shake'],
+    operationReceipts: [{
+      ...operationMaterial,
+      operationReceiptSha256: hashCanonicalJsonV1(operationMaterial),
+    }],
+    canonicalProjectRevisionAfter: 'revision-43',
+    canonicalStateSha256After: 'e'.repeat(64),
+    canonicalUnchanged: true as const,
+  };
+  return { ...material, receiptSha256: hashCanonicalJsonV1(material) };
 }
 
 async function interruptAfterWriter(): Promise<Readonly<ProviderNativeEpisodeResumeCheckpointV2R>> {

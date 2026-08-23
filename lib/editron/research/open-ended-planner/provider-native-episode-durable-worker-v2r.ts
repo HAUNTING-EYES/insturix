@@ -35,11 +35,28 @@ export interface ProviderNativeDurableCurrentRevisionReadV2R {
   readReceiptSha256: string;
 }
 
+export interface ProviderNativeDurableProposalReceiptV2R {
+  schemaVersion: 1;
+  authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION';
+  episodeId: string;
+  projectId: string;
+  baseProjectRevision: string;
+  baseStateSha256: string;
+  finalStateSha256: string;
+  changedPaths: readonly string[];
+  operationReceipts: readonly Readonly<Record<string, unknown>>[];
+  canonicalProjectRevisionAfter: string;
+  canonicalStateSha256After: string;
+  canonicalUnchanged: true;
+  receiptSha256: string;
+}
+
 export interface ProviderNativeDurableIsolatedCloneV2R {
   origin: 'PROJECTSERVICE_REVISION_CLONE';
   projectRevision: string;
   stateSha256: string;
   executeIsolated: EpisodeInput['executeIsolated'];
+  finalizeProposalReceipt?: () => Promise<Readonly<ProviderNativeDurableProposalReceiptV2R>>;
 }
 
 export type ProviderNativeDurableResolvedArtifactsV2R = Readonly<
@@ -77,6 +94,7 @@ export type ProviderNativeDurableWorkerResultV2R = Readonly<
       durableDisposition: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
       episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
       resumedReceiptSha256: string;
+      proposalReceiptSha256?: string;
     }
 >;
 
@@ -185,7 +203,19 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       ));
     }
     await heartbeat();
-    const terminal = episodeTerminalReceipt(episodeReceipt, resumedReceipt.receiptSha256, clock());
+    const proposalReceipt = artifacts.isolatedClone.finalizeProposalReceipt
+      ? await artifacts.isolatedClone.finalizeProposalReceipt()
+      : null;
+    if (proposalReceipt) {
+      assertProposalReceipt(claim.job, artifacts.isolatedClone, proposalReceipt);
+    }
+    await heartbeat();
+    const terminal = episodeTerminalReceipt(
+      episodeReceipt,
+      resumedReceipt.receiptSha256,
+      clock(),
+      proposalReceipt,
+    );
     await input.store.complete({
       jobId: input.jobId, leaseToken: claim.leaseToken, receipt: terminal, now: clock(),
     });
@@ -193,6 +223,7 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       kind: 'completed', jobId: input.jobId,
       durableDisposition: terminal.disposition as 'PASS' | 'FAIL' | 'UNVERIFIABLE',
       episodeReceipt, resumedReceiptSha256: resumedReceipt.receiptSha256,
+      ...(proposalReceipt ? { proposalReceiptSha256: proposalReceipt.receiptSha256 } : {}),
     };
   } catch (error) {
     if (error instanceof DurableWorkflowJobLeaseLostErrorV1) {
@@ -325,15 +356,51 @@ function episodeTerminalReceipt(
   receipt: Readonly<ProviderNativeEpisodeReceiptV2R>,
   resumedReceiptSha256: string,
   completedAt: Date,
+  proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R> | null,
 ): DurableWorkflowJobTerminalReceiptV1 {
   const disposition = receipt.terminal.disposition === 'PASS'
     ? 'PASS' : receipt.terminal.disposition === 'FAIL' ? 'FAIL' : 'UNVERIFIABLE';
-  const proofReferences = [{
+  const proofReferences: DurableWorkflowJobTerminalReceiptV1['proofReferences'] = [{
     proofId: `provider_native_resumed_${receipt.episodeId}`,
     proofSha256: resumedReceiptSha256,
     disposition,
-  }] as const;
+  }, ...(proposalReceipt ? [{
+    proofId: `projectservice_isolated_proposal_${receipt.episodeId}`,
+    proofSha256: proposalReceipt.receiptSha256,
+    disposition: 'PASS' as const,
+  }] : [])];
   return terminalReceipt(disposition, proofReferences, completedAt, receipt.episodeId);
+}
+
+function assertProposalReceipt(
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  clone: Readonly<ProviderNativeDurableIsolatedCloneV2R>,
+  receipt: Readonly<ProviderNativeDurableProposalReceiptV2R>,
+): void {
+  const { receiptSha256, ...material } = receipt;
+  if (receipt.schemaVersion !== 1
+    || receipt.authority !== 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION'
+    || receipt.episodeId !== job.operationId
+    || receipt.projectId !== job.projectId
+    || receipt.baseProjectRevision !== clone.projectRevision
+    || receipt.baseStateSha256 !== clone.stateSha256
+    || receipt.canonicalProjectRevisionAfter !== clone.projectRevision
+    || receipt.canonicalStateSha256After !== clone.stateSha256
+    || receipt.canonicalUnchanged !== true
+    || !isSha256(receipt.finalStateSha256)
+    || !receipt.changedPaths.every((path) => typeof path === 'string' && path.startsWith('$'))
+    || new Set(receipt.changedPaths).size !== receipt.changedPaths.length
+    || !receipt.operationReceipts.every(validProposalOperationReceipt)
+    || hashCanonicalJsonV1(material) !== receiptSha256) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECEIPT_INVALID');
+  }
+}
+
+function validProposalOperationReceipt(receipt: Readonly<Record<string, unknown>>): boolean {
+  const operationReceiptSha256 = receipt.operationReceiptSha256;
+  if (!isSha256(operationReceiptSha256)) return false;
+  const { operationReceiptSha256: _ignored, ...material } = receipt;
+  return hashCanonicalJsonV1(material) === operationReceiptSha256;
 }
 
 function cancellationReceipt(
