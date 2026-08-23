@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `7fa11669b` on
+programme code checkpoint represented by this ledger is `32d9a91d2` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 7fa11669b. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 32d9a91d2. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1585,12 +1585,28 @@ recorded as `failed`; the former floating-URL fallback is removed. The focused
 reference cluster passes 20/20 with repository typecheck and quiet ESLint. This
 does not promote asset/imported references, and it does not prove live storage.
 
+Commit 32d9a91d2 promotes every source kind resolved by the main video-analysis
+worker through the same exact-byte owner. Existing uploaded and imported assets
+are hashed and registered under a content-addressed alias over their existing
+managed R2/GCS object; assets without managed storage and direct remote sources
+are privately materialized. The returned canonical ID, URL, duration and kind
+then feed cache lookup, frame sampling, GLM analysis, evidence enrichment and
+legacy EditDNA. Changed bytes receive a new identity, unsupported content type
+and missing storage fail closed, and no URL fallback remains. Five focused
+suites pass 24/24 with repository typecheck and quiet ESLint. This is
+`ALL_RESOLVED_REFERENCE_KINDS_REGISTERED_IN_MAIN_WORKER`, not complete media
+convergence: the standalone SaaS `reference-analysis.ts` and ingest-reference
+route still bypass this boundary, the canonicalizer buffers the complete source
+under provisional size/time bounds, demux artifacts are not yet registered by
+this source owner, and no live Mongo/R2/GCS path has been exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Extend the `eaef92685` wiring from remote URLs and derived frames to existing
-   uploaded/YouTube/Instagram asset sources through the same `mediaAssets`
-   owner. The remote worker now uses the canonical result at `7fa11669b`; do not
-   add another source registry or silently synthesize an asset envelope.
+1. Converge the standalone SaaS reference-analysis and ingest-reference callers
+   on the `32d9a91d2` canonical source boundary, then replace full-file buffering
+   and provisional 90-second/10-KB assumptions with a streaming, probed,
+   long-form-safe owner. Register required demux artifacts through the same
+   media authority; do not add another source registry.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3262,13 +3278,15 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
-**Stage 2 media row correction (2026-08-23):** commits `d42c1af5b` and
-`eaef92685` supersede the table's older reference-materializer wording. Exact
-reference source/frame registration now has one create-or-compare owner in the
-existing `mediaAssets` authority, and remote-URL sources plus derived frames
-invoke it with content-addressed object identities. This is partial wiring, not
-a converged media contract: uploaded/YouTube/Instagram source promotion, main-
-worker canonical-ID consumption and live Mongo/R2/GCS proof remain open.
+**Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
+`eaef92685`, `7fa11669b` and `32d9a91d2` supersede the table's older
+reference-materializer wording. Exact reference source/frame registration has
+one create-or-compare owner in the existing `mediaAssets` authority. The main
+video-analysis worker now canonicalizes remote, uploaded and importer-resolved
+asset sources and consumes the returned identity throughout. This remains
+partial convergence: standalone SaaS reference callers, streaming long-form
+materialization, demux-artifact registration and live Mongo/R2/GCS proof are
+open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`

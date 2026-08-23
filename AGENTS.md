@@ -312,12 +312,15 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commits `eaef92685` and `7fa11669b` wire exact remote-source/frame
-   registration and make the main analysis worker carry the returned canonical
-   ID/URL through cache, sampling, analysis and legacy extraction without URL
-   fallback. Next, canonicalize or safely promote existing uploaded/YouTube/
-   Instagram asset sources through that same owner. Do not claim all reference
-   materializers are wired until those paths pass.
+3. Commits `eaef92685`, `7fa11669b` and `32d9a91d2` wire exact source/frame
+   registration and make the main analysis worker canonicalize every resolved
+   source kind before carrying the returned ID/URL through cache, sampling,
+   analysis and legacy extraction. Managed R2/GCS objects are reused through a
+   content-addressed alias; unmanaged sources are privately materialized. The
+   standalone SaaS reference-analysis and ingest-reference paths still bypass
+   this complete boundary, full-source buffering remains provisional and live
+   Mongo/R2/GCS proof is absent. Repair those callers next; do not describe all
+   reference materializers or long-form ingest as converged.
 4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed
