@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
@@ -1163,6 +1163,4 @@ function nullableFrame(value: unknown): number | null {
   return Number.isSafeInteger(frame) && frame >= 0 && frame <= 100_000_000 ? frame : null;
 }
 
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY
-  ? verifySignatureAppRouter(handler)
-  : handler;
+export const POST = withInternalQStashWorkerAuth(handler, 'phase0-rendered-evidence');

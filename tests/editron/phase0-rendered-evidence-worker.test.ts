@@ -6,6 +6,7 @@ import {
   buildChatEditRenderedAudioEvidence,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
+  dispatchPhase0RenderedEvidenceJob,
   resolvePhase0RenderedEvidenceConfig,
   toProjectPhase0RenderedEvidenceFacts,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
@@ -538,6 +539,20 @@ describe('phase0 rendered evidence worker service', () => {
     });
   });
 
+  it('does not enqueue a Phase 0 job when the receiver cannot verify QStash', async () => {
+    await expect(dispatchPhase0RenderedEvidenceJob({
+      projectId: 'proj_phase0_dispatch',
+      userId: 'user_phase0_dispatch',
+    }, configuredEnv({
+      QSTASH_TOKEN: 'qstash-token',
+      QSTASH_CURRENT_SIGNING_KEY: '',
+      QSTASH_NEXT_SIGNING_KEY: 'next-signing-key',
+    }))).resolves.toEqual({
+      dispatched: false,
+      reason: 'missing_qstash_signing_keys',
+    });
+  });
+
   it('wires QStash failure callbacks so async rendered evidence jobs cannot hang silently', () => {
     const serviceSource = readFileSync('lib/editron/services/phase0-rendered-evidence-worker.ts', 'utf8');
     const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
@@ -545,9 +560,12 @@ describe('phase0 rendered evidence worker service', () => {
     expect(serviceSource).toContain('failureCallback');
     expect(serviceSource).toContain('/api/internal/workers/phase0-rendered-evidence');
     expect(serviceSource).toContain('?qstashFailure=1');
+    expect(serviceSource).toContain('isInternalQStashWorkerAuthConfigured(env)');
+    expect(serviceSource).toContain("reason: 'missing_qstash_signing_keys'");
     expect(routeSource).toContain("request.nextUrl.searchParams.get('qstashFailure') === '1'");
     expect(routeSource).toContain('markChatEditRenderVerificationDeliveryFailed');
     expect(routeSource).toContain('qstash_delivery_failed');
+    expect(routeSource).toContain("withInternalQStashWorkerAuth(handler, 'phase0-rendered-evidence')");
   });
 
   it('persists operation evidence and whole-project render eligibility as separate truths', () => {

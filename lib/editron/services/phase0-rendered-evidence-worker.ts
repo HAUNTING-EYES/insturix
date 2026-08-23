@@ -26,6 +26,7 @@ import {
 } from './phase0-rendered-aesthetic-scoring';
 import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
+import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { resolveRemotionSiteFreshness } from './remotion-site-version';
 import {
@@ -270,8 +271,11 @@ export async function dispatchPhase0RenderedEvidenceJob(
     return { dispatched: false, reason: config.reason ?? 'not_configured' };
   }
 
-  const token = env.QSTASH_TOKEN;
+  const token = env.QSTASH_TOKEN?.trim();
   if (!token) return { dispatched: false, reason: 'missing_qstash_token' };
+  if (!isInternalQStashWorkerAuthConfigured(env)) {
+    return { dispatched: false, reason: 'missing_qstash_signing_keys' };
+  }
 
   const baseUrl = env.VERCEL_URL
     ? `https://${env.VERCEL_URL}`
