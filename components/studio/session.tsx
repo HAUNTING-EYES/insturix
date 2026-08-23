@@ -35,6 +35,7 @@ export function StudioSession() {
   const [mode, setMode] = useState<"ask" | "direct">("direct");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [realWallet, setRealWallet] = useState<{ main: number; media: number }>({ main: MOCK_WALLET.main, media: MOCK_WALLET.media });
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [clarifyEv, setClarifyEv] = useState<Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null>(null);
   const [gapEv, setGapEv] = useState<Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null>(null);
@@ -196,7 +197,26 @@ export function StudioSession() {
             abort.signal,
           )) {
             applyEvent(ev);
-            if (ev.type === "turn.confirm_required") confirmTurnId = ev.turnId;
+            if (ev.type === "turn.confirm_required") {
+              confirmTurnId = ev.turnId;
+              /* serverless: the paused stream may not resume (separate
+               * instance owns the registry) — close it; the card's answer
+               * posts to the confirm endpoint and, until the continuation
+               * rework, the turn ends here honestly. */
+              if (ev.quote) {
+                try {
+                  const cr = await fetch("/api/user/credits?wallet=auto");
+                  if (cr.ok) {
+                    const w = (await cr.json()) as { totalCredits?: number; totalMediaCredits?: number };
+                    setRealWallet({ main: w.totalCredits ?? 0, media: w.totalMediaCredits ?? 0 });
+                  }
+                } catch {
+                  /* card falls back to the last known wallet */
+                }
+              }
+              abort.abort();
+              break;
+            }
             if (ev.type === "turn.capability_gap") gap = ev;
           }
         } finally {
@@ -240,7 +260,7 @@ export function StudioSession() {
           <span className="dn">{deliverable.title}</span>
         </nav>
         <div className="stu-topright">
-          <span className="stu-credits">{MOCK_WALLET.main} cr</span>
+          <span className="stu-credits">{realWallet.main} cr</span>
           <div className="stu-seg" role="group" aria-label="Mode">
             <button className={mode === "ask" ? "on" : ""} onClick={() => setMode("ask")}>Ask</button>
             <button className={mode === "direct" ? "on" : ""} onClick={() => setMode("direct")}>Direct</button>
@@ -277,8 +297,8 @@ export function StudioSession() {
                 pendingConfirm?.kind === "spend" && pendingConfirm.quote ? (
                   <ConfirmSpendCard
                     quote={pendingConfirm.quote}
-                    walletMain={MOCK_WALLET.main}
-                    walletMedia={MOCK_WALLET.media}
+                    walletMain={realWallet.main}
+                    walletMedia={realWallet.media}
                     answered={pendingConfirm.answered}
                     onAnswer={answerConfirm}
                   />
