@@ -11,6 +11,10 @@ import { runProviderNativeEpisodeDurableWorkerV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-durable-worker-v2r';
 import { createProviderNativeDurableOwnerArtifactResolverV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-owner-artifact-resolver-v2r';
+import {
+  bindProviderNativeEpisodeDefinitionArtifactV2R,
+  createProviderNativeBoundEpisodeDefinitionOwnerV2R,
+} from '../../../lib/editron/research/open-ended-planner/provider-native-bound-episode-definition-v2r';
 import type { ProviderNativeEpisodeResumeCheckpointV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
 import { runProviderNativeToolEpisodeV2R }
@@ -36,10 +40,11 @@ type Fixture = Readonly<{
   rawResponsesDeflateRawBase64: string;
 }>;
 type ProcessState = Readonly<{
-  version: 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_1';
+  version: 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_2';
   authority: 'RESEARCH_ONLY_ZERO_INFERENCE_NO_PROJECT_MUTATION';
   preparePid: number;
   fixtureSourceSha256: string;
+  episodeDefinition: JsonRecord;
   jobRecord: JsonRecord;
   ownerSnapshot: JsonRecord;
   envelopeSha256: string;
@@ -86,6 +91,16 @@ async function prepare(outputPath: string): Promise<void> {
   if (calls !== fixture.source.prefixTurnCount) fail('PREFIX_CALL_COUNT_INVALID');
   const ownerSnapshot = owner.snapshot() as JsonRecord;
   equal(text(ownerSnapshot.currentProjectRevision), 'R43', 'PREFIX_REVISION');
+  const episodeDefinition = bindProviderNativeEpisodeDefinitionArtifactV2R({
+    tenantId: 'tenant-stage25', userId: 'user-stage25', projectId: 'project-42',
+    source: {
+      ownerVersion: manifest.version,
+      ownerId: manifest.experimentId,
+      ownerSha256: manifest.manifestSha256,
+    },
+    context: manifest.context,
+    eligibleOperatorIds: presentation.operatorOrder,
+  });
 
   const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
   const store = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
@@ -112,11 +127,11 @@ async function prepare(outputPath: string): Promise<void> {
   });
   const jobRecord = jsonRecord(collection.snapshot()[0]);
   const material = {
-    version: 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_1' as const,
+    version: 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_2' as const,
     authority: 'RESEARCH_ONLY_ZERO_INFERENCE_NO_PROJECT_MUTATION' as const,
     preparePid: process.pid,
     fixtureSourceSha256: hashCanonicalJsonV1(fixture.source),
-    jobRecord, ownerSnapshot,
+    episodeDefinition: jsonRecord(episodeDefinition), jobRecord, ownerSnapshot,
   };
   writeJson(outputPath, { ...material, envelopeSha256: hashCanonicalJsonV1(material) });
 }
@@ -124,17 +139,18 @@ async function prepare(outputPath: string): Promise<void> {
 async function resume(inputPath: string, outputPath: string): Promise<void> {
   const state = readJson(inputPath) as unknown as ProcessState;
   verifyState(state);
-  const { fixture, responses, manifest, route, presentation } = loadBoundFixture();
+  const { fixture, responses, route } = loadBoundFixture();
   equal(state.fixtureSourceSha256, hashCanonicalJsonV1(fixture.source), 'FIXTURE_SOURCE');
   const record = reviveJobRecord(state.jobRecord);
   const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>([record]);
   const store = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
   const owner = Stage25ProviderDependencyOwnerV1.restore(state.ownerSnapshot);
+  const episodeDefinition = createProviderNativeBoundEpisodeDefinitionOwnerV2R(
+    state.episodeDefinition,
+  );
   let suffixCalls = 0;
   const resolver = createProviderNativeDurableOwnerArtifactResolverV2R({
-    episodeDefinition: { resolve: async () => ({
-      context: manifest.context, eligibleOperatorIds: presentation.operatorOrder,
-    }) },
+    episodeDefinition,
     projectClone: { resolve: async () => ({
       currentRevision: {
         origin: 'PROJECTSERVICE_CURRENT_REVISION_READ',
@@ -165,7 +181,10 @@ async function resume(inputPath: string, outputPath: string): Promise<void> {
     store, jobId: record.jobId, workerId: 'separate-process-suffix',
     artifactResolver: resolver, clock: () => RESUME_AT,
   });
-  if (result.kind !== 'completed') fail(`WORKER_NOT_COMPLETED:${result.kind}`);
+  if (result.kind !== 'completed') {
+    if (suffixCalls === 0) fail(`WORKER_${result.kind.toUpperCase()}_BEFORE_SUFFIX`);
+    fail(`WORKER_NOT_COMPLETED:${result.kind}`);
+  }
   if (suffixCalls !== responses.length - fixture.source.prefixTurnCount) {
     fail('SUFFIX_CALL_COUNT_INVALID');
   }
@@ -196,10 +215,12 @@ async function resume(inputPath: string, outputPath: string): Promise<void> {
       resumedReceiptSha256: result.resumedReceiptSha256,
       persistedStatus: persisted?.status,
       persistedResumeSequence: persisted?.resumeState?.sequence,
+      definitionArtifactSha256: state.episodeDefinition.artifactSha256,
     },
     whatHasNotBeenChecked: [
       'LIVE_ATLAS', 'QSTASH_DELIVERY', 'AUTHENTICATED_INGRESS',
-      'REAL_PROJECTSERVICE_CLONE', 'PAID_PROVIDER_RESUME', 'RENDERED_ACCEPTANCE',
+      'PRODUCT_PLANSERVICE', 'REAL_PROJECTSERVICE_CLONE',
+      'PAID_PROVIDER_RESUME', 'RENDERED_ACCEPTANCE',
     ],
     stateEffects: [],
   };
@@ -232,7 +253,7 @@ function loadBoundFixture() {
 function verifyState(state: ProcessState): void {
   const material = { ...state } as JsonRecord;
   delete material.envelopeSha256;
-  if (state.version !== 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_1'
+  if (state.version !== 'EDITRON_PROVIDER_NATIVE_SEPARATE_PROCESS_STATE_V2R_2'
     || state.authority !== 'RESEARCH_ONLY_ZERO_INFERENCE_NO_PROJECT_MUTATION'
     || state.envelopeSha256 !== hashCanonicalJsonV1(material)) fail('STATE_INVALID');
 }

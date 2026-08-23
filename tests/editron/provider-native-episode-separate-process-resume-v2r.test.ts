@@ -52,7 +52,8 @@ describe('provider-native durable separate-process recovery V2R', () => {
       },
       whatHasNotBeenChecked: [
         'LIVE_ATLAS', 'QSTASH_DELIVERY', 'AUTHENTICATED_INGRESS',
-        'REAL_PROJECTSERVICE_CLONE', 'PAID_PROVIDER_RESUME', 'RENDERED_ACCEPTANCE',
+        'PRODUCT_PLANSERVICE', 'REAL_PROJECTSERVICE_CLONE',
+        'PAID_PROVIDER_RESUME', 'RENDERED_ACCEPTANCE',
       ],
       stateEffects: [],
     });
@@ -60,6 +61,8 @@ describe('provider-native durable separate-process recovery V2R', () => {
     expect(processes.preparePid).not.toBe(process.pid);
     expect(processes.resumePid).not.toBe(process.pid);
     expect(processes.preparePid).not.toBe(processes.resumePid);
+    expect((result.durable as JsonRecord).definitionArtifactSha256)
+      .toMatch(/^[a-f0-9]{64}$/);
     expectHash(result, 'receiptSha256');
   }, 120_000);
 
@@ -80,6 +83,30 @@ describe('provider-native durable separate-process recovery V2R', () => {
     await expect(child('resume', fixture.state, fixture.result))
       .rejects.toMatchObject({ stderr: expect.stringContaining(
         'STAGE25_DEPENDENCY_OWNER_RESTORE_SNAPSHOT_HASH_MISMATCH',
+      ) });
+    await expect(fs.stat(fixture.result)).rejects.toThrow();
+  }, 120_000);
+
+  it('rejects a rehashed forged episode definition before suffix execution', async () => {
+    const fixture = await makePaths();
+    await child('prepare', fixture.state);
+    const state = await readJson(fixture.state);
+    const artifact = state.episodeDefinition as JsonRecord;
+    const definition = artifact.definition as JsonRecord;
+    const context = definition.context as JsonRecord;
+    context.objective = 'forged after the prefix process exited';
+    artifact.contextSha256 = hashCanonicalJsonV1(context);
+    const artifactMaterial = { ...artifact };
+    delete artifactMaterial.artifactSha256;
+    artifact.artifactSha256 = hashCanonicalJsonV1(artifactMaterial);
+    const stateMaterial = { ...state };
+    delete stateMaterial.envelopeSha256;
+    state.envelopeSha256 = hashCanonicalJsonV1(stateMaterial);
+    await fs.writeFile(fixture.state, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    await expect(child('resume', fixture.state, fixture.result))
+      .rejects.toMatchObject({ stderr: expect.stringContaining(
+        'PROVIDER_NATIVE_SEPARATE_PROCESS_WORKER_DEAD_LETTER_BEFORE_SUFFIX',
       ) });
     await expect(fs.stat(fixture.result)).rejects.toThrow();
   }, 120_000);
