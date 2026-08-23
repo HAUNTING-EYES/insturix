@@ -342,7 +342,10 @@ Migrated from the prior Claude-Code sessions. Layout:
    removes Match Edit's direct-provider, placeholder and video-only generation
    behavior; the authenticated route now returns a non-retryable capability
    gap before reading caller input. Safe activation still requires the accepted
-   MatchPlan, CreditsService, ProjectService mutation and proof owners. Full-source
+   MatchPlan, CreditsService, ProjectService mutation and proof owners.
+   `8e29b80d7` is the required Step-0 cleanup for the >300-line demux owner: it
+   removes only a zero-caller persistence writer and unused public constants.
+   It does not implement streaming or artifact registration. Full-source
    buffering is provisional and live
    Mongo/R2/GCS proof is absent. Do not describe project-wide reference
    materialization or long-form ingest as converged.

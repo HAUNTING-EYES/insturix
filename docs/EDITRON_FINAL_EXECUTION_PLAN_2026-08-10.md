@@ -1676,6 +1676,13 @@ with repository typecheck and quiet ESLint. This is
 CreditsService authorization/settlement, ProjectService attachment receipt and
 generated-media/render proof are still required before the route may generate.
 
+Commit 8e29b80d7 performs the required Step-0 cleanup before structural work on
+the 424-line demux owner. It removes the zero-caller Mongo envelope persistence
+writer and makes four internal-only constants private. Focused demux and
+canonicalization tests pass 18/18 with repository typecheck and quiet ESLint.
+This is cleanup only: full-buffer reads, provisional thresholds and unregistered
+demux artifacts remain unchanged.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
