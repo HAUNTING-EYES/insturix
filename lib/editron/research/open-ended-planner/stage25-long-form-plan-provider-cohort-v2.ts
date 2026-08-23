@@ -7,6 +7,8 @@ import { STAGE25_LONG_FORM_PROVIDER_EVALUATOR_VERSION_V1 }
   from './stage25-long-form-plan-provider-evaluator-v1';
 import { STAGE25_LONG_FORM_PROVIDER_DURABLE_HANDOFF_MODE_V1 }
   from './stage25-long-form-plan-provider-protocol-v1';
+import type { ProviderNativeRouteV2R }
+  from './provider-native-tool-codecs-v2r';
 
 export const STAGE25_LONG_FORM_PROVIDER_COHORT_VERSION_V2 =
   'EDITRON_STAGE25_LONG_FORM_PROVIDER_COHORT_V2_1' as const;
@@ -21,6 +23,7 @@ const SOURCE_PATHS = {
   evaluator: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-provider-evaluator-v1.ts',
   preflight: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-provider-preflight-v2.ts',
   authorization: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-authorization-v2.ts',
+  runnerContract: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-runner-contract-v2.ts',
   runner: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-runner-v2.ts',
 } as const;
 
@@ -48,8 +51,8 @@ export interface Stage25LongFormProviderCohortManifestV2 {
   argumentHandoffMode: typeof STAGE25_LONG_FORM_PROVIDER_DURABLE_HANDOFF_MODE_V1;
   rows: readonly Readonly<{
     rowId: string;
-    routeId: string;
-    model: string;
+    routeId: ProviderNativeRouteV2R['routeId'];
+    model: ProviderNativeRouteV2R['model'];
     presentationOrdinal: number;
     absoluteMaxRowSpendNanoUsd: number;
   }>[];
@@ -84,8 +87,8 @@ export function buildStage25LongFormProviderCohortManifestV2(
   });
   const rows = baseManifest.rows.map((row) => ({
     rowId: row.rowId,
-    routeId: row.routeId,
-    model: row.model,
+    routeId: row.routeId as ProviderNativeRouteV2R['routeId'],
+    model: row.model as ProviderNativeRouteV2R['model'],
     presentationOrdinal: row.presentationOrdinal,
     absoluteMaxRowSpendNanoUsd: usdToNano(row.absoluteMaxRowSpendUsd),
   }));
