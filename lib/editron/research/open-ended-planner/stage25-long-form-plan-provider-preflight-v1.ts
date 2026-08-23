@@ -40,6 +40,7 @@ export async function preflightStage25LongFormProvidersV1(input: {
   operatorId: string;
   environment: Readonly<Record<string, string | undefined>>;
   fetchImpl?: typeof fetch;
+  durableMode?: boolean;
 }): Promise<Readonly<{
   receipt: Readonly<JsonRecord>;
   requestCaptures: readonly Readonly<Stage25LongFormProviderRequestCaptureV1>[];
@@ -72,6 +73,7 @@ export async function preflightStage25LongFormProvidersV1(input: {
     const request = await captureStage25LongFormProviderInitialRequestV1({
       route: routeEntry.route,
       presentationOrdinal: row.presentationOrdinal,
+      ...(input.durableMode ? { durableMode: true } : {}),
     });
     assertPublicRequest(request, routeEntry.route, manifest);
     const tokenCount = routeEntry.route.provider === 'openai'
