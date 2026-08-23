@@ -35,6 +35,11 @@ import {
   type ProviderNativeReferenceMediaInputV2R,
 } from './provider-native-video-reference-input-v2r';
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
+import {
+  createProviderNativeDurableAttemptReceiptV2R,
+  type ProviderNativeDurableAttemptReceiptV2R,
+  type ProviderNativeAttemptResultV2R,
+} from './provider-native-durable-attempt-receipt-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -68,11 +73,15 @@ export type ProviderNativeRuntimeGuardDecisionV2R = Readonly<
 export interface ProviderNativeRuntimeGuardV2R {
   createResumeState(input: Readonly<{
     completedTurns: readonly Readonly<JsonRecord>[];
+    accountedProviderAttempts?:
+      readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
   }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R>
     | Promise<Readonly<ProviderNativeRuntimeGuardResumeStateV2R>>;
   restoreResumeState(input: Readonly<{
     resumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
     completedTurns: readonly Readonly<JsonRecord>[];
+    accountedProviderAttempts?:
+      readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
   }>): void | Promise<void>;
   beforeTurn(input: Readonly<{
     turn: number;
@@ -88,6 +97,12 @@ export interface ProviderNativeRuntimeGuardV2R {
     request: Readonly<SerializedProviderNativeTurnV2R>;
     response: Readonly<ProviderNativeInvokeResponseV2R>;
     maxOutputTokens: number;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  settleUnknownInvoke?(input: Readonly<{
+    turn: number;
+    request: Readonly<SerializedProviderNativeTurnV2R>;
+    maxOutputTokens: number;
+    transportErrorCode: string;
   }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
   beforeExecute(input: Readonly<{
     turn: number;
@@ -176,6 +191,11 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   onTurnCommitted?: (input: Readonly<{
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   }>) => void | Promise<void>;
+  onProviderAttemptCommitted?: (input: Readonly<{
+    attemptReceipt: Readonly<ProviderNativeDurableAttemptReceiptV2R>;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  }>) => void | Promise<void>;
+  now?: () => string;
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
   runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
   executeIsolated: (
@@ -210,7 +230,8 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   const referenceInputManifestSha256 = referenceInputManifestSha256V2R(
     input.referenceInput,
   );
-  if ((input.resumeCheckpoint || input.onTurnCommitted)
+  if ((input.resumeCheckpoint || input.onTurnCommitted
+    || input.onProviderAttemptCommitted)
     && argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES') {
     throw new Error('PROVIDER_NATIVE_RESUME_REQUIRES_OPAQUE_RESULT_REFERENCES');
   }
@@ -232,6 +253,12 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   }
   if (!input.resumeCheckpoint && input.resumeCurrentProjectRevision !== undefined) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_REQUIRED');
+  }
+  if (input.onProviderAttemptCommitted
+    && (!input.runtimeGuard
+      || typeof input.runtimeGuard.settleUnknownInvoke !== 'function'
+      || !supportsRuntimeGuardResume(input.runtimeGuard))) {
+    throw new Error('PROVIDER_NATIVE_ATTEMPT_COMMIT_RUNTIME_GUARD_UNSUPPORTED');
   }
   const promptMaterial = {
     version: PROVIDER_NATIVE_EPISODE_VERSION_V2R,
@@ -295,6 +322,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         maxOutputTokensPerTurn: input.context.budget.maxOutputTokensPerTurn,
         maxOperatorArgumentRepairs: MAX_OPERATOR_ARGUMENT_REPAIRS_PER_EPISODE_V2R,
         currentProjectRevision: input.resumeCurrentProjectRevision ?? '',
+        initialProjectRevision: initialProjectRevision(input.context),
         ...(referenceInputManifestSha256
           ? { referenceInputManifestSha256 }
           : {}),
@@ -306,6 +334,9 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     await input.runtimeGuard.restoreResumeState({
       resumeState: input.resumeCheckpoint.runtimeGuardResumeState,
       completedTurns: input.resumeCheckpoint.completedTurns,
+      ...('accountedProviderAttempts' in input.resumeCheckpoint ? {
+        accountedProviderAttempts: input.resumeCheckpoint.accountedProviderAttempts,
+      } : {}),
     });
   }
   const prompt = canonicalizeJsonV1(resumed ? {
@@ -328,7 +359,10 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   );
   let mutationEpoch = resumed?.mutationEpoch ?? 0;
   let operatorArgumentRepairCount = resumed?.operatorArgumentRepairCount ?? 0;
-  let checkpointWriterRevisionAvailable = Boolean(resumed);
+  let checkpointWriterRevisionAvailable = (resumed?.mutationEpoch ?? 0) > 0;
+  let accountedProviderAttempts: readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[] =
+    input.resumeCheckpoint && 'accountedProviderAttempts' in input.resumeCheckpoint
+      ? [...input.resumeCheckpoint.accountedProviderAttempts] : [];
 
   const notifyTurnCommitted = async (commit?: Readonly<{
     mutationCommitted: boolean;
@@ -346,9 +380,12 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     }
     // A prefix before its first writer has no externally verifiable current
     // revision. Do not publish a checkpoint that hydration must later reject.
-    if (!checkpointWriterRevisionAvailable) return;
+    if (!checkpointWriterRevisionAvailable && !accountedProviderAttempts.length) return;
     const runtimeGuardResumeState = input.runtimeGuard
-      ? await input.runtimeGuard.createResumeState({ completedTurns: turns })
+      ? await input.runtimeGuard.createResumeState({
+          completedTurns: turns,
+          ...(accountedProviderAttempts.length ? { accountedProviderAttempts } : {}),
+        })
       : undefined;
     await input.onTurnCommitted({
       checkpoint: createProviderNativeEpisodeResumeCheckpointV2R({
@@ -361,8 +398,61 @@ export async function runProviderNativeToolEpisodeV2R(input: {
           ? { referenceInputManifestSha256 }
           : {}),
         ...(runtimeGuardResumeState ? { runtimeGuardResumeState } : {}),
+        ...(accountedProviderAttempts.length ? { accountedProviderAttempts } : {}),
       }),
     });
+  };
+
+  const commitProviderAttempt = async (attemptInput: Readonly<{
+    turn: number;
+    request: Readonly<SerializedProviderNativeTurnV2R>;
+    maxOutputTokens: number;
+    result: ProviderNativeAttemptResultV2R;
+    runtimeGuardAudit: readonly Readonly<JsonRecord>[];
+    accountingAudit: Readonly<JsonRecord>;
+  }>): Promise<Readonly<ProviderNativeDurableAttemptReceiptV2R>> => {
+    const durable = Boolean(input.onProviderAttemptCommitted);
+    const accounting = attemptAccounting(attemptInput.accountingAudit);
+    const attemptReceipt = createProviderNativeDurableAttemptReceiptV2R({
+      episodeId: input.context.episodeId,
+      contextSha256,
+      toolSetSha256: toolSet.toolSetSha256,
+      route: input.route,
+      turn: attemptInput.turn,
+      requestHash: attemptInput.request.requestHash,
+      maxOutputTokens: attemptInput.maxOutputTokens,
+      result: attemptInput.result,
+      accounting: { ...accounting,
+        runtimeGuardAudit: attemptInput.runtimeGuardAudit },
+      retryDisposition: durable
+        ? 'RETRY_SAFE_AFTER_DURABLE_COMMIT' : 'NO_RETRY_TERMINAL',
+      occurredAt: (input.now ?? (() => new Date().toISOString()))(),
+      ...(accountedProviderAttempts.length ? {
+        previousAttempt: accountedProviderAttempts.at(-1),
+      } : {}),
+    });
+    if (!input.onProviderAttemptCommitted || !input.runtimeGuard) {
+      return attemptReceipt;
+    }
+    const nextAttempts = [...accountedProviderAttempts, attemptReceipt];
+    const runtimeGuardResumeState = await input.runtimeGuard.createResumeState({
+      completedTurns: turns,
+      accountedProviderAttempts: nextAttempts,
+    });
+    const checkpoint = createProviderNativeEpisodeResumeCheckpointV2R({
+      route: input.route,
+      episodeId: input.context.episodeId,
+      contextSha256,
+      toolSetSha256: toolSet.toolSetSha256,
+      completedTurns: turns,
+      ...(referenceInputManifestSha256
+        ? { referenceInputManifestSha256 } : {}),
+      runtimeGuardResumeState,
+      accountedProviderAttempts: nextAttempts,
+    });
+    await input.onProviderAttemptCommitted({ attemptReceipt, checkpoint });
+    accountedProviderAttempts = nextAttempts;
+    return attemptReceipt;
   };
 
   for (let turn = resumed?.nextTurn ?? 1;
@@ -424,6 +514,40 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     try {
       response = await input.invoke(request);
     } catch (error) {
+      if (input.runtimeGuard && input.onProviderAttemptCommitted
+        && input.runtimeGuard.settleUnknownInvoke) {
+        const disposition = error instanceof ProviderNativeTransportErrorV2R
+          ? error.code : 'PROVIDER_ERROR';
+        const settlement = await runRuntimeGuardHook(
+          () => input.runtimeGuard!.settleUnknownInvoke!({
+            turn, request, maxOutputTokens, transportErrorCode: disposition,
+          }),
+          'SETTLE_UNKNOWN_INVOKE',
+        );
+        runtimeGuardAudit.push(settlement.audit);
+        if (settlement.status === 'DENY') {
+          turns.push({ turn, requestHash: request.requestHash, runtimeGuardAudit });
+          return runtimeGuardFailure(
+            input, toolSet.toolSetSha256, contextSha256, turns,
+            selectedOperatorIds, settlement,
+          );
+        }
+        const attemptReceipt = await commitProviderAttempt({
+          turn, request, maxOutputTokens, runtimeGuardAudit,
+          accountingAudit: settlement.audit,
+          result: { kind: 'TRANSPORT_RESULT_UNAVAILABLE',
+            transportErrorCode: disposition,
+            errorSha256: hashCanonicalJsonV1({
+              disposition, message: errorMessage(error),
+            }) },
+        });
+        turns.push({ turn, requestHash: request.requestHash,
+          providerAttemptReceipt: attemptReceipt, runtimeGuardAudit });
+        return finalize(input, toolSet.toolSetSha256, contextSha256,
+          turns, selectedOperatorIds, { disposition,
+            reasonCodes: [disposition], evidenceIds: [],
+            summary: errorMessage(error) });
+      }
       if (input.runtimeGuard) {
         const denial = runtimeGuardAccountingFailure(
           'PROVIDER_INVOKE_RESULT_UNAVAILABLE',
@@ -463,10 +587,20 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     }
     if (response.status < 200 || response.status >= 300) {
       const disposition = mapHttpFailure(response.status);
+      const attemptReceipt = input.onProviderAttemptCommitted && input.runtimeGuard
+        ? await commitProviderAttempt({
+            turn, request, maxOutputTokens, runtimeGuardAudit,
+            accountingAudit: responseAccounting.audit,
+            result: { kind: 'RESPONSE_RECEIVED',
+              responseStatus: response.status,
+              responseSha256: rawResponseSha256,
+              providerRequestId: null },
+          }) : undefined;
       turns.push({
         turn, requestHash: request.requestHash, responseStatus: response.status,
         rawResponseSha256, rawResponse: response.body,
         ...(input.runtimeGuard ? { runtimeGuardAudit } : {}),
+        ...(attemptReceipt ? { providerAttemptReceipt: attemptReceipt } : {}),
       });
       return finalize(input, toolSet.toolSetSha256, contextSha256, turns, selectedOperatorIds, {
         disposition, reasonCodes: [`HTTP_${response.status}`], evidenceIds: [], summary: disposition,
@@ -724,6 +858,58 @@ function supportsRuntimeGuardResume(
 ): boolean {
   return typeof guard.createResumeState === 'function'
     && typeof guard.restoreResumeState === 'function';
+}
+
+function initialProjectRevision(context: Readonly<ProviderNativeEpisodeContextV2R>): string {
+  const projectState = record(context.projectState);
+  const revisionBinding = record(context.revisionBinding);
+  const revision = String(
+    projectState.projectRevision
+      ?? revisionBinding.expectedProjectRevision
+      ?? revisionBinding.projectRevision
+      ?? '',
+  );
+  if (!revision.trim()) throw new Error('PROVIDER_NATIVE_INITIAL_PROJECT_REVISION_MISSING');
+  return revision;
+}
+
+function attemptAccounting(audit: Readonly<JsonRecord>): Readonly<{
+  mode: 'PROVIDER_REPORTED_USAGE' | 'CONSERVATIVE_WORST_CASE_RESERVATION';
+  accountedCostNanoUsd: number;
+  accountedOutputTokens: number;
+  isUpperBound: boolean;
+}> {
+  if (audit.accountingMode === 'CONSERVATIVE_WORST_CASE_RESERVATION') {
+    return {
+      mode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
+      accountedCostNanoUsd: nonNegativeInteger(
+        audit.accountedCostNanoUsd,
+        'PROVIDER_NATIVE_ATTEMPT_COST_INVALID',
+      ),
+      accountedOutputTokens: nonNegativeInteger(
+        audit.accountedOutputTokens,
+        'PROVIDER_NATIVE_ATTEMPT_OUTPUT_INVALID',
+      ),
+      isUpperBound: true,
+    };
+  }
+  const usage = record(audit.usage);
+  return {
+    mode: 'PROVIDER_REPORTED_USAGE',
+    accountedCostNanoUsd: nonNegativeInteger(
+      audit.actualCostNanoUsd,
+      'PROVIDER_NATIVE_ATTEMPT_COST_INVALID',
+    ),
+    accountedOutputTokens:
+      nonNegativeInteger(usage.outputTokens, 'PROVIDER_NATIVE_ATTEMPT_OUTPUT_INVALID')
+      + nonNegativeInteger(usage.thoughtTokens, 'PROVIDER_NATIVE_ATTEMPT_OUTPUT_INVALID'),
+    isUpperBound: false,
+  };
+}
+
+function nonNegativeInteger(value: unknown, code: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error(code);
+  return Number(value);
 }
 
 async function runRuntimeGuardHook(

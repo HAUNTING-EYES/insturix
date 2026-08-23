@@ -224,6 +224,7 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
   maxOutputTokensPerTurn: number;
   maxOperatorArgumentRepairs: number;
   currentProjectRevision: string;
+  initialProjectRevision: string;
   referenceInputManifestSha256?: string;
   resultReferences: ProviderNativeResultReferenceRegistryV2R;
 }): Readonly<ProviderNativeEpisodeResumeStateV2R> {
@@ -381,10 +382,18 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     })];
   }
 
-  if (!latestWriterRevision) {
+  const attemptOnlyResume = !latestWriterRevision
+    && 'accountedProviderAttempts' in input.checkpoint
+    && input.checkpoint.accountedProviderAttempts.length > 0
+    && mutationEpoch === 0;
+  if (!latestWriterRevision && !attemptOnlyResume) {
     throw new Error('PROVIDER_NATIVE_RESUME_WRITER_REVISION_BINDING_MISSING');
   }
-  if (hashCanonicalJsonV1(input.currentProjectRevision) !== latestWriterRevision.valueSha256) {
+  if (latestWriterRevision
+    ? hashCanonicalJsonV1(input.currentProjectRevision)
+      !== latestWriterRevision.valueSha256
+    : !input.initialProjectRevision.trim()
+      || input.currentProjectRevision !== input.initialProjectRevision) {
     throw new Error('PROVIDER_NATIVE_RESUME_STALE_PROJECT_REVISION');
   }
   const publicResumeContext = deepFreezeV1({
@@ -393,7 +402,7 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     completedOperatorIds: [...selectedOperatorIds],
     completedTurnCount: input.checkpoint.completedTurns.length,
     nextTurn: input.checkpoint.nextTurn,
-    latestWriterRevisionReferenceId: latestWriterRevision.resultReferenceId,
+    latestWriterRevisionReferenceId: latestWriterRevision?.resultReferenceId ?? null,
     ...('referenceInputManifestSha256' in input.checkpoint
       ? { referenceInputManifestSha256: input.checkpoint.referenceInputManifestSha256 }
       : {}),
@@ -403,7 +412,9 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
         input.checkpoint.runtimeGuardResumeState.resumeStateSha256,
     } : {}),
     whatHasNotBeenChecked: [...input.checkpoint.whatHasNotBeenChecked],
-    instruction: 'Continue from the completed operations. Use the opaque latest-writer reference for downstream expectedProjectRevision; never copy a revision literal or repeat completed mutations.',
+    instruction: latestWriterRevision
+      ? 'Continue from the completed operations. Use the opaque latest-writer reference for downstream expectedProjectRevision; never copy a revision literal or repeat completed mutations.'
+      : 'Retry from the unchanged revision-bound state. No state-advancing operation completed; do not invent a writer receipt.',
   });
   return deepFreezeV1({
     turns: input.checkpoint.completedTurns.map((entry) => ({ ...entry })),
@@ -423,14 +434,20 @@ export function buildProviderNativeResumePromptContextV2R(
   const projectState = record(context.projectState);
   const revisionBinding = record(context.revisionBinding);
   const projectId = text(projectState.projectId) || text(revisionBinding.projectId);
+  const latestWriterRevisionReferenceId = text(
+    publicResumeContext.latestWriterRevisionReferenceId,
+  );
   return deepFreezeV1({
     episodeId: context.episodeId,
     objective: context.objective,
     activeTarget: context.activeTarget,
     projectIdentity: projectId ? { projectId } : { status: 'BOUND_BY_CONTEXT_HASH' },
-    revisionBinding: {
+    revisionBinding: latestWriterRevisionReferenceId ? {
       status: 'SUPERSEDED_BY_OPAQUE_WRITER_REFERENCE',
-      resultReferenceId: publicResumeContext.latestWriterRevisionReferenceId,
+      resultReferenceId: latestWriterRevisionReferenceId,
+    } : {
+      ...revisionBinding,
+      status: 'REVALIDATED_UNCHANGED_AFTER_PROVIDER_ATTEMPT',
     },
     evidence: context.evidence,
     preservationRules: context.preservationRules,
