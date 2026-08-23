@@ -156,6 +156,29 @@ describe('sealed holdout fail-closed runtime budget V2R', () => {
     expect(underfundedInvoke).not.toHaveBeenCalled();
   });
 
+  it('fails closed before dispatch when worst-case cost loses integer precision', async () => {
+    const cohort = await manifest();
+    const invoke = vi.fn();
+    const receipt = await runBudgetedSealedHoldoutEpisodeV2R({
+      manifest: cohort, caseId: 'HOLD-06:C1', route: LUNA_ROUTE,
+      authorization: authorization(cohort, 'HOLD-06:C1', LUNA_ROUTE, {
+        pricing: {
+          normalInputNanoUsdPerToken: Number.MAX_SAFE_INTEGER,
+          cachedInputNanoUsdPerToken: 0,
+          cacheWriteNanoUsdPerToken: Number.MAX_SAFE_INTEGER,
+          outputNanoUsdPerToken: 1,
+        },
+      }),
+      countInputTokens: countInputTokens(2), invoke, executeIsolated: vi.fn(),
+    });
+
+    expect(receipt.providerEpisode.terminal).toMatchObject({
+      disposition: 'RESOURCE_ACCOUNTING_UNVERIFIABLE',
+      reasonCodes: ['PREINVOKE_COST_OVERFLOW'],
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it('rejects missing and forged provider usage before any operation executes', async () => {
     const cohort = await manifest();
     const executeIsolated = vi.fn();

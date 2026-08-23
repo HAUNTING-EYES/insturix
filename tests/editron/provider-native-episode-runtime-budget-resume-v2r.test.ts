@@ -152,7 +152,7 @@ describe('provider-native sealed runtime budget across interruption and resume',
     await expect(resume(checkpoint, controller({
       absoluteMaxSpendMicroUsd: 9_000_000,
     }), invoke, executeIsolated)).rejects
-      .toThrow('SEALED_RUNTIME_RESUME_GUARD_IDENTITY_MISMATCH');
+      .toThrow('PROVIDER_NATIVE_RUNTIME_RESUME_GUARD_IDENTITY_MISMATCH');
 
     const forged = structuredClone(
       checkpoint.runtimeGuardResumeState,
@@ -167,7 +167,7 @@ describe('provider-native sealed runtime budget across interruption and resume',
     });
     await expect(resume(
       forgedCheckpoint, controller(), invoke, executeIsolated,
-    )).rejects.toThrow('SEALED_RUNTIME_RESUME_USAGE_EVENTS_MISMATCH');
+    )).rejects.toThrow('PROVIDER_NATIVE_RUNTIME_RESUME_USAGE_EVENTS_MISMATCH');
     expect(invoke).not.toHaveBeenCalled();
     expect(executeIsolated).not.toHaveBeenCalled();
   });
@@ -182,7 +182,7 @@ describe('provider-native sealed runtime budget across interruption and resume',
     });
     expect(receipt.terminal.disposition).toBe('RESOURCE_ACCOUNTING_UNVERIFIABLE');
     expect(() => runtimeBudget.createResumeState({ completedTurns: [] }))
-      .toThrow('SEALED_RUNTIME_RESUME_PENDING_REQUEST');
+      .toThrow('PROVIDER_NATIVE_RUNTIME_RESUME_PENDING_REQUEST');
   });
 });
 

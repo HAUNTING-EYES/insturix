@@ -39,12 +39,15 @@ export const SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R =
 const SUPPORTED_CANDIDATE_POLICY_CATALOG_REVISION =
   'EDITRON_OPERATOR_SPECS_V2R_9' as const;
 
-export interface SealedHoldoutRuntimePricingV2R {
+export interface ProviderNativeRuntimeBudgetPricingV2R {
   normalInputNanoUsdPerToken: number;
   cachedInputNanoUsdPerToken: number;
   cacheWriteNanoUsdPerToken: number;
   outputNanoUsdPerToken: number;
 }
+
+export type SealedHoldoutRuntimePricingV2R =
+  ProviderNativeRuntimeBudgetPricingV2R;
 
 export interface SealedHoldoutRuntimeAuthorizationV2R {
   version: typeof SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R;
@@ -61,10 +64,34 @@ export interface SealedHoldoutRuntimeAuthorizationV2R {
   pricing: Readonly<SealedHoldoutRuntimePricingV2R>;
 }
 
-export interface SealedHoldoutInputTokenBoundV2R {
+export interface ProviderNativeRuntimeInputTokenBoundV2R {
   inputTokensUpperBound: number;
   method: string;
   evidenceSha256: string;
+}
+
+export type SealedHoldoutInputTokenBoundV2R =
+  ProviderNativeRuntimeInputTokenBoundV2R;
+
+export interface ProviderNativeRuntimeBudgetLimitsV2R {
+  maxProviderTurns: number;
+  maxSelectedOperations: number;
+  maxCandidatesPerOperation: number;
+  maxCumulativeOutputTokens: number;
+  maxInputTokensPerTurn: number;
+  absoluteMaxSpendNanoUsd: number;
+}
+
+export interface ProviderNativeRuntimeBudgetControllerInputV2R {
+  guardKind: string;
+  guardIdentitySha256: string;
+  authorizationSha256: string;
+  inputTokenBoundVersion: string;
+  limits: Readonly<ProviderNativeRuntimeBudgetLimitsV2R>;
+  pricing: Readonly<ProviderNativeRuntimeBudgetPricingV2R>;
+  countInputTokens: (
+    request: Readonly<SerializedProviderNativeTurnV2R>,
+  ) => Promise<Readonly<ProviderNativeRuntimeInputTokenBoundV2R>>;
 }
 
 export interface SealedHoldoutRuntimeBudgetReceiptV2R {
@@ -126,22 +153,18 @@ const CANDIDATE_OUTPUT_PATHS: Readonly<Record<string, readonly (readonly string[
     resolve_user_asset_overlay: [['candidates']],
   });
 
-export class SealedHoldoutRuntimeBudgetControllerV2R
+export class ProviderNativeRuntimeBudgetControllerV2R
 implements ProviderNativeRuntimeGuardV2R {
-  readonly limits: Readonly<{
-    maxProviderTurns: number;
-    maxSelectedOperations: number;
-    maxCandidatesPerOperation: number;
-    maxCumulativeOutputTokens: number;
-    maxInputTokensPerTurn: number;
-    absoluteMaxSpendNanoUsd: number;
-  }>;
+  readonly limits: Readonly<ProviderNativeRuntimeBudgetLimitsV2R>;
 
-  private readonly authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
   private readonly authorizationSha256: string;
+  private readonly guardKind: string;
+  private readonly guardIdentity: string;
+  private readonly inputTokenBoundVersion: string;
+  private readonly pricing: Readonly<ProviderNativeRuntimeBudgetPricingV2R>;
   private readonly countInputTokens: (
     request: Readonly<SerializedProviderNativeTurnV2R>,
-  ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
+  ) => Promise<Readonly<ProviderNativeRuntimeInputTokenBoundV2R>>;
   private readonly events: JsonRecord[] = [];
   private pendingRequest: PendingRequest | null = null;
   private recoveredDispatchIntentReceiptSha256: string | null = null;
@@ -157,38 +180,23 @@ implements ProviderNativeRuntimeGuardV2R {
   private conservativeReservedOutputTokens = 0;
   private conservativeReservedNanoUsd = 0;
 
-  constructor(input: Readonly<{
-    publicCase: Readonly<JsonRecord>;
-    publicCaseSha256: string;
-    manifestSha256: string;
-    route: Readonly<ProviderNativeRouteV2R>;
-    authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
-    countInputTokens: (
-      request: Readonly<SerializedProviderNativeTurnV2R>,
-    ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
-  }>) {
-    assertAuthorization(input);
-    this.authorization = deepFreezeV1(structuredClone(input.authorization));
-    this.authorizationSha256 = hashCanonicalJsonV1(this.authorization);
+  constructor(input: Readonly<ProviderNativeRuntimeBudgetControllerInputV2R>) {
+    this.guardKind = runtimeIdentity(input.guardKind, 'RUNTIME_GUARD_KIND_INVALID');
+    this.guardIdentity = runtimeSha256(
+      input.guardIdentitySha256,
+      'RUNTIME_GUARD_IDENTITY_INVALID',
+    );
+    this.authorizationSha256 = runtimeSha256(
+      input.authorizationSha256,
+      'RUNTIME_AUTHORIZATION_IDENTITY_INVALID',
+    );
+    this.inputTokenBoundVersion = runtimeIdentity(
+      input.inputTokenBoundVersion,
+      'RUNTIME_TOKEN_BOUND_VERSION_INVALID',
+    );
+    this.limits = normalizeRuntimeLimits(input.limits);
+    this.pricing = normalizeRuntimePricing(input.pricing);
     this.countInputTokens = input.countInputTokens;
-    const resourceBudget = record(input.publicCase.resourceBudget);
-    const maxSelectedOperations = positiveInteger(resourceBudget.maxNodes, 'MAX_NODES_INVALID');
-    const maxCandidatesPerOperation = positiveInteger(
-      resourceBudget.maxCandidates,
-      'MAX_CANDIDATES_INVALID',
-    );
-    const maxCumulativeOutputTokens = positiveInteger(
-      resourceBudget.maxOutputTokens,
-      'MAX_OUTPUT_TOKENS_INVALID',
-    );
-    this.limits = deepFreezeV1({
-      maxProviderTurns: Math.min(32, maxSelectedOperations + 3),
-      maxSelectedOperations,
-      maxCandidatesPerOperation,
-      maxCumulativeOutputTokens,
-      maxInputTokensPerTurn: input.authorization.maxInputTokensPerTurn,
-      absoluteMaxSpendNanoUsd: input.authorization.absoluteMaxSpendMicroUsd * 1_000,
-    });
   }
 
   createResumeState(input: Readonly<{
@@ -221,10 +229,10 @@ implements ProviderNativeRuntimeGuardV2R {
           this.pendingRequest,
         ) : undefined;
     if (this.pendingRequest && !pendingProviderDispatchIntent) {
-      fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_PENDING_REQUEST');
     }
     if (!this.pendingRequest && pendingProviderDispatchIntent) {
-      fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST_MISSING');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_PENDING_REQUEST_MISSING');
     }
     assertRuntimeEventsBoundToTurns(
       this.events,
@@ -246,8 +254,8 @@ implements ProviderNativeRuntimeGuardV2R {
         ? PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
         : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
       authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION' as const,
-      guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
-      guardIdentitySha256: this.guardIdentitySha256(),
+      guardKind: this.guardKind,
+      guardIdentitySha256: this.guardIdentity,
       completedTurnsSha256,
       nextTurn: input.completedTurns.length + 1,
       ...(accountedProviderAttempts.length || pendingProviderDispatchIntent ? {
@@ -306,34 +314,34 @@ implements ProviderNativeRuntimeGuardV2R {
       : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R;
     if (resumeState.version !== expectedVersion
       || resumeState.authority !== 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION'
-      || resumeState.guardKind !== SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R
+      || resumeState.guardKind !== this.guardKind
       || hashCanonicalJsonV1(material) !== resumeState.resumeStateSha256
       || canonicalizeJsonV1(resumeState)
         !== canonicalizeJsonV1({
           ...material,
           resumeStateSha256: resumeState.resumeStateSha256,
         })) {
-      fail('SEALED_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
     }
-    if (resumeState.guardIdentitySha256 !== this.guardIdentitySha256()) {
-      fail('SEALED_RUNTIME_RESUME_GUARD_IDENTITY_MISMATCH');
+    if (resumeState.guardIdentitySha256 !== this.guardIdentity) {
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_GUARD_IDENTITY_MISMATCH');
     }
     const completedTurnsSha256 = hashCanonicalJsonV1(input.completedTurns);
     if (resumeState.completedTurnsSha256 !== completedTurnsSha256
       || resumeState.nextTurn !== input.completedTurns.length + 1) {
-      fail('SEALED_RUNTIME_RESUME_TURN_BINDING_MISMATCH');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_TURN_BINDING_MISMATCH');
     }
     if (accountedProviderAttempts.length || pendingProviderDispatchIntent
       ? resumeState.accountedProviderAttemptsSha256
           !== hashCanonicalJsonV1(accountedProviderAttempts)
       : 'accountedProviderAttemptsSha256' in resumeState) {
-      fail('SEALED_RUNTIME_RESUME_ATTEMPT_BINDING_MISMATCH');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_ATTEMPT_BINDING_MISMATCH');
     }
     if (pendingProviderDispatchIntent
       ? resumeState.pendingProviderDispatchIntentSha256
           !== pendingProviderDispatchIntent.receiptSha256
       : 'pendingProviderDispatchIntentSha256' in resumeState) {
-      fail('SEALED_RUNTIME_RESUME_DISPATCH_INTENT_BINDING_MISMATCH');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_DISPATCH_INTENT_BINDING_MISMATCH');
     }
     const state = record(resumeState.state);
     const events = records(state.events);
@@ -353,7 +361,7 @@ implements ProviderNativeRuntimeGuardV2R {
       events,
     };
     if (canonicalizeJsonV1(state) !== canonicalizeJsonV1(expectedState)) {
-      fail('SEALED_RUNTIME_RESUME_USAGE_EVENTS_MISMATCH');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_USAGE_EVENTS_MISMATCH');
     }
     this.events.push(...structuredClone(events));
     this.providerTurns = usage.providerTurns;
@@ -393,7 +401,11 @@ implements ProviderNativeRuntimeGuardV2R {
   }>): Promise<ProviderNativeRuntimeGuardDecisionV2R> {
     if (this.pendingRequest) return this.accountingDenial('PENDING_REQUEST_USAGE_UNRESOLVED', input);
     const bound = await this.countInputTokens(input.request);
-    if (!validTokenBound(bound, input.request.requestHash)) {
+    if (!validTokenBound(
+      bound,
+      input.request.requestHash,
+      this.inputTokenBoundVersion,
+    )) {
       return this.accountingDenial('INPUT_TOKEN_BOUND_INVALID', input);
     }
     if (bound.inputTokensUpperBound > this.limits.maxInputTokensPerTurn) {
@@ -402,16 +414,24 @@ implements ProviderNativeRuntimeGuardV2R {
         inputTokensUpperBound: bound.inputTokensUpperBound,
       });
     }
-    const pricing = this.authorization.pricing;
+    const pricing = this.pricing;
     const worstInputRate = Math.max(
       pricing.normalInputNanoUsdPerToken,
       pricing.cacheWriteNanoUsdPerToken,
     );
-    const reservedWorstCaseNanoUsd =
-      bound.inputTokensUpperBound * worstInputRate
-      + input.maxOutputTokens * pricing.outputNanoUsdPerToken;
-    if (this.spentNanoUsd + reservedWorstCaseNanoUsd
-      > this.limits.absoluteMaxSpendNanoUsd) {
+    const reservedWorstCaseNanoUsd = safeRuntimeCostSum([
+      [bound.inputTokensUpperBound, worstInputRate],
+      [input.maxOutputTokens, pricing.outputNanoUsdPerToken],
+    ]);
+    const projectedSpendNanoUsd = reservedWorstCaseNanoUsd === null
+      ? null : safeRuntimeSum([this.spentNanoUsd, reservedWorstCaseNanoUsd]);
+    if (reservedWorstCaseNanoUsd === null || projectedSpendNanoUsd === null) {
+      return this.accountingDenial('PREINVOKE_COST_OVERFLOW', {
+        turn: input.turn,
+        requestHash: input.request.requestHash,
+      });
+    }
+    if (projectedSpendNanoUsd > this.limits.absoluteMaxSpendNanoUsd) {
       return this.budgetDenial('ABSOLUTE_SPEND_BUDGET_EXCEEDED_PREINVOKE', {
         turn: input.turn, requestHash: input.request.requestHash,
         spentNanoUsd: this.spentNanoUsd, reservedWorstCaseNanoUsd,
@@ -457,14 +477,46 @@ implements ProviderNativeRuntimeGuardV2R {
       turn: input.turn, requestHash: input.request.requestHash,
       responseStatus: input.response.status,
     });
-    const actualCostNanoUsd = calculateCostNanoUsd(usage, this.authorization.pricing);
-    this.totalInputTokens += usage.inputTokens;
-    this.totalCachedInputTokens += usage.cachedInputTokens;
-    this.totalCacheWriteTokens += usage.cacheWriteTokens;
-    this.totalOutputTokens += usage.outputTokens + usage.thoughtTokens;
-    this.totalThoughtTokens += usage.thoughtTokens;
-    this.totalReasoningTokens += usage.reasoningTokens;
-    this.spentNanoUsd += actualCostNanoUsd;
+    const actualCostNanoUsd = calculateCostNanoUsd(usage, this.pricing);
+    const nextInputTokens = safeRuntimeSum([this.totalInputTokens, usage.inputTokens]);
+    const nextCachedInputTokens = safeRuntimeSum([
+      this.totalCachedInputTokens,
+      usage.cachedInputTokens,
+    ]);
+    const nextCacheWriteTokens = safeRuntimeSum([
+      this.totalCacheWriteTokens,
+      usage.cacheWriteTokens,
+    ]);
+    const nextOutputTokens = safeRuntimeSum([
+      this.totalOutputTokens,
+      usage.outputTokens,
+      usage.thoughtTokens,
+    ]);
+    const nextThoughtTokens = safeRuntimeSum([
+      this.totalThoughtTokens,
+      usage.thoughtTokens,
+    ]);
+    const nextReasoningTokens = safeRuntimeSum([
+      this.totalReasoningTokens,
+      usage.reasoningTokens,
+    ]);
+    const nextSpendNanoUsd = actualCostNanoUsd === null
+      ? null : safeRuntimeSum([this.spentNanoUsd, actualCostNanoUsd]);
+    if ([actualCostNanoUsd, nextInputTokens, nextCachedInputTokens,
+      nextCacheWriteTokens, nextOutputTokens, nextThoughtTokens,
+      nextReasoningTokens, nextSpendNanoUsd].some((value) => value === null)) {
+      return this.accountingDenial('ACTUAL_USAGE_OR_COST_OVERFLOW', {
+        turn: input.turn,
+        requestHash: input.request.requestHash,
+      });
+    }
+    this.totalInputTokens = nextInputTokens!;
+    this.totalCachedInputTokens = nextCachedInputTokens!;
+    this.totalCacheWriteTokens = nextCacheWriteTokens!;
+    this.totalOutputTokens = nextOutputTokens!;
+    this.totalThoughtTokens = nextThoughtTokens!;
+    this.totalReasoningTokens = nextReasoningTokens!;
+    this.spentNanoUsd = nextSpendNanoUsd!;
     const audit = {
       turn: input.turn, requestHash: input.request.requestHash,
       responseStatus: input.response.status, usage, actualCostNanoUsd,
@@ -571,25 +623,6 @@ implements ProviderNativeRuntimeGuardV2R {
     });
   }
 
-  receipt(
-    episodeTerminalDisposition: ProviderNativeTerminalDispositionV2R,
-  ): Readonly<SealedHoldoutRuntimeBudgetReceiptV2R> {
-    const assessment: SealedHoldoutRuntimeBudgetReceiptV2R['assessment'] = this.pendingRequest
-      || episodeTerminalDisposition === 'RESOURCE_ACCOUNTING_UNVERIFIABLE'
-      ? 'ACCOUNTING_UNVERIFIABLE'
-      : episodeTerminalDisposition === 'RESOURCE_BUDGET_EXHAUSTED'
-        ? 'BUDGET_EXHAUSTED' : 'ACCOUNTED_WITHIN_BUDGET';
-    const material = {
-      version: SEALED_HOLDOUT_RUNTIME_BUDGET_VERSION_V2R,
-      authority: 'RESEARCH_RESOURCE_ACCOUNTING_NO_PROJECT_MUTATION' as const,
-      authorizationSha256: this.authorizationSha256,
-      limits: this.limits,
-      usage: this.usage(),
-      events: structuredClone(this.events), episodeTerminalDisposition, assessment,
-    };
-    return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
-  }
-
   private allow(
     phase: string,
     details: Readonly<JsonRecord>,
@@ -627,10 +660,33 @@ implements ProviderNativeRuntimeGuardV2R {
     details: Readonly<JsonRecord>,
   ): ProviderNativeRuntimeGuardDecisionV2R {
     this.pendingRequest = null;
-    this.totalOutputTokens += pending.maxOutputTokens;
-    this.spentNanoUsd += pending.reservedWorstCaseNanoUsd;
-    this.conservativeReservedOutputTokens += pending.maxOutputTokens;
-    this.conservativeReservedNanoUsd += pending.reservedWorstCaseNanoUsd;
+    const nextOutputTokens = safeRuntimeSum([
+      this.totalOutputTokens,
+      pending.maxOutputTokens,
+    ]);
+    const nextSpendNanoUsd = safeRuntimeSum([
+      this.spentNanoUsd,
+      pending.reservedWorstCaseNanoUsd,
+    ]);
+    const nextReservedOutputTokens = safeRuntimeSum([
+      this.conservativeReservedOutputTokens,
+      pending.maxOutputTokens,
+    ]);
+    const nextReservedNanoUsd = safeRuntimeSum([
+      this.conservativeReservedNanoUsd,
+      pending.reservedWorstCaseNanoUsd,
+    ]);
+    if ([nextOutputTokens, nextSpendNanoUsd, nextReservedOutputTokens,
+      nextReservedNanoUsd].some((value) => value === null)) {
+      return this.accountingDenial('CONSERVATIVE_SETTLEMENT_OVERFLOW', {
+        turn: pending.turn,
+        requestHash: pending.requestHash,
+      });
+    }
+    this.totalOutputTokens = nextOutputTokens!;
+    this.spentNanoUsd = nextSpendNanoUsd!;
+    this.conservativeReservedOutputTokens = nextReservedOutputTokens!;
+    this.conservativeReservedNanoUsd = nextReservedNanoUsd!;
     return this.allow(phase, {
       turn: pending.turn,
       requestHash: pending.requestHash,
@@ -669,13 +725,20 @@ implements ProviderNativeRuntimeGuardV2R {
     };
   }
 
-  private guardIdentitySha256(): string {
-    return hashCanonicalJsonV1({
-      version: PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
-      guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
+  protected runtimeBudgetSnapshot(): Readonly<{
+    authorizationSha256: string;
+    limits: Readonly<ProviderNativeRuntimeBudgetLimitsV2R>;
+    usage: Readonly<JsonRecord>;
+    events: readonly Readonly<JsonRecord>[];
+    pendingRequest: PendingRequest | null;
+  }> {
+    return {
       authorizationSha256: this.authorizationSha256,
       limits: this.limits,
-    });
+      usage: this.usage(),
+      events: structuredClone(this.events),
+      pendingRequest: this.pendingRequest,
+    };
   }
 
   private assertPristineForResume(): void {
@@ -685,8 +748,90 @@ implements ProviderNativeRuntimeGuardV2R {
       || this.totalCachedInputTokens || this.totalCacheWriteTokens
       || this.totalOutputTokens || this.totalThoughtTokens
       || this.totalReasoningTokens || this.spentNanoUsd) {
-      fail('SEALED_RUNTIME_RESUME_TARGET_NOT_PRISTINE');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_TARGET_NOT_PRISTINE');
     }
+  }
+}
+
+/**
+ * Sealed benchmark policy layered over the shared accounting mechanics. This
+ * class remains the sole research authorization/receipt owner; product callers
+ * configure the shared controller from their own accepted reservation instead.
+ */
+export class SealedHoldoutRuntimeBudgetControllerV2R
+extends ProviderNativeRuntimeBudgetControllerV2R {
+  constructor(input: Readonly<{
+    publicCase: Readonly<JsonRecord>;
+    publicCaseSha256: string;
+    manifestSha256: string;
+    route: Readonly<ProviderNativeRouteV2R>;
+    authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
+    countInputTokens: (
+      request: Readonly<SerializedProviderNativeTurnV2R>,
+    ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
+  }>) {
+    assertAuthorization(input);
+    const authorization = deepFreezeV1(structuredClone(input.authorization));
+    const authorizationSha256 = hashCanonicalJsonV1(authorization);
+    const resourceBudget = record(input.publicCase.resourceBudget);
+    const maxSelectedOperations = positiveInteger(
+      resourceBudget.maxNodes,
+      'MAX_NODES_INVALID',
+    );
+    const limits = deepFreezeV1({
+      maxProviderTurns: Math.min(32, maxSelectedOperations + 3),
+      maxSelectedOperations,
+      maxCandidatesPerOperation: positiveInteger(
+        resourceBudget.maxCandidates,
+        'MAX_CANDIDATES_INVALID',
+      ),
+      maxCumulativeOutputTokens: positiveInteger(
+        resourceBudget.maxOutputTokens,
+        'MAX_OUTPUT_TOKENS_INVALID',
+      ),
+      maxInputTokensPerTurn: authorization.maxInputTokensPerTurn,
+      absoluteMaxSpendNanoUsd: authorization.absoluteMaxSpendMicroUsd * 1_000,
+    });
+    super({
+      guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
+      guardIdentitySha256: hashCanonicalJsonV1({
+        version: PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+        guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
+        authorizationSha256,
+        limits,
+      }),
+      authorizationSha256,
+      inputTokenBoundVersion: SEALED_HOLDOUT_INPUT_TOKEN_BOUND_VERSION_V2R,
+      limits,
+      pricing: authorization.pricing,
+      countInputTokens: input.countInputTokens,
+    });
+  }
+
+  receipt(
+    episodeTerminalDisposition: ProviderNativeTerminalDispositionV2R,
+  ): Readonly<SealedHoldoutRuntimeBudgetReceiptV2R> {
+    const snapshot = this.runtimeBudgetSnapshot();
+    const assessment: SealedHoldoutRuntimeBudgetReceiptV2R['assessment'] =
+      snapshot.pendingRequest
+        || episodeTerminalDisposition === 'RESOURCE_ACCOUNTING_UNVERIFIABLE'
+        ? 'ACCOUNTING_UNVERIFIABLE'
+        : episodeTerminalDisposition === 'RESOURCE_BUDGET_EXHAUSTED'
+          ? 'BUDGET_EXHAUSTED' : 'ACCOUNTED_WITHIN_BUDGET';
+    const material = {
+      version: SEALED_HOLDOUT_RUNTIME_BUDGET_VERSION_V2R,
+      authority: 'RESEARCH_RESOURCE_ACCOUNTING_NO_PROJECT_MUTATION' as const,
+      authorizationSha256: snapshot.authorizationSha256,
+      limits: snapshot.limits,
+      usage: snapshot.usage,
+      events: snapshot.events,
+      episodeTerminalDisposition,
+      assessment,
+    };
+    return deepFreezeV1({
+      ...material,
+      receiptSha256: hashCanonicalJsonV1(material),
+    });
   }
 }
 
@@ -701,7 +846,7 @@ function assertRuntimeEventsBoundToTurns(
     if (!Array.isArray(turn.runtimeGuardAudit)
       || !Number.isSafeInteger(turn.maxOutputTokens)
       || Number(turn.maxOutputTokens) < 64) {
-      fail('SEALED_RUNTIME_RESUME_TURN_AUDIT_INVALID');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_TURN_AUDIT_INVALID');
     }
     return records(turn.runtimeGuardAudit);
   });
@@ -717,7 +862,7 @@ function assertRuntimeEventsBoundToTurns(
     (left, right) => Number(left.ordinal) - Number(right.ordinal),
   );
   if (canonicalizeJsonV1(events) !== canonicalizeJsonV1(boundEvents)) {
-    fail('SEALED_RUNTIME_RESUME_TURN_AUDIT_MISMATCH');
+    fail('PROVIDER_NATIVE_RUNTIME_RESUME_TURN_AUDIT_MISMATCH');
   }
 }
 
@@ -734,7 +879,7 @@ function assertPendingDispatchBinding(
     || intent.previousAttemptReceiptSha256 !== (previous?.receiptSha256 ?? null)
     || canonicalizeJsonV1(pendingRequest)
       !== canonicalizeJsonV1(pendingRequestFromIntent(intent))) {
-    fail('SEALED_RUNTIME_RESUME_DISPATCH_INTENT_INVALID');
+    fail('PROVIDER_NATIVE_RUNTIME_RESUME_DISPATCH_INTENT_INVALID');
   }
   return intent;
 }
@@ -773,7 +918,7 @@ function deriveRuntimeUsageFromEvents(
   };
   events.forEach((event, index) => {
     if (event.ordinal !== index + 1 || event.status !== 'ALLOW') {
-      fail('SEALED_RUNTIME_RESUME_EVENT_SEQUENCE_INVALID');
+      fail('PROVIDER_NATIVE_RUNTIME_RESUME_EVENT_SEQUENCE_INVALID');
     }
     if (event.phase === 'BEFORE_INVOKE') usage.providerTurns += 1;
     if (event.phase === 'AFTER_EXECUTE') usage.selectedOperations += 1;
@@ -806,7 +951,7 @@ function deriveRuntimeUsageFromEvents(
     usage.spentNanoUsd += actualCostNanoUsd;
   });
   if (Object.values(usage).some((value) => !Number.isSafeInteger(value))) {
-    fail('SEALED_RUNTIME_RESUME_USAGE_OVERFLOW');
+    fail('PROVIDER_NATIVE_RUNTIME_RESUME_USAGE_OVERFLOW');
   }
   if (!usage.conservativeReservedOutputTokens) {
     const {
@@ -821,7 +966,7 @@ function deriveRuntimeUsageFromEvents(
 
 function resumeInteger(value: unknown): number {
   const parsed = safeInteger(value);
-  if (parsed === null) fail('SEALED_RUNTIME_RESUME_USAGE_INVALID');
+  if (parsed === null) fail('PROVIDER_NATIVE_RUNTIME_RESUME_USAGE_INVALID');
   return parsed;
 }
 
@@ -901,12 +1046,16 @@ function parseUsage(provider: 'openai' | 'google', body: unknown): Usage | null 
 function calculateCostNanoUsd(
   usage: Usage,
   pricing: Readonly<SealedHoldoutRuntimePricingV2R>,
-): number {
+): number | null {
   const normal = usage.inputTokens - usage.cachedInputTokens - usage.cacheWriteTokens;
-  return normal * pricing.normalInputNanoUsdPerToken
-    + usage.cachedInputTokens * pricing.cachedInputNanoUsdPerToken
-    + usage.cacheWriteTokens * pricing.cacheWriteNanoUsdPerToken
-    + (usage.outputTokens + usage.thoughtTokens) * pricing.outputNanoUsdPerToken;
+  const generatedTokens = safeRuntimeSum([usage.outputTokens, usage.thoughtTokens]);
+  if (generatedTokens === null) return null;
+  return safeRuntimeCostSum([
+    [normal, pricing.normalInputNanoUsdPerToken],
+    [usage.cachedInputTokens, pricing.cachedInputNanoUsdPerToken],
+    [usage.cacheWriteTokens, pricing.cacheWriteNanoUsdPerToken],
+    [generatedTokens, pricing.outputNanoUsdPerToken],
+  ]);
 }
 
 function inspectCandidateArrays(
@@ -961,9 +1110,30 @@ export function bindSealedHoldoutInputTokenBoundV2R(input: Readonly<{
     || input.inputTokensUpperBound < 0 || !input.method.trim()) {
     fail('SEALED_INPUT_TOKEN_BOUND_MATERIAL_INVALID');
   }
-  const material = {
+  return bindProviderNativeRuntimeInputTokenBoundV2R({
+    ...input,
     version: SEALED_HOLDOUT_INPUT_TOKEN_BOUND_VERSION_V2R,
-    requestHash: input.request.requestHash,
+  });
+}
+
+export function bindProviderNativeRuntimeInputTokenBoundV2R(input: Readonly<{
+  version: string;
+  request: Readonly<SerializedProviderNativeTurnV2R>;
+  inputTokensUpperBound: number;
+  method: string;
+}>): Readonly<ProviderNativeRuntimeInputTokenBoundV2R> {
+  const version = runtimeIdentity(input.version, 'RUNTIME_TOKEN_BOUND_VERSION_INVALID');
+  const requestHash = runtimeSha256(
+    input.request.requestHash,
+    'RUNTIME_TOKEN_BOUND_REQUEST_HASH_INVALID',
+  );
+  if (!Number.isSafeInteger(input.inputTokensUpperBound)
+    || input.inputTokensUpperBound < 0 || !input.method.trim()) {
+    fail('PROVIDER_NATIVE_RUNTIME_INPUT_TOKEN_BOUND_INVALID');
+  }
+  const material = {
+    version,
+    requestHash,
     inputTokensUpperBound: input.inputTokensUpperBound,
     method: input.method,
   };
@@ -975,17 +1145,106 @@ export function bindSealedHoldoutInputTokenBoundV2R(input: Readonly<{
 }
 
 function validTokenBound(
-  value: Readonly<SealedHoldoutInputTokenBoundV2R>,
+  value: Readonly<ProviderNativeRuntimeInputTokenBoundV2R>,
   requestHash: string,
+  version: string,
 ): boolean {
   return Number.isSafeInteger(value.inputTokensUpperBound)
     && value.inputTokensUpperBound >= 0 && Boolean(value.method.trim())
     && value.evidenceSha256 === hashCanonicalJsonV1({
-      version: SEALED_HOLDOUT_INPUT_TOKEN_BOUND_VERSION_V2R,
+      version,
       requestHash,
       inputTokensUpperBound: value.inputTokensUpperBound,
       method: value.method,
     });
+}
+
+function normalizeRuntimeLimits(
+  value: Readonly<ProviderNativeRuntimeBudgetLimitsV2R>,
+): Readonly<ProviderNativeRuntimeBudgetLimitsV2R> {
+  return deepFreezeV1({
+    maxProviderTurns: positiveInteger(value.maxProviderTurns, 'RUNTIME_MAX_TURNS_INVALID'),
+    maxSelectedOperations: positiveInteger(
+      value.maxSelectedOperations,
+      'RUNTIME_MAX_OPERATIONS_INVALID',
+    ),
+    maxCandidatesPerOperation: positiveInteger(
+      value.maxCandidatesPerOperation,
+      'RUNTIME_MAX_CANDIDATES_INVALID',
+    ),
+    maxCumulativeOutputTokens: positiveInteger(
+      value.maxCumulativeOutputTokens,
+      'RUNTIME_MAX_OUTPUT_TOKENS_INVALID',
+    ),
+    maxInputTokensPerTurn: positiveInteger(
+      value.maxInputTokensPerTurn,
+      'RUNTIME_MAX_INPUT_TOKENS_INVALID',
+    ),
+    absoluteMaxSpendNanoUsd: positiveInteger(
+      value.absoluteMaxSpendNanoUsd,
+      'RUNTIME_MAX_SPEND_INVALID',
+    ),
+  });
+}
+
+function normalizeRuntimePricing(
+  value: Readonly<ProviderNativeRuntimeBudgetPricingV2R>,
+): Readonly<ProviderNativeRuntimeBudgetPricingV2R> {
+  const result = {
+    normalInputNanoUsdPerToken: safeRuntimeInteger(
+      value.normalInputNanoUsdPerToken,
+      'RUNTIME_NORMAL_INPUT_PRICE_INVALID',
+    ),
+    cachedInputNanoUsdPerToken: safeRuntimeInteger(
+      value.cachedInputNanoUsdPerToken,
+      'RUNTIME_CACHED_INPUT_PRICE_INVALID',
+    ),
+    cacheWriteNanoUsdPerToken: safeRuntimeInteger(
+      value.cacheWriteNanoUsdPerToken,
+      'RUNTIME_CACHE_WRITE_PRICE_INVALID',
+    ),
+    outputNanoUsdPerToken: safeRuntimeInteger(
+      value.outputNanoUsdPerToken,
+      'RUNTIME_OUTPUT_PRICE_INVALID',
+    ),
+  };
+  if (!result.normalInputNanoUsdPerToken || !result.outputNanoUsdPerToken) {
+    fail('PROVIDER_NATIVE_RUNTIME_PRICE_ZERO');
+  }
+  return deepFreezeV1(result);
+}
+
+function safeRuntimeInteger(value: unknown, code: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) fail(code);
+  return Number(value);
+}
+
+function safeRuntimeSum(values: readonly number[]): number | null {
+  const result = values.reduce((total, value) => total + value, 0);
+  return Number.isSafeInteger(result) && result >= 0 ? result : null;
+}
+
+function safeRuntimeCostSum(
+  terms: readonly (readonly [quantity: number, nanoUsdPerUnit: number])[],
+): number | null {
+  const products = terms.map(([quantity, nanoUsdPerUnit]) => {
+    const product = quantity * nanoUsdPerUnit;
+    return Number.isSafeInteger(product) && product >= 0 ? product : null;
+  });
+  if (products.some((value) => value === null)) return null;
+  return safeRuntimeSum(products as number[]);
+}
+
+function runtimeIdentity(value: unknown, code: string): string {
+  const result = text(value);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/.test(result)) fail(code);
+  return result;
+}
+
+function runtimeSha256(value: unknown, code: string): string {
+  const result = text(value);
+  if (!/^[a-f0-9]{64}$/.test(result)) fail(code);
+  return result;
 }
 
 function safeInteger(value: unknown, fallback?: number): number | null {
@@ -1009,7 +1268,7 @@ function isRecord(value: unknown): value is JsonRecord {
 function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
 function records(value: unknown): JsonRecord[] {
   if (!Array.isArray(value) || value.some((entry) => !isRecord(entry))) {
-    fail('SEALED_RUNTIME_RESUME_EVENT_ARRAY_INVALID');
+    fail('PROVIDER_NATIVE_RUNTIME_RESUME_EVENT_ARRAY_INVALID');
   }
   return value;
 }

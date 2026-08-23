@@ -95,7 +95,7 @@ describe('provider-native failed-attempt resume binding', () => {
     const material = await checkpointMaterial();
     expect(() => controller().restoreResumeState({
       resumeState: material.runtimeState, completedTurns: [],
-    })).toThrow('SEALED_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
+    })).toThrow('PROVIDER_NATIVE_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
     const copied = structuredClone(material.attempt);
     Object.assign(copied.scope, { episodeId: 'copied-episode' });
     expect(() => createProviderNativeEpisodeResumeCheckpointV2R({

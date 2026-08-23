@@ -84,7 +84,7 @@ describe('provider-native pending dispatch resume', () => {
     })).toThrow();
     expect(() => controller().restoreResumeState({
       resumeState: material.runtimeState, completedTurns: [],
-    })).toThrow('SEALED_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
+    })).toThrow('PROVIDER_NATIVE_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
   });
 });
 
