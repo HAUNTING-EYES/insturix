@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `2e2471adc` on
+programme code checkpoint represented by this ledger is `d17ba67c1` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 2e2471adc. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: d17ba67c1. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1335,11 +1335,16 @@ FRESH_EPISODE_RECEIPT from RESUMED_EPISODE_RECEIPT. A fresh trace must equal
 the episode receipt; a resumed trace must bind a distinct resume receipt.
 Unknown, copied, forged and tampered trace identities fail closed. The focused
 outcome/resume cluster passes 49/49 with repository typecheck and quiet ESLint
-clean. This makes truthful fresh proof representable; existing finalizer,
-clone and proof-owner interfaces still use V1, so fresh execution remains
-disabled. Next migrate those interfaces to V2, add durable failed-provider-
-attempt accounting/retry, then add authenticated non-production QStash/Atlas
-wiring with zero inference.
+clean. Commit f3b6ad44d adds a separate V2 finalizer that has no V1 fallback.
+Commit d17ba67c1 then exposes V2 proof through the sole ProjectService clone,
+adapts the existing cut/focal proof owner for honest resumed traces only and
+switches the product Plan resumed adapter to that V2 finalizer. Fresh traces
+fail before rendering; the separate research worker retains its V1 lifecycle
+for backward compatibility. The migrated durable cluster passes 55/55 with
+repository typecheck and quiet ESLint clean. Fresh provider execution remains
+disabled. Next add a native fresh proof/execution path plus durable failed-
+provider-attempt accounting, then add authenticated non-production QStash/
+Atlas wiring with zero inference.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
