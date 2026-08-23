@@ -1,4 +1,4 @@
-# Stage 2.5 generalisation current matrix — 2026-08-22
+# Stage 2.5 generalisation current matrix — updated 2026-08-24
 
 ## Authoritative resume point
 
@@ -94,13 +94,31 @@ authorise production mutation or establish a provider rank.
 | Dependency/invalidation diversity | Deterministic scheduler tests cover tracking fork/join, hazards, writer revision origins, stability and stale proof. V3R3 adds one provider six-operation fork/join chain. | Models have not been tested on another genuinely new dependency shape. |
 | User edits and locks | Commit `fd2eabcdb` passes nine deterministic stale/disjoint/transformed/conflict/lock/evidence cases. | Active ProjectService receipts do not emit those regions/transforms/locks; no provider episode or canonical apply/reload used them. |
 | Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. | No newly paid resumed inference and no canonical ProjectService apply/reload. |
-| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory, proposal contract and deterministic compiler into existing PlanService; 9/9 adversarial tests pass with zero inference/effects. Commit `30a2ed776` adds a control-only nine-row Luna/Terra/Gemini cohort under three deterministic evidence orders and a zero-inference preflight contract; its five adversarial tests pass. Live manifest `59a022ed...` and receipt `4ae58954...` then verify all three production model identities, nine request captures and official Google token counts with zero inference/project effects; the request-specific upper bound is `$0.91800165` and the frozen ceiling is `$1.5051264`. Commit `4a0538847` adds the provider-episode evaluator and validates that accepted outputs compile through the existing PlanService compiler while honest no-plan and forged/invalid receipts remain distinct; 19/19 focused tests and repository typecheck/lint pass. | The evaluator result is structural only. Manifest `59a022ed...` predates evaluator/runner binding and is no longer dispatch-eligible. A successor identity, durable runner/authorization, fresh zero-inference preflight and exact spend approval are required before calls. No model proposal, editorial-quality review, real-media range accuracy, context-limit curve, latency or actual-cost receipt exists. |
+| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Successor manifest `a5f988b55c1e28cfed08cff9e64cd0406990b3d5fe97e75e46e5c712109d8b66` binds commit `b7e0fa26c`, ten source files, nine Luna/Terra/Gemini 3.7 rows, one attempt per row, zero automatic retries and zero project effects. Clean credential-split preflight receipt `ba2731bfee749300c49e3619f860f763c07768b2d3164bd32dee2b3e645aefb1` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` use the recharged local OpenAI key and Vercel Production Gemini key, make three metadata GETs plus three Google `countTokens` calls, and make zero inference calls. The request-specific first-attempt upper bound is `$0.9190839`; the frozen hard ceiling is `$1.505126400`. The relevant 17 focused tests, repository typecheck and repository lint pass. | Exact paid confirmation remains required before the nine calls. The evaluator result remains structural only: no provider proposal, editorial-quality review, real-media range accuracy, context-limit curve, latency or actual-cost receipt exists. A same-worktree Vercel preflight is provenance diagnostics only because Vercel CLI 50.34.2 lets local/process variables override remote production values; only the clean credential-split receipt is dispatch evidence. |
 | HREF-01 | Full source, one requested 180-frame dense motion window and WAV exist under pack `4431c08b...`. | Sole project-owner review receipt is missing; independent agreement remains `UNVERIFIABLE` without a real second reviewer. |
 | Final quality/decision | Prior technical and user ordinal evidence remains useful but bounded. | Obtain hash-bound blind quality, correction-time, latency and cost receipts, then publish frozen `GO`, `MODIFY` or `NO-GO`. |
 
-The next executable slice is the durable nine-row runner and authorization
-contract, followed by a successor cohort identity that source-binds that runner,
-the evaluator and the exact request captures. Run a fresh production-credential
-zero-inference preflight for that successor, then obtain exact spend approval.
-Only that successor may dispatch the nine Luna/Terra/Gemini planning rows. This
-matrix update itself authorizes no inference call.
+The old twelve P2/P3 rows are closed by V3R4's bounded 18/18 handoff/order
+result, and `HOLD-01` through `HOLD-08` are not unseen work. The next executable
+action is exact authorization of the nine source-bound long-form rows using all
+four frozen values: manifest `a5f988b5...`, preflight `ba2731bf...`, capture set
+`8878d566...`, ceiling `$1.505126400`, plus confirmation
+`YES_I_CONFIRM_9_LONG_FORM_PLAN_ROWS`. This matrix update itself authorizes no
+inference call.
+
+After that cohort, Stage 2.5 still requires, in order:
+
+1. compile and structurally evaluate every terminal proposal without treating
+   structural validity as editorial quality;
+2. complete the sole-owner HREF-01 review and its targeted dense motion/audio
+   judgment; a second independent reviewer remains honestly unavailable;
+3. test genuinely new dependency/invalidation shapes and broader forced native,
+   generated and hybrid alternatives;
+4. exercise stale user edits, overlap conflicts, safe rebase and locked ranges
+   through the product authority rather than fixtures alone;
+5. test paid episode compaction/resume without losing plan or opaque-result
+   identity;
+6. extend long-form trials beyond coarse 4.5-hour structure to realistic media,
+   bounded evidence and context-limit behavior; and
+7. obtain blind quality, correction-time, latency and cost receipts before the
+   frozen `GO`, `MODIFY` or `NO-GO` decision.

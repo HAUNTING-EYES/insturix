@@ -3477,6 +3477,47 @@ zero-inference preflight, obtain explicit approval for that successor ceiling,
 then run the nine rows. No inference or project mutation is authorized by this
 correction.
 
+**Stage 2.5 long-form successor gate update (2026-08-24):** this paragraph
+supersedes the preceding correction's remaining-action sentence and the stale
+long-form instructions in the master-stage table. Commits `70da565b3`,
+`3ea22c861`, `0f7a566fb` and `b7e0fa26c` now provide durable opaque-result
+handoff, exact paid authorization, append-only no-repeat runner recovery and a
+reproducible operator. Source-bound manifest
+`a5f988b55c1e28cfed08cff9e64cd0406990b3d5fe97e75e46e5c712109d8b66`
+binds commit `b7e0fa26c`, ten source files, nine rows, one attempt per row, zero
+automatic retries and zero project effects. Clean credential-split preflight
+receipt `ba2731bfee749300c49e3619f860f763c07768b2d3164bd32dee2b3e645aefb1`
+and capture set
+`8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0`
+use the recharged local OpenAI key and Vercel Production Gemini key, verify all
+three provider identities and nine exact requests, make three metadata GETs and
+three Google `countTokens` calls, and make zero inference calls. The
+request-specific first-attempt upper bound is `$0.9190839`; the immutable cohort
+ceiling is `$1.505126400`. Seventeen focused tests, repository typecheck and
+repository lint pass.
+
+Vercel CLI 50.34.2 merges remote environment values before local env files and
+the parent process. Therefore the earlier same-worktree `env run -e production`
+receipt is provenance diagnostics only: it cannot prove which same-named key
+won. The dispatch-eligible preflight was rerun from a clean linked directory,
+with only local `OPENAI_API_KEY` retained and all local Google aliases removed,
+so Gemini's credential can originate only from Vercel Production. No secret is
+stored in the manifest, request captures or receipts.
+
+The next action is no longer implementation or preflight. It is the exact paid
+approval bound to manifest `a5f988b5...`, preflight `ba2731bf...`, capture set
+`8878d566...`, ceiling `$1.505126400` and confirmation
+`YES_I_CONFIRM_9_LONG_FORM_PLAN_ROWS`, followed by the nine calls and structural
+evaluation. This remains a research planning cohort, not editorial-quality or
+production-mutation proof. After it, Stage 2.5 still requires the sole-owner
+HREF-01 judgment and targeted dense motion/audio review, genuinely new
+dependency/invalidation shapes, broader forced native/generated/hybrid
+alternatives, product-authority conflict/rebase/lock trials, paid
+compaction/resume, realistic long-form evidence/context-limit trials, blind
+quality/correction-time/latency/cost receipts and a frozen `GO`, `MODIFY` or
+`NO-GO`. The old twelve P2/P3 rows and the phrase “seven unseen holdouts” remain
+closed historical work and must not be scheduled again.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
