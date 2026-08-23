@@ -3477,46 +3477,63 @@ zero-inference preflight, obtain explicit approval for that successor ceiling,
 then run the nine rows. No inference or project mutation is authorized by this
 correction.
 
-**Stage 2.5 long-form successor gate update (2026-08-24):** this paragraph
+**Stage 2.5 long-form paid-cohort result update (2026-08-24):** this paragraph
 supersedes the preceding correction's remaining-action sentence and the stale
 long-form instructions in the master-stage table. Commits `70da565b3`,
-`3ea22c861`, `0f7a566fb` and `b7e0fa26c` now provide durable opaque-result
-handoff, exact paid authorization, append-only no-repeat runner recovery and a
-reproducible operator. Source-bound manifest
-`a5f988b55c1e28cfed08cff9e64cd0406990b3d5fe97e75e46e5c712109d8b66`
-binds commit `b7e0fa26c`, ten source files, nine rows, one attempt per row, zero
-automatic retries and zero project effects. Clean credential-split preflight
-receipt `ba2731bfee749300c49e3619f860f763c07768b2d3164bd32dee2b3e645aefb1`
-and capture set
-`8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0`
-use the recharged local OpenAI key and Vercel Production Gemini key, verify all
-three provider identities and nine exact requests, make three metadata GETs and
-three Google `countTokens` calls, and make zero inference calls. The
-request-specific first-attempt upper bound is `$0.9190839`; the immutable cohort
-ceiling is `$1.505126400`. Seventeen focused tests, repository typecheck and
-repository lint pass.
+`3ea22c861`, `0f7a566fb` and `b7e0fa26c` provide durable opaque-result handoff,
+exact paid authorization, append-only no-repeat runner recovery and a
+reproducible operator. The historical `a5f988b5...`/`ba2731bf...` pair remains
+immutable preflight evidence, but is not dispatchable at the later source
+commit. The fresh manifest
+`975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds
+commit `5a38d08318aae445395c66cb432a94835f6db198`, source binding
+`e7e96c615587c294c389a74b6ac72a23ebf563edb9273ceff93a2fa6add17f0d`, ten
+source files, nine rows, one attempt per row, zero automatic retries and zero
+project effects. Its clean credential-split preflight receipt
+`f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and
+capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0`
+use the local OpenAI credential and Vercel Production
+`GOOGLE_GENERATIVE_AI_API_KEY`; they make three model-metadata GETs and three
+Google `countTokens` calls, with zero inference. The request-specific
+first-attempt upper bound is `$0.9190839`; the immutable ceiling is
+`$1.505126400`.
 
 Vercel CLI 50.34.2 merges remote environment values before local env files and
-the parent process. Therefore the earlier same-worktree `env run -e production`
-receipt is provenance diagnostics only: it cannot prove which same-named key
-won. The dispatch-eligible preflight was rerun from a clean linked directory,
-with only local `OPENAI_API_KEY` retained and all local Google aliases removed,
-so Gemini's credential can originate only from Vercel Production. No secret is
-stored in the manifest, request captures or receipts.
+the parent process. The paid run therefore used the clean linked directory, a
+process containing only the local `OPENAI_API_KEY`, and no local Google alias
+before Vercel loaded Production values. No secret is stored in the manifest,
+request captures or receipts.
 
-The next action is no longer implementation or preflight. It is the exact paid
-approval bound to manifest `a5f988b5...`, preflight `ba2731bf...`, capture set
-`8878d566...`, ceiling `$1.505126400` and confirmation
-`YES_I_CONFIRM_9_LONG_FORM_PLAN_ROWS`, followed by the nine calls and structural
-evaluation. This remains a research planning cohort, not editorial-quality or
-production-mutation proof. After it, Stage 2.5 still requires the sole-owner
-HREF-01 judgment and targeted dense motion/audio review, genuinely new
-dependency/invalidation shapes, broader forced native/generated/hybrid
-alternatives, product-authority conflict/rebase/lock trials, paid
-compaction/resume, realistic long-form evidence/context-limit trials, blind
-quality/correction-time/latency/cost receipts and a frozen `GO`, `MODIFY` or
-`NO-GO`. The old twelve P2/P3 rows and the phrase “seven unseen holdouts” remain
-closed historical work and must not be scheduled again.
+The exact approval created authorization
+`86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and paid
+cohort receipt
+`ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3`. All
+nine rows dispatched and completed exactly once: nine observed HTTP 200
+responses, zero automatic retries, zero durable `attempt` events, zero
+recovered-unknown dispatches, zero provider-infrastructure failures, zero
+project reads/mutations and no state effects. Receipt-accounted spend is
+`341221800` nano-USD (`$0.341221800`), below the immutable ceiling. Five rows
+are `PASS_STRUCTURAL_ONLY` (`OPENAI_TERRA:P1`, `OPENAI_TERRA:P3` and all three
+`GOOGLE_FLASH` presentations); four are `FAIL_STRUCTURAL`:
+`OPENAI_LUNA:P1`, `OPENAI_LUNA:P2` and `OPENAI_TERRA:P2` have
+`STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`, while `OPENAI_LUNA:P3` has
+`STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`.
+
+This is research planning evidence only, not editorial-quality or
+production-mutation proof. Every successful structural row still records
+`NOT_EVALUATED_ADAPTER_ONLY`; editorial taste, range-semantic accuracy and
+rendered audiovisual quality remain unverified and require blind editor review.
+The durable row and cohort receipts emit no elapsed-time/latency field, so there
+is no latency receipt; the runtime-accounted spend is also not a provider-billing
+invoice. The five current focused long-form suites pass 26/26, with repository
+typecheck and quiet lint passing. Do not repeat this completed cohort. Next in
+order: sole-owner HREF-01 dense motion/audio judgment; genuinely new
+dependency/invalidation shapes; broader forced native/generated/hybrid
+alternatives; product-authority stale-edit/overlap/rebase/lock trials; paid
+compaction/resume identity; realistic long-form evidence/context-limit trials;
+then blind quality, correction-time, latency and cost receipts before a frozen
+`GO`, `MODIFY` or `NO-GO`. The old twelve P2/P3 rows and the phrase “seven unseen
+holdouts” remain closed historical work and must not be scheduled again.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older

@@ -94,31 +94,27 @@ authorise production mutation or establish a provider rank.
 | Dependency/invalidation diversity | Deterministic scheduler tests cover tracking fork/join, hazards, writer revision origins, stability and stale proof. V3R3 adds one provider six-operation fork/join chain. | Models have not been tested on another genuinely new dependency shape. |
 | User edits and locks | Commit `fd2eabcdb` passes nine deterministic stale/disjoint/transformed/conflict/lock/evidence cases. | Active ProjectService receipts do not emit those regions/transforms/locks; no provider episode or canonical apply/reload used them. |
 | Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. | No newly paid resumed inference and no canonical ProjectService apply/reload. |
-| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Successor manifest `a5f988b55c1e28cfed08cff9e64cd0406990b3d5fe97e75e46e5c712109d8b66` binds commit `b7e0fa26c`, ten source files, nine Luna/Terra/Gemini 3.7 rows, one attempt per row, zero automatic retries and zero project effects. Clean credential-split preflight receipt `ba2731bfee749300c49e3619f860f763c07768b2d3164bd32dee2b3e645aefb1` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` use the recharged local OpenAI key and Vercel Production Gemini key, make three metadata GETs plus three Google `countTokens` calls, and make zero inference calls. The request-specific first-attempt upper bound is `$0.9190839`; the frozen hard ceiling is `$1.505126400`. The relevant 17 focused tests, repository typecheck and repository lint pass. | Exact paid confirmation remains required before the nine calls. The evaluator result remains structural only: no provider proposal, editorial-quality review, real-media range accuracy, context-limit curve, latency or actual-cost receipt exists. A same-worktree Vercel preflight is provenance diagnostics only because Vercel CLI 50.34.2 lets local/process variables override remote production values; only the clean credential-split receipt is dispatch evidence. |
+| Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Fresh manifest `975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds commit `5a38d08318aae445395c66cb432a94835f6db198`, ten source files and nine Luna/Terra/Gemini 3.7 rows. Clean credential-split preflight receipt `f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` bind the local OpenAI credential and Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY`. Paid authorization `86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and receipt `ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3` record nine unique dispatches and terminal rows, one observed HTTP 200 response per row, zero retries/unknown dispatches/provider-infrastructure failures, zero project effects and `$0.341221800` receipt-accounted spend under the `$1.505126400` ceiling. Structural result: Terra P1/P3 and all Gemini Flash rows are `PASS_STRUCTURAL_ONLY`; Luna P1/P2 and Terra P2 fail `STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`; Luna P3 fails `STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`. Five current focused suites pass 26/26 with repository typecheck and lint. | This is structural planning evidence only: every product outcome is `NOT_EVALUATED_ADAPTER_ONLY`, and editorial taste, range-semantic accuracy and rendered audiovisual quality remain unverified. The durable receipt emits no latency/elapsed-time field, and runtime-accounted spend is not a provider-billing invoice. Do not repeat this cohort. Next: HREF-01 sole-owner dense motion/audio review; genuinely new dependency/invalidation shapes; broader forced native/generated/hybrid alternatives; product-authority stale-edit/overlap/rebase/lock trials; paid compaction/resume identity; realistic long-form evidence/context-limit trials; then blind quality, correction-time, latency and cost receipts before `GO`/`MODIFY`/`NO-GO`. |
 | HREF-01 | Full source, one requested 180-frame dense motion window and WAV exist under pack `4431c08b...`. | Sole project-owner review receipt is missing; independent agreement remains `UNVERIFIABLE` without a real second reviewer. |
 | Final quality/decision | Prior technical and user ordinal evidence remains useful but bounded. | Obtain hash-bound blind quality, correction-time, latency and cost receipts, then publish frozen `GO`, `MODIFY` or `NO-GO`. |
 
 The old twelve P2/P3 rows are closed by V3R4's bounded 18/18 handoff/order
-result, and `HOLD-01` through `HOLD-08` are not unseen work. The next executable
-action is exact authorization of the nine source-bound long-form rows using all
-four frozen values: manifest `a5f988b5...`, preflight `ba2731bf...`, capture set
-`8878d566...`, ceiling `$1.505126400`, plus confirmation
-`YES_I_CONFIRM_9_LONG_FORM_PLAN_ROWS`. This matrix update itself authorizes no
-inference call.
+result, and `HOLD-01` through `HOLD-08` are not unseen work. The nine
+source-bound long-form rows have completed under receipt `ad64ab8d...`; they
+must not be replayed. Their structural evaluation is complete, but must not be
+mistaken for editorial-quality validation.
 
-After that cohort, Stage 2.5 still requires, in order:
+After that completed cohort, Stage 2.5 still requires, in order:
 
-1. compile and structurally evaluate every terminal proposal without treating
-   structural validity as editorial quality;
-2. complete the sole-owner HREF-01 review and its targeted dense motion/audio
+1. complete the sole-owner HREF-01 review and its targeted dense motion/audio
    judgment; a second independent reviewer remains honestly unavailable;
-3. test genuinely new dependency/invalidation shapes and broader forced native,
+2. test genuinely new dependency/invalidation shapes and broader forced native,
    generated and hybrid alternatives;
-4. exercise stale user edits, overlap conflicts, safe rebase and locked ranges
+3. exercise stale user edits, overlap conflicts, safe rebase and locked ranges
    through the product authority rather than fixtures alone;
-5. test paid episode compaction/resume without losing plan or opaque-result
+4. test paid episode compaction/resume without losing plan or opaque-result
    identity;
-6. extend long-form trials beyond coarse 4.5-hour structure to realistic media,
+5. extend long-form trials beyond coarse 4.5-hour structure to realistic media,
    bounded evidence and context-limit behavior; and
-7. obtain blind quality, correction-time, latency and cost receipts before the
+6. obtain blind quality, correction-time, latency and cost receipts before the
    frozen `GO`, `MODIFY` or `NO-GO` decision.
