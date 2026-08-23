@@ -1,44 +1,42 @@
+import type { ProviderNativeDurableResolvedArtifactsV2R }
+  from './provider-native-episode-durable-worker-v2r';
+import type { ProviderNativeEpisodeResumeCheckpointV2R }
+  from './provider-native-episode-resume-v2r';
 import {
-  buildProviderNativeResumedEpisodeReceiptV2R,
-  type ProviderNativeEpisodeResumeCheckpointV2R,
-} from './provider-native-episode-resume-v2r';
-import {
-  proposalRecoveryWriterTurnsV2R,
-  type ProviderNativeProposalRecoveryStateV2R,
-} from './provider-native-proposal-recovery-v2r';
+  assertProviderNativeExecutionArtifactsV2R,
+  captureProviderNativeProposalRecoveryStateV2R,
+} from './provider-native-execution-artifact-validation-v2r';
+import type { ProviderNativeProposalRecoveryStateV2R }
+  from './provider-native-proposal-recovery-v2r';
 import {
   runProviderNativeToolEpisodeV2R,
   type ProviderNativeEpisodeReceiptV2R,
 } from './provider-native-tool-episode-v2r';
-import type { ProviderNativeDurableResolvedArtifactsV2R }
-  from './provider-native-episode-durable-worker-v2r';
-import {
-  assertProviderNativeExecutionArtifactsV2R,
-  captureProviderNativeProposalRecoveryStateV2R,
-  providerNativeWorkingProjectRevisionV2R,
-} from './provider-native-execution-artifact-validation-v2r';
+import type { ProviderNativeRouteV2R }
+  from './provider-native-tool-codecs-v2r';
 
-export interface ProviderNativeResumedExecutionScopeV2R {
+export interface ProviderNativeFreshExecutionScopeV2R {
   tenantId: string;
   userId: string;
   projectId: string;
   episodeId: string;
 }
 
-export interface ProviderNativeResumedExecutionCoreResultV2R {
+export interface ProviderNativeFreshExecutionCoreResultV2R {
   episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
-  resumedReceiptSha256: string;
+  latestCheckpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
 }
 
 /**
- * One resumed provider episode execution core shared by lifecycle adapters.
- * It owns neither a lease nor persistence; those remain injected boundaries.
+ * Starts one provider episode at turn one. It receives no checkpoint and can
+ * persist only checkpoints emitted by a real dispatch, attempt, or tool turn.
  */
-export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly<{
-  scope: Readonly<ProviderNativeResumedExecutionScopeV2R>;
-  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
-  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+export async function executeProviderNativeFreshEpisodeCoreV2R(input: Readonly<{
+  scope: Readonly<ProviderNativeFreshExecutionScopeV2R>;
+  route: Readonly<ProviderNativeRouteV2R>;
+  expectedContextSha256: string;
+  expectedToolSetSha256: string;
   artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>;
   requireDurableProviderAttemptPersistence?: boolean;
   heartbeat(): Promise<void>;
@@ -46,31 +44,31 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
   }>): Promise<void>;
-}>): Promise<Readonly<ProviderNativeResumedExecutionCoreResultV2R>> {
-  assertScope(input.scope, input.checkpoint);
-  let latestProposalRecoveryState = input.proposalRecoveryState;
+}>): Promise<Readonly<ProviderNativeFreshExecutionCoreResultV2R>> {
+  assertFreshScope(input.scope, input.artifacts);
   assertProviderNativeExecutionArtifactsV2R({
-    expectedContextSha256: input.checkpoint.contextSha256,
-    expectedToolSetSha256: input.checkpoint.toolSetSha256,
+    expectedContextSha256: input.expectedContextSha256,
+    expectedToolSetSha256: input.expectedToolSetSha256,
     artifacts: input.artifacts,
-    ...(latestProposalRecoveryState
-      ? { proposalRecoveryState: latestProposalRecoveryState } : {}),
-    proposalRecoveryRequired:
-      proposalRecoveryWriterTurnsV2R(input.checkpoint).length > 0,
   });
+  let latestCheckpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>
+    | undefined;
+  let latestProposalRecoveryState:
+    Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined;
   await input.heartbeat();
-  const persistProviderCheckpoint = async (inputCheckpoint: Readonly<{
+  const persistProviderCheckpoint = async (event: Readonly<{
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   }>): Promise<void> => {
     await input.heartbeat();
     await input.persistCheckpoint({
-      checkpoint: inputCheckpoint.checkpoint,
+      checkpoint: event.checkpoint,
       ...(latestProposalRecoveryState
         ? { proposalRecoveryState: latestProposalRecoveryState } : {}),
     });
+    latestCheckpoint = event.checkpoint;
   };
   const episodeReceipt = await runProviderNativeToolEpisodeV2R({
-    route: input.checkpoint.route,
+    route: input.route,
     context: input.artifacts.context,
     eligibleOperatorIds: input.artifacts.eligibleOperatorIds,
     argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
@@ -84,11 +82,6 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
       ? { additionalInstructions: input.artifacts.additionalInstructions } : {}),
     ...(input.artifacts.runtimeGuard
       ? { runtimeGuard: input.artifacts.runtimeGuard } : {}),
-    resumeCheckpoint: input.checkpoint,
-    resumeCurrentProjectRevision: providerNativeWorkingProjectRevisionV2R(
-      input.artifacts,
-      latestProposalRecoveryState,
-    ),
     invoke: async (request) => {
       await input.heartbeat();
       const response = await input.artifacts.invoke(request);
@@ -102,45 +95,49 @@ export async function executeProviderNativeResumedEpisodeCoreV2R(input: Readonly
       return result;
     },
     ...(input.requireDurableProviderAttemptPersistence ? {
-      // Both phases reuse the lifecycle adapter's existing resume-state CAS.
-      // The episode cannot invoke until the dispatch callback returns.
       onProviderDispatchCommitted: persistProviderCheckpoint,
       onProviderAttemptCommitted: persistProviderCheckpoint,
     } : {}),
     onTurnCommitted: async ({ checkpoint }) => {
       await input.heartbeat();
-      const nextProposalRecoveryState =
-        await captureProviderNativeProposalRecoveryStateV2R({
+      const nextRecovery = await captureProviderNativeProposalRecoveryStateV2R({
         projectId: input.scope.projectId,
         checkpoint,
         clone: input.artifacts.isolatedClone,
-        prior: latestProposalRecoveryState,
+        ...(latestProposalRecoveryState
+          ? { prior: latestProposalRecoveryState } : {}),
       });
       await input.persistCheckpoint({
         checkpoint,
-        ...(nextProposalRecoveryState
-          ? { proposalRecoveryState: nextProposalRecoveryState } : {}),
+        ...(nextRecovery ? { proposalRecoveryState: nextRecovery } : {}),
       });
-      latestProposalRecoveryState = nextProposalRecoveryState;
+      latestCheckpoint = checkpoint;
+      latestProposalRecoveryState = nextRecovery;
     },
-  });
-  const resumedReceipt = buildProviderNativeResumedEpisodeReceiptV2R({
-    checkpoint: input.checkpoint, episodeReceipt,
   });
   return {
     episodeReceipt,
-    resumedReceiptSha256: resumedReceipt.receiptSha256,
+    ...(latestCheckpoint ? { latestCheckpoint } : {}),
     ...(latestProposalRecoveryState
       ? { proposalRecoveryState: latestProposalRecoveryState } : {}),
   };
 }
 
-function assertScope(
-  scope: Readonly<ProviderNativeResumedExecutionScopeV2R>,
-  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+function assertFreshScope(
+  scope: Readonly<ProviderNativeFreshExecutionScopeV2R>,
+  artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>,
 ): void {
+  const revisionBinding = record(artifacts.context.revisionBinding);
+  const projectState = record(artifacts.context.projectState);
   if (!scope.tenantId.trim() || !scope.userId.trim() || !scope.projectId.trim()
-    || !scope.episodeId.trim() || scope.episodeId !== checkpoint.episodeId) {
-    throw new Error('PROVIDER_NATIVE_RESUMED_CORE_SCOPE_INVALID');
+    || !scope.episodeId.trim() || artifacts.context.episodeId !== scope.episodeId
+    || revisionBinding.projectId !== scope.projectId
+    || projectState.projectId !== scope.projectId) {
+    throw new Error('PROVIDER_NATIVE_FRESH_CORE_SCOPE_INVALID');
   }
+}
+
+function record(value: unknown): Readonly<Record<string, unknown>> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>> : {};
 }
