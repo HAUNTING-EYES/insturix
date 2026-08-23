@@ -19,7 +19,7 @@ const sourceBinding = {
     cohort: '1'.repeat(64), holdout: '2'.repeat(64), compiler: '3'.repeat(64),
     protocol: '4'.repeat(64), evaluator: '5'.repeat(64), preflight: '6'.repeat(64),
     authorization: '7'.repeat(64), runnerContract: '8'.repeat(64),
-    runner: '9'.repeat(64),
+    runner: '9'.repeat(64), operator: 'a'.repeat(64),
   },
 };
 const environment = {
@@ -36,6 +36,7 @@ describe('Stage 2.5 long-form provider V2 paid gate', () => {
       operatorId: 'admin', environment, fetchImpl: fakeFetch(calls, 12_345),
     });
     expect(bundle.requestCaptures).toHaveLength(9);
+    expect(manifest.sourceBinding.sourceFiles).toHaveLength(10);
     expect(bundle.requestCaptures.every(({ request }) => (
       JSON.stringify(request.body).includes('OPAQUE_RESULT_REFERENCES')
     ))).toBe(true);

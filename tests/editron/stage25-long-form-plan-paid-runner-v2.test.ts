@@ -24,7 +24,7 @@ const sourceBinding = {
     cohort: '1'.repeat(64), holdout: '2'.repeat(64), compiler: '3'.repeat(64),
     protocol: '4'.repeat(64), evaluator: '5'.repeat(64), preflight: '6'.repeat(64),
     authorization: '7'.repeat(64), runnerContract: '8'.repeat(64),
-    runner: '9'.repeat(64),
+    runner: '9'.repeat(64), operator: 'a'.repeat(64),
   },
 };
 const environment = {

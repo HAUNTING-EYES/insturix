@@ -25,9 +25,10 @@ const SOURCE_PATHS = {
   authorization: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-authorization-v2.ts',
   runnerContract: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-runner-contract-v2.ts',
   runner: 'lib/editron/research/open-ended-planner/stage25-long-form-plan-paid-runner-v2.ts',
+  operator: 'scripts/run-stage25-long-form-provider-cohort-v2.ts',
 } as const;
 
-type SourceRoleV2 = keyof typeof SOURCE_PATHS;
+export type SourceRoleV2 = keyof typeof SOURCE_PATHS;
 export type Stage25LongFormProviderSourceBindingInputV2 = Readonly<{
   sourceCommit: string;
   sourceSha256: Readonly<Record<SourceRoleV2, string>>;
@@ -142,6 +143,14 @@ export function stage25LongFormProviderMaxSpendUsdV2(
   manifest: Readonly<Stage25LongFormProviderCohortManifestV2>,
 ): string {
   return (manifest.absoluteMaxSpendNanoUsd / 1_000_000_000).toFixed(9);
+}
+
+export function stage25LongFormProviderSourceEntriesV2(): readonly Readonly<{
+  role: SourceRoleV2;
+  path: string;
+}>[] {
+  return deepFreezeV1((Object.keys(SOURCE_PATHS) as SourceRoleV2[])
+    .map((role) => ({ role, path: SOURCE_PATHS[role] })));
 }
 
 function usdToNano(value: number): number {
