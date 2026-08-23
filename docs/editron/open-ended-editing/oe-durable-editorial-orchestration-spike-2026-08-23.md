@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, and one product execution root restricted to isolated `cut_section` and `set_keyframes`; zero inference; no live route, live Atlas/QStash transaction exercise, broader operator certification or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, and an exact Finance-owned customer-pricing locator/charge owner; zero inference; no live route, seeded pricing row, live Atlas/QStash transaction exercise, broader operator certification or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -151,6 +151,19 @@ quiet ESLint. This is
 `TERMINAL_SETTLEMENT_REDRIVE_WIRED_NOT_LIVE_WALLET_PROVEN`: commit
 `f5b192f2c` later composes the real product root; the route and non-production
 Atlas/QStash/CreditsService exercise remain open.
+
+Commit `2e030edfd` closes the missing customer-pricing implementation without
+inventing a product rate. One immutable Finance policy binds exact owner,
+version, SHA-256, approval coverage, `main` credit pool and a rational integer
+conversion from provider nano-USD to customer centicredits. The owner performs
+one episode-total ceiling operation, rejects actual provider spend beyond the
+reservation and rejects a resulting charge beyond reserved centicredits. The
+read-only Mongo locator requires an exact owner/version/hash row. It cannot
+change a wallet or project; CreditsService remains the sole settlement writer.
+Six focused adversarial pricing cases and 27 dependent pricing/settlement/root
+tests pass with repository typecheck and quiet ESLint. No policy row was
+seeded, no live database was queried and no customer was charged, so this is
+`FINANCE_PRICING_OWNER_IMPLEMENTED_NOT_LIVE_PROVEN`, not product rollout.
 
 Commit `d42c1af5b` adds the exact reference-media registration owner over the
 existing `mediaAssets` collection. It create-or-compares source or derived-frame
@@ -1001,14 +1014,17 @@ before advancing. This does not add a secret signer or second revision owner.
     before resource use. The composed-owner suite passes 107/107 plus
     repository typecheck and quiet ESLint. No route, provider call, live-store
     claim or canonical mutation was added.
-55. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 54 exists.
-56. Only after fresh zero-inference preflight and explicit spend approval:
+55. **Finance-owned product customer-pricing owner complete at `2e030edfd`:**
+    exact policy lookup and integer episode-total charge derivation now exist;
+    no pricing row is seeded and no live store or wallet was touched.
+56. Export the authenticated route and run the non-production QStash/Atlas/
+    CreditsService crash/restart/redelivery exercise only after steps 54-55.
+57. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `f5b192f2c` and orchestration-decision commit
+- Repository code through `2e030edfd` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

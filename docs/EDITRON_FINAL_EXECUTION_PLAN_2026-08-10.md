@@ -5358,6 +5358,21 @@ operator-catalog completion, live-store proof or authorization for paid
 inference. The next bounded slice is the authenticated signed route, followed
 by non-production QStash/Atlas/CreditsService recovery proof.
 
+**Finance-owned customer-pricing checkpoint (2026-08-23):** commit
+`2e030edfd` implements the previously missing product customer-charge owner and
+an exact, read-only Mongo policy locator. An immutable Finance policy binds its
+owner/version/hash, approval window, `main` credit pool and an integer
+provider-spend-to-centicredit formula. The owner rounds once at the episode
+total, rejects copied policy identity, approval-window drift, missing policy,
+provider spend above the reservation and customer charge above the reserved
+centicredits. It never moves wallet balances or mutates projects; terminal
+settlement still delegates the resulting receipt to the sole CreditsService
+writer. No rate row was invented or seeded, and no live Mongo lookup or wallet
+transaction occurred. Focused dependent proof passes 27/27 plus repository
+typecheck and quiet ESLint. The next bounded slice remains the authenticated
+signed route composed from this exact owner, followed by the non-production
+QStash/Atlas/CreditsService crash/redelivery exercise.
+
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
   - Surfaced by: explicit user deferral.
