@@ -17,6 +17,7 @@ import {
   EditorialPlanArtifactRefSchemaV1,
   type EditorialPlanArtifactRefV1,
   type EditorialPlanNodeV1,
+  type EditorialPlanRevisionV1,
 } from './editorial-plan-v1';
 
 export const EDITORIAL_PLAN_DURABLE_JOB_INPUT_VERSION_V1 =
@@ -107,7 +108,6 @@ export async function createOrGetEditorialPlanDurableJobV1(input: Readonly<{
   }
   const node = plan.nodes.find(({ nodeId }) => nodeId === request.nodeId);
   if (!node || node.nodeVersion !== request.nodeVersion) fail('PLAN_JOB_NODE_NOT_FOUND');
-  if (node.status !== 'READY') fail('PLAN_JOB_NODE_NOT_RUNNABLE');
   if (!node.executionDefinitionRef || !node.eligibleOperationSetRef) {
     fail('PLAN_JOB_NODE_DEFINITION_MISSING');
   }
@@ -116,64 +116,84 @@ export async function createOrGetEditorialPlanDurableJobV1(input: Readonly<{
     definitionId: node.executionDefinitionRef.artifactId,
   });
   if (!definition) fail('PLAN_JOB_DEFINITION_NOT_FOUND');
-  assertDefinitionBinding(node, definition);
   const sourcePlan = await input.planStore.getRevisionAuthorized({
     ...scope, planRevision: definition.sourcePlanBinding.planRevision,
   });
-  if (!sourcePlan
-    || sourcePlan.revisionSha256 !== definition.sourcePlanBinding.planRevisionSha256) {
-    fail('PLAN_JOB_DEFINITION_SOURCE_NOT_FOUND');
-  }
-  const sourceNode = sourcePlan.nodes.find(
-    ({ nodeId }) => nodeId === definition.sourcePlanBinding.nodeId,
-  );
-  if (!sourceNode
-    || hashEditronCanonicalJsonV1(sourceNode) !== definition.sourcePlanBinding.nodeSha256
-    || node.nodeVersion !== sourceNode.nodeVersion + 1
-    || hashEditronCanonicalJsonV1(executableNodeMaterial(node))
-      !== hashEditronCanonicalJsonV1(executableNodeMaterial(sourceNode))) {
-    fail('PLAN_JOB_DEFINITION_NODE_STALE');
-  }
-  const budget = exactBudget(node, definition);
-  const payload = assertEditorialPlanDurableJobInputV1({
-    version: EDITORIAL_PLAN_DURABLE_JOB_INPUT_VERSION_V1,
-    tenantId: plan.tenantId, userId: plan.userId, orgId: plan.orgId,
-    projectId: plan.projectId,
-    planBinding: {
-      planId: plan.planId, planRevision: plan.planRevision,
-      planRevisionSha256: plan.revisionSha256,
-      expectedPlanHeadRevisionSha256: latest.revisionSha256,
-    },
-    nodeBinding: {
-      nodeId: node.nodeId, nodeVersion: node.nodeVersion,
-      nodeSha256: hashEditronCanonicalJsonV1(node),
-    },
-    executionDefinitionRef: node.executionDefinitionRef,
-    eligibleOperationSetRef: node.eligibleOperationSetRef,
-    directionRevisionRef: plan.directionRevisionRef,
-    baseProjectRevisionRef: plan.baseProjectRevisionRef,
+  if (!sourcePlan) fail('PLAN_JOB_DEFINITION_SOURCE_NOT_FOUND');
+  const contract = buildEditorialPlanDurableJobContractV1({
+    plan, node, definition, sourcePlan,
+    expectedPlanHeadRevisionSha256: latest.revisionSha256,
   });
-  const bindingSha256 = hashDurableWorkflowJobJsonV1(payload);
-  const operationIdentity = `epn_${bindingSha256}`;
   return input.jobStore.createOrGet({
     tenantId: plan.tenantId, userId: plan.userId, orgId: plan.orgId,
     projectId: plan.projectId, operationOwner: 'PLAN_SERVICE',
-    operationKind: 'editorial_plan_node_episode', operationId: operationIdentity,
+    operationKind: 'editorial_plan_node_episode', operationId: contract.operationIdentity,
     parentCommandId: request.parentCommandId,
     parentReceiptId: request.parentReceiptId,
-    idempotencyKey: operationIdentity,
+    idempotencyKey: contract.operationIdentity,
     input: {
       schemaId: EDITORIAL_PLAN_DURABLE_JOB_INPUT_VERSION_V1,
-      bindingSha256, payload,
+      bindingSha256: contract.bindingSha256, payload: contract.payload,
     },
-    dependencies: dependencies(plan, node, definition),
+    dependencies: contract.dependencies,
     budgetReservation: {
-      reservationId: budget.artifactId,
-      bindingSha256: budget.artifactSha256,
+      reservationId: contract.budget.artifactId,
+      bindingSha256: contract.budget.artifactSha256,
     },
     maxAttempts: request.maxAttempts,
     ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
   }, input.now);
+}
+
+export function buildEditorialPlanDurableJobContractV1(input: Readonly<{
+  plan: Readonly<EditorialPlanRevisionV1>;
+  node: Readonly<EditorialPlanNodeV1>;
+  definition: Readonly<EditorialPlanExecutionDefinitionV1>;
+  sourcePlan: Readonly<EditorialPlanRevisionV1>;
+  expectedPlanHeadRevisionSha256: string;
+}>) {
+  if (input.node.status !== 'READY') fail('PLAN_JOB_NODE_NOT_RUNNABLE');
+  assertDefinitionBinding(input.node, input.definition);
+  if (input.sourcePlan.revisionSha256
+      !== input.definition.sourcePlanBinding.planRevisionSha256) {
+    fail('PLAN_JOB_DEFINITION_SOURCE_NOT_FOUND');
+  }
+  const sourceNode = input.sourcePlan.nodes.find(
+    ({ nodeId }) => nodeId === input.definition.sourcePlanBinding.nodeId,
+  );
+  if (!sourceNode
+    || hashEditronCanonicalJsonV1(sourceNode)
+      !== input.definition.sourcePlanBinding.nodeSha256
+    || input.node.nodeVersion !== sourceNode.nodeVersion + 1
+    || hashEditronCanonicalJsonV1(executableNodeMaterial(input.node))
+      !== hashEditronCanonicalJsonV1(executableNodeMaterial(sourceNode))) {
+    fail('PLAN_JOB_DEFINITION_NODE_STALE');
+  }
+  const budget = exactBudget(input.node, input.definition);
+  const payload = assertEditorialPlanDurableJobInputV1({
+    version: EDITORIAL_PLAN_DURABLE_JOB_INPUT_VERSION_V1,
+    tenantId: input.plan.tenantId, userId: input.plan.userId,
+    orgId: input.plan.orgId, projectId: input.plan.projectId,
+    planBinding: {
+      planId: input.plan.planId, planRevision: input.plan.planRevision,
+      planRevisionSha256: input.plan.revisionSha256,
+      expectedPlanHeadRevisionSha256: input.expectedPlanHeadRevisionSha256,
+    },
+    nodeBinding: {
+      nodeId: input.node.nodeId, nodeVersion: input.node.nodeVersion,
+      nodeSha256: hashEditronCanonicalJsonV1(input.node),
+    },
+    executionDefinitionRef: input.node.executionDefinitionRef,
+    eligibleOperationSetRef: input.node.eligibleOperationSetRef,
+    directionRevisionRef: input.plan.directionRevisionRef,
+    baseProjectRevisionRef: input.plan.baseProjectRevisionRef,
+  });
+  const bindingSha256 = hashDurableWorkflowJobJsonV1(payload);
+  return deepFreezeEditronJsonV1({
+    payload, bindingSha256, budget,
+    dependencies: dependencies(input.plan, input.node, input.definition),
+    operationIdentity: `epn_${bindingSha256}`,
+  });
 }
 
 function assertDefinitionBinding(
