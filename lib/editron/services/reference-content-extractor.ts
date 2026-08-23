@@ -1,17 +1,22 @@
 /**
  * Reference Content Extractor
  *
- * Extends the existing EditDNA extraction to ALSO return a contentMap
- * (scene-by-scene breakdown of the reference video's content).
- *
- * Single Gemini call → EditDNA + contentMap. No additional cost vs.
- * the existing style-transfer flow.
- *
- * Per EDITRON_MATCH_EDIT_PLAN.md Phase 1.
+ * Legacy Match Edit compatibility extractor. It returns a schema-valid EditDNA
+ * view plus a scene map from one provider observation, but requires separate
+ * measured cut evidence and an exact canonical source receipt. It is not the
+ * canonical EditFingerprint producer.
  */
 
+import { createHash } from 'node:crypto';
+import { z } from 'zod';
+
+import type { ReferenceMaterializedMediaRegistrationReceiptV1 } from '@/lib/editron/reference-video/reference-materialized-media-registration-v1';
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import type { EditDNA } from './style-transfer-service';
-import { waitForGeminiFileActive } from './gemini-file-active';
+import type { SceneDetectionResult } from './scene-detection-service';
+import { uploadReferenceVideoToGemini } from './reference-gemini-upload-v1';
+
+export { uploadReferenceVideoToGemini } from './reference-gemini-upload-v1';
 
 // ─── Types (per Plan Phase 1) ───────────────────────────────────
 
@@ -28,7 +33,89 @@ export interface ReferenceScene {
 export interface ReferenceAnalysis {
   dna: EditDNA;
   contentMap: ReferenceScene[];
+  source: {
+    referenceAssetId: string;
+    bytesSha256: string;
+    registrationReceiptSha256: string;
+  };
 }
+
+export interface CanonicalReferenceAnalysisInputV1 {
+  userId: string;
+  orgId?: string;
+  source: {
+    referenceAssetId: string;
+    videoUrl: string;
+    sourceName: string;
+    durationSec?: number;
+    registration: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
+  };
+}
+
+export interface ReferenceAnalysisDepsV1 {
+  upload?: typeof uploadReferenceVideoToGemini;
+  detectScenes?: (videoUrl: string) => Promise<SceneDetectionResult | null>;
+  generate?: (fileUri: string, contentType: string, prompt: string) => Promise<string>;
+}
+
+export class ReferenceAnalysisErrorV1 extends Error {
+  constructor(
+    public readonly code:
+      | 'canonical_identity_invalid'
+      | 'model_response_invalid'
+      | 'cut_evidence_unavailable',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ReferenceAnalysisErrorV1';
+  }
+}
+
+const ModelResponseSchema = z.object({
+  editDNA: z.object({
+    cutRhythm: z.object({
+      avgCutsPerMinute: z.number().finite().nonnegative(),
+      pattern: z.enum(['steady', 'fast-slow-fast', 'building', 'random']),
+      avgClipDuration: z.number().finite().positive(),
+    }).strict(),
+    transitions: z.object({
+      dominant: z.enum(['hard_cut', 'fade', 'wipe', 'zoom_punch', 'slide']),
+      frequency: z.number().finite().min(0).max(100),
+    }).strict(),
+    colorGrade: z.object({
+      temperature: z.enum(['warm', 'cool', 'neutral']),
+      saturation: z.enum(['high', 'normal', 'desaturated']),
+      contrast: z.enum(['high', 'normal', 'low']),
+      dominantColors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).max(12),
+    }).strict(),
+    textStyle: z.object({
+      fontWeight: z.enum(['light', 'normal', 'bold', 'extra-bold']),
+      position: z.enum(['center', 'lower_third', 'top', 'varied']),
+      animation: z.enum(['fade', 'slide', 'pop', 'typewriter', 'none']),
+      frequency: z.enum(['heavy', 'moderate', 'minimal']),
+    }).strict(),
+    musicStyle: z.object({
+      tempo: z.enum(['slow', 'medium', 'fast']),
+      genre: z.string().trim().min(1).max(160),
+      energyLevel: z.enum(['low', 'medium', 'high']),
+    }).strict(),
+    pacing: z.object({
+      overall: z.enum(['slow', 'medium', 'fast']),
+      hookSpeed: z.enum(['fast', 'medium']),
+      mainSpeed: z.enum(['slow', 'medium', 'fast']),
+    }).strict(),
+    graphicsDensity: z.enum(['heavy', 'moderate', 'minimal']),
+  }).strict(),
+  contentMap: z.array(z.object({
+    index: z.number().int().nonnegative(),
+    startApproxSec: z.number().finite().nonnegative(),
+    endApproxSec: z.number().finite().positive(),
+    description: z.string().trim().min(1).max(1_000),
+    keyVisuals: z.array(z.string().trim().min(1).max(240)).max(12),
+    narrationSummary: z.string().max(2_000),
+    isCritical: z.boolean(),
+  }).strict()).min(1).max(5_000),
+}).strict();
 
 // ─── Combined Prompt ────────────────────────────────────────────
 
@@ -69,200 +156,131 @@ RULE 3 — Return ONLY valid JSON. No markdown. No explanation.
  * Uses Gemini Files API for video upload (same as video-understanding-service).
  */
 export async function extractReferenceAnalysis(
-  videoUrl: string,
-  userId: string,
-  sourceName?: string,
+  input: CanonicalReferenceAnalysisInputV1,
+  deps: ReferenceAnalysisDepsV1 = {},
 ): Promise<ReferenceAnalysis> {
-  // Kick off deterministic cut detection (Modal ffmpeg worker) in PARALLEL with the Gemini upload+call
-  // below — the worker downloads the URL itself, so it OVERLAPS rather than adds latency (matters for
-  // the 120s Vercel budget). Never throws; null ⇒ keep Gemini's (fabricated) cut estimate + log loudly.
+  const { source, userId } = input;
+  assertCanonicalSource(input);
+
+  // Objective cut evidence and subjective model observation run in parallel.
+  // Missing cut evidence is fatal; model-authored timing is never substituted.
   const sceneService = await import('./scene-detection-service');
-  const scenesPromise = sceneService.detectScenesRemote(videoUrl).catch(() => null);
+  const scenesPromise = (deps.detectScenes ?? sceneService.detectScenesRemote)(source.videoUrl);
 
-  // Upload to Gemini Files API
-  const fileUri = await uploadReferenceVideoToGemini(videoUrl);
+  const upload = deps.upload ?? uploadReferenceVideoToGemini;
+  const fileUri = await upload(source.videoUrl, source.registration.contentType);
+  const generate = deps.generate ?? generateReferenceObservation;
+  const text = await generate(fileUri, source.registration.contentType, COMBINED_PROMPT);
 
-  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
-  const model = await getAnalysisModel();
-
-  console.log(`[RefExtractor] Analyzing reference: ${sourceName || videoUrl.substring(0, 60)}...`);
-
-  const result = await model.generateContent([
-    { fileData: { fileUri, mimeType: 'video/mp4' } },
-    { text: COMBINED_PROMPT },
-  ]);
-
-  const text = result.response.text();
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error('Gemini returned no JSON for reference analysis');
+    throw new ReferenceAnalysisErrorV1('model_response_invalid', 'Reference model returned no JSON');
   }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new ReferenceAnalysisErrorV1('model_response_invalid', 'Reference model returned malformed JSON');
+  }
+  const parsedResult = ModelResponseSchema.safeParse(raw);
+  if (!parsedResult.success) {
+    throw new ReferenceAnalysisErrorV1('model_response_invalid', 'Reference model response violated its schema');
+  }
+  const parsed = parsedResult.data;
+  validateContentMap(parsed.contentMap, source.durationSec);
 
-  const parsed = JSON.parse(jsonMatch[0]);
-
-  // Normalize EditDNA
-  const { nanoid } = await import('nanoid');
-  const profileId = `style_${nanoid(12)}`;
-  const dna: EditDNA = {
-    profileId,
-    sourceName: sourceName || 'Reference Video',
-    sourceUrl: videoUrl,
-    cutRhythm: {
-      avgCutsPerMinute: Number(parsed.editDNA?.cutRhythm?.avgCutsPerMinute) || 10,
-      pattern: parsed.editDNA?.cutRhythm?.pattern || 'steady',
-      avgClipDuration: Number(parsed.editDNA?.cutRhythm?.avgClipDuration) || 3,
-    },
-    transitions: {
-      dominant: parsed.editDNA?.transitions?.dominant || 'hard_cut',
-      frequency: Number(parsed.editDNA?.transitions?.frequency) || 30,
-    },
-    colorGrade: {
-      temperature: parsed.editDNA?.colorGrade?.temperature || 'neutral',
-      saturation: parsed.editDNA?.colorGrade?.saturation || 'normal',
-      contrast: parsed.editDNA?.colorGrade?.contrast || 'normal',
-      dominantColors: parsed.editDNA?.colorGrade?.dominantColors || [],
-    },
-    textStyle: {
-      fontWeight: parsed.editDNA?.textStyle?.fontWeight || 'normal',
-      position: parsed.editDNA?.textStyle?.position || 'lower_third',
-      animation: parsed.editDNA?.textStyle?.animation || 'fade',
-      frequency: parsed.editDNA?.textStyle?.frequency || 'moderate',
-    },
-    musicStyle: {
-      tempo: parsed.editDNA?.musicStyle?.tempo || 'medium',
-      genre: parsed.editDNA?.musicStyle?.genre || 'cinematic',
-      energyLevel: parsed.editDNA?.musicStyle?.energyLevel || 'medium',
-    },
-    pacing: {
-      overall: parsed.editDNA?.pacing?.overall || 'medium',
-      hookSpeed: parsed.editDNA?.pacing?.hookSpeed || 'fast',
-      mainSpeed: parsed.editDNA?.pacing?.mainSpeed || 'medium',
-    },
-    graphicsDensity: parsed.editDNA?.graphicsDensity || 'moderate',
-  };
-
-  // Override the LLM's fabricated cut rhythm with deterministic ffmpeg cuts (objective/subjective split).
-  // Gemini scores F1 0.66 on cut timing; the worker is ground truth. Degrade + log if it's unavailable.
   const scenes = await scenesPromise;
   const cutOverride = scenes ? sceneService.cutDetectionToCutRhythm(scenes) : null;
-  if (cutOverride) {
-    const geminiCpm = dna.cutRhythm.avgCutsPerMinute;
-    dna.cutRhythm.avgCutsPerMinute = cutOverride.avgCutsPerMinute;
-    dna.cutRhythm.avgClipDuration = cutOverride.avgClipDuration;
-    dna.pacing.overall = cutOverride.pacingOverall;
-    dna.pacing.mainSpeed = cutOverride.pacingOverall;
-    console.log(`[RefExtractor] Deterministic cuts: ${scenes!.cuts.length} → ${cutOverride.avgCutsPerMinute.toFixed(1)}/min (Gemini said ${geminiCpm.toFixed(1)}), pacing=${cutOverride.pacingOverall}`);
-  } else {
-    console.warn('[RefExtractor] ⚠️ Deterministic scene-detect unavailable — keeping Gemini cut estimate (may be fabricated)');
+  if (!cutOverride) {
+    throw new ReferenceAnalysisErrorV1(
+      'cut_evidence_unavailable',
+      'Measured reference cut evidence is unavailable',
+    );
   }
 
-  // Normalize contentMap
-  const contentMap: ReferenceScene[] = (parsed.contentMap || []).map((s: any, i: number) => ({
-    index: s.index ?? i,
-    startApproxSec: Number(s.startApproxSec) || 0,
-    endApproxSec: Number(s.endApproxSec) || 0,
-    description: s.description || '',
-    keyVisuals: Array.isArray(s.keyVisuals) ? s.keyVisuals : [],
-    narrationSummary: s.narrationSummary || '',
-    isCritical: s.isCritical === true,
-  }));
+  const profileId = `style_${createHash('sha256')
+    .update(`${userId}|${source.registration.receiptSha256}|${text}`)
+    .digest('hex')
+    .slice(0, 12)}`;
+  const dna: EditDNA = {
+    profileId,
+    sourceName: source.sourceName,
+    sourceAssetId: source.referenceAssetId,
+    cutRhythm: {
+      ...parsed.editDNA.cutRhythm,
+      avgCutsPerMinute: cutOverride.avgCutsPerMinute,
+      avgClipDuration: cutOverride.avgClipDuration,
+    },
+    transitions: parsed.editDNA.transitions,
+    colorGrade: parsed.editDNA.colorGrade,
+    textStyle: parsed.editDNA.textStyle,
+    musicStyle: parsed.editDNA.musicStyle,
+    pacing: {
+      ...parsed.editDNA.pacing,
+      overall: cutOverride.pacingOverall,
+      mainSpeed: cutOverride.pacingOverall,
+    },
+    graphicsDensity: parsed.editDNA.graphicsDensity,
+  };
 
-  console.log(`[RefExtractor] Done: ${contentMap.length} scenes, pacing=${dna.pacing.overall}, transitions=${dna.transitions.dominant}`);
-
-  return { dna, contentMap };
+  return {
+    dna,
+    contentMap: parsed.contentMap,
+    source: {
+      referenceAssetId: source.referenceAssetId,
+      bytesSha256: source.registration.bytesSha256,
+      registrationReceiptSha256: source.registration.receiptSha256,
+    },
+  };
 }
 
-const MAX_GEMINI_REFERENCE_BYTES = 2 * 1024 * 1024 * 1024;
-const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
-
-export async function uploadReferenceVideoToGemini(videoUrl: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key is not configured');
-
-  const response = await fetch(videoUrl);
-  if (!response.ok || !response.body) {
-    throw new Error(`Reference video download failed with HTTP ${response.status}`);
-  }
-
-  const declaredSize = Number(response.headers.get('content-length') ?? 0);
-  if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) {
-    throw new Error(
-      'Reference video source did not provide a valid Content-Length; import it into the Media Library before style transfer',
+function assertCanonicalSource(input: CanonicalReferenceAnalysisInputV1): void {
+  const { source, userId } = input;
+  const { receiptSha256, ...receiptMaterial } = source.registration;
+  const ownerMatches = source.registration.mediaOwner.type === 'USER'
+    ? source.registration.mediaOwner.userId === userId
+    : Boolean(input.orgId && source.registration.mediaOwner.orgId === input.orgId);
+  if (!userId.trim()
+    || !source.referenceAssetId.trim()
+    || source.registration.assetId !== source.referenceAssetId
+    || source.registration.provenance.role !== 'SOURCE'
+    || !ownerMatches
+    || !/^[a-f0-9]{64}$/.test(source.registration.bytesSha256)
+    || !/^[a-f0-9]{64}$/.test(receiptSha256)
+    || hashEditronCanonicalJsonV1(receiptMaterial) !== receiptSha256) {
+    throw new ReferenceAnalysisErrorV1(
+      'canonical_identity_invalid',
+      'Canonical reference identity or registration receipt is invalid',
     );
   }
-  if (Number.isFinite(declaredSize) && declaredSize > MAX_GEMINI_REFERENCE_BYTES) {
-    throw new Error('Reference video exceeds the Gemini Files API 2GB limit');
-  }
+}
 
-  const { GoogleAIFileManager } = await import('@google/generative-ai/server');
-  let downloadedBytes = 0;
-  const sizeGuard = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      downloadedBytes += chunk.byteLength;
-      if (downloadedBytes > MAX_GEMINI_REFERENCE_BYTES) {
-        throw new Error('Reference video exceeds the Gemini Files API 2GB limit');
-      }
-      controller.enqueue(chunk);
-    },
-  });
-
-  const startResponse = await fetch(`${GEMINI_FILES_UPLOAD_URL}?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Upload-Protocol': 'resumable',
-      'X-Goog-Upload-Command': 'start',
-      'X-Goog-Upload-Header-Content-Length': String(declaredSize),
-      'X-Goog-Upload-Header-Content-Type': 'video/mp4',
-    },
-    body: JSON.stringify({
-      file: { display_name: `editron-reference-${Date.now()}.mp4` },
-    }),
-  });
-  if (!startResponse.ok) {
-    throw new Error(`Gemini resumable upload initialization failed with HTTP ${startResponse.status}`);
+function validateContentMap(
+  contentMap: ReadonlyArray<ReferenceScene>,
+  durationSec: number | undefined,
+): void {
+  let priorStart = -1;
+  for (const scene of contentMap) {
+    if (scene.endApproxSec <= scene.startApproxSec || scene.startApproxSec < priorStart) {
+      throw new ReferenceAnalysisErrorV1('model_response_invalid', 'Reference content map is not ordered');
+    }
+    if (durationSec !== undefined && scene.endApproxSec > durationSec + 1) {
+      throw new ReferenceAnalysisErrorV1('model_response_invalid', 'Reference content map exceeds source duration');
+    }
+    priorStart = scene.startApproxSec;
   }
-  const uploadUrl = startResponse.headers.get('x-goog-upload-url');
-  if (!uploadUrl) throw new Error('Gemini resumable upload returned no upload URL');
+}
 
-  const uploadResponse = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Length': String(declaredSize),
-      'Content-Type': 'video/mp4',
-      'X-Goog-Upload-Offset': '0',
-      'X-Goog-Upload-Command': 'upload, finalize',
-    },
-    body: response.body.pipeThrough(sizeGuard),
-    duplex: 'half',
-  } as RequestInit & { duplex: 'half' });
-  if (!uploadResponse.ok) {
-    throw new Error(`Gemini reference upload failed with HTTP ${uploadResponse.status}`);
-  }
-  if (downloadedBytes !== declaredSize) {
-    throw new Error(
-      `Reference video byte count did not match Content-Length (${downloadedBytes}/${declaredSize})`,
-    );
-  }
-
-  const uploadResult = await uploadResponse.json() as {
-    file?: { uri?: string; name?: string; state?: string };
-  };
-  const fileUri = uploadResult.file?.uri;
-  if (!fileUri) throw new Error('Gemini Files API returned no file URI');
-
-  const fileManager = new GoogleAIFileManager(apiKey);
-  const activation = await waitForGeminiFileActive({
-    fileManager,
-    fileName: uploadResult.file?.name,
-    initialState: uploadResult.file?.state,
-    label: 'RefExtractor',
-    fileSizeBytes: downloadedBytes,
-  });
-  if (!activation.active) {
-    throw new Error(
-      `Gemini reference file did not become ACTIVE (state=${activation.state ?? 'unknown'}, reason=${activation.reason ?? 'unknown'})`,
-    );
-  }
-  return fileUri;
+async function generateReferenceObservation(
+  fileUri: string,
+  contentType: string,
+  prompt: string,
+): Promise<string> {
+  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+  const model = await getAnalysisModel();
+  const result = await model.generateContent([
+    { fileData: { fileUri, mimeType: contentType } },
+    { text: prompt },
+  ]);
+  return result.response.text();
 }

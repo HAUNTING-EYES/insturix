@@ -40,7 +40,10 @@ describe('reference video Gemini upload', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(uploadReferenceVideoToGemini('https://assets.example/reference.mp4'))
+    await expect(uploadReferenceVideoToGemini(
+      'https://assets.example/reference.mov',
+      'video/quicktime',
+    ))
       .resolves.toBe('https://generativelanguage.googleapis.com/v1beta/files/reference');
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -49,6 +52,7 @@ describe('reference video Gemini upload', () => {
       headers: expect.objectContaining({
         'X-Goog-Upload-Protocol': 'resumable',
         'X-Goog-Upload-Header-Content-Length': '11',
+        'X-Goog-Upload-Header-Content-Type': 'video/quicktime',
       }),
     });
     expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
@@ -56,12 +60,24 @@ describe('reference video Gemini upload', () => {
       headers: expect.objectContaining({
         'X-Goog-Upload-Command': 'upload, finalize',
         'Content-Length': '11',
+        'Content-Type': 'video/quicktime',
       }),
     });
     expect(mocks.waitForActive).toHaveBeenCalledWith(expect.objectContaining({
       fileName: 'files/reference',
       fileSizeBytes: 11,
     }));
+  });
+
+  it('rejects unsupported receipt MIME before reading or uploading bytes', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(uploadReferenceVideoToGemini(
+      'https://assets.example/reference.mkv',
+      'video/x-matroska',
+    )).rejects.toThrow('Unsupported reference video content type');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('fails clearly when the owned source cannot provide an authoritative byte length', async () => {
