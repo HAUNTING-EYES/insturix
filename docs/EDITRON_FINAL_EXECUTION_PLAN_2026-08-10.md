@@ -1649,11 +1649,28 @@ certification: the downstream prose action planner/Director mutation and render
 proof remain separate, and the experimental visual-fingerprint path is still
 open.
 
+Commit cf47083c3 closes the experimental visual extractor's floating-input and
+permissive-observation seams without promoting it to a product fingerprint
+owner. It reuses the strict actor/org, asset, SOURCE-role, byte-hash and receipt-
+hash assertion already required by canonical reference analysis; uploads only
+the exact registered bytes through the existing Gemini upload owner; propagates
+the receipt MIME instead of `video/*`; rejects malformed, unknown and out-of-
+range observations; and removes `sfx_impact` from the visual-only vocabulary.
+The measured-cut orchestrator now refuses to run without a caller-supplied
+authorized reader for those canonical bytes, so its private URL/`yt-dlp`
+downloader is no longer a default. Five focused suites pass 23/23 with repository
+typecheck and quiet ESLint. This is
+`EXPERIMENTAL_VISUAL_OBSERVATION_CANONICAL_INPUT_BOUND`, not a deployed
+EditFingerprint pipeline: repository search finds no product caller, no
+canonical byte-reader composition or accepted visual-evaluation receipt, and
+the four historical dev probes now fail before provider upload until explicitly
+migrated.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Reconcile the experimental visual-fingerprint extractor against the same
-   canonical source owner; fail-close or qualify Match Edit generation's
-   placeholder/video-only path. Then
+1. Fail-close or qualify Match Edit generation's placeholder/video-only path;
+   provide the experimental visual observer's authorized canonical byte-reader,
+   evaluation receipt and product caller only through the existing owners. Then
    replace full-file buffering and provisional 90-second/10-KB assumptions with
    a streaming, probed, long-form-safe owner and register required demux
    artifacts through the same media authority.
@@ -3329,7 +3346,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e` and `e22cee1c4` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4` and `cf47083c3` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
@@ -3342,7 +3359,10 @@ evidence. The standalone style-transfer route, legacy chat tool and main-worker
 fallback now share one canonical receipt-bearing adapter and the existing
 strict measured-reference observation owner; the worker reuses its already
 canonicalized source, and no raw source URL or guessed model default is
-persisted. This remains partial convergence: experimental visual-fingerprint extraction, Match Edit gap
+persisted. The experimental visual observer now requires the same valid receipt,
+truthful MIME and strict response schema, while its measured-cut branch refuses
+to invent a byte reader. This remains partial convergence: its product caller,
+canonical byte-reader composition and accepted evaluation receipt, Match Edit gap
 generation, streaming long-form materialization, demux-artifact registration
 and live Mongo/R2/GCS proof are open.
 

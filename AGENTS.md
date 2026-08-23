@@ -316,7 +316,7 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e` and `e22cee1c4` wire exact source/frame
+3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4` and `cf47083c3` wire exact source/frame
    registration and make the main analysis worker canonicalize every resolved
    source kind before carrying the returned ID/URL through cache, sampling,
    analysis and legacy extraction. Managed R2/GCS objects are reused through a
@@ -332,14 +332,20 @@ Migrated from the prior Claude-Code sessions. Layout:
    path and the main worker's legacy fallback on one receipt-bearing source
    adapter plus the existing strict measured-reference analyzer. The worker
    reuses its canonical receipt, and style persistence no longer stores the raw
-   source URL or guessed model defaults. The experimental visual-fingerprint
-   path still needs source-identity reconciliation; Match Edit generation still
-   contains an unqualified placeholder/video-only fallback. Full-source
+   source URL or guessed model defaults. `cf47083c3` makes the experimental
+   visual-observation path accept only the same scoped, hash-valid registration,
+   upload exact registered bytes through the existing owner with truthful MIME,
+   and reject malformed model output. Its measured-cut orchestrator now requires
+   a caller-supplied canonical byte reader instead of its private URL downloader.
+   No product caller or accepted visual-evaluation receipt exists, and four old
+   dev probes intentionally fail before upload until migrated. Match Edit
+   generation still contains an unqualified placeholder/video-only fallback. Full-source
    buffering is provisional and live
    Mongo/R2/GCS proof is absent. Do not describe project-wide reference
    materialization or long-form ingest as converged.
-4. Reconcile the remaining experimental visual-fingerprint and Match Edit
-   generation paths,
+4. Reconcile Match Edit generation, then supply the experimental visual path's
+   authorized canonical byte reader and evaluation/product caller only when its
+   production owner is ready;
    then replace full buffering/provisional limits and register demux artifacts.
 5. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
