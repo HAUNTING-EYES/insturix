@@ -5,7 +5,6 @@
  * and generates a plan to apply that style to an Editron project.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { nanoid } from "nanoid";
 import { getDatabase, COLLECTIONS } from "../db/mongodb";
 import { projectService } from "./project-service";
@@ -296,8 +295,6 @@ export async function extractEditDNA(params: {
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
 
-  console.log("[STYLE-TRANSFER] Sending video to Gemini for Edit DNA extraction...");
-
   const result = await model.generateContent([
     {
       fileData: {
@@ -309,7 +306,6 @@ export async function extractEditDNA(params: {
   ]);
 
   const responseText = result.response.text();
-  console.log("[STYLE-TRANSFER] Gemini response received, parsing...");
 
   // Parse the JSON response — Gemini sometimes wraps in markdown code blocks
   let parsed: any;
@@ -320,7 +316,6 @@ export async function extractEditDNA(params: {
       .trim();
     parsed = JSON.parse(cleaned);
   } catch (parseErr) {
-    console.error("[STYLE-TRANSFER] Failed to parse Gemini response:", responseText);
     throw new Error(
       "Failed to parse style analysis from Gemini. The model returned an unexpected format.",
     );
@@ -372,7 +367,6 @@ export async function extractEditDNA(params: {
 
   // Persist the profile
   await saveProfile(userId, dna);
-  console.log(`[STYLE-TRANSFER] Saved Edit DNA profile ${profileId} for user ${userId}`);
 
   return dna;
 }
@@ -509,10 +503,6 @@ export async function applyEditDNA(
     `${actions.length} action(s) to match the reference editing style. ` +
     `Overall pacing: ${dna.pacing.overall}, hook speed: ${dna.pacing.hookSpeed}, ` +
     `transitions: ${dna.transitions.dominant} (${dna.transitions.frequency}% with effects).`;
-
-  console.log(
-    `[STYLE-TRANSFER] Generated application plan with ${actions.length} actions for project ${projectId}`,
-  );
 
   return { actions, summary };
 }
