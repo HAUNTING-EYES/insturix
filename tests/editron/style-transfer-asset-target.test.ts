@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  generateContent: vi.fn(),
-  getAsset: vi.fn(),
-  loadProject: vi.fn(),
-  resolveAssetUrl: vi.fn(),
+  extractReferenceAnalysis: vi.fn(),
+  resolveStyleReferenceSourceV1: vi.fn(),
   updateOne: vi.fn(),
-  uploadReferenceVideoToGemini: vi.fn(),
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -20,82 +17,83 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   }),
 }));
 
-vi.mock('@/lib/editron/services/project-service', () => ({
-  projectService: { loadProject: mocks.loadProject },
-}));
-
-vi.mock('@/lib/editron/services/asset-resolver', () => ({
-  assetResolver: {
-    getAsset: mocks.getAsset,
-    resolveAssetUrl: mocks.resolveAssetUrl,
-  },
+vi.mock('@/lib/editron/services/style-reference-source-v1', () => ({
+  resolveStyleReferenceSourceV1: mocks.resolveStyleReferenceSourceV1,
 }));
 
 vi.mock('@/lib/editron/services/reference-content-extractor', () => ({
-  uploadReferenceVideoToGemini: mocks.uploadReferenceVideoToGemini,
-}));
-
-vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
-  getAnalysisModel: async () => ({ generateContent: mocks.generateContent }),
+  extractReferenceAnalysis: mocks.extractReferenceAnalysis,
 }));
 
 import { extractEditDNA } from '@/lib/editron/services/style-transfer-service';
 
-const GEMINI_DNA = {
+const DNA = {
+  profileId: 'style_receipt_bound',
+  sourceName: 'ignored-provider-name.mp4',
+  sourceAssetId: 'asset-reference',
   cutRhythm: { avgCutsPerMinute: 14, pattern: 'building', avgClipDuration: 4.2 },
   transitions: { dominant: 'hard_cut', frequency: 8 },
   colorGrade: {
-    temperature: 'neutral',
-    saturation: 'normal',
-    contrast: 'high',
-    dominantColors: ['#101010'],
+    temperature: 'neutral', saturation: 'normal', contrast: 'high', dominantColors: ['#101010'],
   },
   textStyle: {
-    fontWeight: 'bold',
-    position: 'varied',
-    animation: 'fade',
-    frequency: 'minimal',
+    fontWeight: 'bold', position: 'varied', animation: 'fade', frequency: 'minimal',
   },
   musicStyle: { tempo: 'medium', genre: 'ambient', energyLevel: 'low' },
   pacing: { overall: 'medium', hookSpeed: 'fast', mainSpeed: 'medium' },
   graphicsDensity: 'minimal',
-};
+} as const;
 
-describe('style transfer owned asset targeting', () => {
+describe('style transfer canonical source handoff', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
-    mocks.getAsset.mockResolvedValue({
-      assetId: 'asset-reference',
-      userId: 'user-style',
-      type: 'video',
-      filename: 'reference-cut.mp4',
+    mocks.resolveStyleReferenceSourceV1.mockResolvedValue({
+      referenceAssetId: 'asset-reference',
+      videoUrl: 'https://cdn.example.test/reference-cut.mp4',
+      sourceName: 'reference-cut.mp4',
+      durationSec: 12,
+      registration: {
+        assetId: 'asset-reference',
+        contentType: 'video/quicktime',
+        receiptSha256: 'a'.repeat(64),
+      },
     });
-    mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.test/reference-cut.mp4');
-    mocks.uploadReferenceVideoToGemini.mockResolvedValue('https://generativelanguage.googleapis.com/files/reference');
-    mocks.generateContent.mockResolvedValue({
-      response: { text: () => JSON.stringify(GEMINI_DNA) },
+    mocks.extractReferenceAnalysis.mockResolvedValue({
+      dna: DNA,
+      contentMap: [],
+      source: {
+        referenceAssetId: 'asset-reference',
+        bytesSha256: 'b'.repeat(64),
+        registrationReceiptSha256: 'a'.repeat(64),
+      },
     });
     mocks.updateOne.mockResolvedValue({ matchedCount: 1, upsertedCount: 1 });
   });
 
-  it('resolves one user-owned video asset and persists its provenance', async () => {
-    const dna = await extractEditDNA({
-      assetId: 'asset-reference',
-      userId: 'user-style',
-    });
+  it('persists only the receipt-bound strict style observation', async () => {
+    const input = { assetId: 'asset-reference', userId: 'user-style' };
+    const dna = await extractEditDNA(input);
 
-    expect(mocks.getAsset).toHaveBeenCalledWith('asset-reference', 'user-style');
-    expect(mocks.resolveAssetUrl).toHaveBeenCalledWith('asset-reference', 'user-style');
-    expect(mocks.uploadReferenceVideoToGemini).toHaveBeenCalledWith(
-      'https://cdn.example.test/reference-cut.mp4',
-    );
+    expect(mocks.resolveStyleReferenceSourceV1).toHaveBeenCalledWith(input);
+    expect(mocks.extractReferenceAnalysis).toHaveBeenCalledWith({
+      userId: 'user-style',
+      source: expect.objectContaining({
+        referenceAssetId: 'asset-reference',
+        registration: expect.objectContaining({
+          contentType: 'video/quicktime',
+          receiptSha256: 'a'.repeat(64),
+        }),
+      }),
+    });
     expect(dna).toMatchObject({
+      profileId: 'style_receipt_bound',
       sourceAssetId: 'asset-reference',
       sourceName: 'reference-cut.mp4',
       cutRhythm: { avgCutsPerMinute: 14 },
     });
+    expect(dna.sourceUrl).toBeUndefined();
     expect(mocks.updateOne).toHaveBeenCalledWith(
-      expect.objectContaining({ profileId: dna.profileId, userId: 'user-style' }),
+      { profileId: 'style_receipt_bound', userId: 'user-style' },
       expect.objectContaining({
         $set: expect.objectContaining({
           sourceAssetId: 'asset-reference',
@@ -107,35 +105,20 @@ describe('style transfer owned asset targeting', () => {
     );
   });
 
-  it('rejects missing or non-video assets before any Gemini upload', async () => {
-    mocks.getAsset.mockResolvedValueOnce(null);
-    await expect(extractEditDNA({
-      assetId: 'asset-foreign',
-      userId: 'user-style',
-    })).rejects.toThrow('not found or is not owned');
+  it('never persists when source resolution or strict analysis fails', async () => {
+    mocks.resolveStyleReferenceSourceV1.mockRejectedValueOnce(new Error('canonical receipt missing'));
+    await expect(extractEditDNA({ assetId: 'asset-reference', userId: 'user-style' }))
+      .rejects.toThrow('canonical receipt missing');
+    expect(mocks.extractReferenceAnalysis).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
 
-    mocks.getAsset.mockResolvedValueOnce({
-      assetId: 'asset-image',
-      userId: 'user-style',
-      type: 'image',
-      filename: 'still.png',
+    mocks.resolveStyleReferenceSourceV1.mockResolvedValueOnce({
+      referenceAssetId: 'asset-reference', videoUrl: 'https://cdn.example.test/ref.mov',
+      sourceName: 'ref.mov', registration: { assetId: 'asset-reference' },
     });
-    await expect(extractEditDNA({
-      assetId: 'asset-image',
-      userId: 'user-style',
-    })).rejects.toThrow('is not a video');
-
-    expect(mocks.uploadReferenceVideoToGemini).not.toHaveBeenCalled();
-  });
-
-  it('rejects ambiguous transport targets instead of choosing precedence silently', async () => {
-    await expect(extractEditDNA({
-      assetId: 'asset-reference',
-      videoUrl: 'https://cdn.example.test/other.mp4',
-      userId: 'user-style',
-    })).rejects.toThrow('Provide exactly one reference target');
-
-    expect(mocks.getAsset).not.toHaveBeenCalled();
-    expect(mocks.uploadReferenceVideoToGemini).not.toHaveBeenCalled();
+    mocks.extractReferenceAnalysis.mockRejectedValueOnce(new Error('Measured reference cut evidence is unavailable'));
+    await expect(extractEditDNA({ assetId: 'asset-reference', userId: 'user-style' }))
+      .rejects.toThrow('Measured reference cut evidence is unavailable');
+    expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 });

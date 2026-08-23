@@ -36,6 +36,7 @@ import {
   normalizeEditorialPreferences,
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import type { CanonicalizeReferenceOutput } from '@/lib/editron/reference-video/canonicalize-reference';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
@@ -225,6 +226,7 @@ async function handler(request: NextRequest) {
           let referenceId = referenceSource.referenceId;
           let referenceDurationSec = referenceSource.durationSec;
           let referenceCanonicalKind: string = referenceSource.kind;
+          let canonicalReference: CanonicalizeReferenceOutput | null = null;
           const referenceSourceLabel = referenceSource.sourceLabel;
           const referenceSourceFingerprint = referenceSource.sourceFingerprint;
 
@@ -235,9 +237,11 @@ async function handler(request: NextRequest) {
             const { canonicalizeReferenceVideo } = await import('@/lib/editron/reference-video/canonicalize-reference');
             const canonical = await canonicalizeReferenceVideo({
               userId,
+              ...(orgId ? { orgId } : {}),
               source: referenceSource,
               audioUsageMode: 'preview-waveform-only',
             });
+            canonicalReference = canonical;
             refUrl = canonical.videoUrl;
             referenceId = canonical.referenceAssetId;
             referenceDurationSec = canonical.durationSec ?? referenceDurationSec;
@@ -476,8 +480,17 @@ async function handler(request: NextRequest) {
           }
 
           if (!editDNA && shouldRunLegacyReferenceExtraction(referenceVideoAnalysis)) {
+            if (!canonicalReference?.sourceRegistration) {
+              throw new Error('Canonical reference registration is required for legacy style extraction');
+            }
             const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
-            editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
+            editDNA = await extractEditDNA({
+              canonicalSource: canonicalReference,
+              sourceName: referenceSourceLabel,
+              userId,
+              ...(orgId ? { orgId } : {}),
+              projectId,
+            });
             console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
           }
         }
