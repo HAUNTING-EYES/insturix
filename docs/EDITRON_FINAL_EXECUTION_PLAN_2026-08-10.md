@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `454fb721a` on
+programme code checkpoint represented by this ledger is `cd1829223` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 454fb721a. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: cd1829223. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1317,10 +1317,21 @@ it the PlanService job would be false convergence. Commit 454fb721a extracts
 the resumed provider loop and durable outcome finalization into shared,
 store-neutral modules while retaining the research worker as its lifecycle
 adapter. This closes the duplicate-loop prerequisite for resumed execution,
-not the product adapter or fresh-start proof contract. Next bind the
-PlanService execution owner to that resume-only core without weakening either
-job identity; define a separate truthful fresh-execution/proof receipt before
-adding authenticated non-production QStash/Atlas wiring with zero inference.
+not the product adapter or fresh-start proof contract. Commit e1a8e4a3f then
+binds writer-bearing Plan envelopes to the exact ProjectService proposal-
+recovery artifact; commit 31fcb279e extracts one store-neutral checkpoint
+codec; and commit cd1829223 adds the PlanService resumed-execution owner over
+the same scoped artifact owners, resumed core and outcome finalizer. The two
+durable job identities remain distinct and the canonical project remains
+unchanged. Fresh provider execution is still rejected. Provider 429/timeout
+attempts terminalize as UNVERIFIABLE rather than retrying because the current
+runtime guard can resume accounting only for committed tool turns; retrying a
+failed provider attempt would otherwise forget potentially billed usage. Only
+typed artifact-owner failures before provider invocation are retryable. The
+durable resume cluster passes 55/55 with repository typecheck and quiet ESLint
+clean. Next define failed-attempt accounting/retry and a truthful fresh-
+execution/proof receipt, then add authenticated non-production QStash/Atlas
+wiring with zero inference.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
