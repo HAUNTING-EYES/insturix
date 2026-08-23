@@ -92,6 +92,10 @@ pnpm test                # vitest run
   as current truth. Record the exact commit, verified boundary, tests/proof,
   remaining blockers and next execution order. Plan maintenance is required
   implementation work, not optional documentation deferred to a later agent.
+- During autonomous multi-phase work, refresh the ledger after every bounded
+  commit before starting the next phase, and leave concise adjacent authority/
+  invariant comments wherever code alone would not preserve the reason across
+  compaction or another agent handoff.
 - Keep `RAW_EXECUTED`, `VALID_EVIDENCE`, `INVALID_EVIDENCE` and production
   promotion status separate. A paid call, green unit test or attractive render
   is not automatically valid evidence and is never production certification.
@@ -308,9 +312,12 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Wire the exact reference-media registration owner from `d42c1af5b` into the
-   source canonicalizer and frame sampler. The owner is proven; upload paths
-   still do not invoke it, so canonical-media issuance remains blocked.
+3. Commit `eaef92685` wires the exact `d42c1af5b` registration owner into the
+   remote-URL source canonicalizer and derived-frame sampler with content-
+   addressed object identities. Next, canonicalize or safely promote existing
+   uploaded/YouTube/Instagram asset sources through that same owner and make
+   the main analysis worker sample only the returned canonical identity. Do not
+   claim all reference materializers are wired until those paths pass.
 4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed

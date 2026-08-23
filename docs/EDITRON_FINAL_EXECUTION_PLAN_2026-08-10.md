@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `07c59690b` on
+programme code checkpoint represented by this ledger is `eaef92685` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 07c59690b. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: eaef92685. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1560,16 +1560,30 @@ GCS key and source/frame provenance; source rows additionally require an exact
 canonical reference envelope. Replays are idempotent and conflicting owner,
 storage, content or provenance fails closed. Its focused adversarial suite
 passes 3/3 with repository typecheck and quiet ESLint. This is
-`REFERENCE_MEDIA_REGISTRATION_OWNER_PROVEN_NOT_MATERIALIZER_WIRED`: neither the
-current source canonicalizer nor frame sampler invokes the owner yet, and no
-live Mongo/R2/GCS path was exercised.
+`REFERENCE_MEDIA_REGISTRATION_OWNER_PROVEN_NOT_MATERIALIZER_WIRED` at that
+historical checkpoint.
+
+Commit eaef92685 then wires that same owner into the remote-URL source
+canonicalizer and derived-frame sampler. Both upload paths now register exact
+bytes, selected R2/GCS storage, USER/ORG ownership and source/frame provenance
+before returning canonical evidence. Source and frame object IDs include exact
+content identity, so changed bytes at one logical URL or timestamp cannot
+overwrite an older registered object before conflict detection. Registration
+failure remains fatal. The five focused reference suites pass 23/23 with
+repository typecheck and quiet ESLint. This is
+`REMOTE_SOURCE_AND_DERIVED_FRAME_REGISTRATION_WIRED_ASSET_SOURCE_GAP_REMAINS`:
+existing uploaded/YouTube/Instagram asset sources are not yet guaranteed to
+carry the exact envelope/content identity required by issuance, the main
+analysis worker has not yet been proven to consume the canonicalized identity,
+and no live Mongo/R2/GCS path was exercised.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Wire the `d42c1af5b` registration owner into every reference source and
-   derived-frame upload. The current reference-frame sampler still uploads
-   R2/GCS bytes without calling it, so ordered-image issuance cannot yet work
-   end to end.
+1. Extend the `eaef92685` wiring from remote URLs and derived frames to existing
+   uploaded/YouTube/Instagram asset sources through the same `mediaAssets`
+   owner. Then make the main analysis worker use the canonicalizer's returned
+   asset ID/URL for sampling. Do not add another source registry or silently
+   synthesize a source envelope.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3240,6 +3254,14 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 6 - global scalable professional NLE | Some editor, proxy, chapter render and isolated 60 fps SaaS-explainer mechanisms exist. | Professional source/record editing, mixed rates, rational timebase, VFR, SMPTE/drop-frame display, multicam, relink, project/reel subdivision, shared storage coordination, interchange/conform and genuinely scalable long-form playback/render remain partial or missing. |
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
+
+**Stage 2 media row correction (2026-08-23):** commits `d42c1af5b` and
+`eaef92685` supersede the table's older reference-materializer wording. Exact
+reference source/frame registration now has one create-or-compare owner in the
+existing `mediaAssets` authority, and remote-URL sources plus derived frames
+invoke it with content-addressed object identities. This is partial wiring, not
+a converged media contract: uploaded/YouTube/Instagram source promotion, main-
+worker canonical-ID consumption and live Mongo/R2/GCS proof remain open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
