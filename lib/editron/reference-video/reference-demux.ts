@@ -28,9 +28,22 @@ import type {
   ReferenceAudioUsageMode,
   ReferenceCanonicalEnvelope,
 } from '@/lib/editron/services/asset-resolver';
+import {
+  deepFreezeEditronJsonV1,
+  hashEditronCanonicalJsonV1,
+} from '@/lib/editron/services/canonical-json-v1';
+import type { UploadResult } from '@/lib/editron/services/upload-service';
+import {
+  REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+  registerReferenceMaterializedMediaFileV1,
+  type ReferenceMaterializedMediaFileRegistrationInputV1,
+  type ReferenceMaterializedMediaRegistrationReceiptV1,
+} from './reference-materialized-media-registration-v1';
 
-export const DEMUX_RECEIPT_VERSION = 'editron-r1-demux-receipt-v1' as const;
+export const DEMUX_RECEIPT_VERSION = 'editron-r1-demux-receipt-v2' as const;
+export const DEMUX_CORE_RECEIPT_VERSION = 'editron-r1-demux-core-receipt-v1' as const;
 export const REFERENCE_ENVELOPE_VERSION = 'editron-r1-reference-envelope-v1' as const;
+const DERIVED_STREAM_ASSET_ID_VERSION = 'editron-r1-derived-stream-asset-id-v1' as const;
 
 /** AAC 192k — the same codec/bitrate the YouTube reference importer already uses. */
 const DEMUX_AUDIO_BITRATE = '192k';
@@ -40,6 +53,8 @@ export interface DemuxInput {
   referenceAssetId: string;
   /** Scoped owner of the artifact (user). */
   userId: string;
+  /** Optional organization owner; the user remains the authenticated actor. */
+  orgId?: string;
   /** Path to the local video bytes (fetched/uploaded earlier). */
   sourcePath: string;
   /** Provenance: where the source came from ('asset' | 'youtube-url' | 'instagram-url' | 'remote-url'). */
@@ -50,11 +65,21 @@ export interface DemuxInput {
   abortSignal?: AbortSignal;
 }
 
-export interface DemuxUploadResult {
-  /** Private storage key for the artifact (R2 key or GCS path). */
-  storageKey: string;
-  /** Size in bytes of the uploaded artifact. */
-  size: number;
+export interface DemuxCoreReceiptV1 {
+  version: typeof DEMUX_CORE_RECEIPT_VERSION;
+  referenceAssetId: string;
+  userId: string;
+  source: {
+    kind: DemuxInput['sourceKind'];
+    sha256: string;
+  };
+  recipe: {
+    videoCodec: 'copy';
+    audioCodec: 'aac';
+    audioBitrate: typeof DEMUX_AUDIO_BITRATE;
+  };
+  video: FileIdentity & { contentType: 'video/mp4' };
+  audio: (FileIdentity & { contentType: 'audio/mp4' }) | null;
 }
 
 export interface DemuxReceipt {
@@ -63,14 +88,19 @@ export interface DemuxReceipt {
   userId: string;
   createdAt: string;
   durationMs: number | null;
+  coreReceipt: Readonly<DemuxCoreReceiptV1>;
+  coreReceiptSha256: string;
   video: {
+    assetId: string;
     key: string;
     size: number;
     contentType: string;
     /** SHA-256 of the demuxed video bytes. */
     sha256: string;
+    registrationReceiptSha256: string;
   };
   audio: {
+    assetId: string;
     key: string;
     size: number;
     contentType: string;
@@ -78,6 +108,7 @@ export interface DemuxReceipt {
     sha256: string;
     /** Whether a real audio stream was present and extracted. */
     present: boolean;
+    registrationReceiptSha256: string;
   } | null;
   source: {
     path: string;
@@ -86,6 +117,7 @@ export interface DemuxReceipt {
     /** SHA-256 of the ORIGINAL source file (integrity + dedup key). */
     sourceSha256: string;
   };
+  receiptSha256: string;
 }
 
 export interface ReferenceDemuxDeps {
@@ -97,7 +129,12 @@ export interface ReferenceDemuxDeps {
     fileName: string,
     contentType: string,
     userId: string,
-  ) => Promise<DemuxUploadResult>;
+    assetId: string,
+  ) => Promise<UploadResult>;
+  /** Persist through the existing mediaAssets create-or-compare owner. */
+  registerFile?: (
+    input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
+  ) => Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>>;
   /** Resolve the duration of the source (ms). Injected for tests. */
   readDurationMs?: (sourcePath: string, abortSignal?: AbortSignal) => Promise<number | null>;
   /** Optional caller policy; absence means cancellation is owned by AbortSignal. */
@@ -110,6 +147,7 @@ export class ReferenceDemuxError extends Error {
       | 'no_video_stream'
       | 'ffmpeg_failed'
       | 'upload_failed'
+      | 'registration_failed'
       | 'source_unreadable'
       | 'cancelled',
     message: string,
@@ -143,10 +181,12 @@ export async function demuxReferenceVideo(
     filePath: string,
     fileName: string,
     contentType: string,
-  ): Promise<DemuxUploadResult> =>
+    assetId: string,
+  ): Promise<UploadResult> =>
     rawUploadFile
-      ? rawUploadFile(filePath, fileName, contentType, input.userId)
-      : realUploadFile(filePath, fileName, contentType, input.userId);
+      ? rawUploadFile(filePath, fileName, contentType, input.userId, assetId)
+      : realUploadFile(filePath, fileName, contentType, input.userId, assetId);
+  const registerFile = deps.registerFile ?? registerReferenceMaterializedMediaFileV1;
   const readDurationMs = deps.readDurationMs ?? probeDurationMs;
 
   let sourceIdentity: Readonly<FileIdentity>;
@@ -207,45 +247,120 @@ export async function demuxReferenceVideo(
 
     const audioIdentity = await measureOptionalStableFile(audioOut);
 
+    const coreReceipt = deepFreezeEditronJsonV1({
+      version: DEMUX_CORE_RECEIPT_VERSION,
+      referenceAssetId: input.referenceAssetId,
+      userId: input.userId,
+      source: { kind: input.sourceKind, sha256: sourceIdentity.sha256 },
+      recipe: {
+        videoCodec: 'copy' as const,
+        audioCodec: 'aac' as const,
+        audioBitrate: DEMUX_AUDIO_BITRATE,
+      },
+      video: { ...videoIdentity, contentType: 'video/mp4' as const },
+      audio: audioIdentity
+        ? { ...audioIdentity, contentType: 'audio/mp4' as const }
+        : null,
+    }) as Readonly<DemuxCoreReceiptV1>;
+    const coreReceiptSha256 = hashEditronCanonicalJsonV1(coreReceipt);
+
     const baseName = sanitizeAssetPart(input.sourceLabel ?? path.basename(input.sourcePath));
+    const videoAssetId = buildReferenceDerivedStreamAssetIdV1({
+      referenceAssetId: input.referenceAssetId,
+      streamKind: 'VIDEO',
+      bytesSha256: videoIdentity.sha256,
+    });
     const videoUpload = await uploadArtifact(
       uploadFile,
       videoOut,
       `${input.referenceAssetId}-v-${baseName}.mp4`,
       'video/mp4',
       videoIdentity.size,
+      videoAssetId,
+    );
+    const videoRegistration = await registerArtifact(
+      registerFile,
+      {
+        filePath: videoOut,
+        upload: videoUpload,
+        actorUserId: input.userId,
+        mediaOwner: input.orgId
+          ? { type: 'ORG', orgId: input.orgId }
+          : { type: 'USER', userId: input.userId },
+        mediaKind: 'video',
+        filename: `${input.referenceAssetId}-v-${baseName}.mp4`,
+        role: {
+          kind: 'DERIVED_STREAM', sourceAssetId: input.referenceAssetId,
+          streamKind: 'VIDEO', demuxReceiptSha256: coreReceiptSha256,
+        },
+      },
+      videoIdentity,
+      'VIDEO',
+      coreReceiptSha256,
     );
     const video = {
-      key: videoUpload.storageKey,
+      assetId: videoUpload.assetId,
+      key: storageKey(videoUpload),
       size: videoUpload.size,
       contentType: 'video/mp4',
       sha256: videoIdentity.sha256,
+      registrationReceiptSha256: videoRegistration.receiptSha256,
     };
 
     let audio: DemuxReceipt['audio'] = null;
     if (audioIdentity) {
+      const audioAssetId = buildReferenceDerivedStreamAssetIdV1({
+        referenceAssetId: input.referenceAssetId,
+        streamKind: 'AUDIO',
+        bytesSha256: audioIdentity.sha256,
+      });
       const audioUpload = await uploadArtifact(
         uploadFile,
         audioOut,
         `${input.referenceAssetId}-a-${baseName}.m4a`,
         'audio/mp4',
         audioIdentity.size,
+        audioAssetId,
+      );
+      const audioRegistration = await registerArtifact(
+        registerFile,
+        {
+          filePath: audioOut,
+          upload: audioUpload,
+          actorUserId: input.userId,
+          mediaOwner: input.orgId
+            ? { type: 'ORG', orgId: input.orgId }
+            : { type: 'USER', userId: input.userId },
+          mediaKind: 'audio',
+          filename: `${input.referenceAssetId}-a-${baseName}.m4a`,
+          role: {
+            kind: 'DERIVED_STREAM', sourceAssetId: input.referenceAssetId,
+            streamKind: 'AUDIO', demuxReceiptSha256: coreReceiptSha256,
+          },
+        },
+        audioIdentity,
+        'AUDIO',
+        coreReceiptSha256,
       );
       audio = {
-        key: audioUpload.storageKey,
+        assetId: audioUpload.assetId,
+        key: storageKey(audioUpload),
         size: audioUpload.size,
         contentType: 'audio/mp4',
         sha256: audioIdentity.sha256,
         present: true,
+        registrationReceiptSha256: audioRegistration.receiptSha256,
       };
     }
 
-    const receipt: DemuxReceipt = {
+    const receiptMaterial = {
       version: DEMUX_RECEIPT_VERSION,
       referenceAssetId: input.referenceAssetId,
       userId: input.userId,
       createdAt: new Date().toISOString(),
       durationMs,
+      coreReceipt,
+      coreReceiptSha256,
       video,
       audio,
       source: {
@@ -255,7 +370,10 @@ export async function demuxReferenceVideo(
         sourceSha256: sourceIdentity.sha256,
       },
     };
-    return receipt;
+    return deepFreezeEditronJsonV1({
+      ...receiptMaterial,
+      receiptSha256: hashEditronCanonicalJsonV1(receiptMaterial),
+    }) as Readonly<DemuxReceipt>;
   } catch (error) {
     if (error instanceof ReferenceDemuxError) throw error;
     throw new ReferenceDemuxError(
@@ -384,14 +502,10 @@ async function realUploadFile(
   fileName: string,
   contentType: string,
   userId: string,
-): Promise<DemuxUploadResult> {
+  assetId: string,
+): Promise<UploadResult> {
   const { uploadMediaFromFile } = await import('@/lib/editron/services/upload-service');
-  const result = await uploadMediaFromFile(filePath, userId, fileName, contentType, {});
-  const storageKey = result.r2Key ?? result.gcsPath ?? result.assetId;
-  if (!storageKey) {
-    throw new ReferenceDemuxError('upload_failed', 'Upload returned no storage key.');
-  }
-  return { storageKey, size: result.size };
+  return uploadMediaFromFile(filePath, userId, fileName, contentType, { customAssetId: assetId });
 }
 
 interface FileIdentity {
@@ -428,15 +542,18 @@ async function measureOptionalStableFile(
 }
 
 async function uploadArtifact(
-  uploadFile: (filePath: string, fileName: string, contentType: string) => Promise<DemuxUploadResult>,
+  uploadFile: (
+    filePath: string, fileName: string, contentType: string, assetId: string,
+  ) => Promise<UploadResult>,
   filePath: string,
   fileName: string,
   contentType: string,
   expectedSize: number,
-): Promise<Readonly<DemuxUploadResult>> {
-  let result: DemuxUploadResult;
+  expectedAssetId: string,
+): Promise<Readonly<UploadResult>> {
+  let result: UploadResult;
   try {
-    result = await uploadFile(filePath, fileName, contentType);
+    result = await uploadFile(filePath, fileName, contentType, expectedAssetId);
   } catch (error) {
     throw error instanceof ReferenceDemuxError
       ? error
@@ -445,13 +562,93 @@ async function uploadArtifact(
         `Failed to upload ${fileName}: ${error instanceof Error ? error.message : String(error)}`,
       );
   }
-  if (!result.storageKey?.trim() || result.size !== expectedSize) {
+  if (result.assetId !== expectedAssetId || result.size !== expectedSize
+    || result.contentType !== contentType || !storageKey(result)) {
     throw new ReferenceDemuxError(
       'upload_failed',
       `Upload receipt mismatch for ${fileName}: expected ${expectedSize} bytes.`,
     );
   }
   return result;
+}
+
+async function registerArtifact(
+  registerFile: (
+    input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
+  ) => Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>>,
+  input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
+  identity: Readonly<FileIdentity>,
+  streamKind: 'VIDEO' | 'AUDIO',
+  coreReceiptSha256: string,
+): Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>> {
+  let receipt: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
+  try {
+    receipt = await registerFile(input);
+  } catch (error) {
+    throw new ReferenceDemuxError(
+      'registration_failed',
+      `Failed to register ${streamKind} demux artifact: ${
+        error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (input.role.kind !== 'DERIVED_STREAM') {
+    throw new ReferenceDemuxError(
+      'registration_failed', `Registration input role mismatch for ${streamKind}.`,
+    );
+  }
+  const material = {
+    version: receipt.version,
+    assetId: receipt.assetId,
+    mediaOwner: receipt.mediaOwner,
+    contentType: receipt.contentType,
+    byteLength: receipt.byteLength,
+    bytesSha256: receipt.bytesSha256,
+    storage: receipt.storage,
+    provenance: receipt.provenance,
+  };
+  const expectedStorage = input.upload.r2Key
+    ? { backend: 'R2' as const, key: input.upload.r2Key }
+    : { backend: 'GCS' as const, key: input.upload.gcsPath };
+  if (receipt.version !== REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1
+    || receipt.assetId !== input.upload.assetId || receipt.byteLength !== identity.size
+    || receipt.bytesSha256 !== identity.sha256 || receipt.contentType !== input.upload.contentType
+    || hashEditronCanonicalJsonV1(receipt.mediaOwner)
+      !== hashEditronCanonicalJsonV1(input.mediaOwner)
+    || receipt.storage.backend !== expectedStorage.backend
+    || receipt.storage.key !== expectedStorage.key
+    || receipt.provenance.role !== 'DERIVED_STREAM'
+    || receipt.provenance.sourceAssetId !== input.role.sourceAssetId
+    || receipt.provenance.streamKind !== streamKind
+    || receipt.provenance.demuxReceiptSha256 !== coreReceiptSha256
+    || receipt.receiptSha256 !== hashEditronCanonicalJsonV1(material)) {
+    throw new ReferenceDemuxError(
+      'registration_failed', `Registration receipt mismatch for ${streamKind} demux artifact.`,
+    );
+  }
+  return receipt;
+}
+
+function storageKey(upload: Readonly<UploadResult>): string {
+  const key = upload.r2Key ?? upload.gcsPath;
+  if (!key?.trim()) throw new ReferenceDemuxError('upload_failed', 'Upload returned no storage key.');
+  return key;
+}
+
+export function buildReferenceDerivedStreamAssetIdV1(input: Readonly<{
+  referenceAssetId: string;
+  streamKind: 'VIDEO' | 'AUDIO';
+  bytesSha256: string;
+}>): string {
+  if (!input.referenceAssetId.trim() || !/^[a-f0-9]{64}$/.test(input.bytesSha256)) {
+    throw new ReferenceDemuxError('registration_failed', 'Invalid derived-stream identity material.');
+  }
+  const digest = hashEditronCanonicalJsonV1({
+    version: DERIVED_STREAM_ASSET_ID_VERSION,
+    referenceAssetId: input.referenceAssetId,
+    streamKind: input.streamKind,
+    bytesSha256: input.bytesSha256,
+  });
+  return `ref_stream_${digest.slice(0, 24)}`;
 }
 
 function sanitizeAssetPart(value: string): string {

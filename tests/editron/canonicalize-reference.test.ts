@@ -11,7 +11,12 @@ import {
   buildCanonicalRemoteAssetId,
   type CanonicalizeReferenceDeps,
 } from '@/lib/editron/reference-video/canonicalize-reference';
-import { REFERENCE_ENVELOPE_VERSION } from '@/lib/editron/reference-video/reference-demux';
+import {
+  DEMUX_CORE_RECEIPT_VERSION,
+  DEMUX_RECEIPT_VERSION,
+  REFERENCE_ENVELOPE_VERSION,
+  type DemuxReceipt,
+} from '@/lib/editron/reference-video/reference-demux';
 import {
   REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
   type ReferenceMaterializedMediaFileRegistrationInputV1,
@@ -43,18 +48,32 @@ function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): Canonical
     }),
     registerSourceFile: async (input) => registrationReceipt(input),
     demux: async () => ({
-      version: 'editron-r1-demux-receipt-v1' as const,
+      version: DEMUX_RECEIPT_VERSION,
       referenceAssetId: 'ref_url_abc',
       userId: 'user_1',
       createdAt: '2026-08-05T00:00:00.000Z',
       durationMs: 10_000,
-      video: { key: 'r2/v.mp4', size: 100, contentType: 'video/mp4', sha256: 'a'.repeat(64) },
+      coreReceipt: {
+        version: DEMUX_CORE_RECEIPT_VERSION,
+        referenceAssetId: 'ref_url_abc', userId: 'user_1',
+        source: { kind: 'remote-url' as const, sha256: 'c'.repeat(64) },
+        recipe: { videoCodec: 'copy' as const, audioCodec: 'aac' as const, audioBitrate: '192k' as const },
+        video: { size: 100, sha256: 'a'.repeat(64), contentType: 'video/mp4' as const },
+        audio: null,
+      },
+      coreReceiptSha256: 'd'.repeat(64),
+      video: {
+        assetId: 'ref_stream_video', key: 'r2/v.mp4', size: 100,
+        contentType: 'video/mp4', sha256: 'a'.repeat(64),
+        registrationReceiptSha256: 'e'.repeat(64),
+      },
       audio: null,
       source: {
         path: 'x', kind: 'remote-url' as const,
         sourceSha256: createHash('sha256').update(Buffer.alloc(20_000, 0xab)).digest('hex'),
       },
-    }),
+      receiptSha256: 'f'.repeat(64),
+    } satisfies DemuxReceipt),
     readDurationMs: async () => 10_000,
     ...overrides,
   };

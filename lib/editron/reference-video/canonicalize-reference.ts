@@ -220,7 +220,7 @@ export async function canonicalizeReferenceVideo(
     let demuxedAudio: { key: string; contentType: string } | null = null;
     try {
       const receipt = await demux({
-        referenceAssetId: uploaded.assetId, userId, sourcePath: tmpPath,
+        referenceAssetId: uploaded.assetId, userId, orgId: input.orgId, sourcePath: tmpPath,
         sourceKind: source.kind, sourceLabel: source.sourceLabel,
         abortSignal: input.abortSignal,
       }, { readDurationMs: deps.readDurationMs });
