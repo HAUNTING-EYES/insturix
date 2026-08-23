@@ -56,7 +56,7 @@ export interface ProviderNativeDurableProposalReceiptV2R {
   receiptSha256: string;
 }
 
-export interface ProviderNativeDurableProposalRevisionBindingV2R {
+interface ProviderNativeDurableProposalRevisionBindingV2R {
   schemaVersion: 1;
   authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING';
   canonicalBaseProjectRevision: string;
@@ -103,7 +103,7 @@ export class ProviderNativeDurableRetryableErrorV2R extends Error {
   }
 }
 
-export type ProviderNativeDurableWorkerResultV2R = Readonly<
+type ProviderNativeDurableWorkerResultV2R = Readonly<
   | { kind: 'skipped'; reason: string }
   | { kind: 'lease_lost'; reason: string }
   | { kind: 'cancelled'; jobId: string }

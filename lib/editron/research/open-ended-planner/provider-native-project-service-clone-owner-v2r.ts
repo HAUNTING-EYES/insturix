@@ -30,7 +30,7 @@ type IsolatedCallV2R = Parameters<
   ProviderNativeDurableIsolatedCloneV2R['executeIsolated']
 >[0];
 
-export interface ProjectServiceProposalSnapshotOwnerV2R {
+interface ProjectServiceProposalSnapshotOwnerV2R {
   loadProjectForMutation(
     userId: string,
     projectId: string,
