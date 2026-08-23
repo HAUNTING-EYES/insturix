@@ -5,7 +5,10 @@ import {
 } from '@/lib/editron/services/graph-query';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import type { ThinkForgeScriptEditorialPlanArtifact } from '@/lib/thinkforge/agents/editorial-plan';
-import { getWritingKnowledgeIdentity } from '@/lib/thinkforge/data/writing-graph-query';
+import {
+  getConstraints,
+  getWritingKnowledgeIdentity,
+} from '@/lib/thinkforge/data/writing-graph-query';
 import type { ThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
 import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 import {
@@ -26,6 +29,7 @@ const SEMANTIC_GRAPH_CATEGORIES = new Set([
   'rhythm',
   'accessibility',
 ]);
+const WRITING_CONSTRAINT_DECLARATION = /^\s*Constraint:\s*([a-zA-Z0-9_-]+)\s*$/gmi;
 
 export type VideoTreatmentGraphEvidence = {
   id: string;
@@ -40,6 +44,12 @@ export type VideoTreatmentKnowledge = {
     version: string;
     source: string;
     relevantSections: string;
+    /**
+     * Server-derived IDs that were actually rendered in the selected writing
+     * context and also exist in the canonical writing graph. These are the
+     * only writing-side IDs a treatment trace may cite.
+     */
+    traceConstraintIds: string[];
   };
   editronGraph: {
     version: string | null;
@@ -72,16 +82,18 @@ export function resolveVideoTreatmentKnowledge(
   const writingKnowledge = getWritingKnowledgeIdentity();
   const query = buildKnowledgeQuery(input);
   const graph = (dependencies.loadEditronGraph ?? loadGraph)();
+  const relevantSections = buildRelevantInlineWritingContext(
+    getCreativeContentKnowledgeText(),
+    query,
+    10_000,
+  );
 
   return {
     adapterVersion: VIDEO_TREATMENT_KNOWLEDGE_ADAPTER_VERSION,
     writingKnowledge: {
       ...writingKnowledge,
-      relevantSections: buildRelevantInlineWritingContext(
-        getCreativeContentKnowledgeText(),
-        query,
-        10_000,
-      ),
+      relevantSections,
+      traceConstraintIds: selectTraceableWritingConstraintIds(relevantSections),
     },
     editronGraph: graph
       ? {
@@ -97,6 +109,15 @@ export function resolveVideoTreatmentKnowledge(
           ],
         },
   };
+}
+
+function selectTraceableWritingConstraintIds(relevantSections: string): string[] {
+  const canonicalIds = new Set(getConstraints().map((constraint) => constraint.id));
+  const renderedIds = [...relevantSections.matchAll(WRITING_CONSTRAINT_DECLARATION)]
+    .map((match) => match[1]?.trim())
+    .filter((id): id is string => Boolean(id) && canonicalIds.has(id));
+
+  return [...new Set(renderedIds)].sort();
 }
 
 function buildKnowledgeQuery(input: ResolveVideoTreatmentKnowledgeInput): string {

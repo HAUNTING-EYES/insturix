@@ -402,6 +402,7 @@ function buildTreatmentPromptParts(input: {
         creativeReferenceEvidenceIds: input.input.authoringContext.creativeReferenceContext.referenceSet.references
           .flatMap((reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? []),
         graphConstraintIds: input.knowledge.editronGraph.evidence.map((evidence) => evidence.id),
+        writingConstraintIds: input.knowledge.writingKnowledge.traceConstraintIds,
       },
     },
     fieldLimits: {
@@ -441,6 +442,7 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - Treat sourceLedger as the only factual source. Use only listed source reference IDs; no invented claims, proof, dates, statistics, outcomes, people, UI states, or logos.
 - Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
 - Treat selected creative-content knowledge and selected Editron semantic evidence as binding guidance. They constrain attention, accessibility, continuity, rhythm, and audiovisual relationships; they do not license final form choices.
+- "allowedTraceEvidence" is the server-owned allowlist for trace IDs. In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
 - Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
 - Keep the treatment decision-dense and complete: state each top-level strategy once, keep lists to distinct material decisions, and never restate Brand Vault, source-ledger, or reference input verbatim. Visual events represent meaningful audiovisual/narrative turns, never every line, shot, or edit.
 </video_treatment_planner_contract>`;
@@ -534,7 +536,10 @@ function assertTreatmentProvenance(
     ),
     ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
   ]);
-  const allowedConstraintIds = new Set(knowledge.editronGraph.evidence.map((evidence) => evidence.id));
+  const allowedConstraintIds = new Set([
+    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
+    ...knowledge.writingKnowledge.traceConstraintIds,
+  ]);
   const issues: string[] = [];
   const check = (ids: readonly string[], allowed: Set<string>, owner: string) => {
     ids.forEach((id) => {

@@ -302,6 +302,50 @@ describe('video treatment planner', () => {
     expect(request.thinkingBudgetTokens).toBeGreaterThan(0);
   });
 
+  it('accepts only server-declared mandatory writing constraint provenance', async () => {
+    let capturedRequest: Parameters<NonNullable<VideoTreatmentPlannerDependencies['generate']>>[0] | undefined;
+    const accepted = modelOutputFrom(abstractExplainerTreatment);
+    accepted.decisionTrace.appliedConstraintIds = [
+      'ai_filler_words',
+      'unverifiable_claim',
+    ];
+
+    const result = await planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: async (request) => {
+        capturedRequest = request;
+        return { result: accepted, cacheStatus: 'inline', modelName: 'gemini-test' };
+      },
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    });
+
+    if (!capturedRequest) throw new Error('Expected video treatment generator to receive a request.');
+    expect(result.treatment.decisionTrace.appliedConstraintIds).toEqual([
+      'ai_filler_words',
+      'unverifiable_claim',
+    ]);
+    expect(result.knowledge.writingKnowledge.traceConstraintIds).toEqual(expect.arrayContaining([
+      'ai_filler_words',
+      'unverifiable_claim',
+    ]));
+    expect(capturedRequest.prompt).toContain('"writingConstraintIds"');
+    expect(capturedRequest.prompt).toContain('ai_filler_words');
+
+    const rejected = modelOutputFrom(abstractExplainerTreatment);
+    rejected.decisionTrace.appliedConstraintIds = ['ai_filler_words', 'invented_writing_constraint'];
+
+    await expect(planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: async () => ({ result: rejected, cacheStatus: 'inline', modelName: 'gemini-test' }),
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    })).rejects.toMatchObject({
+      code: 'provenance_invalid',
+      message: expect.stringContaining('trace_constraint:invented_writing_constraint'),
+    } satisfies Partial<VideoTreatmentPlannerError>);
+  });
+
   it('uses a bounded model contract rather than accepting unbounded treatment prose', () => {
     const output = modelOutputFrom(abstractExplainerTreatment);
     output.narrativeArc = 'x'.repeat(1_801);
