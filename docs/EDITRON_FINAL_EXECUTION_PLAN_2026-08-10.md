@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `8bf1d766e` on
+programme code checkpoint represented by this ledger is `9251945e4` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 8bf1d766e. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 9251945e4. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1461,8 +1461,18 @@ second media store and does not accept cached URLs or backend fallback as
 proof. It is `CONCRETE_READ_ADAPTERS_IMPLEMENTED_NOT_ISSUED_OR_LIVE_PROVEN`:
 no authorized product writer yet persists these records and no live store was
 contacted.
-The next gate is authorized, idempotent canonical-media issuance plus single
-execution-root composition, followed by signed route export and a
+Commit 9251945e4 adds the store-neutral canonical-media issuance law and owner.
+It binds a hashed source version, exact binding record, independent unexpired
+rights/privacy authorization and the complete owner-consistent artifact set;
+the policy owner must approve before one injected atomic create-or-compare
+ledger is called. Native-video and ordered-image issuance, deterministic
+replay, revoked/expired/future grants, copied scope, duplicate or missing
+artifacts, owner drift, forged source records and policy refusal pass 19/19
+focused tests with repository typecheck and quiet ESLint. This is
+`ISSUANCE_POLICY_AND_IDENTITY_OWNER_PROVEN_NO_PERSISTENCE`: no concrete Mongo
+ledger writes these records and no live store was contacted.
+The next gate is the concrete transactional canonical-media issuance ledger,
+then single execution-root composition, followed by signed route export and a
 non-production Atlas/QStash crash/redelivery exercise that proves the real
 transaction. The inline research
 reference artifact and sealed-holdout controller remain ineligible as product
@@ -3235,9 +3245,10 @@ canonical-media binding/adapter contract for both native-video and ordered-image
 reference arms, without storing bytes or becoming a second media authority.
 Commits `607212e02` and `8bf1d766e` now implement the concrete read-side canonical-media
 locator, byte reader and policy-grant owner without moving bytes out of the
-existing `mediaAssets`-selected R2/GCS object. What remains missing is
-materially different: authorized idempotent issuance of those binding,
-artifact-identity and independent policy-grant records, their one execution-
+existing `mediaAssets`-selected R2/GCS object. Commit `9251945e4` adds the
+store-neutral issuance policy/identity owner and an atomic create-or-compare
+ledger port, but no concrete Mongo writer. What remains missing is materially
+different: the transactional ledger behind that owner, then one execution-
 root composition with the concrete CreditsService product-budget owner, actual
 API route exports, live Atlas/QStash
 execution and recovery, canonical
@@ -4926,11 +4937,13 @@ over the real leased Plan job lifecycle. This remains **durable recovery
 groundwork**, not automatic retry authorization or production mutation. The
 fail-closed product dispatch and signed worker adapters now exist but remain
 non-routable without an explicit product execution-owner composition. Commit
-`607212e02` plus `8bf1d766e` implement the `498e018e6` read-side storage/policy ports but not
-their authorized issuer or live-store proof. Commit `5f7428248` implements the
+`607212e02` plus `8bf1d766e` implement the `498e018e6` read-side storage/policy
+ports. Commit `9251945e4` implements their store-neutral authorization and
+issuance coordinator, but not its concrete transactional ledger or live-store
+proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
-proof. The next bounded reliability order is therefore: authorized canonical-
-media issuance, one execution-root composition, signed route export,
+proof. The next bounded reliability order is therefore: concrete transactional
+canonical-media issuance, one execution-root composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.
