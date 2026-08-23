@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { bindProviderNativeDurableOutcomeProofReceiptV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-durable-outcome-proof-v2r';
 import { createProviderNativeEpisodeResumeCheckpointV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
 import type { ProviderNativeEpisodeResumeCheckpointV2R }
@@ -16,8 +18,10 @@ import { createProviderNativeProjectServiceCloneOwnerV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r';
 import { projectProposalStateV2R }
   from '@/lib/editron/research/open-ended-planner/project-service-proposal-state-v2r';
-import type { ProviderNativeToolExecutionV2R }
-  from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
+import {
+  PROVIDER_NATIVE_EPISODE_VERSION_V2R,
+  type ProviderNativeToolExecutionV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
 import type { Project, ProjectRevisionV1 }
   from '@/lib/editron/services/project-service';
 
@@ -48,9 +52,19 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
       (clone.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
       return writerExecution;
     });
+    const prove = vi.fn(async (input: Readonly<{
+      project: Readonly<Project>;
+      episodeReceipt: Readonly<{ receiptSha256: string; episodeId: string }>;
+      resumedReceiptSha256: string;
+      proposalReceipt: Readonly<{ receiptSha256: string; finalStateSha256: string }>;
+    }>) => {
+      expect((input.project.overlays[0].styles as Record<string, unknown>).opacity).toBe(0.5);
+      return proofReceipt(input);
+    });
     const owner = createProviderNativeProjectServiceCloneOwnerV2R({
       projectService: { loadProjectForMutation },
       isolatedOperatorOwner: { execute },
+      isolatedOutcomeProofOwner: { prove },
     });
 
     const resolved = await owner.resolve(scope());
@@ -101,7 +115,15 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
     expect(receipt?.operationReceipts).toHaveLength(1);
     const { receiptSha256, ...material } = receipt!;
     expect(receiptSha256).toBe(hashCanonicalJsonV1(material));
-    expect(loadProjectForMutation).toHaveBeenCalledTimes(4);
+    const outcomeProof = await resolved.isolatedClone.finalizeOutcomeProof?.({
+      episodeReceipt: episodeReceipt(),
+      resumedReceiptSha256: 'd'.repeat(64),
+      proposalReceipt: receipt!,
+    });
+    expect(outcomeProof).toMatchObject({ disposition: 'PASS' });
+    expect(prove).toHaveBeenCalledTimes(1);
+    expect((canonical.overlays[0].styles as Record<string, unknown>).opacity).toBe(1);
+    expect(loadProjectForMutation).toHaveBeenCalledTimes(6);
   });
 
   it('reconstructs an exact committed prefix through the pure replay port', async () => {
@@ -244,6 +266,36 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
       .rejects.toThrow('PROJECTSERVICE_PROPOSAL_BASE_STALE');
   });
 
+  it('rejects proof when the canonical project changes during inspection', async () => {
+    const canonical = project();
+    const newer = project(revision(8));
+    const loadProjectForMutation = vi.fn()
+      .mockResolvedValueOnce(snapshot(canonical))
+      .mockResolvedValueOnce(snapshot(canonical))
+      .mockResolvedValueOnce(snapshot(canonical))
+      .mockResolvedValueOnce(snapshot(canonical))
+      .mockResolvedValueOnce(snapshot(canonical))
+      .mockResolvedValueOnce(snapshot(newer));
+    const resolved = await createProviderNativeProjectServiceCloneOwnerV2R({
+      projectService: { loadProjectForMutation },
+      isolatedOperatorOwner: { execute: async ({ project: clone }) => {
+        (clone.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
+        return ok({ receipt: { projectRevision: 'local-proposal-r1' } });
+      } },
+      isolatedOutcomeProofOwner: { prove: async (input) => proofReceipt(input) },
+    }).resolve(scope());
+    await resolved.isolatedClone.executeIsolated({
+      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1,
+    });
+    const receipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
+    await expect(resolved.isolatedClone.finalizeOutcomeProof?.({
+      episodeReceipt: episodeReceipt(),
+      resumedReceiptSha256: 'd'.repeat(64),
+      proposalReceipt: receipt!,
+    })).rejects.toThrow('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+    expect((canonical.overlays[0].styles as Record<string, unknown>).opacity).toBe(1);
+  });
+
   it('rolls back failed operations and rejects clone identity forgery', async () => {
     const canonical = project();
     let attempt = 0;
@@ -383,4 +435,54 @@ function failure(code: string): Readonly<ProviderNativeToolExecutionV2R> {
     output: { code, message: 'The isolated owner could not prove the requested form.' },
     evidenceIds: [],
   };
+}
+
+function episodeReceipt() {
+  return {
+    receiptVersion: PROVIDER_NATIVE_EPISODE_VERSION_V2R,
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    route: CHECKPOINT.route,
+    episodeId: CHECKPOINT.episodeId,
+    contextSha256: CHECKPOINT.contextSha256,
+    toolSetSha256: CHECKPOINT.toolSetSha256,
+    argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES' as const,
+    selectedOperatorIds: ['set_keyframes'], turns: [],
+    terminal: {
+      disposition: 'READY_FOR_PROOF' as const,
+      reasonCodes: ['MODEL_READY_FOR_PROOF'], evidenceIds: [], summary: 'Ready.',
+    },
+    productOutcome: 'NOT_EVALUATED_ADAPTER_ONLY' as const,
+    stateEffects: [] as const,
+    transcriptSha256: 'c'.repeat(64),
+    receiptSha256: 'c'.repeat(64),
+  };
+}
+
+function proofReceipt(input: Readonly<{
+  episodeReceipt: Readonly<{ receiptSha256: string; episodeId: string }>;
+  resumedReceiptSha256: string;
+  proposalReceipt: Readonly<{ receiptSha256: string; finalStateSha256: string }>;
+}>) {
+  return bindProviderNativeDurableOutcomeProofReceiptV2R({
+    tenantId: 'tenant-1', userId: USER_ID, projectId: PROJECT_ID,
+    episodeId: input.episodeReceipt.episodeId,
+    subject: {
+      episodeReceiptSha256: input.episodeReceipt.receiptSha256,
+      resumedReceiptSha256: input.resumedReceiptSha256,
+      proposalReceiptSha256: input.proposalReceipt.receiptSha256,
+      finalStateSha256: input.proposalReceipt.finalStateSha256,
+    },
+    proofPolicy: {
+      policyId: 'test-render-policy', policyVersion: 'v1',
+      policySha256: '2'.repeat(64),
+    },
+    obligations: [{
+      obligationId: 'rendered-outcome', kind: 'render', disposition: 'PASS',
+      proofReferenceIds: ['render-proof-1'],
+    }],
+    proofReferences: [{
+      proofId: 'render-proof-1', proofSha256: '3'.repeat(64), disposition: 'PASS',
+    }],
+    observedAt: '2026-08-23T10:05:00.000Z', summary: 'Test proof.',
+  });
 }

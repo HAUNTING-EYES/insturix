@@ -16,7 +16,12 @@ import {
   type ProviderNativeProposalRecoveryStateV2R,
 } from './provider-native-proposal-recovery-v2r';
 import {
+  assertProviderNativeDurableOutcomeProofReceiptV2R,
+  type ProviderNativeDurableOutcomeProofReceiptV2R,
+} from './provider-native-durable-outcome-proof-v2r';
+import {
   runProviderNativeToolEpisodeV2R,
+  isProviderNativeProofGateEligibleV2R,
   type ProviderNativeEpisodeReceiptV2R,
 } from './provider-native-tool-episode-v2r';
 import { hashCanonicalJsonV1 } from './contracts-v1';
@@ -76,6 +81,11 @@ export interface ProviderNativeDurableIsolatedCloneV2R {
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
   ) => Promise<Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined>;
   finalizeProposalReceipt?: () => Promise<Readonly<ProviderNativeDurableProposalReceiptV2R>>;
+  finalizeOutcomeProof?: (input: Readonly<{
+    episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+    resumedReceiptSha256: string;
+    proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+  }>) => Promise<Readonly<ProviderNativeDurableOutcomeProofReceiptV2R>>;
 }
 
 export type ProviderNativeDurableResolvedArtifactsV2R = Readonly<
@@ -115,6 +125,7 @@ type ProviderNativeDurableWorkerResultV2R = Readonly<
       episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
       resumedReceiptSha256: string;
       proposalReceiptSha256?: string;
+      outcomeProofReceiptSha256?: string;
     }
 >;
 
@@ -254,11 +265,20 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       );
     }
     await heartbeat();
+    const outcomeProof = await finalizeOutcomeProof({
+      job: claim.job,
+      clone: artifacts.isolatedClone,
+      episodeReceipt,
+      resumedReceiptSha256: resumedReceipt.receiptSha256,
+      proposalReceipt,
+    });
+    await heartbeat();
     const terminal = episodeTerminalReceipt(
       episodeReceipt,
       resumedReceipt.receiptSha256,
       clock(),
       proposalReceipt,
+      outcomeProof,
     );
     await input.store.complete({
       jobId: input.jobId, leaseToken: claim.leaseToken, receipt: terminal, now: clock(),
@@ -268,6 +288,7 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
       durableDisposition: terminal.disposition as 'PASS' | 'FAIL' | 'UNVERIFIABLE',
       episodeReceipt, resumedReceiptSha256: resumedReceipt.receiptSha256,
       ...(proposalReceipt ? { proposalReceiptSha256: proposalReceipt.receiptSha256 } : {}),
+      ...(outcomeProof ? { outcomeProofReceiptSha256: outcomeProof.receiptSha256 } : {}),
     };
   } catch (error) {
     if (error instanceof DurableWorkflowJobLeaseLostErrorV1) {
@@ -493,19 +514,60 @@ function episodeTerminalReceipt(
   resumedReceiptSha256: string,
   completedAt: Date,
   proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R> | null,
+  outcomeProof: Readonly<ProviderNativeDurableOutcomeProofReceiptV2R> | null,
 ): DurableWorkflowJobTerminalReceiptV1 {
-  const disposition = receipt.terminal.disposition === 'PASS'
+  const episodeDisposition = receipt.terminal.disposition === 'PASS'
     ? 'PASS' : receipt.terminal.disposition === 'FAIL' ? 'FAIL' : 'UNVERIFIABLE';
+  const disposition = outcomeProof?.disposition ?? episodeDisposition;
   const proofReferences: DurableWorkflowJobTerminalReceiptV1['proofReferences'] = [{
     proofId: `provider_native_resumed_${receipt.episodeId}`,
     proofSha256: resumedReceiptSha256,
-    disposition,
+    disposition: outcomeProof ? 'PASS' : disposition,
   }, ...(proposalReceipt ? [{
     proofId: `projectservice_isolated_proposal_${receipt.episodeId}`,
     proofSha256: proposalReceipt.receiptSha256,
     disposition: 'PASS' as const,
+  }] : []), ...(outcomeProof ? [{
+    proofId: `isolated_outcome_proof_${receipt.episodeId}`,
+    proofSha256: outcomeProof.receiptSha256,
+    disposition: outcomeProof.disposition,
   }] : [])];
   return terminalReceipt(disposition, proofReferences, completedAt, receipt.episodeId);
+}
+
+async function finalizeOutcomeProof(input: Readonly<{
+  job: Readonly<DurableWorkflowJobSnapshotV1>;
+  clone: Readonly<ProviderNativeDurableIsolatedCloneV2R>;
+  episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+  resumedReceiptSha256: string;
+  proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R> | null;
+}>): Promise<Readonly<ProviderNativeDurableOutcomeProofReceiptV2R> | null> {
+  const proposal = input.proposalReceipt;
+  if (!proposal || !proposal.changedPaths.length
+    || !isProviderNativeProofGateEligibleV2R(input.episodeReceipt.terminal.disposition)) {
+    return null;
+  }
+  if (!input.clone.finalizeOutcomeProof) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_OUTCOME_PROOF_OWNER_REQUIRED');
+  }
+  const proof = assertProviderNativeDurableOutcomeProofReceiptV2R(
+    await input.clone.finalizeOutcomeProof({
+      episodeReceipt: input.episodeReceipt,
+      resumedReceiptSha256: input.resumedReceiptSha256,
+      proposalReceipt: proposal,
+    }),
+  );
+  if (proof.scope.tenantId !== input.job.tenantId
+    || proof.scope.userId !== input.job.userId
+    || proof.scope.projectId !== input.job.projectId
+    || proof.scope.episodeId !== input.episodeReceipt.episodeId
+    || proof.subject.episodeReceiptSha256 !== input.episodeReceipt.receiptSha256
+    || proof.subject.resumedReceiptSha256 !== input.resumedReceiptSha256
+    || proof.subject.proposalReceiptSha256 !== proposal.receiptSha256
+    || proof.subject.finalStateSha256 !== proposal.finalStateSha256) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_OUTCOME_PROOF_SUBJECT_MISMATCH');
+  }
+  return proof;
 }
 
 function assertProposalReceipt(

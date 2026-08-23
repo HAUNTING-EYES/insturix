@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { bindProviderNativeDurableOutcomeProofReceiptV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-durable-outcome-proof-v2r';
 import {
   buildProviderNativeEpisodeDurableJobInputV2R,
   persistProviderNativeEpisodeCheckpointV2R,
@@ -90,7 +92,7 @@ const PREFIX_STATE_SHA = 'f'.repeat(64);
 const FINAL_STATE_SHA = '1'.repeat(64);
 
 describe('provider-native durable recovery worker V2R', () => {
-  it('resumes only the suffix and settles READY_FOR_PROOF as UNVERIFIABLE once', async () => {
+  it('resumes only the suffix and accepts the exact isolated outcome proof once', async () => {
     const setup = await preparedJob();
     let suffixCall = 0;
     const invoke = vi.fn(async (request: Readonly<SerializedProviderNativeTurnV2R>) => {
@@ -103,6 +105,7 @@ describe('provider-native durable recovery worker V2R', () => {
     const resolver = vi.fn(async () => artifacts({
       invoke, executeIsolated,
       proposalReceiptFactory: durableProposalReceipt,
+      outcomeProofFactory: durableOutcomeProofReceipt,
     }));
 
     const result = await runProviderNativeEpisodeDurableWorkerV2R({
@@ -114,12 +117,13 @@ describe('provider-native durable recovery worker V2R', () => {
       throw new Error(`UNEXPECTED_WORKER_RESULT:${JSON.stringify(result)}`);
     }
     expect(result).toMatchObject({
-      kind: 'completed', durableDisposition: 'UNVERIFIABLE',
+      kind: 'completed', durableDisposition: 'PASS',
       episodeReceipt: {
         selectedOperatorIds: ELIGIBLE,
         terminal: { disposition: 'READY_FOR_PROOF' },
       },
       proposalReceiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      outcomeProofReceiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(executeIsolated).toHaveBeenCalledTimes(1);
@@ -131,10 +135,11 @@ describe('provider-native durable recovery worker V2R', () => {
     expect(persisted).toMatchObject({
       status: 'completed', resumeState: { sequence: 2 },
       terminalReceipt: {
-        disposition: 'UNVERIFIABLE',
+        disposition: 'PASS',
         proofReferences: [
-          { proofSha256: result.resumedReceiptSha256, disposition: 'UNVERIFIABLE' },
+          { proofSha256: result.resumedReceiptSha256, disposition: 'PASS' },
           { proofSha256: result.proposalReceiptSha256, disposition: 'PASS' },
+          { proofSha256: result.outcomeProofReceiptSha256, disposition: 'PASS' },
         ],
       },
     });
@@ -153,6 +158,59 @@ describe('provider-native durable recovery worker V2R', () => {
       isolatedWorkingProjectRevision: 'revision-44',
       isolatedWorkingStateSha256: FINAL_STATE_SHA,
       operations: [{ turn: 3 }, { turn: 4 }],
+    });
+  });
+
+  it('dead-letters a changed proof-eligible proposal without an outcome proof owner', async () => {
+    const setup = await preparedJob();
+    let suffixCall = 0;
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke: async (request) => {
+          suffixCall += 1;
+          return suffixCall === 1 ? shakeResponse(request) : finishResponse();
+        },
+        executeIsolated: async () => execution({
+          receipt: { status: 'PASS', projectRevision: 'revision-44' },
+        }),
+        proposalReceiptFactory: durableProposalReceipt,
+      }) },
+      clock: () => RESUME_AT,
+    });
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_OUTCOME_PROOF_OWNER_REQUIRED',
+    });
+  });
+
+  it('dead-letters a re-signed outcome proof bound to the wrong final state', async () => {
+    const setup = await preparedJob();
+    let suffixCall = 0;
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke: async (request) => {
+          suffixCall += 1;
+          return suffixCall === 1 ? shakeResponse(request) : finishResponse();
+        },
+        executeIsolated: async () => execution({
+          receipt: { status: 'PASS', projectRevision: 'revision-44' },
+        }),
+        proposalReceiptFactory: durableProposalReceipt,
+        outcomeProofFactory: (input) => durableOutcomeProofReceipt({
+          ...input,
+          proposalReceipt: {
+            ...input.proposalReceipt,
+            finalStateSha256: '4'.repeat(64),
+          },
+        }),
+      }) },
+      clock: () => RESUME_AT,
+    });
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_OUTCOME_PROOF_SUBJECT_MISMATCH',
     });
   });
 
@@ -403,6 +461,11 @@ function artifacts(overrides: Readonly<{
   proposalReceiptFactory?: (
     state: Readonly<ProviderNativeProposalRecoveryStateV2R>,
   ) => Readonly<ProviderNativeDurableProposalReceiptV2R>;
+  outcomeProofFactory?: (
+    input: Parameters<NonNullable<
+      ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['finalizeOutcomeProof']
+    >>[0],
+  ) => ReturnType<typeof durableOutcomeProofReceipt>;
   context?: ProviderNativeEpisodeContextV2R;
   omitProposalRevisionBinding?: boolean;
   canonicalBaseProjectRevision?: string;
@@ -451,9 +514,41 @@ function artifacts(overrides: Readonly<{
           return overrides.proposalReceiptFactory!(latestRecovery);
         },
       } : {}),
+      ...(overrides.outcomeProofFactory ? {
+        finalizeOutcomeProof: async (input) => overrides.outcomeProofFactory!(input),
+      } : {}),
     },
     invoke: overrides.invoke,
   };
+}
+
+function durableOutcomeProofReceipt(input: Readonly<{
+  episodeReceipt: Readonly<{ receiptSha256: string; episodeId: string }>;
+  resumedReceiptSha256: string;
+  proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+}>) {
+  const proofId = 'render-proof-1';
+  return bindProviderNativeDurableOutcomeProofReceiptV2R({
+    tenantId: 'tenant-1', userId: 'user-1', projectId: 'project-1',
+    episodeId: input.episodeReceipt.episodeId,
+    subject: {
+      episodeReceiptSha256: input.episodeReceipt.receiptSha256,
+      resumedReceiptSha256: input.resumedReceiptSha256,
+      proposalReceiptSha256: input.proposalReceipt.receiptSha256,
+      finalStateSha256: input.proposalReceipt.finalStateSha256,
+    },
+    proofPolicy: {
+      policyId: 'test-render-policy', policyVersion: 'v1',
+      policySha256: '2'.repeat(64),
+    },
+    obligations: [{
+      obligationId: 'rendered-outcome', kind: 'render', disposition: 'PASS',
+      proofReferenceIds: [proofId],
+    }],
+    proofReferences: [{ proofId, proofSha256: '3'.repeat(64), disposition: 'PASS' }],
+    observedAt: '2026-08-23T15:06:00.000Z',
+    summary: 'The exact isolated proposal passed the injected test proof owner.',
+  });
 }
 
 function durableProposalReceipt(

@@ -21,7 +21,10 @@ import {
   type ProviderNativeProposalRecoveryStateV2R,
   type ProviderNativeProposalRecoveryWriterTurnV2R,
 } from './provider-native-proposal-recovery-v2r';
+import type { ProviderNativeDurableOutcomeProofReceiptV2R }
+  from './provider-native-durable-outcome-proof-v2r';
 import type {
+  ProviderNativeEpisodeReceiptV2R,
   ProviderNativeToolExecutionV2R,
 } from './provider-native-tool-episode-v2r';
 import type { Project, ProjectRevisionV1 } from '../../services/project-service';
@@ -59,6 +62,20 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
   }>): Promise<Readonly<ProviderNativeToolExecutionV2R>>;
 }
 
+export interface ProjectServiceIsolatedOutcomeProofOwnerV2R {
+  prove(input: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    project: Readonly<Project>;
+    baseRevision: Readonly<ProjectRevisionV1>;
+    episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+    resumedReceiptSha256: string;
+    proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+  }>): Promise<Readonly<ProviderNativeDurableOutcomeProofReceiptV2R>>;
+}
+
 interface OperationAuditV2R {
   operatorId: string;
   turn: number;
@@ -79,6 +96,7 @@ interface OperationAuditV2R {
 export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<{
   projectService: Readonly<ProjectServiceProposalSnapshotOwnerV2R>;
   isolatedOperatorOwner: Readonly<ProjectServiceIsolatedOperatorOwnerV2R>;
+  isolatedOutcomeProofOwner?: Readonly<ProjectServiceIsolatedOutcomeProofOwnerV2R>;
 }>): Readonly<ProviderNativeDurableProjectCloneOwnerV2R> {
   return {
     resolve: async (scope) => {
@@ -96,6 +114,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
       let workingProjectRevision = baseRevisionIdentity;
       let stale = false;
       let finalized: Readonly<ProviderNativeDurableProposalReceiptV2R> | null = null;
+      let finalizedProof: Readonly<ProviderNativeDurableOutcomeProofReceiptV2R> | null = null;
+      let finalizedProofInputSha256: string | null = null;
       const operations: OperationAuditV2R[] = [];
       const recovery = scope.proposalRecoveryState;
       const writerTurns = proposalRecoveryWriterTurnsV2R(scope.checkpoint);
@@ -151,6 +171,88 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         isolatedWorkingStateSha256: hashCanonicalJsonV1(
           projectProposalStateV2R(workingProject),
         ),
+      };
+
+      const finalizeProposalReceipt = async () => {
+        if (finalized) return finalized;
+        if (stale) throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        const finalGuard = await readCanonicalGuard(input.projectService, scope);
+        if (!guardMatches(finalGuard, baseRevision, baseStateSha256)) {
+          stale = true;
+          throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        }
+        assertCloneIdentity(initial.project, workingProject);
+        const finalState = projectProposalStateV2R(workingProject);
+        const material = {
+          schemaVersion: 1 as const,
+          authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION' as const,
+          episodeId: scope.checkpoint.episodeId,
+          projectId: scope.projectId,
+          baseProjectRevision: baseRevisionIdentity,
+          baseStateSha256,
+          finalStateSha256: hashCanonicalJsonV1(finalState),
+          changedPaths: changedProjectProposalPathsV2R(canonicalBaseState, finalState),
+          operationReceipts: operations.map((entry) => ({ ...entry })),
+          canonicalProjectRevisionAfter: finalGuard.revisionIdentity,
+          canonicalStateSha256After: finalGuard.stateSha256,
+          canonicalUnchanged: true as const,
+        };
+        finalized = deepFreezeV1({
+          ...material,
+          receiptSha256: hashCanonicalJsonV1(material),
+        });
+        return finalized;
+      };
+
+      const finalizeOutcomeProof = async (proofInput: Readonly<{
+        episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+        resumedReceiptSha256: string;
+        proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+      }>) => {
+        const proposalReceipt = await finalizeProposalReceipt();
+        if (proofInput.proposalReceipt.receiptSha256 !== proposalReceipt.receiptSha256) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_RECEIPT_MISMATCH');
+        }
+        const proofInputSha256 = hashCanonicalJsonV1({
+          episodeReceiptSha256: proofInput.episodeReceipt.receiptSha256,
+          resumedReceiptSha256: proofInput.resumedReceiptSha256,
+          proposalReceiptSha256: proposalReceipt.receiptSha256,
+        });
+        if (finalizedProof) {
+          if (finalizedProofInputSha256 !== proofInputSha256) {
+            throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_REPLAY_MISMATCH');
+          }
+          return finalizedProof;
+        }
+        const beforeGuard = await readCanonicalGuard(input.projectService, scope);
+        if (!guardMatches(beforeGuard, baseRevision, baseStateSha256)) {
+          stale = true;
+          throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        }
+        const proof = await input.isolatedOutcomeProofOwner!.prove({
+          tenantId: scope.tenantId,
+          userId: scope.userId,
+          projectId: scope.projectId,
+          checkpoint: scope.checkpoint,
+          project: structuredClone(workingProject),
+          baseRevision: structuredClone(baseRevision),
+          episodeReceipt: structuredClone(proofInput.episodeReceipt),
+          resumedReceiptSha256: proofInput.resumedReceiptSha256,
+          proposalReceipt: structuredClone(proposalReceipt),
+        });
+        const afterGuard = await readCanonicalGuard(input.projectService, scope);
+        if (!guardMatches(afterGuard, baseRevision, baseStateSha256)) {
+          stale = true;
+          throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        }
+        assertCloneIdentity(initial.project, workingProject);
+        if (hashCanonicalJsonV1(projectProposalStateV2R(workingProject))
+          !== proposalReceipt.finalStateSha256) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_STATE_DRIFT');
+        }
+        finalizedProof = deepFreezeV1(structuredClone(proof));
+        finalizedProofInputSha256 = proofInputSha256;
+        return finalizedProof;
       };
 
       return {
@@ -254,36 +356,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
             }
             return state;
           },
-          finalizeProposalReceipt: async () => {
-            if (finalized) return finalized;
-            if (stale) throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
-            const finalGuard = await readCanonicalGuard(input.projectService, scope);
-            if (!guardMatches(finalGuard, baseRevision, baseStateSha256)) {
-              stale = true;
-              throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
-            }
-            assertCloneIdentity(initial.project, workingProject);
-            const finalState = projectProposalStateV2R(workingProject);
-            const material = {
-              schemaVersion: 1 as const,
-              authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION' as const,
-              episodeId: scope.checkpoint.episodeId,
-              projectId: scope.projectId,
-              baseProjectRevision: baseRevisionIdentity,
-              baseStateSha256,
-              finalStateSha256: hashCanonicalJsonV1(finalState),
-              changedPaths: changedProjectProposalPathsV2R(canonicalBaseState, finalState),
-              operationReceipts: operations.map((entry) => ({ ...entry })),
-              canonicalProjectRevisionAfter: finalGuard.revisionIdentity,
-              canonicalStateSha256After: finalGuard.stateSha256,
-              canonicalUnchanged: true as const,
-            };
-            finalized = deepFreezeV1({
-              ...material,
-              receiptSha256: hashCanonicalJsonV1(material),
-            });
-            return finalized;
-          },
+          finalizeProposalReceipt,
+          ...(input.isolatedOutcomeProofOwner ? { finalizeOutcomeProof } : {}),
         },
       };
     },
