@@ -7,6 +7,10 @@
 import { MongoClient, Db } from 'mongodb';
 import { DURABLE_WORKFLOW_JOB_COLLECTION_V1 }
   from '@/lib/editron/services/durable-workflow-job-v1';
+import { EDITORIAL_PLAN_EXECUTION_DEFINITION_COLLECTION_V1 }
+  from '@/lib/editron/services/editorial-plan-execution-definition-v1';
+import { EDITORIAL_PLAN_REVISION_COLLECTION_V1 }
+  from '@/lib/editron/services/editorial-plan-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -81,6 +85,8 @@ export const COLLECTIONS = {
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
   CHAT_DUBBING_JOBS: 'editron_chat_dubbing_jobs',
   DURABLE_WORKFLOW_JOBS: DURABLE_WORKFLOW_JOB_COLLECTION_V1,
+  EDITORIAL_PLAN_REVISIONS: EDITORIAL_PLAN_REVISION_COLLECTION_V1,
+  EDITORIAL_PLAN_EXECUTION_DEFINITIONS: EDITORIAL_PLAN_EXECUTION_DEFINITION_COLLECTION_V1,
   LEDGER: 'ledger',
   TREND_REQUESTS: 'trend_requests',
   TRENDS: 'trends',
@@ -237,6 +243,30 @@ export async function initializeIndexes(): Promise<void> {
       name: 'tenant_user_project_created',
     },
     { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // PlanService owns immutable accepted plan revisions and their bounded
+  // execution definitions. Workflow transports reference these records; they
+  // never become another project/timeline authority.
+  await db.collection(COLLECTIONS.EDITORIAL_PLAN_REVISIONS).createIndexes([
+    {
+      key: { 'plan.tenantId': 1, 'plan.projectId': 1, 'plan.planId': 1, 'plan.planRevision': 1 },
+      name: 'tenant_project_plan_revision_unique', unique: true,
+    },
+    {
+      key: { 'plan.tenantId': 1, 'plan.userId': 1, 'plan.projectId': 1, 'plan.planId': 1, 'plan.planRevision': -1 },
+      name: 'tenant_user_project_plan_latest',
+    },
+  ]);
+  await db.collection(COLLECTIONS.EDITORIAL_PLAN_EXECUTION_DEFINITIONS).createIndexes([
+    {
+      key: { 'definition.tenantId': 1, 'definition.projectId': 1, 'definition.definitionId': 1 },
+      name: 'tenant_project_definition_unique', unique: true,
+    },
+    {
+      key: { 'definition.tenantId': 1, 'definition.projectId': 1, 'definition.sourcePlanBinding.planId': 1, 'definition.sourcePlanBinding.planRevision': 1 },
+      name: 'tenant_project_source_plan_revision',
+    },
   ]);
 
   // Source Ledger — analyze-once store keyed by referenceId, deduped by platform URL/ID +

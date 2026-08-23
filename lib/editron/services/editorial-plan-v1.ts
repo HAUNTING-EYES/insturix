@@ -7,15 +7,18 @@ import {
 
 export const EDITORIAL_PLAN_VERSION_V1 = 'EDITRON_EDITORIAL_PLAN_V1_1' as const;
 export const EDITORIAL_PLAN_MAX_NODES_V1 = 256;
+export const EDITORIAL_PLAN_REVISION_COLLECTION_V1 =
+  'editron_editorial_plan_revisions' as const;
 
 const ID = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/);
 const SHA256 = z.string().regex(/^[a-f0-9]{64}$/);
-const RefSchema = z.object({
+export const EditorialPlanArtifactRefSchemaV1 = z.object({
   ownerId: ID,
   artifactId: ID,
   artifactVersion: ID,
   artifactSha256: SHA256,
 }).strict();
+const RefSchema = EditorialPlanArtifactRefSchemaV1;
 const ActorSchema = z.object({
   actorId: ID,
   actorKind: z.enum(['USER', 'MODEL', 'SYSTEM']),
@@ -100,6 +103,10 @@ const NodeSchema = z.object({
   })) assertUniqueRefs(refs, `PLAN_NODE_${label.toUpperCase()}_REF_DUPLICATE`, context);
   if (node.executionDefinitionRef && !node.eligibleOperationSetRef) {
     context.addIssue({ code: 'custom', message: 'PLAN_NODE_OPERATION_SET_MISSING' });
+  }
+  if (node.executionDefinitionRef?.ownerId !== undefined
+    && node.executionDefinitionRef.ownerId !== 'PLAN_SERVICE') {
+    context.addIssue({ code: 'custom', message: 'PLAN_NODE_DEFINITION_OWNER_INVALID' });
   }
   const expected = node.status === 'VERIFIED' ? 'PASS'
     : node.status === 'FAILED' ? 'FAIL'
