@@ -118,7 +118,10 @@ export interface BrandVaultSnapshot {
 }
 
 export interface CreateBrandVaultDraftInput {
-  brandId: string;
+  /** Existing client target. Omit only with newClient so the server can mint the first stable id. */
+  brandId?: string;
+  /** Explicit first-scan intent; never paired with a client-supplied brandId. */
+  newClient?: boolean;
   websiteUrl: string;
   companyName?: string;
   socialLinks?: string[];

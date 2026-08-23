@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Check,
@@ -89,8 +90,8 @@ interface DomainVerificationState {
 }
 
 interface BrandVaultDraftStartOptions {
-  brandIdOverride?: string;
   isNewClient?: boolean;
+  forceNewClient?: boolean;
   skipWebsiteOwnershipCheck?: boolean;
   clearInheritedEvidence?: boolean;
 }
@@ -121,6 +122,7 @@ const NEW_CLIENT_TARGET_VALUE = '__brand_vault_new_client__';
 const BRAND_VAULT_UPLOAD_ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.markdown,.csv,.json,.html,.htm,.css,.svg,image/*';
 
 export function BrandVaultReview() {
+  const queryClient = useQueryClient();
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [socialLinksText, setSocialLinksText] = useState('');
@@ -339,12 +341,10 @@ export function BrandVaultReview() {
       return;
     }
     const isNewClientScan = options.isNewClient ?? newClientMode;
-    let scanBrandId = options.brandIdOverride ?? workspaceBrandId;
-    if (isNewClientScan) {
-      scanBrandId = options.brandIdOverride ?? newClientBrandId ?? `brand_${crypto.randomUUID()}`;
-      if (!options.brandIdOverride && !newClientBrandId) setNewClientBrandId(scanBrandId);
-    }
-    if (!scanBrandId) {
+    const scanBrandId = isNewClientScan
+      ? (options.forceNewClient ? undefined : newClientBrandId)
+      : workspaceBrandId;
+    if (!isNewClientScan && !scanBrandId) {
       setLocalError('Choose an existing client or start a new client before scanning.');
       return;
     }
@@ -379,13 +379,20 @@ export function BrandVaultReview() {
       ? createSourceEvidence(cleanUrl, '', [])
       : createSourceEvidence(cleanUrl, sourceNotes, uploadedSources);
     const input: CreateBrandVaultDraftInput = {
-      brandId: scanBrandId,
+      ...(scanBrandId ? { brandId: scanBrandId } : { newClient: true }),
       websiteUrl: cleanUrl,
       companyName: scanCompanyName,
       socialLinks: scanSocialLinks,
       sourceEvidence: scanSourceEvidence,
     };
     const result = await createDraft.mutateAsync(input);
+    const serverBrandId = result.job?.brandId ?? result.record?.profile.brandId ?? result.reviewPayload?.brandId;
+    if (isNewClientScan && serverBrandId) {
+      setNewClientBrandId(serverBrandId);
+      // Provisioning creates a durable platform client before this scan is queued. Refresh the shared
+      // selector, but leave this review in new-client mode until the user accepts its first draft.
+      void queryClient.invalidateQueries({ queryKey: ['active-brand', 'brands'] });
+    }
     setSnapshot((current) => mergeSnapshot(current, result));
     const nextJobId = result.job?.id ?? result.reviewPayload?.jobId ?? null;
     const nextProfileId = result.record?.id ?? result.reviewPayload?.recordId ?? null;
@@ -449,6 +456,11 @@ export function BrandVaultReview() {
       setLocalError('Enter a client website before verifying domain access.');
       return;
     }
+    const verificationBrandId = workspaceBrandId ?? newClientBrandId;
+    if (action === 'verify' && !verificationBrandId) {
+      setLocalError('Start a client scan before verifying its domain.');
+      return;
+    }
 
     setLocalError(null);
     setDomainVerificationStatus(action === 'verify' ? 'checking' : 'loading');
@@ -456,7 +468,11 @@ export function BrandVaultReview() {
       const response = await fetch('/api/brand-vault/domain-verification', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ websiteUrl: cleanUrl, action }),
+        body: JSON.stringify({
+          websiteUrl: cleanUrl,
+          action,
+          ...(verificationBrandId ? { brandId: verificationBrandId } : {}),
+        }),
       });
       const payload = (await response.json().catch(() => null)) as
         | { ok: true; verification: DomainVerificationState }
@@ -467,7 +483,10 @@ export function BrandVaultReview() {
       }
       setDomainVerification(payload.verification);
       if (action === 'verify') {
-        showToast(payload.verification.verified ? 'Domain TXT record verified.' : 'DNS record not visible yet.', payload.verification.verified ? 'good' : 'warn');
+        showToast(
+          payload.verification.verified ? 'Domain verified and bound to this client.' : 'DNS record not visible yet.',
+          payload.verification.verified ? 'good' : 'warn',
+        );
       } else {
         showToast('DNS verification record generated.', 'warn');
       }
@@ -715,14 +734,13 @@ export function BrandVaultReview() {
     const cleanUrl = scanWebsiteUrl;
     if (!cleanUrl) return;
 
-    const brandId = `brand_${crypto.randomUUID()}`;
     previousWorkspaceBrandIdRef.current = null;
     setNewClientMode(true);
-    setNewClientBrandId(brandId);
+    setNewClientBrandId(null);
     resetWorkspaceState({ preserveWebsiteUrl: true });
     void createDraftFromCurrentInputs({
-      brandIdOverride: brandId,
       isNewClient: true,
+      forceNewClient: true,
       skipWebsiteOwnershipCheck: true,
       clearInheritedEvidence: true,
     });

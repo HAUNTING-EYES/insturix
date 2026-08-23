@@ -12,6 +12,8 @@ import type { BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
 import { createBrandVaultTextEvidenceCompilerFromEnvironment } from '@/lib/shared/brand-vault-text-evidence-compiler';
+import { authorizeBrandVaultScanRequest } from '@/lib/shared/brand-vault-scan-authorization';
+import { BrandClientRegistryError, ensureBrandVaultClient } from '@/lib/shared/brand-client-registry';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
@@ -21,7 +23,7 @@ export const maxDuration = 300;
 let queueRunInFlight = false;
 
 export async function POST(req: Request) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let body: unknown;
@@ -33,6 +35,23 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+
+  const store = getDefaultBrandVaultRefineryStore();
+  const authorization = await authorizeBrandVaultScanRequest({
+    body,
+    userId,
+    orgId: orgId ?? null,
+    isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
+    store,
+  });
+  if (!authorization.ok) {
+    return NextResponse.json(
+      { ok: false, error: { code: authorization.code, message: authorization.message } },
+      { status: authorization.status },
+    );
+  }
+  const authorizedBody = authorization.body;
+  body = authorizedBody;
 
   const scanRequestType = getBrandVaultScanRequestType(body);
   const creditCheck = await checkCredits(userId, 'brand_vault', 'brand_scan', {
@@ -52,7 +71,35 @@ export async function POST(req: Request) {
     );
   }
 
-  const store = getDefaultBrandVaultRefineryStore();
+  if (authorization.source === 'server_minted_new_client') {
+    try {
+      await ensureBrandVaultClient({
+        brandId: authorization.brandId,
+        userId,
+        orgId: orgId ?? null,
+        websiteUrl: typeof authorizedBody.websiteUrl === 'string' ? authorizedBody.websiteUrl : '',
+        companyName: authorizedBody.companyName,
+        source: 'brand_vault_scan',
+      });
+    } catch (error) {
+      await refundBrandScanCredits(creditCheck, 'Brand Vault client provisioning failed');
+      const invalidWebsite = error instanceof BrandClientRegistryError && error.code === 'invalid_website_url';
+      console.error('[BrandVault] client provisioning failed:', error);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: invalidWebsite ? 'invalid_url' : 'client_provision_failed',
+            message: invalidWebsite
+              ? 'Enter a valid client website before scanning.'
+              : 'Could not create this client. Please retry.',
+          },
+        },
+        { status: invalidWebsite ? 400 : 503 },
+      );
+    }
+  }
+
   let start: QueuedBrandVaultRefineryJobStart;
   try {
     start = await startQueuedBrandVaultRefineryJobFromWebsite(
