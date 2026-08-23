@@ -96,6 +96,13 @@ export interface ProviderNativeDurableArtifactOwnersV2R {
   runtimeGuard?: Readonly<ProviderNativeDurableRuntimeGuardOwnerV2R>;
 }
 
+export interface ProviderNativeDurableArtifactScopeV2R {
+  tenantId: string;
+  userId: string;
+  projectId: string;
+  episodeId: string;
+}
+
 /**
  * Coordinates existing owners for one durable episode. It intentionally owns
  * no artifact storage, provider registry, project state, or isolated executor.
@@ -122,30 +129,58 @@ async function resolveArtifacts(
   const projectId = requireProjectScope(job, checkpoint);
   assertExactDependencyBindings(job, checkpoint);
 
-  const definition = await owners.episodeDefinition.resolve({
-    tenantId: job.tenantId,
-    userId: job.userId,
-    projectId,
-    episodeId: checkpoint.episodeId,
-    expectedContextSha256: checkpoint.contextSha256,
-    expectedToolSetSha256: checkpoint.toolSetSha256,
-  });
-  assertDefinition(job, checkpoint, definition);
-
-  // Optional artifact owners are checked before any project clone or provider
-  // transport is materialized, so an incomplete job cannot consume resources.
-  const referenceInput = await resolveReference(owners, job, checkpoint, projectId);
-  const runtimeGuard = await resolveRuntimeGuard(owners, job, checkpoint, projectId);
-  const project = await owners.projectClone.resolve({
-    tenantId: job.tenantId,
-    userId: job.userId,
-    projectId,
+  return resolveProviderNativeDurableArtifactsFromOwnersV2R(owners, {
+    scope: {
+      tenantId: job.tenantId,
+      userId: job.userId,
+      projectId,
+      episodeId: checkpoint.episodeId,
+    },
     checkpoint,
     ...(proposalRecoveryState ? { proposalRecoveryState } : {}),
   });
+}
+
+/**
+ * Resolves the same owner-backed artifacts for lifecycle adapters whose job
+ * identity is not the research episode identity. Authentication, job binding,
+ * leases and CAS remain the caller's responsibility.
+ */
+export async function resolveProviderNativeDurableArtifactsFromOwnersV2R(
+  owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
+  input: Readonly<{
+    scope: Readonly<ProviderNativeDurableArtifactScopeV2R>;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+  }>,
+): Promise<Readonly<ProviderNativeDurableResolvedArtifactsV2R>> {
+  assertArtifactScope(input.scope, input.checkpoint);
+
+  const definition = await owners.episodeDefinition.resolve({
+    tenantId: input.scope.tenantId,
+    userId: input.scope.userId,
+    projectId: input.scope.projectId,
+    episodeId: input.scope.episodeId,
+    expectedContextSha256: input.checkpoint.contextSha256,
+    expectedToolSetSha256: input.checkpoint.toolSetSha256,
+  });
+  assertDefinition(input.scope, input.checkpoint, definition);
+
+  // Optional artifact owners are checked before any project clone or provider
+  // transport is materialized, so an incomplete job cannot consume resources.
+  const referenceInput = await resolveReference(owners, input.scope, input.checkpoint);
+  const runtimeGuard = await resolveRuntimeGuard(owners, input.scope, input.checkpoint);
+  const project = await owners.projectClone.resolve({
+    tenantId: input.scope.tenantId,
+    userId: input.scope.userId,
+    projectId: input.scope.projectId,
+    checkpoint: input.checkpoint,
+    ...(input.proposalRecoveryState
+      ? { proposalRecoveryState: input.proposalRecoveryState } : {}),
+  });
   const invoke = await owners.transport.resolve({
-    route: checkpoint.route,
-    episodeId: checkpoint.episodeId,
+    route: input.checkpoint.route,
+    episodeId: input.scope.episodeId,
   });
   return {
     context: definition.context,
@@ -160,6 +195,16 @@ async function resolveArtifacts(
   };
 }
 
+function assertArtifactScope(
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+): void {
+  if (!scope.tenantId.trim() || !scope.userId.trim() || !scope.projectId.trim()
+    || !scope.episodeId.trim() || scope.episodeId !== checkpoint.episodeId) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_ARTIFACT_SCOPE_INVALID');
+  }
+}
+
 function requireProjectScope(
   job: Readonly<DurableWorkflowJobSnapshotV1>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
@@ -171,7 +216,7 @@ function requireProjectScope(
 }
 
 function assertDefinition(
-  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
   definition: Readonly<ProviderNativeDurableEpisodeDefinitionV2R>,
 ): void {
@@ -183,7 +228,7 @@ function assertDefinition(
     record(definition.context.revisionBinding).projectId,
     record(definition.context.projectState).projectId,
   ];
-  if (contextProjectIds.some((value) => value !== job.projectId)) {
+  if (contextProjectIds.some((value) => value !== scope.projectId)) {
     throw new Error('PROVIDER_NATIVE_DURABLE_CONTEXT_PROJECT_MISMATCH');
   }
   const exact = buildProviderNativeToolSetV2R(
@@ -224,17 +269,16 @@ function assertExactDependencyBindings(
 
 async function resolveReference(
   owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
-  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
-  projectId: string,
 ): Promise<Readonly<ProviderNativeReferenceMediaInputV2R> | undefined> {
   if (!('referenceInputManifestSha256' in checkpoint)) return undefined;
   if (!owners.reference) throw new Error('PROVIDER_NATIVE_DURABLE_REFERENCE_OWNER_REQUIRED');
   const reference = await owners.reference.resolve({
-    tenantId: job.tenantId,
-    userId: job.userId,
-    projectId,
-    episodeId: checkpoint.episodeId,
+    tenantId: scope.tenantId,
+    userId: scope.userId,
+    projectId: scope.projectId,
+    episodeId: scope.episodeId,
     expectedManifestSha256: checkpoint.referenceInputManifestSha256,
   });
   const bound = reference.arm === 'NATIVE_VIDEO'
@@ -248,19 +292,18 @@ async function resolveReference(
 
 async function resolveRuntimeGuard(
   owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
-  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
-  projectId: string,
 ): Promise<Readonly<ProviderNativeRuntimeGuardV2R> | undefined> {
   if (!('runtimeGuardResumeState' in checkpoint)) return undefined;
   if (!owners.runtimeGuard) {
     throw new Error('PROVIDER_NATIVE_DURABLE_RUNTIME_GUARD_OWNER_REQUIRED');
   }
   return owners.runtimeGuard.resolve({
-    tenantId: job.tenantId,
-    userId: job.userId,
-    projectId,
-    episodeId: checkpoint.episodeId,
+    tenantId: scope.tenantId,
+    userId: scope.userId,
+    projectId: scope.projectId,
+    episodeId: scope.episodeId,
     guardKind: checkpoint.runtimeGuardResumeState.guardKind,
     expectedGuardIdentitySha256:
       checkpoint.runtimeGuardResumeState.guardIdentitySha256,

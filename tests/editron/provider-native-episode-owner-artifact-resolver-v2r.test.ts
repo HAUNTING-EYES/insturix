@@ -6,6 +6,7 @@ import { buildProviderNativeEpisodeDurableJobInputV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-durable-job-v2r';
 import {
   createProviderNativeDurableOwnerArtifactResolverV2R,
+  resolveProviderNativeDurableArtifactsFromOwnersV2R,
   type ProviderNativeDurableProjectCloneOwnerV2R,
   type ProviderNativeDurableTransportOwnerV2R,
 }
@@ -77,6 +78,44 @@ describe('provider-native owner-backed durable artifact resolver V2R', () => {
       expectedContextSha256: hashCanonicalJsonV1(CONTEXT),
       expectedToolSetSha256: TOOL_SET_SHA,
     }));
+  });
+
+  it('reuses the same owners from an exact non-job lifecycle scope', async () => {
+    const { checkpoint } = await fixture();
+    const invoke = vi.fn();
+    const definition = vi.fn(async () => ({
+      context: CONTEXT, eligibleOperatorIds: ELIGIBLE,
+    }));
+    const projectClone = vi.fn(async () => ({
+      currentRevision: {
+        origin: 'PROJECTSERVICE_CURRENT_REVISION_READ' as const,
+        projectRevision: 'revision-2',
+        readReceiptId: 'read-revision-2', readReceiptSha256: 'c'.repeat(64),
+      },
+      isolatedClone: {
+        origin: 'PROJECTSERVICE_REVISION_CLONE' as const,
+        projectRevision: 'revision-2', stateSha256: 'd'.repeat(64),
+        executeIsolated: vi.fn(),
+      },
+    }));
+    const owners = {
+      episodeDefinition: { resolve: definition },
+      projectClone: { resolve: projectClone },
+      transport: { resolve: async () => invoke },
+    };
+    const scope = {
+      tenantId: 'tenant-1', userId: 'user-1', projectId: 'project-1',
+      episodeId: CONTEXT.episodeId,
+    };
+
+    await expect(resolveProviderNativeDurableArtifactsFromOwnersV2R(
+      owners, { scope, checkpoint },
+    )).resolves.toMatchObject({ invoke, context: CONTEXT });
+    await expect(resolveProviderNativeDurableArtifactsFromOwnersV2R(
+      owners, { scope: { ...scope, episodeId: 'copied-episode' }, checkpoint },
+    )).rejects.toThrow('PROVIDER_NATIVE_DURABLE_ARTIFACT_SCOPE_INVALID');
+    expect(definition).toHaveBeenCalledOnce();
+    expect(projectClone).toHaveBeenCalledOnce();
   });
 
   it('rejects owner-returned context and tool-set drift', async () => {
