@@ -36,7 +36,7 @@ production-ready and no live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract; `d16caaa5b` revalidates a leased job against fresh PlanStore/job-store instances. No route, separate-process product proof or live Atlas proof exists. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract; `d16caaa5b` revalidates a leased job against fresh stores; `b9cf5e820` carries those product records across an actual process exit. No route or live Atlas/QStash proof exists. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -76,11 +76,16 @@ Completed foundation:
   preserving attempt history; stale leases, duplicate delivery, queued
   unleased resolution and forged recomputed payloads fail closed. This is not
   yet an actual separate-process or live-store proof.
+- `b9cf5e820` serializes the real product plan, definition and leased job
+  records in process A and hydrates/reclaims/revalidates them in a distinct
+  Node process. It preserves attempt history, rejects the old lease and
+  duplicate delivery, and rejects outer-envelope and rehashed inner-job
+  tampering with zero inference and zero project effects. It remains a test
+  adapter proof, not Atlas or QStash certification.
 
 Open work:
 
 - artifact-owner resolution for scopes, locks, approvals and proof;
-- serialized separate-OS-process product-binding recovery;
 - remaining artifact resolution for scopes, locks, approvals and proof;
 - event history, approval suspension and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
@@ -191,6 +196,13 @@ continuity, old-lease rejection and duplicate-delivery suppression. It does
 not prove a separate OS process, Atlas, QStash, provider inference or a
 ProjectService effect.
 
+Commit `b9cf5e820` completes the serialized separate-process product proof.
+The preparing process creates and leases the actual product binding, writes a
+hash-bound Mongo-shaped envelope and exits. A second process hydrates fresh
+stores, reclaims the lease and passes the existing product resolver without
+provider inference or ProjectService access. This proves process portability,
+not live Atlas persistence, QStash delivery or authenticated ingress.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -202,17 +214,19 @@ ProjectService effect.
 4. **Partial at `d16caaa5b`:** fresh-instance lease reclaim, exact
    execution-time PlanService/job revalidation and duplicate-delivery
    rejection with zero provider inference.
-5. Serialized separate-OS-process product recovery, followed by live-store
-   crash/restart and redelivery proof.
+5. **Complete at `b9cf5e820`:** serialized separate-OS-process product
+   recovery with envelope/inner-forgery, old-lease and duplicate-delivery
+   rejection.
 6. Approval wait/cancel/expiry and tenant-isolation tests.
 7. ProjectService clone/proposal execution and exact receipt handoff.
-8. Only then: authenticated non-production QStash/Atlas exercise.
+8. Only then: authenticated non-production QStash/Atlas crash/restart and
+   redelivery exercise.
 9. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `d16caaa5b` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `b9cf5e820` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
