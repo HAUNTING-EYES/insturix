@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { StudioTurnRequestSchema } from "@/lib/studio/contracts/turn";
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
+import { runEditTurn } from "@/lib/studio/orchestrator/edit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
   const request = parsed.data;
 
   /* live turn state until the Deliverable adapter persists it — the client
-   * round-trips the engine ids via the script artifact's sourceRef */
+   * round-trips the engine ids via artifact sourceRefs in attachments */
   const state: WriteTurnState = { thinkforgeSessionId: null, scriptId: null };
   const scriptAttachment = request.attachments.find((a) => a.role === "script");
   if (scriptAttachment) {
@@ -51,6 +52,16 @@ export async function POST(req: Request) {
       state.scriptId = scriptId;
     }
   }
+  /* capability dispatch: a reel attachment routes the turn to EDIT */
+  const reelAttachment = request.attachments.find((a) => a.role === "reel");
+  const editProjectId = reelAttachment?.ref ?? null;
+
+  /* forward auth for the engine bridge (same-origin, same Clerk session) */
+  const forwardHeaders: Record<string, string> = {};
+  const cookie = req.headers.get("cookie");
+  if (cookie) forwardHeaders.cookie = cookie;
+  const authorization = req.headers.get("authorization");
+  if (authorization) forwardHeaders.authorization = authorization;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -59,18 +70,25 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
       try {
-        for await (const event of runWriteTurn(
-          {
-            userId,
-            orgId: orgId ?? null,
-            isOrgAdmin: Boolean(orgId),
-            deliverableTitle: "Studio draft",
-            brandId: request.brandId ?? null,
-            ...state,
-          },
-          request.text,
-          req.signal,
-        )) {
+        const events = editProjectId
+          ? runEditTurn(
+              { userId, orgId: orgId ?? null, projectId: editProjectId, forwardHeaders, origin: new URL(req.url).origin },
+              request.text,
+              req.signal,
+            )
+          : runWriteTurn(
+              {
+                userId,
+                orgId: orgId ?? null,
+                isOrgAdmin: Boolean(orgId),
+                deliverableTitle: "Studio draft",
+                brandId: request.brandId ?? null,
+                ...state,
+              },
+              request.text,
+              req.signal,
+            );
+        for await (const event of events) {
           send(event);
         }
       } catch (error) {

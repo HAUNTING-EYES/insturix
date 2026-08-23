@@ -158,10 +158,15 @@ export function StudioSession() {
       ]);
       let gap: Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null = null;
       if (REAL) {
-        /* real path: /api/studio/turns over SSE; the script artifact's
-         * sourceRef round-trips engine session/script ids for follow-ups */
+        /* real path: /api/studio/turns over SSE; artifact sourceRefs
+         * round-trip engine ids for follow-ups (script → write, reel → edit) */
         const scriptArtifact = artifacts.find((a) => a.kind === "script");
-        const attachment = scriptArtifact?.sourceRef.engine === "thinkforge" ? [{ ref: scriptArtifact.sourceRef.externalId, role: "script" }] : [];
+        const reelArtifact = artifacts.find((a) => a.kind === "reel");
+        const attachment = reelArtifact?.sourceRef.engine === "editron"
+          ? [{ ref: reelArtifact.sourceRef.externalId, role: "reel" }]
+          : scriptArtifact?.sourceRef.engine === "thinkforge"
+            ? [{ ref: scriptArtifact.sourceRef.externalId, role: "script" }]
+            : [];
         const abort = new AbortController();
         handleRef.current = { turnId: "t_real", answer: () => {}, interrupt: () => abort.abort() };
         try {
