@@ -48,6 +48,7 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Project;
     baseRevision: Readonly<ProjectRevisionV1>;
+    currentProjectRevision: string;
     call: Readonly<IsolatedCallV2R>;
   }>): Promise<Readonly<ProviderNativeToolExecutionV2R>>;
   replayCommitted?(input: Readonly<{
@@ -57,6 +58,7 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Project;
     baseRevision: Readonly<ProjectRevisionV1>;
+    currentProjectRevision: string;
     call: Readonly<IsolatedCallV2R>;
     recordedExecution: Readonly<ProviderNativeToolExecutionV2R>;
   }>): Promise<Readonly<ProviderNativeToolExecutionV2R>>;
@@ -296,6 +298,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
                 checkpoint: scope.checkpoint,
                 project: workingProject,
                 baseRevision,
+                currentProjectRevision: workingProjectRevision,
                 call,
               });
               assertExecutionEnvelope(execution);
@@ -408,6 +411,7 @@ async function replayCommittedProposal(input: Readonly<{
       checkpoint: input.scope.checkpoint,
       project: input.workingProject,
       baseRevision: input.baseRevision,
+      currentProjectRevision: workingProjectRevision,
       call,
       recordedExecution: writer.recordedExecution as unknown as ProviderNativeToolExecutionV2R,
     });
@@ -587,6 +591,47 @@ function assertExecutionEnvelope(value: Readonly<ProviderNativeToolExecutionV2R>
 
 function revisionIdentity(revision: Readonly<ProjectRevisionV1>): string {
   return `project-revision-v1:${hashCanonicalJsonV1(revision)}`;
+}
+
+/**
+ * Sole deterministic issuer for concrete isolated ProjectService proposal
+ * writers. Operator adapters supply their owner authority and exact state
+ * transition; they must not maintain private revision counters or maps.
+ */
+export function issueProjectServiceIsolatedWriterRevisionV2R(input: Readonly<{
+  writerAuthority: string;
+  tenantId: string;
+  userId: string;
+  projectId: string;
+  canonicalBaseRevision: Readonly<ProjectRevisionV1>;
+  previousProjectRevision: string;
+  operatorId: string;
+  turn: number;
+  argumentSha256: string;
+  beforeStateSha256: string;
+  afterStateSha256: string;
+}>): string {
+  const hashes = [input.argumentSha256, input.beforeStateSha256, input.afterStateSha256];
+  if (!input.writerAuthority.trim() || !input.previousProjectRevision.trim()
+    || !input.operatorId.trim() || !Number.isSafeInteger(input.turn) || input.turn < 1
+    || hashes.some((value) => !/^[a-f0-9]{64}$/.test(value))) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_REVISION_MATERIAL_INVALID');
+  }
+  return `project-proposal-v2r:${hashCanonicalJsonV1({
+    schemaVersion: 1,
+    authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_ISSUER_V2R_1',
+    writerAuthority: input.writerAuthority,
+    tenantId: input.tenantId,
+    userId: input.userId,
+    projectId: input.projectId,
+    canonicalBaseProjectRevision: revisionIdentity(input.canonicalBaseRevision),
+    previousProjectRevision: input.previousProjectRevision,
+    operatorId: input.operatorId,
+    turn: input.turn,
+    argumentSha256: input.argumentSha256,
+    beforeStateSha256: input.beforeStateSha256,
+    afterStateSha256: input.afterStateSha256,
+  })}`;
 }
 
 function sameRevision(left: Readonly<ProjectRevisionV1>, right: Readonly<ProjectRevisionV1>): boolean {

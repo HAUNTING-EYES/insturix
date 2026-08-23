@@ -151,7 +151,9 @@ describe('ProjectService isolated cut owner V2R', () => {
     );
     const execution = await owner.execute({
       tenantId: 'tenant-1', userId: USER_ID, projectId: PROJECT_ID,
-      checkpoint: CHECKPOINT, project: base, baseRevision: REVISION, call: firstCall,
+      checkpoint: CHECKPOINT, project: base, baseRevision: REVISION,
+      currentProjectRevision: String(firstCall.arguments.expectedProjectRevision),
+      call: firstCall,
     });
     const forged = structuredClone(execution) as ProviderNativeToolExecutionV2R;
     (forged.output.receipt as Record<string, unknown>).projectRevision = 'forged';
@@ -159,6 +161,7 @@ describe('ProjectService isolated cut owner V2R', () => {
     await expect(owner.replayCommitted?.({
       tenantId: 'tenant-1', userId: USER_ID, projectId: PROJECT_ID,
       checkpoint: CHECKPOINT, project: project(), baseRevision: REVISION,
+      currentProjectRevision: String(firstCall.arguments.expectedProjectRevision),
       call: firstCall, recordedExecution: forged,
     })).rejects.toThrow('PROJECTSERVICE_ISOLATED_CUT_REPLAY_MISMATCH');
   });

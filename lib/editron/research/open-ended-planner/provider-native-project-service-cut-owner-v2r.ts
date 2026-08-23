@@ -5,8 +5,9 @@ import {
   changedProjectProposalPathsV2R,
   projectProposalStateV2R,
 } from './project-service-proposal-state-v2r';
-import type {
-  ProjectServiceIsolatedOperatorOwnerV2R,
+import {
+  issueProjectServiceIsolatedWriterRevisionV2R,
+  type ProjectServiceIsolatedOperatorOwnerV2R,
 } from './provider-native-project-service-clone-owner-v2r';
 import type { ProviderNativeToolExecutionV2R }
   from './provider-native-tool-episode-v2r';
@@ -25,13 +26,9 @@ const CUT_OWNER_AUTHORITY =
 export function createProviderNativeProjectServiceCutOwnerV2R(): Readonly<
   ProjectServiceIsolatedOperatorOwnerV2R
 > {
-  const proposalRevisionByClone = new WeakMap<Project, string>();
   const execute = async (input: Parameters<
     ProjectServiceIsolatedOperatorOwnerV2R['execute']
-  >[0]): Promise<Readonly<ProviderNativeToolExecutionV2R>> => executeCut({
-    ...input,
-    proposalRevisionByClone,
-  });
+  >[0]): Promise<Readonly<ProviderNativeToolExecutionV2R>> => executeCut(input);
 
   return {
     execute,
@@ -52,12 +49,12 @@ async function executeCut(input: Readonly<{
   projectId: string;
   project: Project;
   baseRevision: Readonly<ProjectRevisionV1>;
+  currentProjectRevision: string;
   call: Readonly<{
     operatorId: string;
     arguments: Readonly<JsonRecord>;
     turn: number;
   }>;
-  proposalRevisionByClone: WeakMap<Project, string>;
 }>): Promise<Readonly<ProviderNativeToolExecutionV2R>> {
   if (input.call.operatorId !== 'cut_section') {
     return unverifiable('PROJECTSERVICE_ISOLATED_CUT_OPERATOR_UNSUPPORTED');
@@ -71,11 +68,9 @@ async function executeCut(input: Readonly<{
     return unverifiable('PROJECTSERVICE_ISOLATED_CUT_TURN_INVALID');
   }
 
-  const currentRevision = input.proposalRevisionByClone.get(input.project)
-    ?? canonicalBaseRevisionIdentity(input.baseRevision);
-  if (text(input.call.arguments.expectedProjectRevision) !== currentRevision) {
+  if (text(input.call.arguments.expectedProjectRevision) !== input.currentProjectRevision) {
     return conflict('PROJECTSERVICE_ISOLATED_CUT_REVISION_CONFLICT', {
-      expectedProjectRevision: currentRevision,
+      expectedProjectRevision: input.currentProjectRevision,
       suppliedProjectRevision: input.call.arguments.expectedProjectRevision ?? null,
     });
   }
@@ -105,24 +100,21 @@ async function executeCut(input: Readonly<{
   const beforeStateSha256 = hashCanonicalJsonV1(beforeState);
   const afterStateSha256 = hashCanonicalJsonV1(afterState);
   const changedPaths = changedProjectProposalPathsV2R(beforeState, afterState);
-  const revisionMaterial = {
-    schemaVersion: 1,
-    authority: CUT_OWNER_AUTHORITY,
+  // Revision issuance stays at the ProjectService clone boundary; this cut
+  // adapter owns no proposal counter, map or independent revision authority.
+  const writerProjectRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+    writerAuthority: CUT_OWNER_AUTHORITY,
     tenantId: input.tenantId,
     userId: input.userId,
     projectId: input.projectId,
-    canonicalBaseProjectRevision: canonicalBaseRevisionIdentity(input.baseRevision),
-    previousProposalRevision: currentRevision,
+    canonicalBaseRevision: input.baseRevision,
+    previousProjectRevision: input.currentProjectRevision,
     operatorId: input.call.operatorId,
     turn: input.call.turn,
     argumentSha256: hashCanonicalJsonV1(input.call.arguments),
     beforeStateSha256,
     afterStateSha256,
-  } as const;
-  const writerProjectRevision = `project-proposal-v2r:${hashCanonicalJsonV1(
-    revisionMaterial,
-  )}`;
-  input.proposalRevisionByClone.set(input.project, writerProjectRevision);
+  });
 
   return deepFreezeV1({
     authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION' as const,
@@ -149,10 +141,6 @@ async function executeCut(input: Readonly<{
     },
     evidenceIds,
   });
-}
-
-function canonicalBaseRevisionIdentity(revision: Readonly<ProjectRevisionV1>): string {
-  return `project-revision-v1:${hashCanonicalJsonV1(revision)}`;
 }
 
 function frameRange(value: unknown): { startFrame: number; endFrame: number } | null {

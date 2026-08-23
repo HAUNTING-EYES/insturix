@@ -9,6 +9,8 @@ import {
 } from '../../../lib/editron/research/open-ended-planner/provider-native-episode-durable-job-v2r';
 import { runProviderNativeEpisodeDurableWorkerV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-durable-worker-v2r';
+import { bindProviderNativeDurableOutcomeProofReceiptV2R }
+  from '../../../lib/editron/research/open-ended-planner/provider-native-durable-outcome-proof-v2r';
 import { createProviderNativeDurableOwnerArtifactResolverV2R }
   from '../../../lib/editron/research/open-ended-planner/provider-native-episode-owner-artifact-resolver-v2r';
 import { createProviderNativeEpisodeResumeCheckpointV2R }
@@ -173,7 +175,10 @@ async function resume(inputPath: string, outputPath: string): Promise<void> {
     store, jobId: record.jobId, workerId: 'suffix', artifactResolver: resolver,
     clock: () => RESUME_AT,
   });
-  if (result.kind !== 'completed') fail(`WORKER_${result.kind.toUpperCase()}`);
+  if (result.kind !== 'completed') {
+    const errorCode = 'errorCode' in result ? `_${result.errorCode}` : '';
+    fail(`WORKER_${result.kind.toUpperCase()}${errorCode}`);
+  }
   const persisted = await store.getAuthorized({
     jobId: record.jobId, tenantId: 'tenant-1', userId: 'user-1',
   });
@@ -224,6 +229,50 @@ function createCloneOwner(canonical: Project, hooks: Readonly<{
   };
   return createProviderNativeProjectServiceCloneOwnerV2R({
     projectService: { loadProjectForMutation: async () => snapshot(canonical) },
+    isolatedOutcomeProofOwner: {
+      prove: async (input) => {
+        const proofId = 'process-recovery-render-not-exercised';
+        return bindProviderNativeDurableOutcomeProofReceiptV2R({
+          tenantId: input.tenantId,
+          userId: input.userId,
+          projectId: input.projectId,
+          episodeId: input.checkpoint.episodeId,
+          subject: {
+            episodeReceiptSha256: input.episodeReceipt.receiptSha256,
+            resumedReceiptSha256: input.resumedReceiptSha256,
+            proposalReceiptSha256: input.proposalReceipt.receiptSha256,
+            finalStateSha256: input.proposalReceipt.finalStateSha256,
+          },
+          proofPolicy: {
+            policyId: 'process-recovery-unverifiable-policy',
+            policyVersion: 'v1',
+            policySha256: hashCanonicalJsonV1({
+              policyId: 'process-recovery-unverifiable-policy',
+              policyVersion: 'v1',
+              disposition: 'UNVERIFIABLE',
+              reason: 'PROCESS_RECOVERY_FIXTURE_HAS_NO_RENDER_OWNER',
+            }),
+          },
+          obligations: [{
+            obligationId: 'rendered-acceptance',
+            kind: 'render',
+            disposition: 'UNVERIFIABLE',
+            proofReferenceIds: [proofId],
+          }],
+          proofReferences: [{
+            proofId,
+            proofSha256: hashCanonicalJsonV1({
+              reason: 'PROCESS_RECOVERY_FIXTURE_HAS_NO_RENDER_OWNER',
+              proposalReceiptSha256: input.proposalReceipt.receiptSha256,
+              finalStateSha256: input.proposalReceipt.finalStateSha256,
+            }),
+            disposition: 'UNVERIFIABLE',
+          }],
+          observedAt: RESUME_AT.toISOString(),
+          summary: 'Process recovery was verified without claiming rendered acceptance.',
+        });
+      },
+    },
     isolatedOperatorOwner: {
       execute: async ({ call, project: clone }) => {
         hooks.onExecute?.();
