@@ -312,7 +312,7 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c` and `bde34941a` wire exact source/frame
+3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a` and `1e18e6d0e` wire exact source/frame
    registration and make the main analysis worker canonicalize every resolved
    source kind before carrying the returned ID/URL through cache, sampling,
    analysis and legacy extraction. Managed R2/GCS objects are reused through a
@@ -320,11 +320,17 @@ Migrated from the prior Claude-Code sessions. Layout:
    `7a584535c` converges the live SaaS Studio ingest-reference route and makes
    its currently uncalled standalone analyzer use the same boundary.
    `bde34941a` removes ThinkForge's direct-provider URL shortcut and binds trend
-   analysis to the registered exact bytes. Legacy match-edit remains a separate
-   reference path; full-source buffering is provisional and live Mongo/R2/GCS
-   proof is absent. Reconcile match-edit next; do not describe project-wide
-   reference materialization or long-form ingest as converged.
-4. Compose the existing canonical-media, CreditsService guard, isolated
+   analysis to the registered exact bytes. `1e18e6d0e` similarly makes legacy
+   Match Edit analysis require a valid source receipt, truthful MIME, strict
+   model schema and measured cut evidence. Standalone style-transfer/chat style
+   extraction and the experimental visual-fingerprint path still need source-
+   identity reconciliation; Match Edit generation still contains an unqualified
+   placeholder fallback. Full-source buffering is provisional and live
+   Mongo/R2/GCS proof is absent. Do not describe project-wide reference
+   materialization or long-form ingest as converged.
+4. Reconcile the remaining style/fingerprint and Match Edit generation paths,
+   then replace full buffering/provisional limits and register demux artifacts.
+5. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed
    route and run non-production Atlas/QStash crash-redelivery proof. Paid model

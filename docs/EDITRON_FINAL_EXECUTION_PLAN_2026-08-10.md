@@ -1609,17 +1609,35 @@ and direct `uploadMedia`/random-ID sampling is removed. The exported standalone
 SaaS analysis function, which repository search proves currently has no runtime
 caller, now also canonicalizes before cache or sampling if revived. Five focused
 suites pass 29/29 with repository typecheck and quiet ESLint. This is
-`SAAS_REFERENCE_INTAKE_CANONICALIZED`, not project-wide convergence: ThinkForge
-trend analysis and legacy match-edit remain separate reference paths; streaming,
-demux-artifact registration and live-store proof remain open.
+`SAAS_REFERENCE_INTAKE_CANONICALIZED`, not project-wide convergence.
+
+Commit bde34941a closes the ThinkForge trend-analysis bypass. YouTube/provider
+input must first pass the importer and canonicalizer, and inference receives a
+registered exact-byte identity whose fingerprint binds byte and registration-
+receipt hashes. Import rejection and missing-receipt retry exhaustion cannot
+reach analysis. Focused 24/24 plus repository typecheck and quiet ESLint pass.
+
+Commit 1e18e6d0e then adapts legacy Match Edit analysis without promoting it to
+the canonical EditFingerprint owner. Its authenticated route requires an
+explicit legacy Jaccard threshold, canonicalizes the owned reference, verifies
+scope/role/receipt hash, propagates the receipt MIME, rejects incomplete model
+observations, and refuses to substitute model-authored cut cadence when measured
+scene evidence is unavailable. The random analysis identity, raw temporary URL
+persistence and hard-coded generation-price estimate are removed. Focused 24/24
+plus repository typecheck and quiet ESLint pass. The standalone style-transfer
+route/chat tool and experimental visual-fingerprint extractor still have
+unreconciled source-input paths, while Match Edit generation retains a
+placeholder/video-only fallback. Streaming, demux-artifact registration and
+live-store proof also remain open.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Reconcile ThinkForge trend reference analysis and legacy match-edit against
-   the same canonical source owner, retiring or adapting duplicates rather than
-   creating another registry. Then replace full-file buffering and provisional
-   90-second/10-KB assumptions with a streaming, probed, long-form-safe owner
-   and register required demux artifacts through the same media authority.
+1. Reconcile standalone style-transfer/chat style extraction and the
+   experimental visual-fingerprint extractor against the same canonical source
+   owner; fail-close or qualify Match Edit generation's placeholder path. Then
+   replace full-file buffering and provisional 90-second/10-KB assumptions with
+   a streaming, probed, long-form-safe owner and register required demux
+   artifacts through the same media authority.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3292,17 +3310,19 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c` and `bde34941a` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a` and `1e18e6d0e` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
 asset sources and consumes the returned identity throughout; the live SaaS
-Studio intake and ThinkForge trend-analysis worker now delegate to the same
-boundary. ThinkForge no longer sends a floating YouTube/provider URL directly
-to inference: exact registered bytes and their receipt-derived fingerprint are
-required first. This remains partial convergence: legacy match-edit,
-streaming long-form materialization, demux-artifact registration and live
-Mongo/R2/GCS proof are open.
+Studio intake, ThinkForge trend-analysis worker and legacy Match Edit analysis
+now delegate to the same boundary. ThinkForge no longer sends a floating
+YouTube/provider URL directly to inference; Match Edit additionally requires a
+valid scoped source receipt, strict observation schema and measured cut
+evidence. This remains partial convergence: standalone style-transfer/chat
+style extraction, experimental visual-fingerprint extraction, Match Edit gap
+generation, streaming long-form materialization, demux-artifact registration
+and live Mongo/R2/GCS proof are open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
