@@ -433,11 +433,12 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     })];
   }
 
-  const attemptOnlyResume = !latestWriterRevision
+  const providerRecoveryResume = !latestWriterRevision
     && 'accountedProviderAttempts' in input.checkpoint
-    && input.checkpoint.accountedProviderAttempts.length > 0
+    && (input.checkpoint.accountedProviderAttempts.length > 0
+      || 'pendingProviderDispatchIntent' in input.checkpoint)
     && mutationEpoch === 0;
-  if (!latestWriterRevision && !attemptOnlyResume) {
+  if (!latestWriterRevision && !providerRecoveryResume) {
     throw new Error('PROVIDER_NATIVE_RESUME_WRITER_REVISION_BINDING_MISSING');
   }
   if (latestWriterRevision
@@ -465,7 +466,7 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     whatHasNotBeenChecked: [...input.checkpoint.whatHasNotBeenChecked],
     instruction: latestWriterRevision
       ? 'Continue from the completed operations. Use the opaque latest-writer reference for downstream expectedProjectRevision; never copy a revision literal or repeat completed mutations.'
-      : 'Retry from the unchanged revision-bound state. No state-advancing operation completed; do not invent a writer receipt.',
+      : 'Recover provider accounting, then retry from the unchanged revision-bound state. No state-advancing operation completed; do not invent a writer receipt.',
   });
   return deepFreezeV1({
     turns: input.checkpoint.completedTurns.map((entry) => ({ ...entry })),

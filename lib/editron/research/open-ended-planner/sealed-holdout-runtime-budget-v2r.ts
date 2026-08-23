@@ -144,6 +144,7 @@ implements ProviderNativeRuntimeGuardV2R {
   ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
   private readonly events: JsonRecord[] = [];
   private pendingRequest: PendingRequest | null = null;
+  private recoveredDispatchIntentReceiptSha256: string | null = null;
   private providerTurns = 0;
   private selectedOperations = 0;
   private totalInputTokens = 0;
@@ -368,6 +369,8 @@ implements ProviderNativeRuntimeGuardV2R {
     this.conservativeReservedNanoUsd = usage.conservativeReservedNanoUsd ?? 0;
     this.pendingRequest = pendingProviderDispatchIntent
       ? pendingRequestFromIntent(pendingProviderDispatchIntent) : null;
+    this.recoveredDispatchIntentReceiptSha256 =
+      pendingProviderDispatchIntent?.receiptSha256 ?? null;
   }
 
   beforeTurn(input: Readonly<{
@@ -503,6 +506,31 @@ implements ProviderNativeRuntimeGuardV2R {
       'AFTER_INVOKE_RESULT_UNAVAILABLE_CONSERVATIVE_RESERVATION',
       pending,
       { transportErrorCode: input.transportErrorCode },
+    );
+  }
+
+  settleRecoveredDispatchIntent(input: Readonly<{
+    pendingProviderDispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+    transportErrorCode: string;
+  }>): ProviderNativeRuntimeGuardDecisionV2R {
+    const pending = this.pendingRequest;
+    const intent = assertProviderNativeDurableDispatchIntentV2R(
+      input.pendingProviderDispatchIntent,
+    );
+    if (!pending || !input.transportErrorCode.trim()
+      || this.recoveredDispatchIntentReceiptSha256 !== intent.receiptSha256
+      || canonicalizeJsonV1(pending)
+        !== canonicalizeJsonV1(pendingRequestFromIntent(intent))) {
+      return this.accountingDenial('RECOVERED_DISPATCH_INTENT_BINDING_INVALID', {
+        dispatchIntentReceiptSha256: intent.receiptSha256,
+      });
+    }
+    this.recoveredDispatchIntentReceiptSha256 = null;
+    return this.settlePendingConservatively(
+      'RECOVERED_DISPATCH_INTENT_CONSERVATIVE_RESERVATION',
+      pending,
+      { transportErrorCode: input.transportErrorCode,
+        dispatchIntentReceiptSha256: intent.receiptSha256 },
     );
   }
 
@@ -651,7 +679,8 @@ implements ProviderNativeRuntimeGuardV2R {
   }
 
   private assertPristineForResume(): void {
-    if (this.pendingRequest || this.events.length || this.providerTurns
+    if (this.pendingRequest || this.recoveredDispatchIntentReceiptSha256
+      || this.events.length || this.providerTurns
       || this.selectedOperations || this.totalInputTokens
       || this.totalCachedInputTokens || this.totalCacheWriteTokens
       || this.totalOutputTokens || this.totalThoughtTokens
@@ -749,7 +778,8 @@ function deriveRuntimeUsageFromEvents(
     if (event.phase === 'BEFORE_INVOKE') usage.providerTurns += 1;
     if (event.phase === 'AFTER_EXECUTE') usage.selectedOperations += 1;
     if (event.phase === 'AFTER_INVOKE_RESULT_UNAVAILABLE_CONSERVATIVE_RESERVATION'
-      || event.phase === 'AFTER_INVOKE_HTTP_FAILURE_CONSERVATIVE_RESERVATION') {
+      || event.phase === 'AFTER_INVOKE_HTTP_FAILURE_CONSERVATIVE_RESERVATION'
+      || event.phase === 'RECOVERED_DISPATCH_INTENT_CONSERVATIVE_RESERVATION') {
       const outputTokens = resumeInteger(event.accountedOutputTokens);
       const costNanoUsd = resumeInteger(event.accountedCostNanoUsd);
       usage.outputTokens += outputTokens;

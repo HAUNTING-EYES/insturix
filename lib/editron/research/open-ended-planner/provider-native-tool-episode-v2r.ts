@@ -40,6 +40,10 @@ import {
   type ProviderNativeDurableAttemptReceiptV2R,
   type ProviderNativeAttemptResultV2R,
 } from './provider-native-durable-attempt-receipt-v2r';
+import {
+  createProviderNativeDurableDispatchIntentV2R,
+  type ProviderNativeDurableDispatchIntentV2R,
+} from './provider-native-durable-dispatch-intent-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -77,11 +81,19 @@ export interface ProviderNativeRuntimeGuardV2R {
       readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
   }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R>
     | Promise<Readonly<ProviderNativeRuntimeGuardResumeStateV2R>>;
+  createPendingDispatchResumeState?(input: Readonly<{
+    completedTurns: readonly Readonly<JsonRecord>[];
+    accountedProviderAttempts?:
+      readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+    pendingProviderDispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+  }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R>
+    | Promise<Readonly<ProviderNativeRuntimeGuardResumeStateV2R>>;
   restoreResumeState(input: Readonly<{
     resumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
     completedTurns: readonly Readonly<JsonRecord>[];
     accountedProviderAttempts?:
       readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+    pendingProviderDispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
   }>): void | Promise<void>;
   beforeTurn(input: Readonly<{
     turn: number;
@@ -102,6 +114,10 @@ export interface ProviderNativeRuntimeGuardV2R {
     turn: number;
     request: Readonly<SerializedProviderNativeTurnV2R>;
     maxOutputTokens: number;
+    transportErrorCode: string;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  settleRecoveredDispatchIntent?(input: Readonly<{
+    pendingProviderDispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
     transportErrorCode: string;
   }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
   beforeExecute(input: Readonly<{
@@ -194,6 +210,11 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   onProviderAttemptCommitted?: (input: Readonly<{
     attemptReceipt: Readonly<ProviderNativeDurableAttemptReceiptV2R>;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    dispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+  }>) => void | Promise<void>;
+  onProviderDispatchCommitted?: (input: Readonly<{
+    dispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   }>) => void | Promise<void>;
   now?: () => string;
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
@@ -231,7 +252,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     input.referenceInput,
   );
   if ((input.resumeCheckpoint || input.onTurnCommitted
-    || input.onProviderAttemptCommitted)
+    || input.onProviderAttemptCommitted || input.onProviderDispatchCommitted)
     && argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES') {
     throw new Error('PROVIDER_NATIVE_RESUME_REQUIRES_OPAQUE_RESULT_REFERENCES');
   }
@@ -259,6 +280,16 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       || typeof input.runtimeGuard.settleUnknownInvoke !== 'function'
       || !supportsRuntimeGuardResume(input.runtimeGuard))) {
     throw new Error('PROVIDER_NATIVE_ATTEMPT_COMMIT_RUNTIME_GUARD_UNSUPPORTED');
+  }
+  const checkpointHasPendingDispatch = Boolean(
+    input.resumeCheckpoint && 'pendingProviderDispatchIntent' in input.resumeCheckpoint,
+  );
+  if ((input.onProviderDispatchCommitted || checkpointHasPendingDispatch)
+    && (!input.onProviderAttemptCommitted
+      || !input.runtimeGuard
+      || typeof input.runtimeGuard.createPendingDispatchResumeState !== 'function'
+      || typeof input.runtimeGuard.settleRecoveredDispatchIntent !== 'function')) {
+    throw new Error('PROVIDER_NATIVE_DISPATCH_COMMIT_RUNTIME_GUARD_UNSUPPORTED');
   }
   const promptMaterial = {
     version: PROVIDER_NATIVE_EPISODE_VERSION_V2R,
@@ -337,6 +368,10 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       ...('accountedProviderAttempts' in input.resumeCheckpoint ? {
         accountedProviderAttempts: input.resumeCheckpoint.accountedProviderAttempts,
       } : {}),
+      ...('pendingProviderDispatchIntent' in input.resumeCheckpoint ? {
+        pendingProviderDispatchIntent:
+          input.resumeCheckpoint.pendingProviderDispatchIntent,
+      } : {}),
     });
   }
   const prompt = canonicalizeJsonV1(resumed ? {
@@ -405,11 +440,12 @@ export async function runProviderNativeToolEpisodeV2R(input: {
 
   const commitProviderAttempt = async (attemptInput: Readonly<{
     turn: number;
-    request: Readonly<SerializedProviderNativeTurnV2R>;
+    requestHash: string;
     maxOutputTokens: number;
     result: ProviderNativeAttemptResultV2R;
     runtimeGuardAudit: readonly Readonly<JsonRecord>[];
     accountingAudit: Readonly<JsonRecord>;
+    dispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
   }>): Promise<Readonly<ProviderNativeDurableAttemptReceiptV2R>> => {
     const durable = Boolean(input.onProviderAttemptCommitted);
     const accounting = attemptAccounting(attemptInput.accountingAudit);
@@ -419,7 +455,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       toolSetSha256: toolSet.toolSetSha256,
       route: input.route,
       turn: attemptInput.turn,
-      requestHash: attemptInput.request.requestHash,
+      requestHash: attemptInput.requestHash,
       maxOutputTokens: attemptInput.maxOutputTokens,
       result: attemptInput.result,
       accounting: { ...accounting,
@@ -450,10 +486,54 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       runtimeGuardResumeState,
       accountedProviderAttempts: nextAttempts,
     });
-    await input.onProviderAttemptCommitted({ attemptReceipt, checkpoint });
+    await input.onProviderAttemptCommitted({ attemptReceipt, checkpoint,
+      ...(attemptInput.dispatchIntent
+        ? { dispatchIntent: attemptInput.dispatchIntent } : {}) });
     accountedProviderAttempts = nextAttempts;
     return attemptReceipt;
   };
+
+  if (input.resumeCheckpoint
+    && 'pendingProviderDispatchIntent' in input.resumeCheckpoint
+    && input.runtimeGuard?.settleRecoveredDispatchIntent) {
+    const pendingProviderDispatchIntent = input.resumeCheckpoint.pendingProviderDispatchIntent;
+    const settlement = await runRuntimeGuardHook(
+      () => input.runtimeGuard!.settleRecoveredDispatchIntent!({
+        pendingProviderDispatchIntent,
+        transportErrorCode: 'PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT',
+      }),
+      'SETTLE_RECOVERED_DISPATCH_INTENT',
+    );
+    if (settlement.status === 'DENY') {
+      turns.push({ turn: pendingProviderDispatchIntent.dispatch.turn,
+        requestHash: pendingProviderDispatchIntent.dispatch.requestHash,
+        runtimeGuardAudit: [...pendingProviderDispatchIntent.reservation.runtimeGuardAudit,
+          settlement.audit] });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, settlement,
+      );
+    }
+    await commitProviderAttempt({
+      turn: pendingProviderDispatchIntent.dispatch.turn,
+      requestHash: pendingProviderDispatchIntent.dispatch.requestHash,
+      maxOutputTokens: pendingProviderDispatchIntent.dispatch.maxOutputTokens,
+      result: {
+        kind: 'TRANSPORT_RESULT_UNAVAILABLE',
+        transportErrorCode: 'PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT',
+        errorSha256: hashCanonicalJsonV1({
+          code: 'PROCESS_EXIT_AFTER_DURABLE_DISPATCH_INTENT',
+          dispatchIntentReceiptSha256: pendingProviderDispatchIntent.receiptSha256,
+        }),
+      },
+      runtimeGuardAudit: [
+        ...pendingProviderDispatchIntent.reservation.runtimeGuardAudit,
+        settlement.audit,
+      ],
+      accountingAudit: settlement.audit,
+      dispatchIntent: pendingProviderDispatchIntent,
+    });
+  }
 
   for (let turn = resumed?.nextTurn ?? 1;
     turn <= input.context.budget.maxTurns;
@@ -510,6 +590,48 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         selectedOperatorIds, requestAuthorization,
       );
     }
+    let dispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R> | undefined;
+    if (input.onProviderDispatchCommitted && input.runtimeGuard
+      && input.runtimeGuard.createPendingDispatchResumeState) {
+      const reservation = dispatchReservation(requestAuthorization.audit);
+      dispatchIntent = createProviderNativeDurableDispatchIntentV2R({
+        episodeId: input.context.episodeId,
+        contextSha256,
+        toolSetSha256: toolSet.toolSetSha256,
+        route: input.route,
+        turn,
+        requestHash: request.requestHash,
+        maxOutputTokens,
+        inputTokensUpperBound: reservation.inputTokensUpperBound,
+        reservedWorstCaseNanoUsd: reservation.reservedWorstCaseNanoUsd,
+        runtimeGuardAudit,
+        createdAt: (input.now ?? (() => new Date().toISOString()))(),
+        ...(accountedProviderAttempts.length ? {
+          previousAttempt: accountedProviderAttempts.at(-1),
+        } : {}),
+      });
+      const runtimeGuardResumeState =
+        await input.runtimeGuard.createPendingDispatchResumeState({
+          completedTurns: turns,
+          ...(accountedProviderAttempts.length ? { accountedProviderAttempts } : {}),
+          pendingProviderDispatchIntent: dispatchIntent,
+        });
+      const checkpoint = createProviderNativeEpisodeResumeCheckpointV2R({
+        route: input.route,
+        episodeId: input.context.episodeId,
+        contextSha256,
+        toolSetSha256: toolSet.toolSetSha256,
+        completedTurns: turns,
+        ...(referenceInputManifestSha256
+          ? { referenceInputManifestSha256 } : {}),
+        runtimeGuardResumeState,
+        ...(accountedProviderAttempts.length ? { accountedProviderAttempts } : {}),
+        pendingProviderDispatchIntent: dispatchIntent,
+      });
+      // The callback is the write-ahead durability boundary. Invocation must
+      // never begin until its owner confirms the exact intent checkpoint.
+      await input.onProviderDispatchCommitted({ dispatchIntent, checkpoint });
+    }
     let response: ProviderNativeInvokeResponseV2R;
     try {
       response = await input.invoke(request);
@@ -533,13 +655,13 @@ export async function runProviderNativeToolEpisodeV2R(input: {
           );
         }
         const attemptReceipt = await commitProviderAttempt({
-          turn, request, maxOutputTokens, runtimeGuardAudit,
+          turn, requestHash: request.requestHash, maxOutputTokens, runtimeGuardAudit,
           accountingAudit: settlement.audit,
           result: { kind: 'TRANSPORT_RESULT_UNAVAILABLE',
             transportErrorCode: disposition,
             errorSha256: hashCanonicalJsonV1({
               disposition, message: errorMessage(error),
-            }) },
+            }) }, dispatchIntent,
         });
         turns.push({ turn, requestHash: request.requestHash,
           providerAttemptReceipt: attemptReceipt, runtimeGuardAudit });
@@ -589,12 +711,12 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       const disposition = mapHttpFailure(response.status);
       const attemptReceipt = input.onProviderAttemptCommitted && input.runtimeGuard
         ? await commitProviderAttempt({
-            turn, request, maxOutputTokens, runtimeGuardAudit,
+            turn, requestHash: request.requestHash, maxOutputTokens, runtimeGuardAudit,
             accountingAudit: responseAccounting.audit,
             result: { kind: 'RESPONSE_RECEIVED',
               responseStatus: response.status,
               responseSha256: rawResponseSha256,
-              providerRequestId: null },
+              providerRequestId: null }, dispatchIntent,
           }) : undefined;
       turns.push({
         turn, requestHash: request.requestHash, responseStatus: response.status,
@@ -904,6 +1026,25 @@ function attemptAccounting(audit: Readonly<JsonRecord>): Readonly<{
       nonNegativeInteger(usage.outputTokens, 'PROVIDER_NATIVE_ATTEMPT_OUTPUT_INVALID')
       + nonNegativeInteger(usage.thoughtTokens, 'PROVIDER_NATIVE_ATTEMPT_OUTPUT_INVALID'),
     isUpperBound: false,
+  };
+}
+
+function dispatchReservation(audit: Readonly<JsonRecord>): Readonly<{
+  inputTokensUpperBound: number;
+  reservedWorstCaseNanoUsd: number;
+}> {
+  if (audit.phase !== 'BEFORE_INVOKE' || audit.status !== 'ALLOW') {
+    throw new Error('PROVIDER_NATIVE_DISPATCH_RESERVATION_AUDIT_INVALID');
+  }
+  return {
+    inputTokensUpperBound: nonNegativeInteger(
+      audit.inputTokensUpperBound,
+      'PROVIDER_NATIVE_DISPATCH_INPUT_BOUND_INVALID',
+    ),
+    reservedWorstCaseNanoUsd: nonNegativeInteger(
+      audit.reservedWorstCaseNanoUsd,
+      'PROVIDER_NATIVE_DISPATCH_COST_BOUND_INVALID',
+    ),
   };
 }
 
