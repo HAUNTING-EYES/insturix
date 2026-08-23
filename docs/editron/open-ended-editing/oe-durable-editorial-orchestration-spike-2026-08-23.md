@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof and Plan-lifecycle crash/redelivery/cancellation recovery; zero inference; no authenticated live ingress, live-store exercise or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch and signed worker-adapter contracts; zero inference; no live route, product execution-owner composition, live-store exercise or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -46,6 +46,18 @@ cancellation precedence without provider re-invocation. Authenticated live
 workflow and canonical ProjectService apply/reload remain absent, so the
 current path is not production-ready.
 
+Commits `0f54a0a2a` and `b6171bed2` close the transport-adapter contract only.
+The dispatcher derives tenant/user scope from the authenticated actor, binds
+the exact accepted Plan node, publishes only a strict `{version, jobId}` body
+to a fixed HTTPS worker path and records QStash's message ID in the existing
+job. A message receipt can arrive after the job is claimed or completed because
+it is audit evidence, not a lifecycle transition. The worker factory applies
+the existing fail-closed QStash signature wrapper before parsing, requires one
+explicit execution owner before claiming and delegates to the sole durable Plan
+worker. No route is exported while product canonical-media and runtime-budget
+owners are absent; the research inline reference and sealed-holdout budget are
+not silently promoted.
+
 ## Current code evidence
 
 | Concern | Verified current owner/status |
@@ -60,7 +72,7 @@ current path is not production-ready.
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
 | Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. `2e2471adc` preserves that V1 receipt hash and adds V2 `FRESH_EPISODE_RECEIPT` / `RESUMED_EPISODE_RECEIPT` provenance; `f3b6ad44d` finalizes it without a V1 fallback; `d17ba67c1` makes the product resumed path emit V2; `93a72e756` makes the same concrete cut/focal proof policy accept a real fresh trace without a checkpoint; and `62fcc6c25` binds that proof to the complete accepted-Plan execution receipt. Live Lambda evidence and production apply remain unproven. |
-| Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
+| Product workflow ingress/recovery | `0f54a0a2a` provides actor-bound, fixed-URL, message-receipt-backed QStash dispatch; `b6171bed2` provides signed strict worker ingress and refuses to claim without an explicit execution owner. These are non-routable adapters: product owner composition, API route export and live Atlas/QStash proof remain absent. |
 
 The existing `lib/services/planService.ts` manages commercial subscription
 plans. It is not an editorial PlanService and must not be extended or renamed
@@ -320,7 +332,11 @@ Open work:
   exact issuer-conformant receipt material for every admitted writer;
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
-- authenticated review UI/API ingress and authenticated dispatch;
+- compose canonical-media and product-budget owners behind the one existing
+  execution-owner boundary; do not reuse the research-only inline reference or
+  sealed-holdout budget as product authority;
+- export authenticated review/API dispatch and signed worker routes only after
+  that owner composition exists;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
 ### B. Upstash or Vercel durable workflow runtime — transport candidate only
@@ -619,15 +635,20 @@ before advancing. This does not add a secret signer or second revision owner.
     `5e0dd3b65`:** one accepted Plan node reaches the real cut owner and strict
     V2 proof; process loss, lease redelivery and cancellation do not duplicate
     provider work or mutate canonical project state.
-30. Authenticated non-production product wiring plus QStash/Atlas crash/restart
-    and redelivery exercise, using real artifact/operator owners and no second
-    authority.
-31. Only after fresh zero-inference preflight and explicit spend approval:
+30. **Fail-closed transport adapters complete at `0f54a0a2a` and
+    `b6171bed2`:** bind authenticated actor scope, publish only the opaque job
+    identity, record late QStash receipts, verify worker signatures and refuse
+    to claim without one explicit execution owner. No route is live.
+31. Compose canonical-media and product-budget owners behind that existing
+    execution-owner boundary; then export authenticated routes and run the
+    non-production QStash/Atlas crash/restart/redelivery exercise. Do not add a
+    second registry, job store, PlanService or project authority.
+32. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `5e0dd3b65` and orchestration-decision commit
+- Repository code through `b6171bed2` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

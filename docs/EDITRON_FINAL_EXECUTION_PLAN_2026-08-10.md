@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `93a72e756` on
+programme code checkpoint represented by this ledger is `b6171bed2` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 93a72e756. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: b6171bed2. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1348,7 +1348,8 @@ pre-dispatch intent and checkpoint identity. Commit 9cf3cde0f connects that
 write-ahead boundary to the provider episode: invocation cannot begin before
 the callback confirms the pending-intent checkpoint; a recovered unresolved
 intent is conservatively charged and durably converted to an attempt before
-retry; stale ProjectService revisions fail before reconciliation or invoke;
+any separately authorised retry; stale ProjectService revisions fail before
+reconciliation or invoke;
 and the same logic survives a crash after an earlier accounted attempt. The
 focused recovery suite passes 20/20, with repository typecheck and quiet
 ESLint clean. Commit 8a2f4d535 then closes the product callback seam without a
@@ -1368,11 +1369,35 @@ same checkpoint/recovery path. Commit 93a72e756 removes the checkpoint-only
 restriction from the existing cut/focal V2 proof port; a fresh cut now produces
 the same exact state/render/visual proof contract as a resumed cut while the
 canonical project remains unchanged. The focused fresh/resumed Plan and proof
-suites pass, with repository typecheck and quiet ESLint clean. This proves the
-fresh core and the concrete proof owner separately; a single full Plan-to-real-
-native-owner integration receipt, zero-inference crash/redelivery and live
-authenticated QStash/Atlas recovery remain open. Automatic provider retry is
-still not authorised.
+suites pass, with repository typecheck and quiet ESLint clean. Commit
+62fcc6c25 then proves the complete accepted-Plan -> generic fresh execution
+owner -> real ProjectService proposal clone -> concrete cut_section owner ->
+writer-issued revision/recovery -> strict V2 state/render/visual finalizer path
+in one zero-inference receipt. It reaches PASS with three bound proof references
+while canonical ProjectService state stays unchanged. Commit 5e0dd3b65 closes
+the process-loss edge: after a real pending dispatch intent is durably saved,
+an expired lease and fresh worker conservatively commit exactly one unknown-
+outcome attempt, terminalize UNVERIFIABLE and make zero provider calls. A user
+cancellation takes precedence on redelivery and retains the pending intent for
+audit. All 242 provider-native tests pass (two intentional skips), with full
+typecheck and quiet ESLint clean. Full Plan-to-real-native research-proxy
+integration and zero-inference crash/cancellation proof are therefore complete.
+Live authenticated QStash/Atlas recovery, live renderer evidence, canonical
+ProjectService proposal apply/reload and paid resumed inference remain open.
+Automatic provider retry remains unauthorised.
+Commits 0f54a0a2a and b6171bed2 add the product transport adapters without
+promoting the research proxy: authenticated actor scope binds the accepted
+Plan node before QStash publication; the fixed HTTPS worker receives only a
+strict versioned job identity; a returned message ID is durably recorded even
+if the signed worker wins the claim race; and missing token/signing keys,
+missing execution owner, widened payloads and ambiguous delivery fail closed.
+No app route or production execution-owner composition root is exported, no
+provider or renderer is invoked, and no project is mutated. The durable/
+provider-native regression battery passes 317 tests with two intentional skips,
+plus full typecheck and quiet ESLint. The next gate is a product composition
+root backed by canonical media and product budget owners—not the inline
+research reference artifact or sealed-holdout controller—followed by signed
+route export and non-production Atlas/QStash exercise.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -3128,6 +3153,21 @@ research recovery proof. It does not select or implement the product
 Commit `0c94bc059` later adds that non-wired product plan/definition database;
 it still does not make the worker reachable.
 
+**Stage 2/2.5 ingress correction (current at `b6171bed2`):** the table and
+chronological paragraphs above that say all authenticated dispatch/worker
+adapters are missing are superseded. Commit `0f54a0a2a` now binds an
+authenticated actor to the exact accepted Plan node, publishes only the opaque
+durable job identity to a fixed HTTPS QStash destination and records a late
+message acknowledgement without changing lifecycle state. Commit `b6171bed2`
+wraps the existing durable Plan worker in fail-closed QStash verification,
+strictly parses that opaque message and refuses to claim when an explicit
+execution owner is absent. What remains missing is materially different: the
+product canonical-media locator and product runtime-budget owner composition,
+actual API route exports, live Atlas/QStash execution and recovery, canonical
+ProjectService apply/reload, broad certified operators and live rendered proof.
+The research inline-reference and sealed-holdout budget owners are not valid
+product substitutes.
+
 ### Global timebase and format truth
 
 The current main editor is effectively a 30 fps constant-frame-rate system,
@@ -3616,10 +3656,16 @@ foundation and is no longer the active queue. The next three slices are:
    non-wired ProjectService proposal clone and durable diff receipt, and
    `a9882903a` separates canonical-base and isolated-working identities;
    `270792c1a`, `d143da69a`, `df61e818d` and `9f955033e` now recover that
-   isolated proposal deterministically across process loss. Next bind concrete
-   production operator ownership, reference-media and runtime-budget adapters, and add
-   authenticated fail-closed ingress/dispatch; prove suffix-only recovery
-   against non-production Atlas and QStash; then run a fresh
+   isolated proposal deterministically across process loss. Commits
+   `62fcc6c25` and `5e0dd3b65` now additionally prove the full accepted-Plan-to-
+   concrete-cut receipt plus product-lifecycle crash/redelivery/cancellation
+   without provider re-invocation or canonical mutation. Commits `0f54a0a2a`
+   and `b6171bed2` now add the fail-closed actor-bound QStash dispatcher and
+   signed worker-ingress factory. They deliberately export no live route while
+   the product execution-owner composition root is absent. Next bind canonical
+   media and product-budget owners into that one composition root, export the
+   signed routes and prove recovery against non-production Atlas and QStash;
+   then run a fresh
    zero-inference preflight and obtain explicit authorization before any paid
    resumed inference. Exercise realistic long-form sequence/range plans under
    bounded evidence; and collect blind-editor quality, correction-time,
@@ -4769,29 +4815,38 @@ built around it.
 **Durable provider-dispatch checkpoint (2026-08-23):** commits
 `f57d0cb1c`, `88114ec5a`, `55b06b9e8`, `5f2c3b1f9`, `7cc90f161`,
 `da252954b`, `9cf3cde0f`, `8a2f4d535`, `bfecfb314`, `c6c416592`,
-`898c3ba63` and `93a72e756` supersede older plan
+`898c3ba63`, `93a72e756`, `62fcc6c25`, `5e0dd3b65`, `0f54a0a2a` and
+`b6171bed2` supersede older plan
 wording that listed all failed-attempt accounting as absent. The current
 research episode core can hash-bind a provider request/result, conservatively
 charge an unknown transport outcome, persist the attempt and runtime budget in
-a zero-turn resume checkpoint, restore both in a fresh process, and refuse the
-retry before invocation when the original ProjectService revision changed.
+a zero-turn resume checkpoint, restore both in a fresh process, and refuse any
+separately requested retry before invocation when the original ProjectService
+revision changed.
 The core now additionally creates and callback-persists a hash-bound dispatch
 intent before network invocation. On restart, an unresolved intent is charged
-at its frozen conservative reservation and committed as an attempt before any
-retry; exact intent/request/attempt-chain and unchanged project revision are
-mandatory. The focused restart/adversarial suite passes 20/20; repository
-typecheck and quiet ESLint pass. Commit `8a2f4d535` wires both callbacks through
-the shared resumed core and the product Plan worker's existing leased resume
+at its frozen conservative reservation and committed as an attempt. Commit
+`5e0dd3b65` then stops that episode as `UNVERIFIABLE`: accounting approval is
+not retry approval, so no automatic provider re-invocation occurs. Exact
+intent/request/attempt-chain and unchanged project revision are mandatory. The
+complete provider-native suite passes 242 tests with two intentional skips;
+repository typecheck and quiet ESLint pass. Commit `8a2f4d535` wires both
+callbacks through the shared resumed core and the product Plan worker's
+existing leased resume
 CAS. Its 429 integration proves pending intent before invocation and a separate
 reconciled-attempt checkpoint afterward; an incompatible guard stops before
 invocation. The focused Plan/core/worker suite passes 25/25 with full typecheck
-and quiet ESLint. Fresh Plan startup and native fresh cut proof are now
-separately zero-inference proven without an invented checkpoint. This is still
-**partial durable retry groundwork**, not automatic retry authorization. The
-next bounded reliability order is therefore: one full Plan-to-real-native-owner
-proof receipt, zero-inference crash/redelivery tests, authenticated non-
-production QStash/Atlas exercise, and only then a fresh paid preflight with
-explicit approval. Canonical project mutation remains disabled.
+and quiet ESLint. Fresh Plan startup, native fresh cut proof and their full
+Plan-to-real-native-owner integration are now zero-inference proven without an
+invented checkpoint. Crash/redelivery and cancellation are likewise proven
+over the real leased Plan job lifecycle. This remains **durable recovery
+groundwork**, not automatic retry authorization or production mutation. The
+fail-closed product dispatch and signed worker adapters now exist but remain
+non-routable without an explicit product execution-owner composition. The next
+bounded reliability order is therefore: canonical-media/product-budget owner
+composition, signed route export, non-production QStash/Atlas crash/redelivery
+exercise, and only then a fresh paid preflight with explicit approval.
+Canonical project mutation remains disabled.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
