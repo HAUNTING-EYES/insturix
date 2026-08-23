@@ -1496,14 +1496,25 @@ request. The standalone research transport can still exercise retry behavior,
 but the Plan worker cannot hide a 429/5xx retry inside one authorization or one
 attempt receipt. Eight focused transport tests plus repository typecheck and
 quiet ESLint pass. No provider was called.
+Commit 2683002e7 extracts the existing token, cost, candidate, turn, dispatch
+and resume mechanics into one configurable provider runtime-accounting core.
+The sealed-holdout class remains a thin research authorization and receipt
+owner over that core; it was not promoted into product authority. Exact guard,
+authorization, limits, pricing and request-bound token-evidence identities are
+injected, persisted resume events are re-derived, and unsafe-integer token or
+cost arithmetic fails `RESOURCE_ACCOUNTING_UNVERIFIABLE` before dispatch or
+further execution. Accounting, settlement, dispatch and resume verification
+passes 24/24 with repository typecheck and quiet ESLint. This is
+`SHARED_RUNTIME_ACCOUNTING_MECHANICS_PROVEN_PRODUCT_FACTORY_NOT_IMPLEMENTED`:
+no product CreditsService reservation currently constructs the core and no
+provider was called.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Extract one reusable **provider runtime-accounting core** and implement the
-   product runtime-budget guard factory over the CreditsService authorization
-   and reservation. The only complete controller today is the sealed-holdout
-   research authority and is ineligible for product reuse as-is; copying it
-   would create a second accounting authority.
+1. Implement the product runtime-budget guard factory over the shared mechanics
+   from `2683002e7` and the exact CreditsService authorization/reservation. The
+   sealed-holdout wrapper remains research-only and must not become the product
+   factory or product receipt owner.
 2. Add the route-scoped product token-count owner used by that guard. It must
    bind the exact serialized request and use the provider-specific measured or
    conservative upper-bound policy; the current product composition has no such

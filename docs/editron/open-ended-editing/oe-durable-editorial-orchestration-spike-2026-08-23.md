@@ -782,10 +782,14 @@ before advancing. This does not add a secret signer or second revision owner.
 40. **Hidden durable HTTP retries removed at `7b81f6006`:** one durable
     provider attempt now owns one network request; 429/5xx retry requires a new
     separately authorized attempt rather than being hidden in transport.
-41. Extract one reusable provider runtime-accounting core, then build the
-    product runtime-budget guard over the existing CreditsService authorization
-    and reservation. Do not copy or promote the sealed-holdout controller as
-    product authority.
+41. **Shared runtime-accounting mechanics complete at `2683002e7`:** exact
+    guard/authorization identities, limits, pricing, request-bound input-token
+    evidence, cumulative usage, conservative unknown-result settlement and
+    interruption/resume now live in one configurable core. The sealed-holdout
+    class remains only the research authorization/receipt wrapper. Unsafe
+    integer cost or token accumulation fails closed; 24/24 focused tests plus
+    repository typecheck and quiet ESLint pass. The product CreditsService
+    runtime-guard factory remains the next unimplemented half of this gate.
 42. Add a route-scoped product token-count owner whose evidence binds the exact
     serialized request. The product path currently has no implementation of
     this required pre-dispatch input bound.
@@ -808,7 +812,7 @@ before advancing. This does not add a secret signer or second revision owner.
 
 ## Evidence basis
 
-- Repository code through `7b81f6006` and orchestration-decision commit
+- Repository code through `2683002e7` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
