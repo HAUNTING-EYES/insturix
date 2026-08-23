@@ -38,6 +38,7 @@ production-ready and no live workflow reaches the store.
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay; all other family/live gates remain below. |
+| Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -134,11 +135,17 @@ Completed foundation:
   `keyframeTracks: undefined`, which deterministic proposal state correctly
   rejected. Concrete-owner/cut regressions pass 21/21; full typecheck and quiet
   ESLint pass.
+- `90d034578` adds the exact immutable reference owner consumed by the existing
+  artifact coordinator. Both ordered-image and native-video arms are rebound
+  through their owning validators; wrong scope/hash, altered bytes and copied
+  outer identity fail closed. Reference owner/resume suites pass 18/18; full
+  typecheck and quiet ESLint pass.
 
 Open work:
 
-- remaining artifact resolution for scopes, locks, approvals, reference media,
-  runtime budget and rendered proof;
+- remaining artifact resolution for scopes, locks, approvals, runtime budget
+  and rendered proof, plus a production canonical-media locator behind the now
+  proven reference owner contract;
 - expand the now-proven `cut_section` bridge to other certified/pure operator
   owners without introducing another operation registry or project authority;
 - proposal review/apply/reload through the sole ProjectService CAS remains
@@ -293,6 +300,11 @@ Commit `7c9e7e6ea` adds the first concrete owner to that recovered proposal:
 second timeline. This is limited research proof for one operation; it is not
 family certification, rendered proof or a canonical apply path.
 
+Commit `90d034578` adds the immutable reference owner for both existing media
+arms. It is deliberately an inline research artifact, not a new media database;
+production retrieval, rights/privacy/egress policy and interpretation remain
+open.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -322,15 +334,18 @@ family certification, rendered proof or a canonical apply path.
    canonical `cutTimelineRange` owner on the recovered clone, reject forged
    revisions/replay and keep canonical ProjectService state unchanged. Expand
    other families and rendered proof separately.
-10. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+10. **Reference research owner complete at `90d034578`:** resolve exact scoped
+    ordered-frame or native-video evidence and reject scope/hash/byte forgery.
+    Add production canonical-media retrieval separately.
+11. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
    authority.
-11. Only after fresh zero-inference preflight and explicit spend approval:
+12. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `7c9e7e6ea` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `90d034578` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
