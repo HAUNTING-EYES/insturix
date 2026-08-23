@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `607212e02` on
+programme code checkpoint represented by this ledger is `8bf1d766e` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 607212e02. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 8bf1d766e. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1450,9 +1450,13 @@ or route invokes it.
 Commit 607212e02 next implements the three read-side canonical-media ports:
 exact scoped bindings and independent unexpired/non-revoked policy grants come
 from immutable Mongo records, while bytes remain exclusively in the declared
-R2/GCS object selected by the existing `mediaAssets` row. Both reference arms
-and scope/policy/storage/byte drift are covered; the combined related cluster
-passes 31/31 with repository typecheck and quiet ESLint. This does not create a
+R2/GCS object selected by the existing `mediaAssets` row. Commit 8bf1d766e then
+corrects the pre-issuance artifact shape: immutable scope-specific binding
+metadata is owner-qualified as USER or ORG and stored outside the byte row, so
+one object can be reused across episodes and org-shared media remains correctly
+owned. Both reference arms and scope/ownership/policy/storage/byte drift are
+covered; the combined related cluster passes 32/32 with repository typecheck
+and quiet ESLint. This does not create a
 second media store and does not accept cached URLs or backend fallback as
 proof. It is `CONCRETE_READ_ADAPTERS_IMPLEMENTED_NOT_ISSUED_OR_LIVE_PROVEN`:
 no authorized product writer yet persists these records and no live store was
@@ -3229,7 +3233,7 @@ strictly parses that opaque message and refuses to claim when an explicit
 execution owner is absent. Commit `498e018e6` now adds the exact scoped
 canonical-media binding/adapter contract for both native-video and ordered-image
 reference arms, without storing bytes or becoming a second media authority.
-Commit `607212e02` now implements the concrete read-side canonical-media
+Commits `607212e02` and `8bf1d766e` now implement the concrete read-side canonical-media
 locator, byte reader and policy-grant owner without moving bytes out of the
 existing `mediaAssets`-selected R2/GCS object. What remains missing is
 materially different: authorized idempotent issuance of those binding,
@@ -4922,7 +4926,7 @@ over the real leased Plan job lifecycle. This remains **durable recovery
 groundwork**, not automatic retry authorization or production mutation. The
 fail-closed product dispatch and signed worker adapters now exist but remain
 non-routable without an explicit product execution-owner composition. Commit
-`607212e02` implements the `498e018e6` read-side storage/policy ports but not
+`607212e02` plus `8bf1d766e` implement the `498e018e6` read-side storage/policy ports but not
 their authorized issuer or live-store proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
 proof. The next bounded reliability order is therefore: authorized canonical-
