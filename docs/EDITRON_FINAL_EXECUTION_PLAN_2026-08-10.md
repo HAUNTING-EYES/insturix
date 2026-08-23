@@ -1756,16 +1756,28 @@ the source envelope still carries only stream byte hashes, not the V2 demux/
 core/registration receipt hashes; upload and registration remain separate
 actions; frame sampling remains buffered; and no live store was exercised.
 
+Commit `a70a37158` closes that source-envelope linkage gap without claiming
+transaction or storage convergence. Newly issued canonical source envelopes
+are exact V2 values that bind the final demux receipt hash, stable core receipt
+hash, and video/optional-audio registration receipt hashes. Historical V1
+envelopes remain strictly readable; unknown versions, missing/extra fields,
+malformed hashes and contradictory audio bindings fail closed. The dependent
+reference cluster passes 65/65 with repository typecheck and quiet ESLint.
+This is `SOURCE_ENVELOPE_RECEIPTS_BOUND_HTTP_FRAME_STREAMING_PENDING`:
+upload and registration remain separate actions, arbitrary receipt bodies are
+not re-authenticated from a live receipt store during source registration,
+frame sampling still buffers complete HTTP responses and derived JPEGs, and no
+live R2/GCS/Mongo store was exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
    mutation and proof owners are composed. Provide the experimental visual
    observer's authorized canonical byte-reader, evaluation receipt and product
    caller only through the existing owners. Use the existing file-registration
-   owner to extend the source envelope with the now-issued V2 demux/core and
-   derived-registration receipt hashes, so the source row cannot acknowledge
-   unbound children. Then migrate the HTTP frame sampler away from
-   complete-response buffering.
+   owner and V2 source-envelope linkage implemented by `a70a37158`; do not
+   permit new V1 issuance or loosen its exact-key validation. Now migrate the
+   HTTP frame sampler away from complete-response buffering.
    Default remote source canonicalization and demux file I/O are already
    streamed by `7855aa90e` and `0917a6c4e`; do not regress either boundary.
 2. Compose, behind the existing definition-bound execution owner, the exact
@@ -3493,9 +3505,11 @@ open.
 Commit `54273324d` then issues a stable non-circular core receipt, registers
 content-addressed VIDEO/AUDIO children through the existing `mediaAssets`
 owner, and returns a V2 final receipt binding those registration hashes.
-The source canonical envelope does not yet bind the new receipt identities;
-the HTTP frame sampler, durable cancellation/deadline binding and live storage
-verification also remain open.
+Commit `a70a37158` makes new source envelopes V2 and binds that final receipt,
+the stable core identity and both child-registration receipts while preserving
+strict legacy-V1 reads. The HTTP frame sampler, upload/registration
+reconciliation, receipt-body lookup, durable cancellation/deadline binding and
+live storage verification remain open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
@@ -5306,9 +5320,9 @@ and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner; `7855aa90e` connects the default remote
 canonicalizer, `0917a6c4e` streams the existing demux file path and
-`54273324d` registers its derived artifacts. The next bounded reliability order
-is therefore: source-envelope receipt binding, HTTP frame-sampler streaming,
-one execution-root
+`54273324d` registers its derived artifacts, and `a70a37158` binds those
+receipts into newly issued V2 source envelopes. The next bounded reliability
+order is therefore: HTTP frame-sampler streaming, one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
