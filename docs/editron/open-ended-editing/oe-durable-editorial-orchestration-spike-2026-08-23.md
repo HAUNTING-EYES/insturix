@@ -35,7 +35,7 @@ implemented or that the current durable path is production-ready.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Missing |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; Mongo persistence and executable definition storage remain missing |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -55,10 +55,16 @@ Strengths:
   and terminal-receipt contract;
 - requires no new workflow dependency before the domain contract is proven.
 
+Completed foundation:
+
+- `a012e226e` freezes strict canonical plan revisions, bounded DAG validation,
+  terminal proof requirements and append/supersede safety checks without
+  adding a route, store, scheduler or project mutation.
+
 Open work:
 
-- immutable plan revisions and accepted episode definitions;
-- DAG validation, append/supersede rules, locks, approvals and invalidation;
+- immutable Mongo persistence and accepted episode-definition storage;
+- artifact-owner resolution for scopes, locks, approvals and proof;
 - binding a runnable node revision into a durable job input;
 - event history, approval suspension and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
@@ -138,12 +144,14 @@ expected revision, cycles, duplicate IDs, missing dependencies, unauthorized
 scope widening, released locks, invalid lifecycle transitions and a node that
 claims `VERIFIED` without server-issued proof.
 
-The first slice does not schedule work or mutate a project. It establishes the
-sole product planning authority to which later job/transport adapters bind.
+Commit `a012e226e` implements this first contract/validator slice. It does not
+schedule work, persist a plan or mutate a project. It establishes the typed
+boundary to which the Mongo store and later job/transport adapters bind.
 
 ## Required verification sequence
 
-1. Pure contract/validator tests, including adversarial graph and scope cases.
+1. **Complete at `a012e226e`:** pure contract/validator tests, including
+   adversarial graph, scope, lock, stale revision and proof cases.
 2. Immutable Mongo revision store with concurrent-writer conflict tests.
 3. Bind one accepted node definition into the existing durable job input.
 4. Crash/restart and redelivery with zero provider inference.
@@ -155,7 +163,7 @@ sole product planning authority to which later job/transport adapters bind.
 
 ## Evidence basis
 
-- Repository code at `e3ac9b082` and ledger commit `1828d63d7`.
+- Repository code at `a012e226e` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can

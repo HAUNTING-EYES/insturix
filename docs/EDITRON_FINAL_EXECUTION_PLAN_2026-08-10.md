@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `e3ac9b082` on
+programme code checkpoint represented by this ledger is `a012e226e` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1675,6 +1675,26 @@ delivery transport, and ProjectService remains the sole project/timeline owner.
 Upstash/Vercel workflow runtimes and JCode/OpenCode remain optional
 transport/session/UI adapters only. This freezes the owner split; it does not
 claim that product PlanService is implemented.
+
+**Canonical editorial-plan contract checkpoint (2026-08-23):** commit
+`a012e226e` implements the first non-wired product PlanService boundary
+contract. `EDITRON_EDITORIAL_PLAN_V1_1` provides strict, Unicode-normalized,
+hash-bound immutable plan revisions; a bounded acyclic node graph; explicit
+source/timeline/composition tick domains and authority references; observable
+objectives, scopes, effects, locks, approvals, budgets, unchecked claims,
+preview/proof/receipt references and terminal dispositions. The successor
+validator rejects stale/cross-scope revisions, removed or unversioned nodes,
+model overrides of user objectives, unauthorized semantic scope widening,
+implicit lock removal and non-user lock release. A node cannot declare
+`VERIFIED` without PASS proof, a receipt and zero unchecked claims. The shared
+canonical JSON extraction preserves existing durable-job hashes and legacy
+error codes. Focused contract/durable suites pass 18/18, as do repository
+typecheck and quiet ESLint. No route, Mongo write, workflow dispatch, provider
+inference or project effect exists in this commit.
+
+This closes only verification-sequence step 1 in the orchestration ADR. The
+immutable Mongo revision/definition store, artifact-owner resolution, plan-to-
+job binding, event/approval transitions and live recovery remain open.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -3025,8 +3045,8 @@ foundation and is no longer the active queue. The next three slices are:
    serialized manifest-bound artifact. The 2026-08-23 orchestration spike then
    selects one native Mongo PlanService as the product plan/definition owner
    while retaining the shared job record and replaceable QStash transport. Next
-   implement immutable PlanService revisions and bind one accepted node into
-   the shared job input; then bind ProjectService clone/execution,
+   implement the immutable Mongo PlanService revision/definition store, then
+   bind one accepted node into the shared job input; then bind ProjectService clone/execution,
    reference-media and runtime-budget adapters; add
    authenticated fail-closed ingress/dispatch; prove suffix-only recovery
    against non-production Atlas and QStash; then run a fresh
