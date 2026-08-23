@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `349a586c3` on
+programme code checkpoint represented by this ledger is `be8e12871` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 349a586c3. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: be8e12871. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1295,10 +1295,15 @@ cryptographically forced to use the shared issuer. No live Remotion execution
 or production apply is proven. The exact cut-then-focal-scale state chain now
 has one versioned multi-operation outcome policy, two separate baseline-bound
 render requests and required per-frame pixel inspection; zero-network tests
-prove PASS, FAIL and UNVERIFIABLE behavior. This is not live-render or durable
-separate-process certification. Next prove the same two-operation chain through
-durable separate-process replay, then expand concrete operator coverage through
-the same revision origin. Exercise the real renderer only
+prove PASS, FAIL and UNVERIFIABLE behavior. Commit be8e12871 proves the exact
+two-owner chain across two real OS processes: the suffix process reconstructs
+the isolated proposal, replays only the committed cut, consumes the writer-
+issued cut revision through an opaque result reference, executes only the focal
+mutation and preserves canonical state. Its injected renderer intentionally
+returns skipped evidence, so rendered obligations remain UNVERIFIABLE. Next
+enforce the clone-supplied issuer contract for every admitted concrete owner,
+then exercise authenticated non-production Atlas/QStash recovery with zero
+inference. Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
 authorization. -->
@@ -2036,11 +2041,32 @@ typecheck plus quiet ESLint pass. These are injected zero-network renderer
 receipts; live Lambda evidence and separate-process replay of the two-owner
 chain remain open.
 
+**Fresh-process cut-plus-focal recovery checkpoint (2026-08-23):** commit
+`be8e12871` proves that exact two-owner chain across two real operating-system
+processes without paid inference or canonical project mutation. Process A
+executes `cut_section`, persists the durable checkpoint and compact proposal
+recovery state, then exits. Process B creates fresh store/worker/clone instances,
+reconstructs the cut-only intermediate with the real cut owner, replays exactly
+that committed prefix, resolves its writer-issued revision through opaque
+`result_t1_1`, executes only the supplied focal-scale `set_keyframes` suffix and
+finishes through the existing outcome-proof owner. The final isolated state is
+210 frames, moves the product overlay from frame 100 to 90, and contains the
+exact supplied `74% 50%` focal origin and two-point scale track. Canonical state
+remains hash-identical. The injected evidence builder deliberately returns
+`skipped`; edit-state proof is `PASS` while cut/focal render and visual
+obligations remain `UNVERIFIABLE`. The neighboring durability/owner suite passes
+42/42; repository typecheck and quiet ESLint pass.
+
+This closes serialized fresh-process replay and suffix-only execution for these
+two concrete owners only. It does not prove live Atlas, QStash delivery,
+authenticated ingress, resumed paid inference, live rendered acceptance,
+canonical apply/reload or arbitrary-owner issuer enforcement.
+
 This is `CONCRETE_OWNER_IMPLEMENTED_ZERO_NETWORK_TESTED`. The current V2R
 `set_keyframes` dossier still omits the real product tool's general `property`
 field, so the adapter must not be represented as generic x/y/opacity/rotation/
-speed coverage. No multi-operation rendered proof, separate-process replay of
-this owner, live render, canonical apply or product certification has occurred.
+speed coverage. No live multi-operation rendered proof, canonical apply or
+product certification has occurred.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -4584,9 +4610,11 @@ built around it.
     shared durable lifecycle record, `96d2e3923` adapts the exact V4
     checkpoint, `ecfa20c54` closes terminal-writer revision projection and
     `81ce63d9b` adds the transport-neutral zero-inference recovery core, and
-    `fee52df57` adds strict owner-coordinated artifact validation. Real owner
-    adapters, authenticated ingress/dispatch, paid resumed inference and
-    separate-process/live-store recovery remain before
+    `fee52df57` adds strict owner-coordinated artifact validation. Two bounded
+    native owner adapters and their serialized separate-process recovery now
+    exist at `be8e12871`; additional owner coverage, issuer enforcement,
+    authenticated ingress/dispatch, paid resumed inference and live-store
+    recovery remain before
     long-form/range trials. Product
     integration waits
     for ProjectService-issued change regions/transforms/locks and a durable

@@ -37,10 +37,10 @@ production-ready and no live workflow reaches the store.
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
-| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. Arbitrary future injected owners are not yet cryptographically forced to use the issuer; live rendering and durable two-owner replay remain below. |
+| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. `be8e12871` proves serialized fresh-process cut replay plus focal-only suffix execution through the same revision origin while preserving canonical state. Arbitrary future injected owners are not yet cryptographically forced to use the issuer; live rendering and live-store recovery remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
-| Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. It is zero-network tested; live Lambda evidence, durable two-owner replay and production apply remain unproven. |
+| Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. State proof passes; live Lambda evidence and production apply remain unproven. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -184,8 +184,7 @@ Completed foundation:
   invalid ranges, stale revisions and replay drift. One same-process
   cut-then-keyframe chain produces ordered writer receipts without canonical
   mutation. Affected tests pass 97/97; full typecheck and quiet ESLint pass.
-  Generic keyframe properties, durable replay of this owner and live rendered
-  proof remain open.
+  Generic keyframe properties and live rendered proof remain open.
 - `349a586c3` binds the exact cut-plus-focal-scale state chain to one outcome
   policy. It reconstructs the cut-only intermediate state with the existing
   pure owners, verifies operation audit hashes and the cut-issued revision
@@ -194,7 +193,15 @@ Completed foundation:
   alone remain `UNVERIFIABLE`, while inspected missing deltas are `FAIL`.
   Related suites pass 96/96; repository typecheck and quiet ESLint pass. The
   tests inject the existing evidence-builder contract and spend no external
-  resources; live Lambda execution and two-owner process recovery remain open.
+  resources; live Lambda execution remains open.
+- `be8e12871` persists the cut prefix in Process A and recovers it in a fresh
+  Process B. The suffix process reconstructs and replays only the committed cut,
+  consumes its writer-issued revision through opaque `result_t1_1`, executes
+  only the focal mutation and completes with the same proof owner. Canonical
+  state remains unchanged; edit state is `PASS`; deliberately skipped render
+  evidence keeps all visual obligations `UNVERIFIABLE`. The neighboring suite
+  passes 42/42; repository typecheck and quiet ESLint pass. This is serialized
+  test-store recovery, not live Atlas/QStash or product execution.
 
 Open work:
 
@@ -207,8 +214,6 @@ Open work:
   owners through the same revision origin without introducing another
   operation registry or project authority; add clone-side issuer enforcement
   or an issuer port before treating arbitrary injected owners as trusted;
-- carry the now-proven cut plus focal-scale outcome policy through exact
-  separate-process recovery before adding another mutator;
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
@@ -398,6 +403,12 @@ frame against that intermediate rather than the original project. It requires
 per-frame image inspection for visual PASS. It does not prove live Lambda
 rendering, fresh-process recovery of both owners or canonical project apply.
 
+Commit `be8e12871` then closes the serialized fresh-process recovery seam for
+the same two owners. Process B reconstructs and replays the committed cut,
+resolves its revision through the opaque result reference and executes only the
+focal suffix. Its renderer is intentionally skipped, so this does not close
+live rendered acceptance, Atlas/QStash recovery or canonical project apply.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -449,17 +460,21 @@ rendering, fresh-process recovery of both owners or canonical project apply.
     prove one same-process cut/keyframe receipt chain.
 16. **Exact multi-operation outcome policy complete at `349a586c3`:** bind the
     cut-only intermediate, revision handoff, final state, paired render
-    artifacts and inspected pixel deltas. Add fresh-process two-owner recovery
-    and live non-production rendering separately.
-17. Authenticated non-production product wiring plus QStash/Atlas crash/restart
-   and redelivery exercise, using real artifact/operator owners and no second
-   authority.
-18. Only after fresh zero-inference preflight and explicit spend approval:
-   resumed paid model inference.
+    artifacts and inspected pixel deltas. Add live non-production rendering
+    separately.
+17. **Serialized fresh-process two-owner recovery complete at `be8e12871`:**
+    persist the cut prefix, restore it in a second OS process, replay only that
+    prefix, consume its opaque writer revision, execute only the focal suffix
+    and preserve canonical state. Live Atlas/QStash remains separate.
+18. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+    and redelivery exercise, using real artifact/operator owners and no second
+    authority.
+19. Only after fresh zero-inference preflight and explicit spend approval:
+    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `349a586c3` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `be8e12871` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
