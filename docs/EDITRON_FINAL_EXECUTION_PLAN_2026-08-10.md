@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `498e018e6` on
+programme code checkpoint represented by this ledger is `de472b32b` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 498e018e6. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: de472b32b. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1409,10 +1409,18 @@ asset/version/content hash, policy authorization, manifest and per-artifact
 hash/length identity, and rejects scope, route, policy, record and byte drift.
 This proves the contract and owner-port boundary only: the concrete canonical
 media locator, byte reader and rights/privacy policy authority remain unwired.
-The next gate is those concrete canonical-media ports plus a resumable product
-budget reservation/settlement owner—not the inline research reference artifact
-or sealed-holdout controller—followed by their single execution-root
-composition, signed route export and non-production Atlas/QStash exercise.
+Commit de472b32b then freezes a distinct product-budget authorization,
+reservation and settlement contract plus an adapter to the existing runtime-
+guard owner port. It binds exact scope, wallet, route/pricing, hard limits,
+approval, durable-job execution evidence and the existing job budget artifact
+identity. The 8 focused and 76 adjacent tests pass with full typecheck and
+quiet ESLint. It does not move credits: CreditsService still lacks the atomic
+hold plus partial-settlement ledger and durable locator required by the port.
+The next gate is those concrete canonical-media ports plus that concrete
+CreditsService-owned reservation/settlement implementation—not the inline
+research reference artifact or sealed-holdout controller—followed by their
+single execution-root composition, signed route export and non-production
+Atlas/QStash exercise.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -3168,7 +3176,7 @@ research recovery proof. It does not select or implement the product
 Commit `0c94bc059` later adds that non-wired product plan/definition database;
 it still does not make the worker reachable.
 
-**Stage 2/2.5 ingress correction (current at `498e018e6`):** the table and
+**Stage 2/2.5 ingress correction (current at `de472b32b`):** the table and
 chronological paragraphs above that say all authenticated dispatch/worker
 adapters are missing are superseded. Commit `0f54a0a2a` now binds an
 authenticated actor to the exact accepted Plan node, publishes only the opaque
@@ -3180,7 +3188,8 @@ execution owner is absent. Commit `498e018e6` now adds the exact scoped
 canonical-media binding/adapter contract for both native-video and ordered-image
 reference arms, without storing bytes or becoming a second media authority.
 What remains missing is materially different: concrete canonical-media locator,
-byte-reader and policy-owner implementations, a product runtime-budget owner and
+byte-reader and policy-owner implementations, the atomic CreditsService
+reservation/partial-settlement writer and locator required by `de472b32b`, and
 their one execution-root composition, actual API route exports, live Atlas/QStash
 execution and recovery, canonical
 ProjectService apply/reload, broad certified operators and live rendered proof.
@@ -3683,8 +3692,11 @@ foundation and is no longer the active queue. The next three slices are:
    signed worker-ingress factory. They deliberately export no live route while
    the product execution-owner composition root is absent. Commit `498e018e6`
    freezes the canonical-media binding and adapter but deliberately leaves its
-   concrete locator, byte reader and policy ports unwired. Next implement those
-   ports and the product-budget owner, bind both into that one composition root,
+   concrete locator, byte reader and policy ports unwired. Commit `de472b32b`
+   freezes the product-budget contract and runtime-guard adapter while
+   deliberately leaving credit movement unwired. Next implement those media
+   ports plus the atomic CreditsService reservation/partial-settlement writer
+   and locator, bind both into that one composition root,
    export the signed routes and prove recovery against non-production Atlas and
    QStash;
    then run a fresh
@@ -4866,10 +4878,13 @@ groundwork**, not automatic retry authorization or production mutation. The
 fail-closed product dispatch and signed worker adapters now exist but remain
 non-routable without an explicit product execution-owner composition. Commit
 `498e018e6` proves the canonical-media binding/adapter contract, not its concrete
-storage/policy ports. The next bounded reliability order is therefore: concrete
-canonical-media ports plus product-budget owner, their one execution-root
-composition, signed route export, non-production QStash/Atlas crash/redelivery
-exercise, and only then a fresh paid preflight with explicit approval.
+storage/policy ports. Commit `de472b32b` similarly proves the product-budget
+contract and runtime-guard owner port, not atomic credit reservation or partial
+settlement. The next bounded reliability order is therefore: concrete
+canonical-media ports plus the CreditsService-owned reservation writer and
+locator, their one execution-root composition, signed route export,
+non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
+paid preflight with explicit approval.
 Canonical project mutation remains disabled.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
