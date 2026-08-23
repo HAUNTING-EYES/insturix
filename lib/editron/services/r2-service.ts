@@ -140,8 +140,6 @@ export async function uploadToR2(
     ? `${CDN_WORKER_URL}/asset/${assetId}`
     : `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET_NAME}/${r2Key}`;
 
-  console.log(`[R2] Uploaded ${assetId} (${Math.round(file.length / 1024)}KB ${contentType}) → ${publicUrl}`);
-
   return {
     assetId,
     r2Key,
@@ -162,7 +160,6 @@ export async function deleteFromR2(r2Key: string): Promise<void> {
     Bucket: R2_BUCKET_NAME,
     Key: r2Key,
   }));
-  console.log(`[R2] Deleted ${r2Key}`);
 }
 
 // ─── Check Existence ──────────────────────────────────────────────
@@ -211,7 +208,6 @@ export async function deleteR2Prefix(
     continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (continuationToken);
 
-  console.log(`[R2] Deleted ${deletedCount} objects under ${r2Prefix}`);
   return deletedCount;
 }
 /**
@@ -284,8 +280,6 @@ export async function generateR2UploadUrl(
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 min
   const readUrl = getR2PublicUrl(assetId);
   const readUrlExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // R2 CDN URLs never expire
-
-  console.log(`[R2] Presigned upload URL for ${assetId} (${contentType}, user=${userId.slice(0, 12)})`);
 
   return { uploadUrl, assetId, r2Key, readUrl, readUrlExpiresAt };
 }
@@ -365,8 +359,6 @@ export async function initiateMultipartUpload(
     throw new Error('R2 CreateMultipartUpload returned no UploadId');
   }
 
-  console.log(`[R2] Initiated multipart upload ${UploadId} for ${assetId} (${contentType})`);
-
   return { uploadId: UploadId, r2Key, assetId };
 }
 
@@ -417,7 +409,6 @@ export async function completeMultipartUpload(
   }));
 
   const publicUrl = getR2PublicUrl(r2Key);
-  console.log(`[R2] Completed multipart upload ${uploadId} → ${publicUrl}`);
   return publicUrl;
 }
 
@@ -437,11 +428,9 @@ export async function abortMultipartUpload(
       Key: r2Key,
       UploadId: uploadId,
     }));
-    console.log(`[R2] Aborted multipart upload ${uploadId}`);
   } catch (err: any) {
     // NoSuchUpload = already completed or aborted — safe to ignore
     if (err.name === 'NoSuchUpload') {
-      console.log(`[R2] Multipart ${uploadId} already completed/aborted`);
       return;
     }
     throw err;
