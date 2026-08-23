@@ -12,6 +12,7 @@ import {
   assertProviderNativeCanonicalMediaArtifactBindingV2R,
   assertProviderNativeCanonicalMediaBindingRecordV2R,
   assertProviderNativeCanonicalMediaPolicyGrantV2R,
+  PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_COLLECTION_V2R,
   PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_COLLECTION_V2R,
   PROVIDER_NATIVE_CANONICAL_MEDIA_POLICY_COLLECTION_V2R,
 } from './provider-native-canonical-media-product-records-v2r';
@@ -30,6 +31,7 @@ export interface ProviderNativeCanonicalMediaProductCollectionV2R {
 export interface ProviderNativeCanonicalMediaProductRuntimeV2R {
   bindings: ProviderNativeCanonicalMediaProductCollectionV2R;
   policyGrants: ProviderNativeCanonicalMediaProductCollectionV2R;
+  artifactBindings: ProviderNativeCanonicalMediaProductCollectionV2R;
   mediaAssets: ProviderNativeCanonicalMediaProductCollectionV2R;
   readStorage(input: Readonly<{
     backend: 'R2' | 'GCS';
@@ -65,7 +67,7 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
     return runtimePromise;
   };
   const ensureIndexes = async () => {
-    indexPromise ??= runtime().then(async ({ bindings, policyGrants }) => {
+    indexPromise ??= runtime().then(async ({ bindings, policyGrants, artifactBindings }) => {
       await bindings.createIndex({
         'binding.scope.tenantId': 1,
         'binding.scope.userId': 1,
@@ -86,6 +88,14 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
         routeSha256: 1,
         sourceAssetId: 1,
       }, { name: 'provider_media_policy_scope_route_v2r' });
+      await artifactBindings.createIndex({
+        'scope.tenantId': 1,
+        'scope.userId': 1,
+        'scope.projectId': 1,
+        'scope.episodeId': 1,
+        artifactId: 1,
+        artifactVersionSha256: 1,
+      }, { name: 'uniq_provider_media_artifact_scope_v2r', unique: true });
     });
     try {
       await indexPromise;
@@ -114,20 +124,24 @@ export function createProviderNativeCanonicalMediaProductPortsV2R(input: Readonl
     bytes: {
       read: async (request) => {
         await ensureIndexes();
-        const stored = await (await runtime()).mediaAssets.findOne({
-          assetId: request.artifactId,
-          userId: request.scope.userId,
-          projectId: request.scope.projectId,
-          'providerNativeCanonicalMediaArtifactV2R.scope.tenantId': request.scope.tenantId,
-          'providerNativeCanonicalMediaArtifactV2R.scope.episodeId': request.scope.episodeId,
+        const resolved = await runtime();
+        const storedBinding = await resolved.artifactBindings.findOne({
+          'scope.tenantId': request.scope.tenantId,
+          'scope.userId': request.scope.userId,
+          'scope.projectId': request.scope.projectId,
+          'scope.episodeId': request.scope.episodeId,
+          artifactId: request.artifactId,
+          artifactVersionSha256: request.artifactVersionSha256,
         });
-        if (!stored) fail('ARTIFACT_NOT_FOUND');
+        if (!storedBinding) fail('ARTIFACT_BINDING_NOT_FOUND');
         const binding = assertProviderNativeCanonicalMediaArtifactBindingV2R(
-          stored.providerNativeCanonicalMediaArtifactV2R,
+          storedBinding,
         );
         assertArtifactRequest(binding, request);
+        const stored = await resolved.mediaAssets.findOne(mediaAssetFilter(binding));
+        if (!stored) fail('ARTIFACT_MEDIA_NOT_FOUND');
+        assertMediaOwner(stored, binding.mediaOwner);
         assertStorageRow(stored, binding.storage);
-        const resolved = await runtime();
         return resolved.readStorage({
           ...binding.storage,
           expectedByteLength: binding.byteLength,
@@ -174,6 +188,9 @@ async function loadDefaultRuntime(): Promise<Readonly<ProviderNativeCanonicalMed
   return {
     bindings: wrapCollection(db.collection(PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_COLLECTION_V2R)),
     policyGrants: wrapCollection(db.collection(PROVIDER_NATIVE_CANONICAL_MEDIA_POLICY_COLLECTION_V2R)),
+    artifactBindings: wrapCollection(
+      db.collection(PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_COLLECTION_V2R),
+    ),
     mediaAssets: wrapCollection(db.collection(COLLECTIONS.MEDIA_ASSETS)),
     readStorage: readDefaultStorage,
   };
@@ -234,6 +251,27 @@ function assertStorageRow(
 ): void {
   const rowKey = storage.backend === 'R2' ? stored.r2Key : stored.gcsPath;
   if (rowKey !== storage.key) fail('ARTIFACT_STORAGE_ROW_MISMATCH');
+}
+
+function mediaAssetFilter(
+  binding: ReturnType<typeof assertProviderNativeCanonicalMediaArtifactBindingV2R>,
+): Readonly<MongoRecord> {
+  return binding.mediaOwner.type === 'ORG'
+    ? { assetId: binding.artifactId, orgId: binding.mediaOwner.orgId }
+    : { assetId: binding.artifactId, userId: binding.mediaOwner.userId };
+}
+
+function assertMediaOwner(
+  stored: MongoRecord,
+  owner: ReturnType<typeof assertProviderNativeCanonicalMediaArtifactBindingV2R>['mediaOwner'],
+): void {
+  if (owner.type === 'ORG') {
+    if (stored.orgId !== owner.orgId) fail('ARTIFACT_MEDIA_OWNER_MISMATCH');
+    return;
+  }
+  if (stored.userId !== owner.userId || stored.orgId !== undefined) {
+    fail('ARTIFACT_MEDIA_OWNER_MISMATCH');
+  }
 }
 
 function assertPolicyRequest(

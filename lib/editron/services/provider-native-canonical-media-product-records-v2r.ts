@@ -18,12 +18,14 @@ export const PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_COLLECTION_V2R =
   'editron_provider_native_media_bindings_v2r' as const;
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_POLICY_COLLECTION_V2R =
   'editron_provider_native_media_policy_grants_v2r' as const;
+export const PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_COLLECTION_V2R =
+  'editron_provider_native_media_artifact_bindings_v2r' as const;
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_RECORD_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_RECORD_V2R_1' as const;
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_POLICY_GRANT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_POLICY_GRANT_V2R_1' as const;
 export const PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_BINDING_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_BINDING_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_BINDING_V2R_2' as const;
 
 export interface ProviderNativeCanonicalMediaBindingRecordV2R {
   version: typeof PROVIDER_NATIVE_CANONICAL_MEDIA_BINDING_RECORD_VERSION_V2R;
@@ -48,7 +50,11 @@ export interface ProviderNativeCanonicalMediaPolicyGrantV2R {
   recordSha256: string;
 }
 
-/** Stored inside the existing mediaAssets row; it never owns media bytes. */
+/**
+ * Scope-specific metadata that points at one existing mediaAssets-owned object.
+ * It is stored separately so one immutable object can serve multiple episodes
+ * without an unbounded array or a second media byte authority.
+ */
 export interface ProviderNativeCanonicalMediaArtifactBindingV2R {
   version: typeof PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_BINDING_VERSION_V2R;
   scope: Readonly<Scope>;
@@ -59,6 +65,10 @@ export interface ProviderNativeCanonicalMediaArtifactBindingV2R {
   artifactVersionSha256: string;
   bytesSha256: string;
   byteLength: number;
+  mediaOwner: Readonly<
+    | { type: 'USER'; userId: string }
+    | { type: 'ORG'; orgId: string }
+  >;
   storage: Readonly<{
     backend: 'R2' | 'GCS';
     key: string;
@@ -181,6 +191,7 @@ export function createProviderNativeCanonicalMediaArtifactBindingV2R(input: Omit
     artifactVersionSha256: sha256(input.artifactVersionSha256, 'ARTIFACT_VERSION'),
     bytesSha256: sha256(input.bytesSha256, 'ARTIFACT_BYTES'),
     byteLength: positiveInteger(input.byteLength, 'ARTIFACT_BYTE_LENGTH'),
+    mediaOwner: mediaOwner(input.mediaOwner),
     storage: storage(input.storage),
     createdAt: timestamp(input.createdAt, 'ARTIFACT_CREATED_AT'),
   };
@@ -194,7 +205,7 @@ export function assertProviderNativeCanonicalMediaArtifactBindingV2R(
   exactKeys(candidate, [
     'version', 'scope', 'sourceAssetId', 'sourceAssetVersionSha256',
     'referenceEnvelopeSha256', 'artifactId', 'artifactVersionSha256',
-    'bytesSha256', 'byteLength', 'storage', 'createdAt', 'bindingSha256',
+    'bytesSha256', 'byteLength', 'mediaOwner', 'storage', 'createdAt', 'bindingSha256',
   ], 'ARTIFACT_BINDING');
   if (candidate.version !== PROVIDER_NATIVE_CANONICAL_MEDIA_ARTIFACT_BINDING_VERSION_V2R) {
     fail('ARTIFACT_BINDING_VERSION_INVALID');
@@ -208,6 +219,7 @@ export function assertProviderNativeCanonicalMediaArtifactBindingV2R(
     artifactVersionSha256: sha256(candidate.artifactVersionSha256, 'ARTIFACT_VERSION'),
     bytesSha256: sha256(candidate.bytesSha256, 'ARTIFACT_BYTES'),
     byteLength: positiveInteger(candidate.byteLength, 'ARTIFACT_BYTE_LENGTH'),
+    mediaOwner: mediaOwner(candidate.mediaOwner),
     storage: storage(candidate.storage),
     createdAt: timestamp(candidate.createdAt, 'ARTIFACT_CREATED_AT'),
   });
@@ -241,6 +253,19 @@ function storage(value: unknown): ProviderNativeCanonicalMediaArtifactBindingV2R
   exactKeys(candidate, ['backend', 'key'], 'STORAGE');
   if (candidate.backend !== 'R2' && candidate.backend !== 'GCS') fail('STORAGE_BACKEND_INVALID');
   return { backend: candidate.backend, key: identity(candidate.key, 'STORAGE_KEY') };
+}
+
+function mediaOwner(value: unknown): ProviderNativeCanonicalMediaArtifactBindingV2R['mediaOwner'] {
+  const candidate = record(value, 'MEDIA_OWNER');
+  if (candidate.type === 'USER') {
+    exactKeys(candidate, ['type', 'userId'], 'MEDIA_OWNER');
+    return { type: 'USER', userId: identity(candidate.userId, 'MEDIA_OWNER_USER_ID') };
+  }
+  if (candidate.type === 'ORG') {
+    exactKeys(candidate, ['type', 'orgId'], 'MEDIA_OWNER');
+    return { type: 'ORG', orgId: identity(candidate.orgId, 'MEDIA_OWNER_ORG_ID') };
+  }
+  fail('MEDIA_OWNER_TYPE_INVALID');
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {

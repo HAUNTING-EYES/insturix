@@ -89,6 +89,19 @@ describe('provider-native canonical-media product ports V2R', () => {
     expect(result).toEqual(fixture.referenceInput);
   });
 
+  it('resolves an org-owned canonical object without pretending the actor owns its media row', async () => {
+    const fixture = fixtureFor(nativeVideo({ type: 'ORG', orgId: 'org-a' }));
+    const ports = createPorts(fixture, async () => fixture.bytesByArtifact.get('artifact-video')!);
+    const owner = createProviderNativeCanonicalMediaReferenceOwnerV2R({ route: ROUTE, ...ports });
+
+    const result = await owner.resolve({
+      ...SCOPE,
+      expectedManifestSha256: fixture.binding.materialization.manifestSha256,
+    });
+
+    expect(result).toEqual(fixture.referenceInput);
+  });
+
   it('rejects copied scope before policy or storage reads', async () => {
     const fixture = fixtureFor(nativeVideo());
     const readStorage = vi.fn(async () => fixture.bytesByArtifact.get('artifact-video')!);
@@ -167,7 +180,7 @@ describe('provider-native canonical-media product ports V2R', () => {
       .toThrow('POLICY_GRANT_HASH_MISMATCH');
 
     const forgedArtifact = structuredClone(
-      fixture.media.rows[0].providerNativeCanonicalMediaArtifactV2R,
+      fixture.artifactRecords[0],
     ) as unknown as MongoRow;
     forgedArtifact.byteLength = Number(forgedArtifact.byteLength) + 1;
     expect(() => assertProviderNativeCanonicalMediaArtifactBindingV2R(forgedArtifact))
@@ -220,9 +233,9 @@ function fixtureFor(
     binding,
     createdAt: NOW,
   });
-  const mediaRows = binding.materialization.artifacts.map((artifact, index) => {
+  const artifactRecords = binding.materialization.artifacts.map((artifact, index) => {
     const key = source.storageKeys[index];
-    const artifactBinding = createProviderNativeCanonicalMediaArtifactBindingV2R({
+    return createProviderNativeCanonicalMediaArtifactBindingV2R({
       scope: SCOPE,
       sourceAssetId: binding.source.assetId,
       sourceAssetVersionSha256: binding.source.assetVersionSha256,
@@ -231,15 +244,20 @@ function fixtureFor(
       artifactVersionSha256: artifact.artifactVersionSha256,
       bytesSha256: artifact.bytesSha256,
       byteLength: artifact.byteLength,
+      mediaOwner: source.mediaOwner,
       storage: { backend: 'R2', key },
       createdAt: NOW,
     });
+  });
+  const mediaRows = artifactRecords.map((artifactBinding) => {
+    const ownerFields = artifactBinding.mediaOwner.type === 'ORG'
+      ? { userId: 'asset-creator', orgId: artifactBinding.mediaOwner.orgId }
+      : { userId: artifactBinding.mediaOwner.userId };
     return {
-      assetId: artifact.artifactId,
-      userId: SCOPE.userId,
+      assetId: artifactBinding.artifactId,
+      ...ownerFields,
       projectId: SCOPE.projectId,
-      r2Key: key,
-      providerNativeCanonicalMediaArtifactV2R: artifactBinding,
+      r2Key: artifactBinding.storage.key,
     };
   });
   return {
@@ -248,8 +266,10 @@ function fixtureFor(
     binding,
     bindingRecord,
     policyGrant,
+    artifactRecords,
     bindings: new MemoryCollection([bindingRecord]),
     policies: new MemoryCollection([policyGrant]),
+    artifacts: new MemoryCollection(artifactRecords),
     media: new MemoryCollection(mediaRows),
   };
 }
@@ -266,13 +286,19 @@ function createPorts(
     loadRuntime: async () => ({
       bindings: fixture.bindings,
       policyGrants: fixture.policies,
+      artifactBindings: fixture.artifacts,
       mediaAssets: fixture.media,
       readStorage,
     }),
   });
 }
 
-function nativeVideo() {
+function nativeVideo(
+  mediaOwner: Readonly<{ type: 'USER'; userId: string } | { type: 'ORG'; orgId: string }> = {
+    type: 'USER',
+    userId: SCOPE.userId,
+  },
+) {
   const bytes = Buffer.alloc(16);
   bytes.writeUInt32BE(16, 0);
   bytes.write('ftyp', 4, 'ascii');
@@ -298,6 +324,7 @@ function nativeVideo() {
       artifactVersionSha256: H('7'),
     } as const,
     storageKeys: ['r2/reference-video.mp4'],
+    mediaOwner,
     bytesByArtifact: new Map([['artifact-video', bytes]]),
   };
 }
@@ -326,6 +353,7 @@ function orderedImages() {
       ],
     } as const,
     storageKeys: ['r2/frame-a.png', 'r2/frame-b.png'],
+    mediaOwner: { type: 'USER', userId: SCOPE.userId } as const,
     bytesByArtifact: new Map([
       ['artifact-frame-a', frameA],
       ['artifact-frame-b', frameB],
