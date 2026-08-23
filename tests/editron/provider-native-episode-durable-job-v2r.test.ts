@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import {
+  decodeProviderNativeCheckpointStateV2R,
+  encodeProviderNativeCheckpointStateV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-checkpoint-state-codec-v2r';
+import {
   buildProviderNativeEpisodeDurableJobInputV2R,
   persistProviderNativeEpisodeCheckpointV2R,
   restoreProviderNativeEpisodeDurableStateV2R,
@@ -108,6 +112,31 @@ function checkpoint(
 }
 
 describe('provider-native durable episode checkpoint adapter V2R', () => {
+  it('round-trips the store-neutral checkpoint codec with exact recovery', () => {
+    const expected = checkpoint(IDENTITY, [writerTurn()]);
+    const proposalRecoveryState = createProviderNativeProposalRecoveryStateV2R({
+      checkpoint: expected,
+      projectId: 'project-1',
+      canonicalBaseProjectRevision: 'project-revision-v1:base-r7',
+      canonicalBaseStateSha256: 'e'.repeat(64),
+      operations: [{
+        turn: 1, beforeStateSha256: 'e'.repeat(64), afterStateSha256: 'f'.repeat(64),
+      }],
+    });
+    const encoded = encodeProviderNativeCheckpointStateV2R({
+      checkpoint: expected, projectId: 'project-1', proposalRecoveryState,
+    });
+
+    expect(decodeProviderNativeCheckpointStateV2R({
+      state: encoded, projectId: 'project-1',
+    })).toEqual({ checkpoint: expected, proposalRecoveryState });
+
+    const forged = { ...encoded, stateSha256: '0'.repeat(64) };
+    expect(() => decodeProviderNativeCheckpointStateV2R({
+      state: forged, projectId: 'project-1',
+    })).toThrow('PROVIDER_NATIVE_DURABLE_RESUME_STATE_INVALID');
+  });
+
   it('persists one exact V4 checkpoint and restores it through a fresh store instance', async () => {
     const { collection, store } = setup();
     const created = await store.createOrGet(jobInput(), START);

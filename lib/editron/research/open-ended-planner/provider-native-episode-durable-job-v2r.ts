@@ -10,19 +10,21 @@ import {
   type ProviderNativeEpisodeResumeCheckpointV2R,
 } from './provider-native-episode-resume-v2r';
 import type { ProviderNativeRouteV2R } from './provider-native-tool-codecs-v2r';
+import type { ProviderNativeProposalRecoveryStateV2R }
+  from './provider-native-proposal-recovery-v2r';
 import {
-  verifyProviderNativeProposalRecoveryStateV2R,
-  type ProviderNativeProposalRecoveryStateV2R,
-} from './provider-native-proposal-recovery-v2r';
+  decodeProviderNativeCheckpointStateV2R,
+  encodeProviderNativeCheckpointStateV2R,
+} from './provider-native-checkpoint-state-codec-v2r';
+export {
+  PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_VERSION_V2R,
+  PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R,
+} from './provider-native-checkpoint-state-codec-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_DURABLE_EPISODE_INPUT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_DURABLE_EPISODE_INPUT_V2R_1' as const;
-export const PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_V2R_1' as const;
-export const PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_V2R_2' as const;
 
 const OPERATION_OWNER = 'ProviderNativeToolEpisodeV2R';
 const OPERATION_KIND = 'research_provider_native_episode';
@@ -102,30 +104,21 @@ export async function persistProviderNativeEpisodeCheckpointV2R(input: Readonly<
   if (!job) throw new Error('PROVIDER_NATIVE_DURABLE_JOB_NOT_FOUND');
   const identity = identityFromJob(job);
   assertCheckpointIdentity(input.checkpoint, identity);
-  if (input.proposalRecoveryState) {
-    if (!job.projectId) throw new Error('PROVIDER_NATIVE_DURABLE_PROJECT_SCOPE_REQUIRED');
-    verifyProviderNativeProposalRecoveryStateV2R({
-      checkpoint: input.checkpoint,
-      projectId: job.projectId,
-      state: input.proposalRecoveryState,
-    });
-  }
-  const payload = checkpointPayload(input.checkpoint, input.proposalRecoveryState);
-  const stateSha256 = hashDurableWorkflowJobJsonV1(payload);
+  const state = encodeProviderNativeCheckpointStateV2R({
+    checkpoint: input.checkpoint,
+    projectId: job.projectId,
+    ...(input.proposalRecoveryState ? {
+      proposalRecoveryState: input.proposalRecoveryState,
+    } : {}),
+  });
   await input.store.saveResumeState({
     jobId: input.jobId,
     leaseToken: input.leaseToken,
     expectedSequence: input.expectedSequence,
-    state: {
-      schemaId: input.proposalRecoveryState
-        ? PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R
-        : PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_VERSION_V2R,
-      stateSha256,
-      payload,
-    },
+    state,
     ...(input.now ? { now: input.now } : {}),
   });
-  return { stateSha256, sequence: input.expectedSequence + 1 };
+  return { stateSha256: state.stateSha256, sequence: input.expectedSequence + 1 };
 }
 
 export function restoreProviderNativeEpisodeCheckpointV2R(
@@ -141,39 +134,12 @@ export function restoreProviderNativeEpisodeDurableStateV2R(
   proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
 }> {
   const identity = identityFromJob(job);
-  const state = job.resumeState;
-  const supportedState = state?.schemaId === PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_VERSION_V2R
-    || state?.schemaId === PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R;
-  if (!state || !supportedState
-    || hashDurableWorkflowJobJsonV1(state.payload) !== state.stateSha256) {
-    throw new Error('PROVIDER_NATIVE_DURABLE_RESUME_STATE_INVALID');
-  }
-  const payload = record(state.payload);
-  const checkpoint = record(payload.checkpoint) as unknown as ProviderNativeEpisodeResumeCheckpointV2R;
-  if (payload.version !== state.schemaId
-    || payload.checkpointSha256 !== checkpoint.checkpointSha256) {
-    throw new Error('PROVIDER_NATIVE_DURABLE_CHECKPOINT_BINDING_INVALID');
-  }
-  assertCheckpointIdentity(checkpoint, identity);
-  if (state.schemaId === PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R) {
-    if (!job.projectId) throw new Error('PROVIDER_NATIVE_DURABLE_PROJECT_SCOPE_REQUIRED');
-    const proposalRecoveryState = record(
-      payload.proposalRecoveryState,
-    ) as unknown as ProviderNativeProposalRecoveryStateV2R;
-    verifyProviderNativeProposalRecoveryStateV2R({
-      checkpoint,
-      projectId: job.projectId,
-      state: proposalRecoveryState,
-    });
-    return {
-      checkpoint: structuredClone(checkpoint),
-      proposalRecoveryState: structuredClone(proposalRecoveryState),
-    };
-  }
-  if (payload.proposalRecoveryState !== undefined) {
-    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_UNBOUND');
-  }
-  return { checkpoint: structuredClone(checkpoint) };
+  const durableState = decodeProviderNativeCheckpointStateV2R({
+    state: job.resumeState,
+    projectId: job.projectId,
+  });
+  assertCheckpointIdentity(durableState.checkpoint, identity);
+  return durableState;
 }
 
 function identityFromJob(
@@ -328,21 +294,6 @@ function durableDependencies(
       ? -1
       : left.dependencyId > right.dependencyId ? 1 : 0
   ));
-}
-
-function checkpointPayload(
-  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
-  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
-): JsonRecord {
-  return {
-    version: proposalRecoveryState
-      ? PROVIDER_NATIVE_DURABLE_PROPOSAL_CHECKPOINT_STATE_VERSION_V2R
-      : PROVIDER_NATIVE_DURABLE_CHECKPOINT_STATE_VERSION_V2R,
-    checkpointSha256: checkpoint.checkpointSha256,
-    checkpoint: structuredClone(checkpoint),
-    ...(proposalRecoveryState
-      ? { proposalRecoveryState: structuredClone(proposalRecoveryState) } : {}),
-  };
 }
 
 function record(value: unknown): JsonRecord {
