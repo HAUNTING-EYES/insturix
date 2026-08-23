@@ -1512,33 +1512,40 @@ route, pricing and limits into the shared core, and accepts input-token evidence
 only through a route- and serialized-request-bound receipt. Copied receipts,
 route drift, forged reservations and token-counter failure stop before provider
 dispatch. The focused runtime/budget/resume suite passes 36/36 with repository
+typecheck and quiet ESLint.
+
+Commits 133a15596 and b8f8a439d then implement the current OpenAI and Google
+product input-token-count owners. The OpenAI owner calls the official Responses
+input-token endpoint with the exact serialized request. The Google owner
+strictly translates the current stateless Interactions subset into the official
+multimodal `countTokens` request without flattening image/video bytes into text,
+then applies a versioned conservative margin and structural allowance. Both
+receipts bind the exact route and generation-request hash; copied routes,
+unsupported request material, missing credentials and malformed provider
+responses fail closed. The final focused cluster passes 21/21 with repository
 typecheck and quiet ESLint. This is
-`PRODUCT_RUNTIME_GUARD_FACTORY_PROVEN_CONCRETE_TOKEN_COUNTER_NOT_IMPLEMENTED`:
-the counter is still an injected product port and no provider was called.
+`PRODUCT_GUARD_AND_CURRENT_ROUTE_TOKEN_COUNTERS_IMPLEMENTED_NOT_LIVE_PROVEN`:
+no provider count or inference call occurred and no product composition root
+invokes either owner yet.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Add the route-scoped product token-count owner used by the `9a2a8d9ad`
-   guard. It must
-   bind the exact serialized request and use the provider-specific measured or
-   conservative upper-bound policy; the current product composition has no such
-   owner.
-2. Add one durable terminal settlement boundary. It must turn committed
+1. Add one durable terminal settlement boundary. It must turn committed
    provider-attempt and workflow-job evidence into exactly one CreditsService
    actual, conservative-maximum or pre-dispatch-cancellation settlement. The
    current durable worker completes/dead-letters/cancels jobs but never invokes
    the product wallet settlement port.
-3. Make the reference materializer register every source and derived artifact
+2. Make the reference materializer register every source and derived artifact
    in the existing `mediaAssets` owner with content hash, byte length, storage
    identity and canonical envelope before issuance. The current reference-frame
    sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
    end to end.
-4. Compose, behind the existing definition-bound execution owner, the exact
+3. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
    owner, and durable live transport. This remains an isolated proposal path;
    it must not mutate the canonical project or create another timeline owner.
-5. Export the signed product route, then run the non-production Atlas/QStash
+4. Export the signed product route, then run the non-production Atlas/QStash
    crash/restart/redelivery exercise that proves the actual transactions and
    write-ahead recovery.
 
