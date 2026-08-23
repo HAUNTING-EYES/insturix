@@ -29,6 +29,8 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -37,6 +39,11 @@ const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
 const CDN_WORKER_URL = normalizeCdnWorkerUrl(process.env.CDN_WORKER_URL);
+const R2_FILE_SINGLE_PUT_THRESHOLD_BYTES = 64 * 1024 * 1024;
+const R2_MULTIPART_MIN_PART_BYTES = 64 * 1024 * 1024;
+const R2_MULTIPART_MAX_PART_BYTES = 5 * 1024 ** 3;
+const R2_MULTIPART_MAX_PARTS = 10_000;
+const R2_MAX_OBJECT_BYTES = 5 * 1024 ** 4;
 
 function normalizeCdnWorkerUrl(value: string | undefined): string | undefined {
   const normalized = value
@@ -91,6 +98,20 @@ export interface R2UploadResult {
   size: number;
   /** MIME type */
   contentType: string;
+}
+
+type R2CommandClient = {
+  send(command: unknown): Promise<any>;
+};
+
+interface R2FileUploadDeps {
+  client?: R2CommandClient;
+  statFile?: (filePath: string) => Promise<{ size: number; isFile(): boolean }>;
+  createFileReadStream?: (
+    filePath: string,
+    options?: { start?: number; end?: number },
+  ) => ReturnType<typeof createReadStream>;
+  now?: () => Date;
 }
 
 // ─── Upload ───────────────────────────────────────────────────────
@@ -149,6 +170,111 @@ export async function uploadToR2(
   };
 }
 
+/**
+ * Upload a local file without materializing it as one Buffer. Small files use a
+ * streaming PUT; larger files use sequential multipart ranges and abort on any
+ * incomplete upload. The caller may supply a content-addressed asset ID.
+ */
+export async function uploadFileToR2(
+  filePath: string,
+  userId: string,
+  filename: string,
+  contentType: string,
+  customAssetId?: string,
+  deps: R2FileUploadDeps = {},
+): Promise<R2UploadResult> {
+  const file = await (deps.statFile ?? stat)(filePath);
+  if (!file.isFile() || !Number.isSafeInteger(file.size) || file.size < 1) {
+    throw new Error('R2_FILE_UPLOAD_SOURCE_INVALID');
+  }
+  if (file.size > R2_MAX_OBJECT_BYTES) throw new Error('R2_FILE_UPLOAD_OBJECT_TOO_LARGE');
+
+  const client = deps.client ?? getS3Client();
+  const openStream = deps.createFileReadStream ?? createReadStream;
+  const assetId = customAssetId || `a_${nanoid(8)}`;
+  const r2Key = assetId;
+  const metadata = {
+    userId,
+    filename,
+    uploadedAt: (deps.now ?? (() => new Date()))().toISOString(),
+  };
+
+  if (file.size <= R2_FILE_SINGLE_PUT_THRESHOLD_BYTES) {
+    await client.send(new PutObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+      Body: openStream(filePath),
+      ContentLength: file.size,
+      ContentType: contentType,
+      Metadata: metadata,
+    }));
+  } else {
+    const minimumPartBytes = Math.ceil(file.size / R2_MULTIPART_MAX_PARTS);
+    const partSize = Math.max(
+      R2_MULTIPART_MIN_PART_BYTES,
+      Math.ceil(minimumPartBytes / (1024 * 1024)) * 1024 * 1024,
+    );
+    if (partSize > R2_MULTIPART_MAX_PART_BYTES) {
+      throw new Error('R2_FILE_UPLOAD_PART_SIZE_UNSUPPORTED');
+    }
+
+    const created = await client.send(new CreateMultipartUploadCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+      ContentType: contentType,
+      Metadata: metadata,
+    }));
+    const uploadId = typeof created?.UploadId === 'string' ? created.UploadId : '';
+    if (!uploadId) throw new Error('R2_FILE_UPLOAD_ID_MISSING');
+
+    try {
+      const parts: MultipartPart[] = [];
+      for (let start = 0, partNumber = 1; start < file.size; start += partSize, partNumber += 1) {
+        const end = Math.min(file.size - 1, start + partSize - 1);
+        const uploaded = await client.send(new UploadPartCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: r2Key,
+          UploadId: uploadId,
+          PartNumber: partNumber,
+          Body: openStream(filePath, { start, end }),
+          ContentLength: end - start + 1,
+        }));
+        const ETag = typeof uploaded?.ETag === 'string' ? uploaded.ETag : '';
+        if (!ETag) throw new Error(`R2_FILE_UPLOAD_ETAG_MISSING:${partNumber}`);
+        parts.push({ ETag, PartNumber: partNumber });
+      }
+      await client.send(new CompleteMultipartUploadCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: r2Key,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: parts },
+      }));
+    } catch (error) {
+      try {
+        await client.send(new AbortMultipartUploadCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: r2Key,
+          UploadId: uploadId,
+        }));
+      } catch (abortError) {
+        throw new AggregateError(
+          [error, abortError],
+          'R2_FILE_UPLOAD_FAILED_AND_ABORT_FAILED',
+        );
+      }
+      throw error;
+    }
+  }
+
+  return {
+    assetId,
+    r2Key,
+    publicUrl: getR2PublicUrl(assetId),
+    size: file.size,
+    contentType,
+  };
+}
+
 // ─── Delete ───────────────────────────────────────────────────────
 
 /**
@@ -163,10 +289,6 @@ export async function deleteFromR2(r2Key: string): Promise<void> {
 }
 
 // ─── Check Existence ──────────────────────────────────────────────
-
-type R2CommandClient = {
-  send(command: unknown): Promise<any>;
-};
 
 /** Delete every object belonging to one MG sequence. Rejects broad/arbitrary prefixes. */
 export async function deleteR2Prefix(

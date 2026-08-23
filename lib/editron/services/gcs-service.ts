@@ -6,6 +6,8 @@
 
 import { Storage } from '@google-cloud/storage';
 import { nanoid } from 'nanoid';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 
 if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
   throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
@@ -79,6 +81,61 @@ export async function uploadToGCS(
     signedUrl,
     urlExpiresAt: expirationDate,
     size: file.length,
+    contentType,
+  };
+}
+
+/** Upload a local file through GCS's resumable write stream. */
+export async function uploadFileToGCS(
+  filePath: string,
+  userId: string,
+  filename: string,
+  contentType: string,
+  customAssetId?: string,
+): Promise<UploadResult> {
+  const file = await stat(filePath);
+  if (!file.isFile() || !Number.isSafeInteger(file.size) || file.size < 1) {
+    throw new Error('GCS_FILE_UPLOAD_SOURCE_INVALID');
+  }
+
+  const assetId = customAssetId || `a_${nanoid(8)}`;
+  const objectPrefix = customAssetId || String(Date.now());
+  const gcsPath = `editron/${userId}/media/${objectPrefix}_${filename}`;
+  const blob = bucket.file(gcsPath);
+  const source = createReadStream(filePath);
+  const target = blob.createWriteStream({
+    resumable: true,
+    validation: 'crc32c',
+    metadata: { contentType },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    source.once('error', (error) => {
+      target.destroy(error);
+      reject(error);
+    });
+    target.once('error', (error) => {
+      source.destroy(error);
+      reject(error);
+    });
+    target.once('finish', resolve);
+    source.pipe(target);
+  });
+
+  const expirationDate = new Date();
+  expirationDate.setDate(expirationDate.getDate() + 7);
+  const [signedUrl] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: expirationDate,
+  });
+
+  return {
+    assetId,
+    gcsPath,
+    signedUrl,
+    urlExpiresAt: expirationDate,
+    size: file.size,
     contentType,
   };
 }

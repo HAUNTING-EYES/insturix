@@ -12,12 +12,24 @@
  * The interface returns the same fields so callers need minimal changes.
  */
 
-import { uploadToR2, isR2Available, getR2PublicUrl, type R2UploadResult } from './r2-service';
+import {
+  uploadFileToR2,
+  uploadToR2,
+  isR2Available,
+  getR2PublicUrl,
+  type R2UploadResult,
+} from './r2-service';
 
 type GcsService = typeof import('./gcs-service');
 
 async function loadGcsService(): Promise<GcsService> {
   return import('./gcs-service');
+}
+
+interface UploadMediaFromFileDeps {
+  isR2Available?: typeof isR2Available;
+  uploadFileToR2?: typeof uploadFileToR2;
+  loadGcsService?: typeof loadGcsService;
 }
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -131,6 +143,67 @@ export async function uploadMedia(
 }
 
 /**
+ * File-backed counterpart to uploadMedia. R2 remains primary and GCS remains
+ * the availability backend, but an explicitly requested GCS mirror is required
+ * rather than silently discarded. No provider receives one full-file Buffer.
+ */
+export async function uploadMediaFromFile(
+  filePath: string,
+  userId: string,
+  filename: string,
+  contentType: string,
+  options: UploadOptions = {},
+  deps: UploadMediaFromFileDeps = {},
+): Promise<UploadResult> {
+  const available = deps.isR2Available ?? isR2Available;
+  const uploadR2 = deps.uploadFileToR2 ?? uploadFileToR2;
+  const loadGcs = deps.loadGcsService ?? loadGcsService;
+  const { alsoUploadToGCS = false, customAssetId } = options;
+
+  if (available()) {
+    let r2Result: R2UploadResult;
+    try {
+      r2Result = await uploadR2(
+        filePath, userId, filename, contentType, customAssetId,
+      );
+    } catch (r2Error) {
+      try {
+        return await uploadFileViaGCS(
+          filePath, userId, filename, contentType, customAssetId, loadGcs,
+        );
+      } catch (gcsError) {
+        throw new AggregateError(
+          [r2Error, gcsError],
+          'EDITRON_FILE_UPLOAD_ALL_BACKENDS_FAILED',
+        );
+      }
+    }
+
+    let gcsPath: string | null = null;
+    if (alsoUploadToGCS) {
+      const { uploadFileToGCS } = await loadGcs();
+      const gcsResult = await uploadFileToGCS(
+        filePath, userId, filename, contentType, customAssetId,
+      );
+      gcsPath = gcsResult.gcsPath;
+    }
+    return {
+      assetId: r2Result.assetId,
+      signedUrl: r2Result.publicUrl,
+      gcsPath,
+      r2Key: r2Result.r2Key,
+      urlExpiresAt: null,
+      size: r2Result.size,
+      contentType: r2Result.contentType,
+    };
+  }
+
+  return uploadFileViaGCS(
+    filePath, userId, filename, contentType, customAssetId, loadGcs,
+  );
+}
+
+/**
  * GCS-only upload (fallback when R2 is not configured).
  */
 async function uploadViaGCS(
@@ -149,6 +222,29 @@ async function uploadViaGCS(
     urlExpiresAt: gcsResult.urlExpiresAt,
     size: gcsResult.size,
     contentType: gcsResult.contentType,
+  };
+}
+
+async function uploadFileViaGCS(
+  filePath: string,
+  userId: string,
+  filename: string,
+  contentType: string,
+  customAssetId: string | undefined,
+  loadGcs: typeof loadGcsService,
+): Promise<UploadResult> {
+  const { uploadFileToGCS } = await loadGcs();
+  const result = await uploadFileToGCS(
+    filePath, userId, filename, contentType, customAssetId,
+  );
+  return {
+    assetId: result.assetId,
+    signedUrl: result.signedUrl,
+    gcsPath: result.gcsPath,
+    r2Key: null,
+    urlExpiresAt: result.urlExpiresAt,
+    size: result.size,
+    contentType: result.contentType,
   };
 }
 
