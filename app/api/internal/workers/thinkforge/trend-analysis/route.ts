@@ -2,7 +2,10 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
-import { resolveReferenceVideoSource } from '@/lib/editron/reference-video/reference-video-source';
+import {
+  resolveReferenceVideoSource,
+  type ReferenceVideoSource,
+} from '@/lib/editron/reference-video/reference-video-source';
 import * as db from '@/lib/thinkforge/services/db';
 import { analyzeSelectedTrendSource, TrendSourceAnalysisError } from '@/lib/thinkforge/trends/trend-source-analysis';
 import {
@@ -77,7 +80,6 @@ async function handler(request: NextRequest) {
       referenceAssetId: job.referenceAssetId,
       referenceVideoUrl: job.referenceVideoUrl,
       assetResolver,
-      youtubeMode: 'provider-direct',
     });
     if (!resolvedSource.ok) {
       console.warn('[ThinkForge:TrendAnalysisWorker] Reference source rejected:', {
@@ -87,9 +89,44 @@ async function handler(request: NextRequest) {
       return fail('source_rejected');
     }
 
+    const canonicalModule = await import('@/lib/editron/reference-video/canonicalize-reference');
+    let canonical: Awaited<ReturnType<typeof canonicalModule.canonicalizeReferenceVideo>>;
+    try {
+      canonical = await canonicalModule.canonicalizeReferenceVideo({
+        userId: job.userId,
+        orgId: job.orgId ?? undefined,
+        source: resolvedSource.source,
+        audioUsageMode: 'preview-waveform-only',
+      });
+    } catch (error) {
+      if (error instanceof canonicalModule.CanonicalizeReferenceError
+        && ['source_too_small', 'source_demux_failed'].includes(error.code)) {
+        return fail('source_rejected');
+      }
+      throw error;
+    }
+    if (!canonical.sourceRegistration) {
+      throw new Error('Canonical trend reference registration receipt is missing.');
+    }
+    // Trend analysis may read a temporary playable URL, but persisted identity
+    // and every provider input are now bound to the registered exact bytes.
+    const canonicalSource: ReferenceVideoSource = {
+      kind: 'asset',
+      referenceId: canonical.referenceAssetId,
+      videoUrl: canonical.videoUrl,
+      durationSec: canonical.durationSec ?? resolvedSource.source.durationSec,
+      sourceLabel: canonical.sourceLabel ?? resolvedSource.source.sourceLabel,
+      sourceFingerprint: [
+        'canonical',
+        canonical.sourceRegistration.bytesSha256,
+        canonical.sourceRegistration.receiptSha256,
+      ].join('|'),
+      asset: null,
+    };
+
     const analysis = await analyzeSelectedTrendSource({
       selectedTrend,
-      source: resolvedSource.source,
+      source: canonicalSource,
       userId: job.userId,
       sessionId: session._id,
       brandId: session.projectMeta?.brandId,
