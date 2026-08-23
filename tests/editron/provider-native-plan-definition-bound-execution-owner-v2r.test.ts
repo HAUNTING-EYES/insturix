@@ -62,6 +62,39 @@ describe('provider-native Plan-bound execution owner V2R', () => {
       .toThrow('PLAN_DEFINITION_ENVELOPE_HASH_MISMATCH');
     expect(resolveGuard).not.toHaveBeenCalled();
   });
+
+  it('derives route-scoped artifact owners only after each Plan definition validates', async () => {
+    const derivedRoutes: string[] = [];
+    const owner = createProviderNativePlanDefinitionBoundExecutionOwnerV2R({
+      artifactOwnersForDefinition: (envelope) => {
+        derivedRoutes.push(envelope.route.routeId);
+        return sharedOwners((episodeId) => {
+          throw new Error(`GUARD_SENTINEL_${episodeId}`);
+        });
+      },
+    });
+
+    const terra = definitionFor('episode-terra', ROUTE);
+    const luna = definitionFor('episode-luna', {
+      routeId: 'OPENAI_LUNA', provider: 'openai', model: 'gpt-5.6-luna',
+      claimedModelIdentity: 'gpt-5.6-luna', reasoningMode: 'medium',
+    });
+    await expect(owner.execute(executionInput(terra)))
+      .rejects.toThrow('GUARD_SENTINEL_episode-terra');
+    await expect(owner.execute(executionInput(luna)))
+      .rejects.toThrow('GUARD_SENTINEL_episode-luna');
+    expect(derivedRoutes).toEqual(['OPENAI_TERRA', 'OPENAI_LUNA']);
+
+    const forged = structuredClone(definitionFor('episode-forged', ROUTE));
+    const envelope = forged.plannerEnvelope as Record<string, unknown>;
+    const bound = envelope.boundEpisodeDefinition as Record<string, unknown>;
+    const artifactDefinition = bound.definition as Record<string, unknown>;
+    const context = artifactDefinition.context as Record<string, unknown>;
+    context.objective = 'forged objective';
+    expect(() => owner.assertDefinitionSupported({ definition: forged } as never))
+      .toThrow('PLAN_DEFINITION_ENVELOPE_HASH_MISMATCH');
+    expect(derivedRoutes).toEqual(['OPENAI_TERRA', 'OPENAI_LUNA']);
+  });
 });
 
 function sharedOwners(
@@ -81,7 +114,10 @@ function sharedOwners(
   };
 }
 
-function definitionFor(episodeId: string) {
+function definitionFor(
+  episodeId: string,
+  route: Parameters<typeof createProviderNativePlanExecutionEnvelopeV2R>[0]['route'] = ROUTE,
+) {
   const context: ProviderNativeEpisodeContextV2R = {
     episodeId,
     objective: `Construct isolated proposal ${episodeId}.`,
@@ -101,7 +137,7 @@ function definitionFor(episodeId: string) {
   });
   const envelope = createProviderNativePlanExecutionEnvelopeV2R({
     boundEpisodeDefinition,
-    route: ROUTE,
+    route,
     runtimeGuardBinding: {
       guardKind: 'PRODUCT_RUNTIME_BUDGET',
       guardIdentitySha256: GUARD_HASH,
