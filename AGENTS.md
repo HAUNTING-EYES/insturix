@@ -308,8 +308,9 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Register reference-materializer source and derived artifacts through the
-   existing `mediaAssets` owner before canonical-media issuance.
+3. Wire the exact reference-media registration owner from `d42c1af5b` into the
+   source canonicalizer and frame sampler. The owner is proven; upload paths
+   still do not invoke it, so canonical-media issuance remains blocked.
 4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed

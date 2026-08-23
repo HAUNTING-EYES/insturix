@@ -1553,12 +1553,22 @@ and quiet ESLint. This is
 `TERMINAL_SETTLEMENT_REDRIVE_WIRED_NOT_LIVE_WALLET_PROVEN`: no product route or
 non-production Atlas/QStash/CreditsService transaction has yet exercised it.
 
+Commit d42c1af5b then adds the single create-or-compare registration boundary
+for exact reference source/frame bytes in the existing `mediaAssets`
+collection. It hash-binds byte length, SHA-256, USER/ORG owner, selected R2 or
+GCS key and source/frame provenance; source rows additionally require an exact
+canonical reference envelope. Replays are idempotent and conflicting owner,
+storage, content or provenance fails closed. Its focused adversarial suite
+passes 3/3 with repository typecheck and quiet ESLint. This is
+`REFERENCE_MEDIA_REGISTRATION_OWNER_PROVEN_NOT_MATERIALIZER_WIRED`: neither the
+current source canonicalizer nor frame sampler invokes the owner yet, and no
+live Mongo/R2/GCS path was exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Make the reference materializer register every source and derived artifact
-   in the existing `mediaAssets` owner with content hash, byte length, storage
-   identity and canonical envelope before issuance. The current reference-frame
-   sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
+1. Wire the `d42c1af5b` registration owner into every reference source and
+   derived-frame upload. The current reference-frame sampler still uploads
+   R2/GCS bytes without calling it, so ordered-image issuance cannot yet work
    end to end.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
@@ -5037,8 +5047,10 @@ adapter but not live-store proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
 proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
 and wire idempotent terminal redelivery without rerunning execution; live wallet
-proof remains absent. The next bounded reliability order is therefore:
-reference-materializer `mediaAssets` registration, one execution-root
+proof remains absent. Commit `d42c1af5b` supplies the exact existing-
+`mediaAssets` registration owner but does not yet connect upload callers. The
+next bounded reliability order is therefore: source/frame materializer wiring,
+one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
