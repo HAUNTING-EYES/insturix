@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -7,6 +9,8 @@ import {
   type CanonicalizeReferenceDeps,
 } from '@/lib/editron/reference-video/canonicalize-reference';
 import { REFERENCE_ENVELOPE_VERSION } from '@/lib/editron/reference-video/reference-demux';
+import { REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1 }
+  from '@/lib/editron/reference-video/reference-materialized-media-registration-v1';
 
 const source = {
   kind: 'remote-url' as const,
@@ -21,10 +25,14 @@ function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): Canonical
     downloadRemoteBytes: async () => Buffer.alloc(20_000, 0xab),
     uploadRemoteBytes: async (file: Buffer, _userId: string, _fileName: string, referenceAssetId: string) => ({
       assetId: referenceAssetId,
-      videoUrl: `https://cdn.example.com/asset/${referenceAssetId}`,
+      signedUrl: `https://cdn.example.com/asset/${referenceAssetId}`,
+      gcsPath: null,
+      r2Key: referenceAssetId,
+      urlExpiresAt: null,
       size: file.byteLength,
+      contentType: 'video/mp4',
     }),
-    persistEnvelope: async () => null,
+    registerSource: async (input) => registrationReceipt(input.upload.assetId, input.bytes.byteLength),
     demux: async () => ({
       version: 'editron-r1-demux-receipt-v1' as const,
       referenceAssetId: 'ref_url_abc',
@@ -60,12 +68,22 @@ describe('R1-C canonicalize reference', () => {
   });
 
   it('materializes a remote-url reference into a canonical asset with envelope', async () => {
-    const expectedId = buildCanonicalRemoteAssetId('user_1', source.referenceId);
+    const expectedId = buildCanonicalRemoteAssetId(
+      'user_1', source.referenceId, createHash('sha256').update(Buffer.alloc(20_000, 0xab)).digest('hex'),
+    );
     let uploadedAssetId = '';
     const deps = fakeDeps({
       uploadRemoteBytes: async (_file, _userId, _fileName, referenceAssetId) => {
         uploadedAssetId = referenceAssetId;
-        return { assetId: referenceAssetId, videoUrl: `https://cdn.example.com/asset/${referenceAssetId}`, size: 20_000 };
+        return {
+          assetId: referenceAssetId,
+          signedUrl: `https://cdn.example.com/asset/${referenceAssetId}`,
+          gcsPath: null,
+          r2Key: referenceAssetId,
+          urlExpiresAt: null,
+          size: 20_000,
+          contentType: 'video/mp4',
+        };
       },
     });
     const out = await canonicalizeReferenceVideo(
@@ -86,10 +104,17 @@ describe('R1-C canonicalize reference', () => {
   });
 
   it('scopes the canonical asset id per-user (no cross-user R2 collision)', () => {
-    const a = buildCanonicalRemoteAssetId('user_1', source.referenceId);
-    const b = buildCanonicalRemoteAssetId('user_2', source.referenceId);
+    const contentHash = 'a'.repeat(64);
+    const a = buildCanonicalRemoteAssetId('user_1', source.referenceId, contentHash);
+    const b = buildCanonicalRemoteAssetId('user_2', source.referenceId, contentHash);
     expect(a).not.toBe(b);
     expect(a).toMatch(/^ref_canon_/);
+  });
+
+  it('changes the canonical object identity when bytes at the same URL change', () => {
+    const a = buildCanonicalRemoteAssetId('user_1', source.referenceId, 'a'.repeat(64));
+    const b = buildCanonicalRemoteAssetId('user_1', source.referenceId, 'b'.repeat(64));
+    expect(a).not.toBe(b);
   });
 
   it('rejects a remote file too small to be video (fail-loud)', async () => {
@@ -112,15 +137,22 @@ describe('R1-C canonicalize reference', () => {
     ).rejects.toBeInstanceOf(CanonicalizeReferenceError);
   });
 
-  it('propagates envelope persist failure with a stable code', async () => {
+  it('propagates source registration failure with a stable code', async () => {
     const deps = fakeDeps({
-      persistEnvelope: async () => {
+      registerSource: async () => {
         throw new Error('asset not found');
       },
     });
     await expect(
       canonicalizeReferenceVideo({ userId: 'user_1', source, audioUsageMode: 'export-attested' }, deps),
-    ).rejects.toMatchObject({ code: 'envelope_persist_failed' });
+    ).rejects.toMatchObject({ code: 'source_registration_failed' });
+  });
+
+  it('fails loudly when remote upload fails before demux or registration', async () => {
+    const deps = fakeDeps({ uploadRemoteBytes: async () => { throw new Error('R2 unavailable'); } });
+    await expect(
+      canonicalizeReferenceVideo({ userId: 'user_1', source, audioUsageMode: 'preview-waveform-only' }, deps),
+    ).rejects.toMatchObject({ code: 'remote_upload_failed' });
   });
 
   it('carries the export-attested audio mode through Constraint #7', async () => {
@@ -131,3 +163,21 @@ describe('R1-C canonicalize reference', () => {
     expect(out.envelope?.audioUsageMode).toBe('export-attested');
   });
 });
+
+function registrationReceipt(assetId: string, byteLength: number) {
+  return {
+    version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+    assetId,
+    mediaOwner: { type: 'USER' as const, userId: 'user_1' },
+    contentType: 'video/mp4',
+    byteLength,
+    bytesSha256: 'c'.repeat(64),
+    storage: { backend: 'R2' as const, key: assetId },
+    provenance: {
+      version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+      role: 'SOURCE' as const,
+      referenceEnvelopeSha256: 'd'.repeat(64),
+    },
+    receiptSha256: 'e'.repeat(64),
+  };
+}

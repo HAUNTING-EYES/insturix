@@ -26,14 +26,21 @@ import type {
   ReferenceCanonicalEnvelope,
   ReferenceAudioUsageMode,
 } from '@/lib/editron/services/asset-resolver';
+import type { UploadResult } from '@/lib/editron/services/upload-service';
 import type { ReferenceVideoSource } from './reference-video-source';
 import { buildReferenceCanonicalEnvelope, demuxReferenceVideo } from './reference-demux';
+import {
+  registerReferenceMaterializedMediaAssetV1,
+  type ReferenceMaterializedMediaRegistrationInputV1,
+  type ReferenceMaterializedMediaRegistrationReceiptV1,
+} from './reference-materialized-media-registration-v1';
 
 const MIN_DL_BYTES = 10_000; // ⚠️ INVENTED sanity floor — a real video file is ≥100KB
 const DL_TIMEOUT_MS = 90_000; // ⚠️ INVENTED — generous fetch bound; matches yt-dlp default
 
 export interface CanonicalizeReferenceInput {
   userId: string;
+  orgId?: string;
   source: ReferenceVideoSource;
   /** Constraint #7 audio usage mode. Caller decides; never invented here. */
   audioUsageMode: ReferenceAudioUsageMode;
@@ -54,6 +61,8 @@ export interface CanonicalizeReferenceOutput {
   durationSec?: number;
   sourceLabel?: string;
   sourceFingerprint?: string;
+  /** Exact existing-mediaAssets registration required by provider issuance. */
+  sourceRegistration?: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
 }
 
 export interface CanonicalizeReferenceDeps {
@@ -65,13 +74,11 @@ export interface CanonicalizeReferenceDeps {
     userId: string,
     fileName: string,
     referenceAssetId: string,
-  ) => Promise<{ assetId: string; videoUrl: string; size: number }>;
-  /** Persist the canonical envelope on the asset row. Injected for tests. */
-  persistEnvelope?: (input: {
-    assetId: string;
-    userId: string;
-    envelope: ReferenceCanonicalEnvelope;
-  }) => Promise<unknown>;
+  ) => Promise<UploadResult>;
+  /** Register the source and its envelope in existing mediaAssets. */
+  registerSource?: (
+    input: Readonly<ReferenceMaterializedMediaRegistrationInputV1>,
+  ) => Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>>;
   /** Demux delegation. Injected for tests. */
   demux?: typeof demuxReferenceVideo;
   /** Duration probe delegation (passes through to the demux). Injected for tests. */
@@ -86,7 +93,7 @@ export class CanonicalizeReferenceError extends Error {
       | 'remote_too_small'
       | 'remote_upload_failed'
       | 'remote_demux_failed'
-      | 'envelope_persist_failed',
+      | 'source_registration_failed',
     message: string,
     public readonly diagnostics: string[] = [message],
   ) {
@@ -118,33 +125,9 @@ async function defaultUploadRemoteBytes(
   userId: string,
   fileName: string,
   referenceAssetId: string,
-): Promise<{ assetId: string; videoUrl: string; size: number }> {
+): Promise<UploadResult> {
   const { uploadMedia } = await import('@/lib/editron/services/upload-service');
-  const result = await uploadMedia(file, userId, fileName, 'video/mp4', { customAssetId: referenceAssetId });
-  return { assetId: result.assetId, videoUrl: result.signedUrl, size: result.size };
-}
-
-async function defaultPersistEnvelope(input: {
-  assetId: string;
-  userId: string;
-  envelope: ReferenceCanonicalEnvelope;
-}): Promise<unknown> {
-  const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
-  const db = await getDatabase();
-  const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOneAndUpdate(
-    { assetId: input.assetId, userId: input.userId },
-    {
-      $set: {
-        referenceEnvelope: input.envelope,
-        contentHash: input.envelope.contentHash,
-      },
-    },
-    { returnDocument: 'after' },
-  );
-  if (!result?.value) {
-    throw new Error(`asset ${input.assetId} not found for envelope persist`);
-  }
-  return result.value;
+  return uploadMedia(file, userId, fileName, 'video/mp4', { customAssetId: referenceAssetId });
 }
 
 /**
@@ -175,7 +158,7 @@ export async function canonicalizeReferenceVideo(
 
   const downloadRemoteBytes = deps.downloadRemoteBytes ?? defaultDownloadRemoteBytes;
   const uploadRemoteBytes = deps.uploadRemoteBytes ?? defaultUploadRemoteBytes;
-  const persistEnvelope = deps.persistEnvelope ?? defaultPersistEnvelope;
+  const registerSource = deps.registerSource ?? registerReferenceMaterializedMediaAssetV1;
   const demux = deps.demux ?? demuxReferenceVideo;
   const sha256 = deps.sha256 ?? defaultSha256;
 
@@ -201,13 +184,24 @@ export async function canonicalizeReferenceVideo(
   //    per-user: source.referenceId is URL-derived (same for every user) and
   //    would collide cross-user since assetId == R2 key. Derive a scoped id,
   //    and keep the URL fingerprint as provenance on the asset row.
-  const canonicalAssetId = buildCanonicalRemoteAssetId(input.userId, source.referenceId);
-  const uploaded = await uploadRemoteBytes(
-    bytes,
-    userId,
-    sanitizeAssetPart(source.sourceLabel) || 'remote-reference',
-    canonicalAssetId,
+  const canonicalAssetId = buildCanonicalRemoteAssetId(
+    input.userId,
+    source.referenceId,
+    defaultSha256(bytes),
   );
+  const sourceFilenameBase = sanitizeAssetPart(source.sourceLabel) || 'remote-reference';
+  const sourceFilename = sourceFilenameBase.toLowerCase().endsWith('.mp4')
+    ? sourceFilenameBase
+    : `${sourceFilenameBase}.mp4`;
+  let uploaded: UploadResult;
+  try {
+    uploaded = await uploadRemoteBytes(bytes, userId, sourceFilename, canonicalAssetId);
+  } catch (error) {
+    throw new CanonicalizeReferenceError(
+      'remote_upload_failed',
+      'Remote reference upload failed: ' + (error instanceof Error ? error.message : String(error)),
+    );
+  }
 
   // 3. Demux + attach the canonical envelope (content hash = source hash).
   //    Write bytes to a temp file for the demux (it reads from disk).
@@ -244,24 +238,36 @@ export async function canonicalizeReferenceVideo(
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 
-  // 4. Persist the envelope on the canonical asset row.
+  // 4. Register source bytes + envelope in the existing mediaAssets authority.
+  let sourceRegistration: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
   try {
-    await persistEnvelope({ assetId: uploaded.assetId, userId, envelope });
+    sourceRegistration = await registerSource({
+      bytes,
+      upload: uploaded,
+      actorUserId: userId,
+      mediaOwner: input.orgId
+        ? { type: 'ORG', orgId: input.orgId }
+        : { type: 'USER', userId },
+      mediaKind: 'video',
+      filename: sourceFilename,
+      role: { kind: 'SOURCE', referenceEnvelope: envelope },
+    });
   } catch (error) {
     throw new CanonicalizeReferenceError(
-      'envelope_persist_failed',
-      'Failed to persist canonical envelope: ' + (error instanceof Error ? error.message : String(error)),
+      'source_registration_failed',
+      'Failed to register canonical source: ' + (error instanceof Error ? error.message : String(error)),
     );
   }
 
   return {
     referenceAssetId: uploaded.assetId,
-    videoUrl: uploaded.videoUrl,
+    videoUrl: uploaded.signedUrl,
     envelope,
     canonicalKind: 'materialized-remote',
     audioArtifact: demuxedAudio,
     sourceLabel: source.sourceLabel,
     sourceFingerprint: source.sourceFingerprint,
+    sourceRegistration,
   };
 }
 
@@ -275,11 +281,15 @@ function sanitizeAssetPart(value: string): string {
     .slice(0, 60);
 }
 
-/**
- * Per-user canonical asset id for a materialized remote reference. assetId is
- * the R2 key, so scope to the user to avoid cross-user collisions: the same
- * public URL materialized by two users must produce two distinct ids.
- */
-export function buildCanonicalRemoteAssetId(userId: string, sourceReferenceId: string): string {
-  return `ref_canon_${createHash('sha256').update(`${userId}|${sourceReferenceId}`).digest('hex').slice(0, 16)}`;
+/** Content-addressed per-user source ID: changed URL bytes never overwrite prior evidence. */
+export function buildCanonicalRemoteAssetId(
+  userId: string,
+  sourceReferenceId: string,
+  sourceContentSha256: string,
+): string {
+  if (!/^[a-f0-9]{64}$/.test(sourceContentSha256)) {
+    throw new Error('Canonical remote source content hash must be a lowercase SHA-256.');
+  }
+  const identity = `${userId}|${sourceReferenceId}|${sourceContentSha256}`;
+  return `ref_canon_${createHash('sha256').update(identity).digest('hex').slice(0, 20)}`;
 }
