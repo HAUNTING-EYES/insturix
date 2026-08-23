@@ -9,6 +9,7 @@ import { DurableWorkflowJobStoreV1 }
 import {
   runEditorialPlanDurableWorkerV1,
   type EditorialPlanDurableExecutionOwnerV1,
+  type EditorialPlanDurableTerminalSettlementOwnerV1,
   type EditorialPlanDurableWorkerResultV1,
 } from './editorial-plan-durable-worker-v1';
 import {
@@ -22,6 +23,8 @@ export const EDITORIAL_PLAN_PRODUCT_WORKER_ROUTE_ID_V1 =
   'editorial-plan' as const;
 export const EDITORIAL_PLAN_EXECUTION_OWNER_NOT_CONFIGURED_V1 =
   'EDITORIAL_PLAN_EXECUTION_OWNER_NOT_CONFIGURED' as const;
+export const EDITORIAL_PLAN_TERMINAL_SETTLEMENT_OWNER_NOT_CONFIGURED_V1 =
+  'EDITORIAL_PLAN_TERMINAL_SETTLEMENT_OWNER_NOT_CONFIGURED' as const;
 
 type ProductWorkerHandler = (
   request: NextRequest,
@@ -36,6 +39,7 @@ type ProductWorkerHandler = (
 export function createAuthenticatedEditorialPlanProductWorkerV1(
   input: Readonly<{
     executionOwner?: Readonly<EditorialPlanDurableExecutionOwnerV1>;
+    terminalSettlementOwner?: Readonly<EditorialPlanDurableTerminalSettlementOwnerV1>;
     jobStore?: DurableWorkflowJobStoreV1;
     planStore?: EditorialPlanStoreV1;
     workerId?: string;
@@ -47,6 +51,12 @@ export function createAuthenticatedEditorialPlanProductWorkerV1(
     if (!input.executionOwner) {
       return failure(
         EDITORIAL_PLAN_EXECUTION_OWNER_NOT_CONFIGURED_V1,
+        503,
+      );
+    }
+    if (!input.terminalSettlementOwner) {
+      return failure(
+        EDITORIAL_PLAN_TERMINAL_SETTLEMENT_OWNER_NOT_CONFIGURED_V1,
         503,
       );
     }
@@ -71,6 +81,7 @@ export function createAuthenticatedEditorialPlanProductWorkerV1(
         jobId: message.jobId,
         workerId: input.workerId ?? defaultWorkerId(),
         executionOwner: input.executionOwner,
+        terminalSettlementOwner: input.terminalSettlementOwner,
         ...(input.clock ? { clock: input.clock } : {}),
         ...(input.retryDelayMs ? { retryDelayMs: input.retryDelayMs } : {}),
       });

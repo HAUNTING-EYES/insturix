@@ -49,6 +49,12 @@ export interface EditorialPlanDurableExecutionOwnerV1 {
   }>): Promise<Readonly<EditorialPlanDurableExecutionOwnerReceiptV1>>;
 }
 
+export interface EditorialPlanDurableTerminalSettlementOwnerV1 {
+  settleTerminal(
+    job: Readonly<DurableWorkflowJobSnapshotV1>,
+  ): Promise<unknown>;
+}
+
 export class EditorialPlanDurableRetryableErrorV1 extends Error {
   constructor(
     public readonly code: string,
@@ -92,6 +98,7 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
   jobId: string;
   workerId: string;
   executionOwner: Readonly<EditorialPlanDurableExecutionOwnerV1>;
+  terminalSettlementOwner?: Readonly<EditorialPlanDurableTerminalSettlementOwnerV1>;
   clock?: () => Date;
   retryDelayMs?: number;
 }>): Promise<EditorialPlanDurableWorkerResultV1> {
@@ -99,16 +106,23 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
   const claim = await input.jobStore.claim({
     jobId: input.jobId, workerId: input.workerId, now: clock(),
   });
-  if (claim.kind === 'skipped') return { kind: 'skipped', reason: claim.reason };
+  if (claim.kind === 'skipped') {
+    if ('job' in claim) {
+      await settleTerminalSnapshot(input.terminalSettlementOwner, claim.job);
+    }
+    return { kind: 'skipped', reason: claim.reason };
+  }
   if (claim.kind === 'cancel_claimed') {
     await input.jobStore.markCancelled({
       jobId: input.jobId, leaseToken: claim.leaseToken,
       receipt: cancellationReceipt(claim.job, clock()), now: clock(),
     });
+    await settleCommittedTerminal(input, claim.job);
     return { kind: 'cancelled', jobId: input.jobId };
   }
 
   let cancellationRequested = false;
+  let terminalSettlementStarted = false;
   let resumeSequence = claim.job.resumeState?.sequence ?? 0;
   const heartbeat = async (): Promise<void> => {
     const state = await input.jobStore.heartbeat({
@@ -161,12 +175,17 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
       jobId: input.jobId, leaseToken: claim.leaseToken,
       receipt: terminal, now: clock(),
     });
+    // Do not retry settlement inside this delivery. A failure must escape so
+    // QStash redelivery enters the terminal-only branch and cannot rerun edits.
+    terminalSettlementStarted = true;
+    await settleCommittedTerminal(input, claim.job);
     return {
       kind: 'completed', jobId: input.jobId,
       disposition: ownerReceipt.disposition,
       receiptSha256: terminal.receiptSha256,
     };
   } catch (error) {
+    if (terminalSettlementStarted) throw error;
     if (error instanceof DurableWorkflowJobLeaseLostErrorV1) {
       return { kind: 'lease_lost', reason: error.message };
     }
@@ -175,6 +194,10 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
       tenantId: claim.job.tenantId,
       userId: claim.job.userId,
     });
+    if (current && isTerminalStatus(current.status)) {
+      await settleTerminalSnapshot(input.terminalSettlementOwner, current);
+      return { kind: 'skipped', reason: 'terminal' };
+    }
     if (cancellationRequested || error instanceof CancellationRequestedV1
       || current?.cancelRequestedAt) {
       try {
@@ -182,6 +205,7 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
           jobId: input.jobId, leaseToken: claim.leaseToken,
           receipt: cancellationReceipt(current ?? claim.job, clock()), now: clock(),
         });
+        await settleCommittedTerminal(input, current ?? claim.job);
         return { kind: 'cancelled', jobId: input.jobId };
       } catch (cancelError) {
         if (cancelError instanceof DurableWorkflowJobLeaseLostErrorV1) {
@@ -190,8 +214,41 @@ export async function runEditorialPlanDurableWorkerV1(input: Readonly<{
         throw cancelError;
       }
     }
-    return settleFailure({ ...input, claim, current, error, clock });
+    const failure = await settleFailure({ ...input, claim, current, error, clock });
+    if (failure.kind === 'dead_letter') {
+      await settleCommittedTerminal(input, current ?? claim.job);
+    }
+    return failure;
   }
+}
+
+async function settleCommittedTerminal(input: Readonly<{
+  jobStore: Pick<DurableWorkflowJobStoreV1, 'getAuthorized'>;
+  terminalSettlementOwner?: Readonly<EditorialPlanDurableTerminalSettlementOwnerV1>;
+}>, job: Readonly<DurableWorkflowJobSnapshotV1>): Promise<void> {
+  if (!input.terminalSettlementOwner) return;
+  const terminal = await input.jobStore.getAuthorized({
+    jobId: job.jobId, tenantId: job.tenantId, userId: job.userId,
+  });
+  if (!terminal || !isTerminalStatus(terminal.status)) {
+    throw new Error('PLAN_DURABLE_WORKER_TERMINAL_SETTLEMENT_STATE_INVALID');
+  }
+  await settleTerminalSnapshot(input.terminalSettlementOwner, terminal);
+}
+
+async function settleTerminalSnapshot(
+  owner: Readonly<EditorialPlanDurableTerminalSettlementOwnerV1> | undefined,
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+): Promise<void> {
+  if (!owner) return;
+  if (!isTerminalStatus(job.status)) {
+    throw new Error('PLAN_DURABLE_WORKER_TERMINAL_SETTLEMENT_STATE_INVALID');
+  }
+  await owner.settleTerminal(job);
+}
+
+function isTerminalStatus(status: DurableWorkflowJobSnapshotV1['status']): boolean {
+  return status === 'completed' || status === 'cancelled' || status === 'dead_letter';
 }
 
 async function settleFailure(input: Readonly<{

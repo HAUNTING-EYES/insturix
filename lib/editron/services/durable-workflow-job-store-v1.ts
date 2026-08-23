@@ -197,8 +197,9 @@ export class DurableWorkflowJobStoreV1 {
       current = await collection.findOne({ _id: jobId });
       if (!current) return { kind: 'skipped', reason: 'not_found' };
     }
-    if (await expireJobIfNeeded(collection, jobId, now)) {
-      return { kind: 'skipped', reason: 'expired' };
+    const expired = await expireJobIfNeeded(collection, jobId, now);
+    if (expired) {
+      return { kind: 'skipped', reason: 'expired', job: toSnapshot(expired) };
     }
     current = await collection.findOne({ _id: jobId });
     if (!current) return { kind: 'skipped', reason: 'not_found' };
@@ -232,7 +233,9 @@ export class DurableWorkflowJobStoreV1 {
       current = await collection.findOne({ _id: jobId });
       if (!current) return { kind: 'skipped', reason: 'not_found' };
     }
-    if (isTerminal(current.status)) return { kind: 'skipped', reason: 'terminal' };
+    if (isTerminal(current.status)) {
+      return { kind: 'skipped', reason: 'terminal', job: toSnapshot(current) };
+    }
     if (current.cancelRequestedAt) return { kind: 'skipped', reason: 'cancel_requested' };
     if (current.remainingAttempts <= 0) {
       return { kind: 'skipped', reason: 'attempts_exhausted' };
@@ -664,7 +667,7 @@ async function expireJobIfNeeded(
   collection: Collection<DurableWorkflowJobRecordV1>,
   jobId: string,
   now: Date,
-): Promise<boolean> {
+): Promise<DurableWorkflowJobRecordV1 | null> {
   const expired = await collection.findOneAndUpdate(
     {
       _id: jobId,
@@ -691,7 +694,7 @@ async function expireJobIfNeeded(
     },
     { returnDocument: 'after' },
   );
-  return expired !== null;
+  return expired;
 }
 
 async function requireActiveLease(
