@@ -5369,9 +5369,22 @@ centicredits. It never moves wallet balances or mutates projects; terminal
 settlement still delegates the resulting receipt to the sole CreditsService
 writer. No rate row was invented or seeded, and no live Mongo lookup or wallet
 transaction occurred. Focused dependent proof passes 27/27 plus repository
-typecheck and quiet ESLint. The next bounded slice remains the authenticated
-signed route composed from this exact owner, followed by the non-production
-QStash/Atlas/CreditsService crash/redelivery exercise.
+typecheck and quiet ESLint.
+
+**Authenticated product-worker route checkpoint (2026-08-23):** commit
+`c5c49a593` exports the exact dispatch target
+`/api/internal/workers/editorial-plan`. The route exports only `runtime` and
+`POST`, applies the existing request-time QStash signature boundary before
+body parsing, and composes the product root with lazy ports to the sole
+ProjectService and CreditsService owners. Import performs no Mongo, object
+storage, wallet or provider I/O. Missing QStash keys, either provider credential
+family, or the required `EDITRON_PROVIDER_NATIVE_STORAGE_READ_TIMEOUT_MS`
+configuration fails closed before a job claim. The 40/40 route/worker/root/
+security battery, repository typecheck and quiet ESLint pass. This is a signed
+route **export**, not a deployed or live-delivered workflow: no QStash message,
+Atlas transaction, storage read, wallet movement, provider call or canonical
+project mutation occurred. The next gate is the non-production QStash/Atlas/
+CreditsService crash/redelivery exercise.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.

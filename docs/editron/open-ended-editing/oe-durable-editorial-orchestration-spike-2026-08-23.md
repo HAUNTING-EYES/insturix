@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, and an exact Finance-owned customer-pricing locator/charge owner; zero inference; no live route, seeded pricing row, live Atlas/QStash transaction exercise, broader operator certification or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts and exported signed route, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, and an exact Finance-owned customer-pricing locator/charge owner; zero inference; no deployed/live route exercise, seeded pricing row, live Atlas/QStash transaction exercise, broader operator certification or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -164,6 +164,21 @@ Six focused adversarial pricing cases and 27 dependent pricing/settlement/root
 tests pass with repository typecheck and quiet ESLint. No policy row was
 seeded, no live database was queried and no customer was charged, so this is
 `FINANCE_PRICING_OWNER_IMPLEMENTED_NOT_LIVE_PROVEN`, not product rollout.
+
+Commit `c5c49a593` exports the dispatcher's fixed worker path through the
+existing authenticated product-worker factory and the concrete product root.
+The Next module exposes only `runtime` and `POST`. Route composition validates
+both exact provider credential families and a required, bounded
+`EDITRON_PROVIDER_NATIVE_STORAGE_READ_TIMEOUT_MS`; any failure leaves the
+signature wrapper present but supplies no execution owner, so a signed request
+returns 503 before body parsing or job claim. Lazy ProjectService and
+CreditsService ports prevent module import from opening a database or creating
+a shadow owner; their first real call delegates to the canonical singleton/
+factory. The 40/40 route, worker, dispatch, root, pricing and auth battery passes
+with repository typecheck and quiet ESLint. This is
+`SIGNED_ROUTE_EXPORTED_NOT_DEPLOYED_OR_LIVE_PROVEN`: no QStash delivery, Atlas
+transaction, storage read, provider call, wallet movement or project mutation
+occurred.
 
 Commit `d42c1af5b` adds the exact reference-media registration owner over the
 existing `mediaAssets` collection. It create-or-compares source or derived-frame
@@ -1017,14 +1032,17 @@ before advancing. This does not add a secret signer or second revision owner.
 55. **Finance-owned product customer-pricing owner complete at `2e030edfd`:**
     exact policy lookup and integer episode-total charge derivation now exist;
     no pricing row is seeded and no live store or wallet was touched.
-56. Export the authenticated route and run the non-production QStash/Atlas/
-    CreditsService crash/restart/redelivery exercise only after steps 54-55.
-57. Only after fresh zero-inference preflight and explicit spend approval:
+56. **Authenticated product-worker route exported at `c5c49a593`:** the fixed
+    QStash path now composes the product root and fails closed before claim on
+    missing deployment configuration; no deployment or delivery was exercised.
+57. Run the non-production QStash/Atlas/CreditsService crash/restart/redelivery
+    exercise with a Finance-approved test policy and isolated test wallet.
+58. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `2e030edfd` and orchestration-decision commit
+- Repository code through `c5c49a593` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
