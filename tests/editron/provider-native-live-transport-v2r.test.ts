@@ -135,6 +135,28 @@ describe('provider-native live transport V2R', () => {
     await expect(invoke(boundRequest(LUNA_ROUTE)))
       .rejects.toThrow('RETURNED_MODEL_IDENTITY_MISMATCH');
   });
+
+  it('never hides a transient retry inside one durable provider attempt', async () => {
+    let calls = 0;
+    const owner = createProviderNativeDurableLiveTransportOwnerV2R({
+      environment: { OPENAI_API_KEY: 'openai-only' },
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ error: { message: 'retry in 0s' } }), {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        });
+      }) as typeof fetch,
+    });
+    const invoke = await owner.resolve({
+      route: LUNA_ROUTE,
+      episodeId: 'episode-no-hidden-retry',
+    });
+
+    await expect(invoke(boundRequest(LUNA_ROUTE)))
+      .resolves.toMatchObject({ status: 429 });
+    expect(calls).toBe(1);
+  });
 });
 
 const LUNA_ROUTE = route('OPENAI_LUNA', 'openai', 'gpt-5.6-luna');

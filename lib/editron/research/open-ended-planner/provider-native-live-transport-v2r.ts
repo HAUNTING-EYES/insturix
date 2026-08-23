@@ -83,7 +83,6 @@ export function createProviderNativeDurableLiveTransportOwnerV2R(input: {
   environment: Readonly<Record<string, string | undefined>>;
   fetchImpl?: FetchV2R;
   timeoutMs?: number;
-  maxTransientAttempts?: number;
 }): Readonly<ProviderNativeDurableTransportOwnerV2R> {
   return {
     resolve: async ({ route, episodeId }) => {
@@ -92,6 +91,9 @@ export function createProviderNativeDurableLiveTransportOwnerV2R(input: {
       const credential = resolveRouteCredential(route.provider, input.environment);
       const transport = createLiveTransport({
         ...input,
+        // Durable provider attempts are authorized and receipted outside the
+        // HTTP client. An internal retry would be an unrecorded paid attempt.
+        maxTransientAttempts: 1,
         credentialFor: (provider) => {
           if (provider !== route.provider) {
             throw new Error('PROVIDER_NATIVE_DURABLE_PROVIDER_SUBSTITUTION');
