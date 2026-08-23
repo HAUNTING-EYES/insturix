@@ -1280,20 +1280,23 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `1af638999` on
+programme code checkpoint represented by this ledger is `b0f1442c0` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 1af638999. Deterministic proposal recovery, one
-real cut_section owner, immutable reference/runtime-budget owners, strict
+<!-- CURRENT RESUME CHECKPOINT: b0f1442c0. Deterministic proposal recovery, two
+real bounded native owners (cut_section plus focal-scale set_keyframes),
+immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete single-cut Phase-0 proof adapter
 and one clone-supplied current proposal revision plus deterministic concrete-
 owner issuer are implemented with zero-network tests. The cut owner no longer
 keeps a private revision map. Future injected owners are not yet
 cryptographically forced to use the shared issuer. No live Remotion execution
-or production apply is proven. Next expand concrete operator coverage through
-the same revision origin, prove a multi-operation chain, then exercise the real
-renderer only with explicit external-cost authorization; do not rerun paid
+or production apply is proven. The two-operation chain is same-process state
+and receipt proof, not rendered/durable certification. Next add exact
+multi-operation outcome proof and durable replay, then expand concrete operator
+coverage through the same revision origin. Exercise the real renderer only
+with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
 authorization. -->
 
@@ -1999,6 +2002,25 @@ an arbitrary future injected owner called the issuer; clone-side validation or
 an issuer port remains a hardening task. It also does not add a keyframe/audio
 owner, multi-operation proof, live render, canonical apply or production
 certification.
+
+**Concrete focal-scale keyframe-owner checkpoint (2026-08-23):** commit
+`b0f1442c0` adapts the existing
+`keyframe-mutation.ts#buildKeyframeMutationPatch` owner to the same isolated
+ProjectService clone revision chain as `cut_section`. It accepts only the
+technically unambiguous video/image focal-scale subset, preserves unrelated
+tracks, binds local frames/focal point/state hashes/changed paths and issues
+its writer revision through the shared deterministic origin. Missing focal
+evidence, non-scale property, stale revision, invalid local range and forged
+replay fail closed. A same-process cut-then-keyframe test proves ordered
+receipts while canonical ProjectService state stays unchanged. The affected
+owner/form/clone/durable suite passes 97/97; repository typecheck and quiet
+ESLint pass.
+
+This is `CONCRETE_OWNER_IMPLEMENTED_ZERO_NETWORK_TESTED`. The current V2R
+`set_keyframes` dossier still omits the real product tool's general `property`
+field, so the adapter must not be represented as generic x/y/opacity/rotation/
+speed coverage. No multi-operation rendered proof, separate-process replay of
+this owner, live render, canonical apply or product certification has occurred.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -2834,12 +2856,15 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
-**Stage 2 row correction (2026-08-23):** commit `1af638999` supersedes the
+**Stage 2 row correction (2026-08-23):** commits `1af638999` and `b0f1442c0`
+supersede the
 table's previous concrete-owner revision wording. The clone now supplies one
 current proposal revision to execution and committed replay, and the current
 `cut_section` owner uses the shared deterministic concrete-writer issuer
-instead of a private `WeakMap`. The next owner must consume that same origin;
-clone-enforced issuer use, multi-operation proof, live rendering and canonical
+instead of a private `WeakMap`. The focal-scale keyframe owner consumes the
+same origin, and one same-process cut-then-keyframe receipt chain now passes.
+Clone-enforced issuer use, generic keyframe-property contract correction,
+durable/rendered multi-operation proof, live rendering and canonical
 apply/reload are still open.
 
 **Stage 2.5 row correction (2026-08-23):** the row's former combined
