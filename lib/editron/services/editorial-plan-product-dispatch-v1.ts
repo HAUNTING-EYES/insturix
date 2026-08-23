@@ -24,6 +24,18 @@ const WorkerMessageSchema = z.object({
 
 export type EditorialPlanProductWorkerMessageV1 = z.infer<typeof WorkerMessageSchema>;
 
+export function assertEditorialPlanProductWorkerMessageV1(
+  value: unknown,
+): Readonly<EditorialPlanProductWorkerMessageV1> {
+  const result = WorkerMessageSchema.safeParse(value);
+  if (!result.success) {
+    throw new EditorialPlanProductDispatchErrorV1(
+      'EDITORIAL_PLAN_PRODUCT_WORKER_MESSAGE_INVALID',
+    );
+  }
+  return Object.freeze(result.data);
+}
+
 export interface EditorialPlanProductDispatchEnvironmentV1 {
   QSTASH_TOKEN?: string;
   QSTASH_URL?: string;
@@ -141,7 +153,7 @@ export async function dispatchEditorialPlanProductJobV1(input: Readonly<{
   }
 
   const publisher = input.publisher ?? createPublisher(env);
-  const message = WorkerMessageSchema.parse({
+  const message = assertEditorialPlanProductWorkerMessageV1({
     version: EDITORIAL_PLAN_PRODUCT_WORKER_MESSAGE_VERSION_V1,
     jobId: bound.job.jobId,
   });
