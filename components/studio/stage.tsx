@@ -7,6 +7,8 @@
  */
 
 import type { StudioArtifact, StudioStageFocus } from "@/lib/studio/contracts/objects";
+import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { ReelEmbed } from "./reel-embed";
 
 const CAP_COLOR: Record<string, string> = {
   script: "var(--c-write)",
@@ -18,6 +20,22 @@ const CAP_COLOR: Record<string, string> = {
 };
 
 function ReelView({ artifact }: { artifact: StudioArtifact }) {
+  /* real mode + real editron artifact → the actual editor, embedded */
+  if (studioRealTurnsEnabled && artifact.sourceRef.engine === "editron") {
+    return (
+      <>
+        <div className="stu-chips">
+          <span className="stu-chip">live editor</span>
+          {artifact.sourceRef.manualHref && (
+            <a className="stu-chip" href={artifact.sourceRef.manualHref} style={{ textDecoration: "none" }}>
+              open full editor ↗
+            </a>
+          )}
+        </div>
+        <ReelEmbed projectId={artifact.sourceRef.externalId} />
+      </>
+    );
+  }
   return (
     <>
       <div className="stu-chips">
