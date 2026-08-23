@@ -1728,17 +1728,31 @@ the already-in-memory SaaS upload seam still supplies bytes; not every live
 caller propagates durable cancellation/deadline state; upload and registration
 are not atomic; and no live R2/GCS object checksum was compared.
 
+Commit 0917a6c4e removes those complete-file reads from the existing demux
+owner without changing its V1 receipt shape. Source, video and optional audio
+identities are measured through stable file streams; derived files use the
+existing file upload owner; upload byte-length/key drift fails closed; the
+invented 256/128-byte media floors and default 180-second FFmpeg timeout are
+gone; and caller cancellation reaches both duration probing and the active
+FFmpeg child. The reference cluster passes 61/61, the final demux/
+canonicalization suite passes 22/22 including active-process cancellation, and
+repository typecheck/quiet ESLint pass. This is
+`DEMUX_FILES_STREAMED_DERIVED_REGISTRATION_PENDING`: the V1 demux receipt still
+does not include canonical derived-stream registration receipts, upload and
+registration are not atomic, the HTTP frame sampler still buffers complete
+media via `arrayBuffer()`, and no live store was exercised.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
    mutation and proof owners are composed. Provide the experimental visual
    observer's authorized canonical byte-reader, evaluation receipt and product
    caller only through the existing owners. Use the existing file-registration
-   owner to migrate demux outputs to the verified file-stream upload boundary,
-   replace its provisional timeout/minimum-byte assumptions with probed failure
-   policy, and register video/audio demux artifacts through the same media
-   authority. Default remote source canonicalization is already streamed by
-   `7855aa90e`; do not regress it to whole-source buffering.
+   owner to register the now-streamed video/audio demux artifacts through the
+   same media authority with a non-circular, stable receipt binding. Then
+   migrate the HTTP frame sampler away from complete-response buffering.
+   Default remote source canonicalization and demux file I/O are already
+   streamed by `7855aa90e` and `0917a6c4e`; do not regress either boundary.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3452,6 +3466,13 @@ upload and file-registration owners, removes its full-response buffer,
 10-KiB floor and 90-second whole-download timeout, and reuses already-owned
 managed objects. Demux migration, derived-stream receipt composition, durable
 caller cancellation/deadline propagation and live storage verification remain
+open.
+
+Commit `0917a6c4e` then migrates the existing demux owner itself to streamed
+stable-file hashing and file upload, removes its provisional byte floors and
+default FFmpeg timeout, and propagates caller cancellation. Derived-stream
+registration receipts, the still-buffered HTTP frame-sampler path, durable
+caller cancellation/deadline binding and live storage verification remain
 open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
@@ -5262,9 +5283,9 @@ proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
 and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner; `7855aa90e` connects the default remote
-canonicalizer without claiming the still-buffered demux path. The next bounded
-reliability order is therefore: demux streaming and artifact-receipt
-composition, one execution-root
+canonicalizer and `0917a6c4e` streams the existing demux file path. The next
+bounded reliability order is therefore: derived-stream receipt composition,
+HTTP frame-sampler streaming, one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
