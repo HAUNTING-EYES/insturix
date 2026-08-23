@@ -36,7 +36,7 @@ production-ready and no live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope. No authenticated review route, shared provider execution core or live Atlas/QStash proof exists. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. `be8e12871` proves serialized fresh-process cut replay plus focal-only suffix execution through the same revision origin while preserving canonical state. `ee650e18b` makes the clone independently recompute and validate every admitted writer revision from exact receipt/call/state material. Live rendering and live-store recovery remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
@@ -208,6 +208,19 @@ Completed foundation:
   advances; speculative clone state is rolled back. The separate dependency-
   shape process fixture now emits issuer-conformant synthetic receipts. Related
   tests pass 44/44; repository typecheck and quiet ESLint pass.
+- `1764a8ff8` adds the product durable lifecycle worker. It claims from the sole
+  job store, re-resolves the accepted PlanService definition, delegates only to
+  an injected owner that asserts support, exposes lease heartbeat and resume
+  CAS, and settles cancellation, explicit retry, dead letter or an owner-bound
+  terminal receipt. Focused lifecycle tests pass 19/19; the injected test owner
+  performs zero inference and no project mutation.
+- `ee07f11cf` freezes the PlanService-to-provider execution envelope. It binds
+  exact scope, provider route/model identity, opaque tool set, reference hash,
+  isolated-proposal policy and runtime-budget guard. A fresh start carries no
+  invented resume checkpoint; an optional real checkpoint must match every
+  bound identity. The envelope/durable cluster passes 28/28. This is a contract
+  bridge, not runtime convergence: the research worker still requires its own
+  job identity and persisted checkpoint.
 
 Open work:
 
@@ -223,6 +236,9 @@ Open work:
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
+- extract one provider execution core shared by the research durable worker and
+  the PlanService execution adapter. Do not weaken either job identity, create
+  a second store or duplicate the provider loop;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
 ### B. Upstash or Vercel durable workflow runtime — transport candidate only
@@ -480,15 +496,22 @@ before advancing. This does not add a secret signer or second revision owner.
 18. **Clone-enforced issuer derivation complete at `ee650e18b`:** independently
     validate every admitted writer receipt against exact scope, revision, call
     and before/after state material; reject missing, copied and forged origins.
-19. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+19. **Product durable lifecycle complete at `1764a8ff8`:** claim, exact
+    PlanService re-resolution, owner assertion, heartbeat, resume CAS,
+    cancellation, retry/dead-letter and terminal receipt are transport-neutral
+    and zero-inference tested.
+20. **Provider execution envelope complete at `ee07f11cf`:** bind exact fresh or
+    resumed provider execution material into the signed PlanService definition.
+    Extract and verify one shared provider execution core next.
+21. Authenticated non-production product wiring plus QStash/Atlas crash/restart
     and redelivery exercise, using real artifact/operator owners and no second
     authority.
-20. Only after fresh zero-inference preflight and explicit spend approval:
+22. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `ee650e18b` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `ee07f11cf` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can

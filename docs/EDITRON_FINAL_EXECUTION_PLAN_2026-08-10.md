@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `ee650e18b` on
+programme code checkpoint represented by this ledger is `ee07f11cf` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: ee650e18b. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: ee07f11cf. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1302,9 +1302,20 @@ two-owner chain across two real OS processes: the suffix process reconstructs
 the isolated proposal, replays only the committed cut, consumes the writer-
 issued cut revision through an opaque result reference, executes only the focal
 mutation and preserves canonical state. Its injected renderer intentionally
-returns skipped evidence, so rendered obligations remain UNVERIFIABLE. Next
-exercise authenticated non-production Atlas/QStash recovery with zero
-inference. Exercise the real renderer only
+returns skipped evidence, so rendered obligations remain UNVERIFIABLE. Commit
+1764a8ff8 adds the missing transport-neutral PlanService durable lifecycle
+worker: claim, exact execution-time resolution, owner assertion, heartbeat,
+resume-state CAS, cancellation, typed retry/dead-letter and owner-bound terminal
+receipt all use the one existing durable store. Commit ee07f11cf then freezes
+the exact PlanService-bound provider execution envelope, including immutable
+scope, route, opaque tool set, isolated-proposal policy, reference identity and
+runtime-budget binding. It correctly represents a fresh start without inventing
+an empty resume checkpoint and accepts a resume checkpoint only as an optional
+matching recovery artifact. The research provider durable worker still owns a
+different job identity and requires a pre-existing checkpoint; directly feeding
+it the PlanService job would be false convergence. Next extract one shared
+provider execution core used by both lifecycle adapters, then add authenticated
+non-production QStash/Atlas wiring with zero inference. Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
 authorization. -->
@@ -2080,6 +2091,39 @@ This validates issuer-conformant output material for every owner admitted by
 the clone; it does not create an owner registry, secret signing authority or
 second revision chain. Authenticated ingress, live Atlas/QStash recovery, live
 rendered acceptance and canonical apply/reload remain unproved.
+
+**Product durable lifecycle worker checkpoint (2026-08-23):** commit
+`1764a8ff8` adds the previously missing execution transition for a leased
+PlanService node. It re-resolves the exact accepted plan/node/definition before
+delegation, requires one injected execution owner to assert support, exposes
+only heartbeat and resume-state CAS controls, and binds the owner receipt,
+proofs, plan revision, node version and definition hash into the outer terminal
+receipt. Unknown failures dead-letter; only the explicit typed retry contract
+can enter retry wait; cancellation and stale plan heads stop before completion.
+The focused lifecycle cluster passes 19/19 and repository typecheck/quiet ESLint
+pass. The test owner is zero-inference and non-production; this commit does not
+select or wire the provider runtime.
+
+**PlanService-to-provider execution-envelope checkpoint (2026-08-23):** commit
+`ee07f11cf` binds a provider-native research proxy to one signed PlanService
+execution definition without weakening either owner. The envelope fixes exact
+tenant/user/project/episode scope, provider route and claimed model identity,
+opaque tool-set hash, reference manifest when present, isolated-proposal/no-
+canonical-mutation policy and runtime-budget identity. Fresh start and resume
+are distinct: a new episode has no fake empty checkpoint; a supplied recovery
+checkpoint must match route, episode, context, tool set, reference and budget
+guard. Copied scope, changed schema/toolset/budget and tampering fail closed.
+The provider-envelope/durable cluster passes 28/28 and repository typecheck/
+quiet ESLint pass.
+
+These commits close the product lifecycle and immutable definition seams only.
+The existing research provider worker still claims
+`ProviderNativeToolEpisodeV2R/research_provider_native_episode` jobs, while the
+product job is `PLAN_SERVICE/editorial_plan_node_episode`; the former also
+requires a persisted non-empty resume checkpoint. A single extracted execution
+core must serve both adapters before QStash ingress can execute the product
+definition. Do not add a second job store, weaken either identity, fabricate a
+zero-turn resume checkpoint or copy the provider loop into a shadow owner.
 
 This is `CONCRETE_OWNER_IMPLEMENTED_ZERO_NETWORK_TESTED`. The current V2R
 `set_keyframes` dossier still omits the real product tool's general `property`
@@ -2953,12 +2997,18 @@ table wording that still groups every definition seam as missing. Commit
 exact accepted product definition into the shared job input, and commit
 `d16caaa5b` adds the product-side leased-job resolver that revalidates its plan
 head, definition, dependencies, scope, identity and aggregate budget over
-fresh store instances. Commit `b9cf5e820` then carries those exact
+fresh store instances. Commit `1764a8ff8` now adds the transport-neutral leased
+PlanService execution lifecycle, and `ee07f11cf` binds one exact provider-native
+research-proxy envelope into the signed definition while preserving distinct
+fresh-start and resume states. Commit `b9cf5e820` then carries those exact
 Mongo-shaped product plan, definition and job records through a real process
 exit and revalidates/reclaims them in another process with zero inference and
 zero project effects. The research recovery worker is still a separate
 research path, all referenced product artifacts are not yet resolved, and the
-product binding has not exercised live Atlas or QStash.
+product binding has not exercised live Atlas or QStash. The product lifecycle
+and provider envelope are now explicit, but the research provider worker still
+cannot consume the product job identity; one shared execution core remains the
+next integration prerequisite.
 Commit `b50f9f9fa` now supplies the non-wired ProjectService proposal-clone and
 durable diff-receipt adapter, so the former blanket “ProjectService clone” gap
 is retired. Broad certified operator ownership, reference-media and
