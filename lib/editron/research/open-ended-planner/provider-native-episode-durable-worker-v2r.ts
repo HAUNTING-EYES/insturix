@@ -6,8 +6,11 @@ import {
 } from './provider-native-episode-durable-job-v2r';
 import type { ProviderNativeProposalRecoveryStateV2R }
   from './provider-native-proposal-recovery-v2r';
-import type { ProviderNativeDurableOutcomeProofReceiptV2R }
-  from './provider-native-durable-outcome-proof-v2r';
+import type {
+  ProviderNativeDurableOutcomeProofReceiptV2R,
+  ProviderNativeExecutionBoundOutcomeProofReceiptV2R,
+  ProviderNativeExecutionTraceKindV2R,
+} from './provider-native-durable-outcome-proof-v2r';
 import type {
   runProviderNativeToolEpisodeV2R,
   ProviderNativeEpisodeReceiptV2R,
@@ -77,6 +80,14 @@ export interface ProviderNativeDurableIsolatedCloneV2R {
     resumedReceiptSha256: string;
     proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
   }>) => Promise<Readonly<ProviderNativeDurableOutcomeProofReceiptV2R>>;
+  finalizeExecutionBoundOutcomeProof?: (input: Readonly<{
+    episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+    executionTrace: Readonly<{
+      kind: ProviderNativeExecutionTraceKindV2R;
+      receiptSha256: string;
+    }>;
+    proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+  }>) => Promise<Readonly<ProviderNativeExecutionBoundOutcomeProofReceiptV2R>>;
 }
 
 export type ProviderNativeDurableResolvedArtifactsV2R = Readonly<

@@ -21,8 +21,11 @@ import {
   type ProviderNativeProposalRecoveryStateV2R,
   type ProviderNativeProposalRecoveryWriterTurnV2R,
 } from './provider-native-proposal-recovery-v2r';
-import type { ProviderNativeDurableOutcomeProofReceiptV2R }
-  from './provider-native-durable-outcome-proof-v2r';
+import type {
+  ProviderNativeDurableOutcomeProofReceiptV2R,
+  ProviderNativeExecutionBoundOutcomeProofReceiptV2R,
+  ProviderNativeExecutionTraceKindV2R,
+} from './provider-native-durable-outcome-proof-v2r';
 import type {
   ProviderNativeEpisodeReceiptV2R,
   ProviderNativeToolExecutionV2R,
@@ -77,6 +80,21 @@ export interface ProjectServiceIsolatedOutcomeProofOwnerV2R {
     resumedReceiptSha256: string;
     proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
   }>): Promise<Readonly<ProviderNativeDurableOutcomeProofReceiptV2R>>;
+  proveExecutionBound?(input: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    project: Readonly<Project>;
+    baselineProject: Readonly<Project>;
+    baseRevision: Readonly<ProjectRevisionV1>;
+    episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+    executionTrace: Readonly<{
+      kind: ProviderNativeExecutionTraceKindV2R;
+      receiptSha256: string;
+    }>;
+    proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+  }>): Promise<Readonly<ProviderNativeExecutionBoundOutcomeProofReceiptV2R>>;
 }
 
 interface OperationAuditV2R {
@@ -119,6 +137,9 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
       let finalized: Readonly<ProviderNativeDurableProposalReceiptV2R> | null = null;
       let finalizedProof: Readonly<ProviderNativeDurableOutcomeProofReceiptV2R> | null = null;
       let finalizedProofInputSha256: string | null = null;
+      let finalizedExecutionBoundProof:
+        Readonly<ProviderNativeExecutionBoundOutcomeProofReceiptV2R> | null = null;
+      let finalizedExecutionBoundProofInputSha256: string | null = null;
       const operations: OperationAuditV2R[] = [];
       const recovery = scope.proposalRecoveryState;
       const writerTurns = proposalRecoveryWriterTurnsV2R(scope.checkpoint);
@@ -259,6 +280,61 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         return finalizedProof;
       };
 
+      const finalizeExecutionBoundOutcomeProof = async (proofInput: Readonly<{
+        episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+        executionTrace: Readonly<{
+          kind: ProviderNativeExecutionTraceKindV2R;
+          receiptSha256: string;
+        }>;
+        proposalReceipt: Readonly<ProviderNativeDurableProposalReceiptV2R>;
+      }>) => {
+        const proposalReceipt = await finalizeProposalReceipt();
+        if (proofInput.proposalReceipt.receiptSha256 !== proposalReceipt.receiptSha256) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_RECEIPT_MISMATCH');
+        }
+        const proofInputSha256 = hashCanonicalJsonV1({
+          episodeReceiptSha256: proofInput.episodeReceipt.receiptSha256,
+          executionTrace: proofInput.executionTrace,
+          proposalReceiptSha256: proposalReceipt.receiptSha256,
+        });
+        if (finalizedExecutionBoundProof) {
+          if (finalizedExecutionBoundProofInputSha256 !== proofInputSha256) {
+            throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_REPLAY_MISMATCH');
+          }
+          return finalizedExecutionBoundProof;
+        }
+        const beforeGuard = await readCanonicalGuard(input.projectService, scope);
+        if (!guardMatches(beforeGuard, baseRevision, baseStateSha256)) {
+          stale = true;
+          throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        }
+        const proof = await input.isolatedOutcomeProofOwner!.proveExecutionBound!({
+          tenantId: scope.tenantId,
+          userId: scope.userId,
+          projectId: scope.projectId,
+          checkpoint: scope.checkpoint,
+          project: structuredClone(workingProject),
+          baselineProject: structuredClone(initial.project),
+          baseRevision: structuredClone(baseRevision),
+          episodeReceipt: structuredClone(proofInput.episodeReceipt),
+          executionTrace: structuredClone(proofInput.executionTrace),
+          proposalReceipt: structuredClone(proposalReceipt),
+        });
+        const afterGuard = await readCanonicalGuard(input.projectService, scope);
+        if (!guardMatches(afterGuard, baseRevision, baseStateSha256)) {
+          stale = true;
+          throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+        }
+        assertCloneIdentity(initial.project, workingProject);
+        if (hashCanonicalJsonV1(projectProposalStateV2R(workingProject))
+          !== proposalReceipt.finalStateSha256) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_PROOF_STATE_DRIFT');
+        }
+        finalizedExecutionBoundProof = deepFreezeV1(structuredClone(proof));
+        finalizedExecutionBoundProofInputSha256 = proofInputSha256;
+        return finalizedExecutionBoundProof;
+      };
+
       return {
         currentRevision: {
           origin: 'PROJECTSERVICE_CURRENT_REVISION_READ' as const,
@@ -380,6 +456,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           },
           finalizeProposalReceipt,
           ...(input.isolatedOutcomeProofOwner ? { finalizeOutcomeProof } : {}),
+          ...(input.isolatedOutcomeProofOwner?.proveExecutionBound
+            ? { finalizeExecutionBoundOutcomeProof } : {}),
         },
       };
     },

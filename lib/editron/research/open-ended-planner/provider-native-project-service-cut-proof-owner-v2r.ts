@@ -14,6 +14,7 @@ import type { Project } from '@/lib/editron/services/project-service';
 import { hashCanonicalJsonV1 } from './contracts-v1';
 import {
   bindProviderNativeDurableOutcomeProofReceiptV2R,
+  bindProviderNativeExecutionBoundOutcomeProofReceiptV2R,
   type ProviderNativeOutcomeProofDispositionV2R,
 } from './provider-native-durable-outcome-proof-v2r';
 import { projectProposalStateV2R }
@@ -23,6 +24,9 @@ import type { ProjectServiceIsolatedOutcomeProofOwnerV2R }
 
 type JsonRecord = Record<string, unknown>;
 type ProofInput = Parameters<ProjectServiceIsolatedOutcomeProofOwnerV2R['prove']>[0];
+type ExecutionBoundProofInput = Parameters<NonNullable<
+  ProjectServiceIsolatedOutcomeProofOwnerV2R['proveExecutionBound']
+>>[0];
 type RenderEvidenceBuilder = typeof buildPhase0RenderedStillEvidence;
 type OperationReceipt = ProofInput['proposalReceipt']['operationReceipts'][number];
 
@@ -84,7 +88,10 @@ export function createProviderNativeProjectServiceCutProofOwnerV2R(
 ): Readonly<ProjectServiceIsolatedOutcomeProofOwnerV2R> {
   const buildRenderedEvidence = options.buildRenderedEvidence
     ?? buildPhase0RenderedStillEvidence;
-  return {
+  const legacyOwner: Readonly<Pick<
+    ProjectServiceIsolatedOutcomeProofOwnerV2R,
+    'prove'
+  >> = {
     prove: async (input) => {
       const claim = assertSupportedEdit(input);
       const cutFrames = boundaryFrames(
@@ -232,6 +239,36 @@ export function createProviderNativeProjectServiceCutProofOwnerV2R(
         summary: allPass
           ? 'The exact isolated edit state and operation-specific rendered deltas pass.'
           : 'The exact isolated edit state passes, but one or more rendered claims failed or remain unverifiable.',
+      });
+    },
+  };
+  return {
+    ...legacyOwner,
+    proveExecutionBound: async (input: Readonly<ExecutionBoundProofInput>) => {
+      if (input.executionTrace.kind !== 'RESUMED_EPISODE_RECEIPT') {
+        fail('FRESH_EXECUTION_PROOF_NOT_SUPPORTED');
+      }
+      const { executionTrace, ...legacyInput } = input;
+      const legacy = await legacyOwner.prove({
+        ...legacyInput,
+        resumedReceiptSha256: executionTrace.receiptSha256,
+      });
+      return bindProviderNativeExecutionBoundOutcomeProofReceiptV2R({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        projectId: input.projectId,
+        episodeId: input.checkpoint.episodeId,
+        subject: {
+          episodeReceiptSha256: input.episodeReceipt.receiptSha256,
+          executionTrace,
+          proposalReceiptSha256: input.proposalReceipt.receiptSha256,
+          finalStateSha256: input.proposalReceipt.finalStateSha256,
+        },
+        proofPolicy: legacy.proofPolicy,
+        obligations: legacy.obligations,
+        proofReferences: legacy.proofReferences,
+        observedAt: legacy.observedAt,
+        summary: legacy.summary,
       });
     },
   };

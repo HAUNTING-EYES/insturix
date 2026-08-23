@@ -4,6 +4,8 @@ import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { createProviderNativeEpisodeResumeCheckpointV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
+import { PROVIDER_NATIVE_EXECUTION_BOUND_OUTCOME_PROOF_VERSION_V2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-durable-outcome-proof-v2r';
 import { createProviderNativeProjectServiceCloneOwnerV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r';
 import type { ProjectServiceIsolatedOperatorOwnerV2R }
@@ -50,7 +52,14 @@ describe('ProjectService isolated cut rendered-proof owner V2R', () => {
     const result = await exercise(render);
 
     expect(result.proof).toMatchObject({
+      version: PROVIDER_NATIVE_EXECUTION_BOUND_OUTCOME_PROOF_VERSION_V2R,
       disposition: 'PASS',
+      subject: {
+        executionTrace: {
+          kind: 'RESUMED_EPISODE_RECEIPT',
+          receiptSha256: 'd'.repeat(64),
+        },
+      },
       obligations: [
         { obligationId: 'edit-state', disposition: 'PASS' },
         { obligationId: 'cut-render', disposition: 'PASS' },
@@ -78,6 +87,16 @@ describe('ProjectService isolated cut rendered-proof owner V2R', () => {
         { disposition: 'UNVERIFIABLE' },
       ],
     });
+  });
+
+  it('rejects fresh execution before invoking the resumed-proof renderer', async () => {
+    const render = vi.fn(async (_project, options) =>
+      renderedEvidence('completed', options.requestedSampleFrames ?? []));
+
+    await expect(exercise(render, 'FRESH_EPISODE_RECEIPT')).rejects.toThrow(
+      'PROVIDER_NATIVE_CUT_OUTCOME_PROOF_FRESH_EXECUTION_PROOF_NOT_SUPPORTED',
+    );
+    expect(render).not.toHaveBeenCalled();
   });
 
   it('keeps completed but uninspected stills UNVERIFIABLE', async () => {
@@ -171,6 +190,8 @@ describe('ProjectService isolated cut rendered-proof owner V2R', () => {
 
 async function exercise(
   buildRenderedEvidence: RenderEvidenceBuilder,
+  executionTraceKind: 'FRESH_EPISODE_RECEIPT' | 'RESUMED_EPISODE_RECEIPT'
+    = 'RESUMED_EPISODE_RECEIPT',
 ) {
   const canonical = project();
   const cloneOwner = createProviderNativeProjectServiceCloneOwnerV2R({
@@ -202,9 +223,13 @@ async function exercise(
   const proposalReceipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
   if (!proposalReceipt) throw new Error('TEST_PROPOSAL_RECEIPT_MISSING');
   const episodeReceipt = receipt([{ call, execution }]);
-  const proof = await resolved.isolatedClone.finalizeOutcomeProof?.({
+  const proof = await resolved.isolatedClone.finalizeExecutionBoundOutcomeProof?.({
     episodeReceipt,
-    resumedReceiptSha256: 'd'.repeat(64),
+    executionTrace: {
+      kind: executionTraceKind,
+      receiptSha256: executionTraceKind === 'FRESH_EPISODE_RECEIPT'
+        ? episodeReceipt.receiptSha256 : 'd'.repeat(64),
+    },
     proposalReceipt,
   });
   if (!proof) throw new Error('TEST_OUTCOME_PROOF_MISSING');
@@ -260,12 +285,15 @@ async function exerciseCombined(
   }
   const proposalReceipt = await resolved.isolatedClone.finalizeProposalReceipt?.();
   if (!proposalReceipt) throw new Error('TEST_PROPOSAL_RECEIPT_MISSING');
-  const proof = await resolved.isolatedClone.finalizeOutcomeProof?.({
+  const proof = await resolved.isolatedClone.finalizeExecutionBoundOutcomeProof?.({
     episodeReceipt: receipt([
       { call: cutCall, execution: cutExecution },
       { call: focalCall, execution: focalExecution },
     ]),
-    resumedReceiptSha256: 'd'.repeat(64),
+    executionTrace: {
+      kind: 'RESUMED_EPISODE_RECEIPT',
+      receiptSha256: 'd'.repeat(64),
+    },
     proposalReceipt,
   });
   if (!proof) throw new Error('TEST_OUTCOME_PROOF_MISSING');

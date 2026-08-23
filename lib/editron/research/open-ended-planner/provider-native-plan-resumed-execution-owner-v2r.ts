@@ -11,7 +11,7 @@ import {
   decodeProviderNativeCheckpointStateV2R,
   encodeProviderNativeCheckpointStateV2R,
 } from './provider-native-checkpoint-state-codec-v2r';
-import { finalizeProviderNativeDurableOutcomeV2R }
+import { finalizeProviderNativeExecutionBoundDurableOutcomeV2R }
   from './provider-native-durable-outcome-finalizer-v2r';
 import {
   ProviderNativeDurableRetryableErrorV2R,
@@ -113,11 +113,14 @@ export function createProviderNativePlanResumedExecutionOwnerV2R(input: Readonly
         // accounting has its own durable resume contract. Retrying from the
         // last committed tool turn would otherwise forget a billed attempt.
         await lifecycle.heartbeat();
-        const outcome = await finalizeProviderNativeDurableOutcomeV2R({
+        const outcome = await finalizeProviderNativeExecutionBoundDurableOutcomeV2R({
           scope,
           clone: artifacts.isolatedClone,
           episodeReceipt: core.episodeReceipt,
-          resumedReceiptSha256: core.resumedReceiptSha256,
+          executionTrace: {
+            kind: 'RESUMED_EPISODE_RECEIPT',
+            receiptSha256: core.resumedReceiptSha256,
+          },
           ...(core.proposalRecoveryState
             ? { proposalRecoveryState: core.proposalRecoveryState } : {}),
         });
