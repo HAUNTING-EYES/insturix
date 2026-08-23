@@ -1264,7 +1264,7 @@ Status vocabulary used below:
 | Item | Current status | Code-grounded meaning |
 | --- | --- | --- |
 | IF1 canonical contract | `DONE_ARTIFACT` | Annotated tag `editron-interface-freeze-1` (`71b67a4d...`) targets accepted commit `5a47e00896e0e915cd4c03e71a0b104ac0c05999` in worktree `editron-if1-freeze-v1`. It descends Phase 2C `7e9b4dd7...`. Session A's semantic review passed. |
-| IF1 on the active infrastructure branch | `NOT_WIRED` | The active branch previously cherry-picked the IF1 artifact and then explicitly reverted both commits. `lib/editron/if1` is absent from the active tree. Therefore **IF1 freeze is done; IF1 runtime migration is not**. These are separate claims. |
+| IF1 on the active infrastructure branch | `DONE_ARTIFACT`, `NOT_WIRED` | Commit `d1402ff38` restores the reviewed five-file IF1 freeze candidate to active HEAD. `lib/editron/if1` is present only as an inert vocabulary artifact; no production path imports it and ProjectService does not implement its issuer boundary. Therefore **IF1 freeze artifact is active; IF1 runtime migration is not**. These are separate claims. |
 | Writer-issued after-revision and rollback work | `PARTIAL_ACTIVE` | The active branch independently added stale-save CAS, checkpoint CAS, writer-receipt capture and receipt-bound rollback on migrated paths. The exact migrated `R_after` race is closed on those paths. |
 | Whole-system rollback/concurrency safety | `PARTIAL_ACTIVE` | `CheckpointService` can still pair a caller-supplied project snapshot with a separately sampled revision; live `saveProject` callers omit `expectedRevision`; generic `ProjectService.updateProject` has no CAS/receipt; redo is unavailable. Broad "rollback race closed" is therefore false. |
 | P0 internal-worker fail-closed hardening | `DONE_ARTIFACT`, `NOT_WIRED` here | Commit `5299a42...` exists only in `editron-p0-hardening` and covers Director, Tribe and Video Analysis. It is not an ancestor of the active branch. The active routes still fall back to raw handlers when a QStash key is absent, and other internal workers have the same class of fallback. |
@@ -4117,11 +4117,13 @@ authority while the live project writer is still narrower than IF1.
 Code and history evidence:
 
 - `editron-interface-freeze-1` targets `5a47e008…`, descends from the Phase
-  2C base `7e9b4dd7…`, and freezes only the five IF1 artifact files.  It is not
-  an ancestor of this active infrastructure branch.
-- The active tree has no `lib/editron/if1` module or runtime import of
-  `ProjectServiceIF1RevisionIssuerV1`; therefore the tagged adapter is not
-  secretly acting as a live authority.
+  2C base `7e9b4dd7…`, and freezes only the five IF1 artifact files. It is not
+  an ancestor of this active infrastructure branch; commit `d1402ff38` restores
+  its reviewed artifact content here.
+- The active tree now contains that isolated `lib/editron/if1` candidate, but no
+  production runtime imports `ProjectServiceIF1RevisionIssuerV1` and
+  `ProjectService` has not implemented it; therefore it is not secretly acting
+  as a live authority.
 - Active `ProjectService` now issues native `ProjectMutationReceiptV1` values
   containing project ID, numeric-plus-compatibility revision and commit time.
   It does not yet issue IF1's opaque project reference, canonical actor/project

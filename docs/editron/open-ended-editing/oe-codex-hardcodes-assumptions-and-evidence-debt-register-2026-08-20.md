@@ -181,7 +181,7 @@ stated. Later code fixes do not retroactively make the old run valid.
 
 | ID | Claim or condition | Flag | Current truth |
 | --- | --- | --- | --- |
-| AUTH-01 | IF1 was sometimes discussed as though frozen meant active. | HISTORICAL_INVALID_EVIDENCE | IF1 is a tagged accepted artifact. It is not in active HEAD ancestry, lib/editron/if1 is absent and the product has not migrated to it. |
+| AUTH-01 | IF1 was sometimes discussed as though frozen meant active. | HISTORICAL_INVALID_EVIDENCE | The tagged accepted commit remains historical, but `d1402ff38` restores its reviewed five-file vocabulary artifact to active HEAD. It remains inert: no product runtime imports it, ProjectService has not implemented its issuer boundary, and the product has not migrated to it. |
 | AUTH-02 | The active ProjectMutationReceiptV1 was treated as close to IF1. | MISSING_CONTRACT | It contains projectId, revision and committedAt only. It lacks canonical command hash, timeline revision, changed paths, proof, undo/replay and full retry disposition. |
 | AUTH-03 | “Rollback race closed” was stated too broadly. | HISTORICAL_INVALID_EVIDENCE | Writer-issued after-revision closes the exact migrated race only. Before checkpoints can pair a caller snapshot with a separately read revision; after checkpoints can load newer state and bind it to the earlier writer receipt. |
 | AUTH-04 | Whole-state and generic writers were assumed safe because ProjectService exists. | KNOWN_DEFECT | saveProject can still be called without expectedRevision, and updateProject at project-service.ts lines 2374–2390 writes without CAS, revision advancement or receipt. |
