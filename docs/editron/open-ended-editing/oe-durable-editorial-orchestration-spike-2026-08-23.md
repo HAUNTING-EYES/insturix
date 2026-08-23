@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, a production-shaped canonical-media binding/adapter contract, concrete read-side Mongo/R2/GCS/policy-grant ports and a store-neutral issuance policy/identity owner, plus a product-budget reservation/settlement contract, runtime-guard owner port, atomic-ledger policy coordinator and concrete same-database CreditsService/Mongo adapter; zero inference; no concrete canonical-media issuance ledger, product composition root, live route, live Atlas transaction exercise or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, a production-shaped canonical-media binding/adapter contract, concrete read-side Mongo/R2/GCS/policy-grant ports, a store-neutral issuance policy/identity owner and concrete existing-client Mongo transaction adapter, plus a product-budget reservation/settlement contract, runtime-guard owner port, atomic-ledger policy coordinator and concrete same-database CreditsService/Mongo adapter; zero inference; no product composition root, live route, live Atlas transaction exercise or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -146,6 +146,18 @@ pass 19/19 focused tests with repository typecheck and quiet ESLint. This is
 `ISSUANCE_POLICY_AND_IDENTITY_OWNER_PROVEN_NO_PERSISTENCE`: the concrete Mongo
 transaction and live store proof remain absent.
 
+Commit `07c59690b` implements the issuance ledger with the existing Editron
+Mongo client and existing `mediaAssets` byte authority. In one snapshot-read/
+majority-write transaction it validates exact source envelope/content/owner,
+derived artifact bytes/storage/owner and current authorization before
+create-or-comparing immutable source-version, binding, policy and artifact
+metadata. Mongo `_id` is stripped only at the canonical-validation boundary.
+Native video, ordered R2/GCS images, USER/ORG ownership, replay, conflict,
+rollback, non-commit and corrupt/missing media pass 29/29 focused tests with
+repository typecheck and quiet ESLint. This is
+`CONCRETE_TRANSACTION_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: no live Atlas
+transaction, migration or product-root invocation occurred.
+
 ## Current code evidence
 
 | Concern | Verified current owner/status |
@@ -157,10 +169,10 @@ transaction and live store proof remain absent.
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope; `454fb721a` extracts one store-neutral resumed execution core plus durable outcome finalizer; `e1a8e4a3f` binds proposal recovery into the Plan envelope; `31fcb279e` shares the exact checkpoint codec; `cd1829223` connects the Plan lifecycle to that resume-only core through the existing scoped artifact owners; `2e2471adc` adds a backward-compatible V2 outcome-proof subject; `f3b6ad44d` adds its strict finalizer; and `d17ba67c1` wires the product Plan resumed path through the existing clone and cut/focal proof owner. Commits `f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` add hash-chained provider-attempt receipts, conservative unknown-result settlement, attempt-bound runtime restart and an opt-in episode callback. Commits `7cc90f161`, `da252954b` and `9cf3cde0f` add the immutable pre-dispatch intent, pending checkpoint and actual write-ahead episode boundary with conservative recovery. Commit `8a2f4d535` requires and persists both phases through the existing Plan lifecycle CAS. Commits `bfecfb314`, `c6c416592` and `898c3ba63` add a real fresh clone/core/Plan path whose first checkpoint is caused only by real work. Commits `62fcc6c25` and `5e0dd3b65` prove the full accepted-Plan-to-real-cut receipt plus crash/redelivery/cancellation without implicit provider retry. Commit `434563cd6` derives the immutable bound-episode owner from each revalidated accepted definition instead of requiring a static per-episode owner. Canonical-media/product-budget composition, authenticated review ingress and live Atlas/QStash proof remain absent. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. `be8e12871` proves serialized fresh-process cut replay plus focal-only suffix execution through the same revision origin while preserving canonical state. `ee650e18b` makes the clone independently recompute and validate every admitted writer revision from exact receipt/call/state material. Live rendering and live-store recovery remain below. |
-| Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity as an immutable research value. `498e018e6` adds the production-shaped canonical-media binding and adapter: no inline bytes, exact source/policy/route/artifact identity and strict resolution for both arms. `607212e02` implements its read-side locator, byte-reader and policy-grant ports over immutable Mongo metadata plus the existing `mediaAssets`-selected R2/GCS object; `8bf1d766e` qualifies reusable artifact metadata by USER/ORG media owner outside the byte row; `9251945e4` adds the store-neutral authorization/issuance owner and atomic-ledger port. The concrete transactional ledger, migration, root composition and live retrieval remain absent. |
+| Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity as an immutable research value. `498e018e6` adds the production-shaped canonical-media binding and adapter: no inline bytes, exact source/policy/route/artifact identity and strict resolution for both arms. `607212e02` implements its read-side locator, byte-reader and policy-grant ports over immutable Mongo metadata plus the existing `mediaAssets`-selected R2/GCS object; `8bf1d766e` qualifies reusable artifact metadata by USER/ORG media owner outside the byte row; `9251945e4` adds the store-neutral authorization/issuance owner and atomic-ledger port; `07c59690b` supplies its concrete existing-client Mongo transaction. Migration, root composition and live retrieval remain absent. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It is benchmark accounting, not product authority. `de472b32b` adds the separate product authorization/reservation/settlement contract and adapts an exact unexpired CreditsService-owned reservation to the existing runtime-guard owner port; `6d8fdf1ea` binds it to the main pool under revision-2 identities; `582c927d0` adds a tested policy coordinator and atomic-ledger port; `5f7428248` implements that port behind CreditsService on the same configured Mongo database. Transactional fakes pass, but non-production Atlas and product-root invocation remain unproven. |
 | Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. `2e2471adc` preserves that V1 receipt hash and adds V2 `FRESH_EPISODE_RECEIPT` / `RESUMED_EPISODE_RECEIPT` provenance; `f3b6ad44d` finalizes it without a V1 fallback; `d17ba67c1` makes the product resumed path emit V2; `93a72e756` makes the same concrete cut/focal proof policy accept a real fresh trace without a checkpoint; and `62fcc6c25` binds that proof to the complete accepted-Plan execution receipt. Live Lambda evidence and production apply remain unproven. |
-| Product workflow ingress/recovery | `0f54a0a2a` provides actor-bound, fixed-URL, message-receipt-backed QStash dispatch; `b6171bed2` provides signed strict worker ingress and refuses to claim without an explicit execution owner; `434563cd6` supplies definition-bound execution composition across accepted episodes; `498e018e6` supplies the canonical-media boundary; `607212e02` supplies its concrete read-side product ports; `9251945e4` supplies the store-neutral issuance coordinator; `de472b32b` supplies the product-budget contract/runtime-guard boundary; `582c927d0` supplies the policy coordinator; `5f7428248` supplies the concrete CreditsService/Mongo adapter. These remain non-routable adapters: the canonical-media transactional ledger, root composition, API route export and live Atlas/QStash proof are absent. |
+| Product workflow ingress/recovery | `0f54a0a2a` provides actor-bound, fixed-URL, message-receipt-backed QStash dispatch; `b6171bed2` provides signed strict worker ingress and refuses to claim without an explicit execution owner; `434563cd6` supplies definition-bound execution composition across accepted episodes; `498e018e6` supplies the canonical-media boundary; `607212e02` supplies its concrete read-side product ports; `9251945e4` supplies the store-neutral issuance coordinator; `07c59690b` supplies its concrete transaction adapter; `de472b32b` supplies the product-budget contract/runtime-guard boundary; `582c927d0` supplies the policy coordinator; `5f7428248` supplies the concrete CreditsService/Mongo adapter. These remain non-routable adapters: root composition, API route export and live Atlas/QStash proof are absent. |
 
 The existing `lib/services/planService.ts` manages commercial subscription
 plans. It is not an editorial PlanService and must not be extended or renamed
@@ -412,11 +424,10 @@ Open work:
 - exercise the concrete single-cut adapter against live non-production
   Phase-0/Remotion only after explicit external-cost authorization; add
   transcript-semantic, audio-continuity and multi-operation proof policies;
-- implement the concrete Mongo transaction behind the `9251945e4` issuance
-  owner: verify existing source/artifact `mediaAssets` rows and atomically
-  create-or-compare the `607212e02`/`8bf1d766e` binding, artifact metadata and
-  independently decided rights/privacy grant; never let a route self-authorize
-  its own egress;
+- compose the `07c59690b` canonical-media transaction/read owners with the
+  `5f7428248` CreditsService product-budget owner and `434563cd6` definition
+  owner behind the one existing execution boundary; never let a route
+  self-authorize its own egress;
 - expand the now-proven `cut_section` bridge to other certified/pure operator
   owners through the same revision origin without introducing another
   operation registry or project authority; the clone must continue validating
@@ -761,20 +772,23 @@ before advancing. This does not add a secret signer or second revision owner.
     exact source, scope, route, current independent authorization, artifact set
     and ownership must pass before one atomic create-or-compare ledger call.
     The concrete Mongo ledger and live-store proof remain open.
-38. Implement that transactional canonical-media ledger, then compose
+38. **Concrete canonical-media Mongo ledger complete at `07c59690b`:** one
+    existing-client transaction validates media identity and create-or-compares
+    all metadata. Transactional fakes pass; live Atlas remains open.
+39. Compose
     the read ports with the CreditsService product-budget owner behind the
     existing execution-owner boundary. Do not reuse
     the research inline-reference or sealed-holdout budget, and do not add a
     second media store, wallet writer, registry, job store, PlanService or
     project authority.
-39. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 38 exists.
-40. Only after fresh zero-inference preflight and explicit spend approval:
+40. Export authenticated routes and run the non-production QStash/Atlas
+    crash/restart/redelivery exercise only after step 39 exists.
+41. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `9251945e4` and orchestration-decision commit
+- Repository code through `07c59690b` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

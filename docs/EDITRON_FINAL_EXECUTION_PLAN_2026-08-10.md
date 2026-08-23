@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `9251945e4` on
+programme code checkpoint represented by this ledger is `07c59690b` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 9251945e4. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 07c59690b. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1471,8 +1471,17 @@ artifacts, owner drift, forged source records and policy refusal pass 19/19
 focused tests with repository typecheck and quiet ESLint. This is
 `ISSUANCE_POLICY_AND_IDENTITY_OWNER_PROVEN_NO_PERSISTENCE`: no concrete Mongo
 ledger writes these records and no live store was contacted.
-The next gate is the concrete transactional canonical-media issuance ledger,
-then single execution-root composition, followed by signed route export and a
+Commit 07c59690b implements that ledger through the existing Editron Mongo
+client. One snapshot-read/majority-write transaction revalidates source,
+authorization and artifact identity against existing `mediaAssets`, then
+create-or-compares source-version, binding, policy and artifact metadata under
+deterministic document identities. Mongo `_id` is treated only as transport
+metadata on read. Exact replay, USER/ORG ownership, R2/GCS identity, conflicts,
+mid-transaction rollback and non-commit pass 29/29 focused tests with repository
+typecheck and quiet ESLint. This is
+`CONCRETE_TRANSACTION_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: no Atlas instance
+was contacted and no product root invokes it.
+The next gate is single execution-root composition, followed by signed route export and a
 non-production Atlas/QStash crash/redelivery exercise that proves the real
 transaction. The inline research
 reference artifact and sealed-holdout controller remain ineligible as product
@@ -3247,8 +3256,9 @@ Commits `607212e02` and `8bf1d766e` now implement the concrete read-side canonic
 locator, byte reader and policy-grant owner without moving bytes out of the
 existing `mediaAssets`-selected R2/GCS object. Commit `9251945e4` adds the
 store-neutral issuance policy/identity owner and an atomic create-or-compare
-ledger port, but no concrete Mongo writer. What remains missing is materially
-different: the transactional ledger behind that owner, then one execution-
+ledger port; commit `07c59690b` implements that port using one existing-client
+Mongo transaction and corrects real Mongo `_id` handling. What remains missing
+is materially different: one execution-
 root composition with the concrete CreditsService product-budget owner, actual
 API route exports, live Atlas/QStash
 execution and recovery, canonical
@@ -4939,11 +4949,11 @@ fail-closed product dispatch and signed worker adapters now exist but remain
 non-routable without an explicit product execution-owner composition. Commit
 `607212e02` plus `8bf1d766e` implement the `498e018e6` read-side storage/policy
 ports. Commit `9251945e4` implements their store-neutral authorization and
-issuance coordinator, but not its concrete transactional ledger or live-store
-proof. Commit `5f7428248` implements the
+issuance coordinator; commit `07c59690b` implements its concrete transaction
+adapter but not live-store proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
-proof. The next bounded reliability order is therefore: concrete transactional
-canonical-media issuance, one execution-root composition, signed route export,
+proof. The next bounded reliability order is therefore: one execution-root
+composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.
