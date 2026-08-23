@@ -37,7 +37,7 @@ production-ready and no live workflow reaches the store.
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
-| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. Restart-safe proposal-state recovery remains unimplemented, so product/live wiring stays blocked. |
+| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. Product/live wiring remains blocked on the later gates below. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -108,8 +108,22 @@ Completed foundation:
   ProjectService wiring. Resume now consumes the isolated working revision,
   not the canonical base revision; missing or forged bindings stop before
   inference. A fresh post-crash clone still lacks prior proposal state and is
-  rejected, making deterministic proposal recovery the next P0 instead of a
-  hidden fallback.
+  rejected, making deterministic proposal recovery the next P0 at that
+  checkpoint instead of a hidden fallback.
+- `270792c1a` freezes a compact recovery state rather than persisting a second
+  Project snapshot. It binds every writer turn/call/execution/revision to an
+  ordered before/after proposal-state hash chain and the exact checkpoint.
+- `d143da69a` makes the durable worker restore, extend and atomically persist
+  that chain, pass it to the ProjectService clone owner and reject a terminal
+  proposal receipt that diverges from any recovered writer.
+- `df61e818d` reconstructs a fresh clone only through a separate pure
+  `replayCommitted` port. It rejects missing recovery, missing replay ownership,
+  changed output/state, canonical drift and unreceipted clone mutations.
+- `9f955033e` proves the complete seam across two real Node processes: process B
+  makes no prefix provider call, replays one committed writer, executes one
+  suffix writer, reaches `local-r44`, preserves the canonical state hash and
+  completes with two bound operations. Recovery cluster 36/36, repository
+  typecheck and quiet ESLint pass.
 
 Open work:
 
@@ -259,6 +273,11 @@ state-restoration claim: after a process loss, the adapter must reconstruct or
 restore the exact isolated working proposal and prove its hash before the
 provider suffix may resume.
 
+Commits `270792c1a`, `d143da69a`, `df61e818d` and `9f955033e` now complete that
+research-only state-restoration claim. They do not provide live Atlas/QStash,
+authenticated ingress, a certified production operator owner, paid-provider
+resume, canonical apply/reload or rendered acceptance.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -280,8 +299,9 @@ provider suffix may resume.
    clone/proposal execution and exact durable receipt handoff, including stale
    and forgery rejection, with canonical-base and isolated-working identities
    kept distinct.
-8. Deterministically recover the exact isolated proposal state across process
-   loss and reject missing, stale, copied or forged recovery artifacts before
+8. **Research/process complete at `270792c1a` + `d143da69a` + `df61e818d` +
+   `9f955033e`:** deterministically recover the exact isolated proposal state
+   across process loss and reject missing, altered or unowned recovery before
    inference.
 9. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
@@ -291,7 +311,7 @@ provider suffix may resume.
 
 ## Evidence basis
 
-- Repository code at `a9882903a` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `9f955033e` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
