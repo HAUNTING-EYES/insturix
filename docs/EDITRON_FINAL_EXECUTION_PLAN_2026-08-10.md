@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `9931ae77a` on
+programme code checkpoint represented by this ledger is `607212e02` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 9931ae77a. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 607212e02. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1447,9 +1447,20 @@ passes 153/153 with repository typecheck and quiet ESLint. This is
 `CONCRETE_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: the default connection path is
 not yet exercised against non-production Atlas and no product execution root
 or route invokes it.
-The next gate is concrete canonical-media ports plus single execution-root
-composition, followed by signed route export and a non-production Atlas/QStash
-crash/redelivery exercise that proves the real transaction. The inline research
+Commit 607212e02 next implements the three read-side canonical-media ports:
+exact scoped bindings and independent unexpired/non-revoked policy grants come
+from immutable Mongo records, while bytes remain exclusively in the declared
+R2/GCS object selected by the existing `mediaAssets` row. Both reference arms
+and scope/policy/storage/byte drift are covered; the combined related cluster
+passes 31/31 with repository typecheck and quiet ESLint. This does not create a
+second media store and does not accept cached URLs or backend fallback as
+proof. It is `CONCRETE_READ_ADAPTERS_IMPLEMENTED_NOT_ISSUED_OR_LIVE_PROVEN`:
+no authorized product writer yet persists these records and no live store was
+contacted.
+The next gate is authorized, idempotent canonical-media issuance plus single
+execution-root composition, followed by signed route export and a
+non-production Atlas/QStash crash/redelivery exercise that proves the real
+transaction. The inline research
 reference artifact and sealed-holdout controller remain ineligible as product
 authorities.
 Exercise the real renderer only
@@ -3218,10 +3229,13 @@ strictly parses that opaque message and refuses to claim when an explicit
 execution owner is absent. Commit `498e018e6` now adds the exact scoped
 canonical-media binding/adapter contract for both native-video and ordered-image
 reference arms, without storing bytes or becoming a second media authority.
-What remains missing is materially different: concrete canonical-media locator,
-byte-reader and policy-owner implementations, the atomic CreditsService
-reservation/partial-settlement writer and locator required by `de472b32b`, and
-their one execution-root composition, actual API route exports, live Atlas/QStash
+Commit `607212e02` now implements the concrete read-side canonical-media
+locator, byte reader and policy-grant owner without moving bytes out of the
+existing `mediaAssets`-selected R2/GCS object. What remains missing is
+materially different: authorized idempotent issuance of those binding,
+artifact-identity and independent policy-grant records, their one execution-
+root composition with the concrete CreditsService product-budget owner, actual
+API route exports, live Atlas/QStash
 execution and recovery, canonical
 ProjectService apply/reload, broad certified operators and live rendered proof.
 The research inline-reference and sealed-holdout budget owners are not valid
@@ -4908,12 +4922,11 @@ over the real leased Plan job lifecycle. This remains **durable recovery
 groundwork**, not automatic retry authorization or production mutation. The
 fail-closed product dispatch and signed worker adapters now exist but remain
 non-routable without an explicit product execution-owner composition. Commit
-`498e018e6` proves the canonical-media binding/adapter contract, not its concrete
-storage/policy ports. Commit `de472b32b` similarly proves the product-budget
-contract and runtime-guard owner port, not atomic credit reservation or partial
-settlement. The next bounded reliability order is therefore: concrete
-canonical-media ports plus the CreditsService-owned reservation writer and
-locator, their one execution-root composition, signed route export,
+`607212e02` implements the `498e018e6` read-side storage/policy ports but not
+their authorized issuer or live-store proof. Commit `5f7428248` implements the
+concrete CreditsService-owned reservation writer/locator but not live Atlas
+proof. The next bounded reliability order is therefore: authorized canonical-
+media issuance, one execution-root composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.
