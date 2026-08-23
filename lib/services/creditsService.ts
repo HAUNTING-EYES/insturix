@@ -23,6 +23,11 @@ import { OrgCreditTransaction } from "@/schemas/OrgCreditTransaction";
 import { buildOrgPoolDeduct, buildOrgPoolRefund } from "@/lib/services/org-wallet-ops";
 import type { WalletRef } from "@/lib/editron/services/project-ownership";
 import type { FilterQuery, UpdateQuery } from "mongoose";
+import { createProviderNativeProductBudgetCreditsOwnerV2R } from "@/lib/editron/services/provider-native-product-budget-credits-owner-v2r";
+import {
+  createCreditsServiceProductBudgetMongoLedgerV2R,
+  type ProviderNativeProductBudgetMongoRuntimeV2R,
+} from "@/lib/services/provider-native-product-budget-mongo-ledger-v2r";
 
 // Maximum transactions to keep in history (to prevent unbounded growth)
 const MAX_CREDIT_HISTORY = 100;
@@ -101,6 +106,24 @@ export interface CreditsBalanceInfo {
 }
 
 export class CreditsService {
+  /**
+   * Sole product-budget wallet composition boundary. The Mongo helper is an
+   * implementation detail; callers receive only the versioned reserve/settle
+   * and exact-reservation lookup contract.
+   */
+  static createProviderNativeProductBudgetOwnerV2R(input: Readonly<{
+    now?: () => string;
+    loadRuntime?: () => Promise<Readonly<ProviderNativeProductBudgetMongoRuntimeV2R>>;
+  }> = {}) {
+    return createProviderNativeProductBudgetCreditsOwnerV2R({
+      ledger: createCreditsServiceProductBudgetMongoLedgerV2R({
+        historyCap: MAX_CREDIT_HISTORY,
+        loadRuntime: input.loadRuntime,
+      }),
+      now: input.now,
+    });
+  }
+
   /**
    * Get user's current credits balance
    */
