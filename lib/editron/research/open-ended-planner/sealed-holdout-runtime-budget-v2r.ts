@@ -400,7 +400,15 @@ implements ProviderNativeRuntimeGuardV2R {
     maxOutputTokens: number;
   }>): Promise<ProviderNativeRuntimeGuardDecisionV2R> {
     if (this.pendingRequest) return this.accountingDenial('PENDING_REQUEST_USAGE_UNRESOLVED', input);
-    const bound = await this.countInputTokens(input.request);
+    let bound: Readonly<ProviderNativeRuntimeInputTokenBoundV2R>;
+    try {
+      bound = await this.countInputTokens(input.request);
+    } catch {
+      return this.accountingDenial('INPUT_TOKEN_COUNTER_FAILED', {
+        turn: input.turn,
+        requestHash: input.request.requestHash,
+      });
+    }
     if (!validTokenBound(
       bound,
       input.request.requestHash,
