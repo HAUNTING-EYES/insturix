@@ -114,6 +114,12 @@ pnpm test                # vitest run
 - Before a handoff, reconcile the ledger against current code and artifacts and
   record the exact version/hash/path needed to resume. Do not rely on chat
   memory to carry unresolved assumptions or the next executable step.
+- Treat a user-proposed framework, model, library, workflow or product idea as
+  a non-binding candidate until it is researched against the current code and
+  authoritative plan. Do not reorder the active plan, introduce a new gate, or
+  start an implementation because an idea sounds promising. If it is useful,
+  append it only as a clearly scoped future option at the already appropriate
+  stage; ask the user before any true pivot, new gate or priority change.
 
 ### Mandatory pre-implementation grounding gate
 
