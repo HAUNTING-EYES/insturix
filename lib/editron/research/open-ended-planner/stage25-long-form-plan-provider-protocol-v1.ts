@@ -10,6 +10,12 @@ import {
   type ProviderNativeInvokeResponseV2R,
   type ProviderNativeRuntimeGuardV2R,
 } from './provider-native-tool-episode-v2r';
+import type { ProviderNativeEpisodeResumeCheckpointV2R }
+  from './provider-native-episode-resume-v2r';
+import type { ProviderNativeDurableAttemptReceiptV2R }
+  from './provider-native-durable-attempt-receipt-v2r';
+import type { ProviderNativeDurableDispatchIntentV2R }
+  from './provider-native-durable-dispatch-intent-v2r';
 import type {
   ProviderNativeRouteV2R,
   SerializedProviderNativeTurnV2R,
@@ -28,6 +34,23 @@ export const STAGE25_LONG_FORM_PROVIDER_PRESENTATION_SEED_V1 =
 export const STAGE25_LONG_FORM_PROVIDER_PRESENTATION_COUNT_V1 = 3 as const;
 export const STAGE25_LONG_FORM_PROVIDER_MAX_INPUT_TOKENS_V1 = 64_000 as const;
 export const STAGE25_LONG_FORM_PROVIDER_MAX_OUTPUT_TOKENS_V1 = 16_384 as const;
+export const STAGE25_LONG_FORM_PROVIDER_DURABLE_HANDOFF_MODE_V1 =
+  'OPAQUE_RESULT_REFERENCES' as const;
+
+export interface Stage25LongFormProviderDurabilityV1 {
+  resumeCheckpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  resumeCurrentProjectRevision?: string;
+  onProviderAttemptCommitted?: (input: Readonly<{
+    attemptReceipt: Readonly<ProviderNativeDurableAttemptReceiptV2R>;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    dispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+  }>) => void | Promise<void>;
+  onProviderDispatchCommitted?: (input: Readonly<{
+    dispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  }>) => void | Promise<void>;
+  now?: () => string;
+}
 
 export function buildStage25LongFormProviderFinishSchemaV1(): Readonly<JsonRecord> {
   const id = { type: 'string', minLength: 1, maxLength: 240 };
@@ -168,6 +191,7 @@ export function buildStage25LongFormProviderContextV1(
 export async function captureStage25LongFormProviderInitialRequestV1(input: {
   route: Readonly<ProviderNativeRouteV2R>;
   presentationOrdinal: number;
+  durableMode?: boolean;
 }): Promise<Readonly<SerializedProviderNativeTurnV2R>> {
   let captured: Readonly<SerializedProviderNativeTurnV2R> | undefined;
   await runStage25LongFormProviderEpisodeV1({
@@ -184,11 +208,20 @@ export async function captureStage25LongFormProviderInitialRequestV1(input: {
 export async function runStage25LongFormProviderEpisodeV1(input: {
   route: Readonly<ProviderNativeRouteV2R>;
   presentationOrdinal: number;
+  durableMode?: boolean;
   invoke: (
     request: Readonly<SerializedProviderNativeTurnV2R>,
   ) => Promise<Readonly<ProviderNativeInvokeResponseV2R>>;
   runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
-}): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
+} & Stage25LongFormProviderDurabilityV1):
+Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
+  const usesDurability = Boolean(
+    input.resumeCheckpoint || input.resumeCurrentProjectRevision
+      || input.onProviderAttemptCommitted || input.onProviderDispatchCommitted,
+  );
+  if (usesDurability && !input.durableMode) {
+    throw new Error('STAGE25_LONG_FORM_PROVIDER_DURABLE_MODE_REQUIRED');
+  }
   const finishInputSchema = buildStage25LongFormProviderFinishSchemaV1();
   return runProviderNativeToolEpisodeV2R({
     route: input.route,
@@ -204,8 +237,22 @@ export async function runStage25LongFormProviderEpisodeV1(input: {
       'Do not compute hashes, runtime ports, mutation receipts, renders or low-level operator graphs.',
       'Ordering and coverage rules in authorityAndPolicy are public requirements, not hidden evaluator hints.',
     ],
+    argumentHandoffMode: input.durableMode
+      ? STAGE25_LONG_FORM_PROVIDER_DURABLE_HANDOFF_MODE_V1
+      : 'DIRECT_ARGUMENTS',
     invoke: input.invoke,
     ...(input.runtimeGuard ? { runtimeGuard: input.runtimeGuard } : {}),
+    ...(input.resumeCheckpoint ? {
+      resumeCheckpoint: input.resumeCheckpoint,
+      resumeCurrentProjectRevision: input.resumeCurrentProjectRevision,
+    } : {}),
+    ...(input.onProviderAttemptCommitted ? {
+      onProviderAttemptCommitted: input.onProviderAttemptCommitted,
+    } : {}),
+    ...(input.onProviderDispatchCommitted ? {
+      onProviderDispatchCommitted: input.onProviderDispatchCommitted,
+    } : {}),
+    ...(input.now ? { now: input.now } : {}),
     executeIsolated: async () => {
       throw new Error('STAGE25_LONG_FORM_PROVIDER_EXECUTOR_MUST_NOT_RUN');
     },

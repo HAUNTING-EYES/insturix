@@ -13,6 +13,7 @@ import {
   buildStage25LongFormProviderContextV1,
   buildStage25LongFormProviderFinishSchemaV1,
   buildStage25LongFormProviderToolSetV1,
+  captureStage25LongFormProviderInitialRequestV1,
 } from '@/lib/editron/research/open-ended-planner/stage25-long-form-plan-provider-protocol-v1';
 
 const SOURCE_BINDING = {
@@ -50,6 +51,22 @@ describe('Stage 2.5 long-form provider zero-inference preflight', () => {
     expect(contexts.every((context) => (
       (context.authorityAndPolicy.stateEffects as unknown[]).length === 0
     ))).toBe(true);
+  });
+
+  it('makes durable opaque handoff an explicit hash-bound request mode', async () => {
+    const route = buildStage25LongFormProviderCohortManifestV1(SOURCE_BINDING)
+      .routeRoster[0].route;
+    const direct = await captureStage25LongFormProviderInitialRequestV1({
+      route, presentationOrdinal: 1,
+    });
+    const durable = await captureStage25LongFormProviderInitialRequestV1({
+      route, presentationOrdinal: 1, durableMode: true,
+    });
+    const serialized = JSON.stringify(durable.body);
+    expect(durable.requestHash).not.toBe(direct.requestHash);
+    expect(serialized).toContain('OPAQUE_RESULT_REFERENCES');
+    expect(serialized).toContain('resultReferences');
+    expect(serialized).not.toContain('set_keyframes');
   });
 
   it('captures all nine requests with metadata/count-only network access', async () => {
