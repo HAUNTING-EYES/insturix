@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `7a584535c` on
+programme code checkpoint represented by this ledger is `a481f4d32` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 7a584535c. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: a481f4d32. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -5385,6 +5385,32 @@ route **export**, not a deployed or live-delivered workflow: no QStash message,
 Atlas transaction, storage read, wallet movement, provider call or canonical
 project mutation occurred. The next gate is the non-production QStash/Atlas/
 CreditsService crash/redelivery exercise.
+
+**Development recovery-redelivery checkpoint (2026-08-24):** commit
+`a481f4d32` adds an opt-in, development-only integration proof over the real
+Atlas-backed durable-job and CreditsService owners, the official local QStash
+emulator, and the exported signed Next route. The probe reserves one test
+credit, marks the exact job cancelled, injects a crash immediately after the
+atomic cancellation settlement commits, redelivers the same terminal job, and
+proves one reserve plus one settle history entry, `RELEASED` reservation,
+`cancelled` job with zero execution attempts, and no project row. The signed
+worker returned HTTP 200 and QStash recorded `DELIVERED`. Receipt SHA-256:
+`120ab844e39130f7cad1538ed6ac51aa663de98841c7abb11c96d8f556ce4f96`.
+The probe then deletes only its unique job, reservation, user and project
+identities. The live probe passes 1/1; the adjacent default battery passes
+60/60 with the live case intentionally skipped; repository typecheck and quiet
+ESLint pass.
+
+This is `DEVELOPMENT_CANCELLATION_RECOVERY_PROVEN`, not hosted-QStash,
+provider-attempt, actual-usage customer-pricing, canonical project mutation or
+production-deployment proof. The configured development `QSTASH_URL` pointed
+at EnterpriseDB's Apache process on port 8080, not QStash; the proof therefore
+started the repository's bundled official emulator on an isolated port and
+overrode its ephemeral URL/token/signing keys without editing environment
+files. The stale port-8080 configuration must be repaired before treating the
+normal development environment as runnable. Next: freeze a fresh zero-
+inference paid-run preflight and obtain explicit spend approval; provider calls
+remain forbidden until then.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.

@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts and exported signed route, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, and an exact Finance-owned customer-pricing locator/charge owner; zero inference; no deployed/live route exercise, seeded pricing row, live Atlas/QStash transaction exercise, broader operator certification or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts and exported signed route, definition-bound execution-owner composition, canonical-media and CreditsService product ports, current-route provider transport/token counters, crash-safe terminal settlement, one product execution root restricted to isolated `cut_section` and `set_keyframes`, an exact Finance-owned customer-pricing locator/charge owner, and a development-Atlas/official-local-QStash cancellation-redelivery proof; zero inference; no hosted-QStash deployment proof, seeded pricing row, provider-attempt recovery proof, actual-use customer charge, broader operator certification or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -179,6 +179,22 @@ with repository typecheck and quiet ESLint. This is
 `SIGNED_ROUTE_EXPORTED_NOT_DEPLOYED_OR_LIVE_PROVEN`: no QStash delivery, Atlas
 transaction, storage read, provider call, wallet movement or project mutation
 occurred.
+
+Commit `a481f4d32` supersedes only that checkpoint's no-delivery/no-wallet-
+transaction clause for the cancellation path. An explicit development-only
+probe uses the real Atlas durable-job and CreditsService records, the official
+local QStash emulator, and the signed route. It injects a crash after atomic
+cancellation settlement, redelivers the same terminal job, and proves exactly
+one reserve and one settle ledger entry, a released reservation, a cancelled
+zero-attempt job and no project record. The signed route returns 200 and the
+local QStash log reaches `DELIVERED`; receipt SHA-256 is
+`120ab844e39130f7cad1538ed6ac51aa663de98841c7abb11c96d8f556ce4f96`.
+This is `DEVELOPMENT_CANCELLATION_RECOVERY_PROVEN`. It does not exercise a
+provider attempt, `ACTUAL_USAGE`, Finance-policy lookup, customer charge,
+canonical mutation, remote hosted QStash or deployment. The checked-in/local
+development configuration's port 8080 is occupied by EnterpriseDB Apache, so
+the proof used a process-only isolated emulator override; that configuration
+debt remains fail-loud and must be corrected independently.
 
 Commit `d42c1af5b` adds the exact reference-media registration owner over the
 existing `mediaAssets` collection. It create-or-compares source or derived-frame
@@ -1035,14 +1051,16 @@ before advancing. This does not add a secret signer or second revision owner.
 56. **Authenticated product-worker route exported at `c5c49a593`:** the fixed
     QStash path now composes the product root and fails closed before claim on
     missing deployment configuration; no deployment or delivery was exercised.
-57. Run the non-production QStash/Atlas/CreditsService crash/restart/redelivery
-    exercise with a Finance-approved test policy and isolated test wallet.
-58. Only after fresh zero-inference preflight and explicit spend approval:
+57. **Development cancellation recovery complete at `a481f4d32`:** real Atlas
+    job/wallet transactions plus official local-QStash signed redelivery prove
+    the zero-attempt cancellation path. Hosted QStash, a provider-attempt crash,
+    Finance-policy lookup and `ACTUAL_USAGE` settlement remain separate gates.
+58. Only after a fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `c5c49a593` and orchestration-decision commit
+- Repository code through `a481f4d32` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
