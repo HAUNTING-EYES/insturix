@@ -69,6 +69,7 @@ export interface ProjectServiceIsolatedOutcomeProofOwnerV2R {
     projectId: string;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Readonly<Project>;
+    baselineProject: Readonly<Project>;
     baseRevision: Readonly<ProjectRevisionV1>;
     episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
     resumedReceiptSha256: string;
@@ -235,6 +236,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           projectId: scope.projectId,
           checkpoint: scope.checkpoint,
           project: structuredClone(workingProject),
+          baselineProject: structuredClone(initial.project),
           baseRevision: structuredClone(baseRevision),
           episodeReceipt: structuredClone(proofInput.episodeReceipt),
           resumedReceiptSha256: proofInput.resumedReceiptSha256,
