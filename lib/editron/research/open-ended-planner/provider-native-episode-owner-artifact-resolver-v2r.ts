@@ -173,7 +173,11 @@ export async function resolveProviderNativeDurableArtifactsFromOwnersV2R(
     expectedContextSha256: input.checkpoint.contextSha256,
     expectedToolSetSha256: input.checkpoint.toolSetSha256,
   });
-  assertDefinition(input.scope, input.checkpoint, definition);
+  assertDefinition(input.scope, {
+    episodeId: input.checkpoint.episodeId,
+    contextSha256: input.checkpoint.contextSha256,
+    toolSetSha256: input.checkpoint.toolSetSha256,
+  }, definition);
 
   // Optional artifact owners are checked before any project clone or provider
   // transport is materialized, so an incomplete job cannot consume resources.
@@ -204,12 +208,80 @@ export async function resolveProviderNativeDurableArtifactsFromOwnersV2R(
   };
 }
 
+/** Resolves turn-one artifacts without manufacturing checkpoint history. */
+export async function resolveProviderNativeFreshArtifactsFromOwnersV2R(
+  owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
+  input: Readonly<{
+    scope: Readonly<ProviderNativeDurableArtifactScopeV2R>;
+    expectedContextSha256: string;
+    expectedToolSetSha256: string;
+    route: Readonly<ProviderNativeRouteV2R>;
+    runtimeGuardBinding: Readonly<{
+      guardKind: string;
+      guardIdentitySha256: string;
+    }>;
+    referenceInputManifestSha256?: string;
+  }>,
+): Promise<Readonly<ProviderNativeDurableResolvedArtifactsV2R>> {
+  assertFreshArtifactScope(input.scope);
+  const definition = await owners.episodeDefinition.resolve({
+    ...input.scope,
+    expectedContextSha256: input.expectedContextSha256,
+    expectedToolSetSha256: input.expectedToolSetSha256,
+  });
+  assertDefinition(input.scope, {
+    episodeId: input.scope.episodeId,
+    contextSha256: input.expectedContextSha256,
+    toolSetSha256: input.expectedToolSetSha256,
+  }, definition);
+  const referenceInput = input.referenceInputManifestSha256
+    ? await resolveReferenceByManifest(
+        owners,
+        input.scope,
+        input.referenceInputManifestSha256,
+      )
+    : undefined;
+  const runtimeGuard = await resolveRuntimeGuardByBinding(
+    owners,
+    input.scope,
+    input.runtimeGuardBinding,
+  );
+  if (!owners.projectClone.resolveFresh) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_FRESH_PROJECT_CLONE_OWNER_REQUIRED');
+  }
+  const project = await owners.projectClone.resolveFresh(input.scope);
+  const invoke = await owners.transport.resolve({
+    route: input.route,
+    episodeId: input.scope.episodeId,
+  });
+  return {
+    context: definition.context,
+    eligibleOperatorIds: definition.eligibleOperatorIds,
+    ...(definition.finishInputSchema
+      ? { finishInputSchema: definition.finishInputSchema } : {}),
+    ...(referenceInput ? { referenceInput } : {}),
+    runtimeGuard,
+    currentRevision: project.currentRevision,
+    isolatedClone: project.isolatedClone,
+    invoke,
+  };
+}
+
 function assertArtifactScope(
   scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
 ): void {
   if (!scope.tenantId.trim() || !scope.userId.trim() || !scope.projectId.trim()
     || !scope.episodeId.trim() || scope.episodeId !== checkpoint.episodeId) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_ARTIFACT_SCOPE_INVALID');
+  }
+}
+
+function assertFreshArtifactScope(
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
+): void {
+  if (!scope.tenantId.trim() || !scope.userId.trim() || !scope.projectId.trim()
+    || !scope.episodeId.trim()) {
     throw new Error('PROVIDER_NATIVE_DURABLE_ARTIFACT_SCOPE_INVALID');
   }
 }
@@ -226,11 +298,15 @@ function requireProjectScope(
 
 function assertDefinition(
   scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
-  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+  expected: Readonly<{
+    episodeId: string;
+    contextSha256: string;
+    toolSetSha256: string;
+  }>,
   definition: Readonly<ProviderNativeDurableEpisodeDefinitionV2R>,
 ): void {
-  if (definition.context.episodeId !== checkpoint.episodeId
-    || hashCanonicalJsonV1(definition.context) !== checkpoint.contextSha256) {
+  if (definition.context.episodeId !== expected.episodeId
+    || hashCanonicalJsonV1(definition.context) !== expected.contextSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_CONTEXT_OWNER_MISMATCH');
   }
   const contextProjectIds = [
@@ -245,7 +321,7 @@ function assertDefinition(
     definition.finishInputSchema,
   );
   const opaque = buildOpaqueResultReferenceToolSetV2R(exact);
-  if (opaque.toolSetSha256 !== checkpoint.toolSetSha256) {
+  if (opaque.toolSetSha256 !== expected.toolSetSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_TOOLSET_OWNER_MISMATCH');
   }
 }
@@ -282,18 +358,30 @@ async function resolveReference(
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
 ): Promise<Readonly<ProviderNativeReferenceMediaInputV2R> | undefined> {
   if (!('referenceInputManifestSha256' in checkpoint)) return undefined;
+  return resolveReferenceByManifest(
+    owners,
+    scope,
+    checkpoint.referenceInputManifestSha256,
+  );
+}
+
+async function resolveReferenceByManifest(
+  owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
+  expectedManifestSha256: string,
+): Promise<Readonly<ProviderNativeReferenceMediaInputV2R>> {
   if (!owners.reference) throw new Error('PROVIDER_NATIVE_DURABLE_REFERENCE_OWNER_REQUIRED');
   const reference = await owners.reference.resolve({
     tenantId: scope.tenantId,
     userId: scope.userId,
     projectId: scope.projectId,
     episodeId: scope.episodeId,
-    expectedManifestSha256: checkpoint.referenceInputManifestSha256,
+    expectedManifestSha256,
   });
   const bound = reference.arm === 'NATIVE_VIDEO'
     ? bindProviderNativeVideoReferenceInputV2R(reference)
     : bindProviderNativeReferenceInputV2R(reference);
-  if (bound.manifestSha256 !== checkpoint.referenceInputManifestSha256) {
+  if (bound.manifestSha256 !== expectedManifestSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_REFERENCE_OWNER_MISMATCH');
   }
   return bound.input;
@@ -305,6 +393,17 @@ async function resolveRuntimeGuard(
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
 ): Promise<Readonly<ProviderNativeRuntimeGuardV2R> | undefined> {
   if (!('runtimeGuardResumeState' in checkpoint)) return undefined;
+  return resolveRuntimeGuardByBinding(owners, scope, {
+    guardKind: checkpoint.runtimeGuardResumeState.guardKind,
+    guardIdentitySha256: checkpoint.runtimeGuardResumeState.guardIdentitySha256,
+  });
+}
+
+async function resolveRuntimeGuardByBinding(
+  owners: Readonly<ProviderNativeDurableArtifactOwnersV2R>,
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
+  binding: Readonly<{ guardKind: string; guardIdentitySha256: string }>,
+): Promise<Readonly<ProviderNativeRuntimeGuardV2R>> {
   if (!owners.runtimeGuard) {
     throw new Error('PROVIDER_NATIVE_DURABLE_RUNTIME_GUARD_OWNER_REQUIRED');
   }
@@ -313,9 +412,8 @@ async function resolveRuntimeGuard(
     userId: scope.userId,
     projectId: scope.projectId,
     episodeId: scope.episodeId,
-    guardKind: checkpoint.runtimeGuardResumeState.guardKind,
-    expectedGuardIdentitySha256:
-      checkpoint.runtimeGuardResumeState.guardIdentitySha256,
+    guardKind: binding.guardKind,
+    expectedGuardIdentitySha256: binding.guardIdentitySha256,
   });
 }
 

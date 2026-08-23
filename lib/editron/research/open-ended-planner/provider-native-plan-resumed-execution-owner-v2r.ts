@@ -18,6 +18,7 @@ import {
 } from './provider-native-episode-durable-worker-v2r';
 import {
   resolveProviderNativeDurableArtifactsFromOwnersV2R,
+  resolveProviderNativeFreshArtifactsFromOwnersV2R,
   type ProviderNativeDurableArtifactOwnersV2R,
   type ProviderNativeDurableArtifactScopeV2R,
 } from './provider-native-episode-owner-artifact-resolver-v2r';
@@ -27,6 +28,8 @@ import {
   PROVIDER_NATIVE_PLAN_EXECUTION_OWNER_ID_V2R,
   type ProviderNativePlanExecutionEnvelopeV2R,
 } from './provider-native-plan-execution-envelope-v2r';
+import { executeProviderNativeFreshEpisodeCoreV2R }
+  from './provider-native-fresh-execution-core-v2r';
 import { executeProviderNativeResumedEpisodeCoreV2R }
   from './provider-native-resumed-execution-core-v2r';
 import {
@@ -36,6 +39,8 @@ import {
 
 export const PROVIDER_NATIVE_PLAN_RESUMED_EXECUTION_RECEIPT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_PLAN_RESUMED_EXECUTION_RECEIPT_V2R_1' as const;
+export const PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_RECEIPT_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_RECEIPT_V2R_1' as const;
 
 /**
  * PlanService lifecycle adapter for an already-started provider episode. It
@@ -45,16 +50,114 @@ export const PROVIDER_NATIVE_PLAN_RESUMED_EXECUTION_RECEIPT_VERSION_V2R =
 export function createProviderNativePlanResumedExecutionOwnerV2R(input: Readonly<{
   artifactOwners: Readonly<ProviderNativeDurableArtifactOwnersV2R>;
 }>): Readonly<EditorialPlanDurableExecutionOwnerV1> {
+  return createPlanExecutionOwner(input, false);
+}
+
+export function createProviderNativePlanExecutionOwnerV2R(input: Readonly<{
+  artifactOwners: Readonly<ProviderNativeDurableArtifactOwnersV2R>;
+}>): Readonly<EditorialPlanDurableExecutionOwnerV1> {
+  return createPlanExecutionOwner(input, true);
+}
+
+function createPlanExecutionOwner(
+  input: Readonly<{
+    artifactOwners: Readonly<ProviderNativeDurableArtifactOwnersV2R>;
+  }>,
+  allowFresh: boolean,
+): Readonly<EditorialPlanDurableExecutionOwnerV1> {
   return {
     ownerId: PROVIDER_NATIVE_PLAN_EXECUTION_OWNER_ID_V2R,
     ownerVersion: PROVIDER_NATIVE_EPISODE_VERSION_V2R,
     assertDefinitionSupported: ({ definition }) => {
-      requireResumedEnvelope(definition);
+      requireEnvelope(definition, allowFresh);
     },
     execute: async ({ plan, node, definition, job, lifecycle }) => {
-      const envelope = requireResumedEnvelope(definition);
+      const envelope = requireEnvelope(definition, allowFresh);
       const scope = envelope.boundEpisodeDefinition.scope;
       assertPlanJobScope(job, scope);
+      if (!envelope.resumeCheckpoint && !job.resumeState) {
+        if (!allowFresh) {
+          throw new Error('PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_NOT_SUPPORTED');
+        }
+        let latestCheckpointSha256: string | null = null;
+        try {
+          await lifecycle.heartbeat();
+          const artifacts = await resolveProviderNativeFreshArtifactsFromOwnersV2R(
+            input.artifactOwners,
+            {
+              scope,
+              expectedContextSha256: envelope.boundEpisodeDefinition.contextSha256,
+              expectedToolSetSha256: envelope.boundEpisodeDefinition.toolSetSha256,
+              route: envelope.route,
+              runtimeGuardBinding: envelope.runtimeGuardBinding,
+              ...(envelope.referenceInputManifestSha256
+                ? { referenceInputManifestSha256:
+                    envelope.referenceInputManifestSha256 }
+                : {}),
+            },
+          );
+          const core = await executeProviderNativeFreshEpisodeCoreV2R({
+            scope,
+            route: envelope.route,
+            expectedContextSha256: envelope.boundEpisodeDefinition.contextSha256,
+            expectedToolSetSha256: envelope.boundEpisodeDefinition.toolSetSha256,
+            artifacts,
+            requireDurableProviderAttemptPersistence: true,
+            heartbeat: lifecycle.heartbeat,
+            persistCheckpoint: async ({ checkpoint, proposalRecoveryState }) => {
+              const encoded = encodeProviderNativeCheckpointStateV2R({
+                checkpoint,
+                projectId: scope.projectId,
+                ...(proposalRecoveryState ? { proposalRecoveryState } : {}),
+              });
+              await lifecycle.persistResumeState({
+                schemaId: encoded.schemaId,
+                payload: encoded.payload,
+              });
+              latestCheckpointSha256 = checkpoint.checkpointSha256;
+            },
+          });
+          const outcome = await finalizeProviderNativeExecutionBoundDurableOutcomeV2R({
+            scope,
+            clone: artifacts.isolatedClone,
+            episodeReceipt: core.episodeReceipt,
+            executionTrace: {
+              kind: 'FRESH_EPISODE_RECEIPT',
+              receiptSha256: core.episodeReceipt.receiptSha256,
+            },
+            ...(core.proposalRecoveryState
+              ? { proposalRecoveryState: core.proposalRecoveryState } : {}),
+          });
+          await lifecycle.heartbeat();
+          return buildFreshOwnerReceipt({
+            job,
+            planRevisionSha256: plan.revisionSha256,
+            planId: plan.planId,
+            nodeId: node.nodeId,
+            nodeVersion: node.nodeVersion,
+            definitionSha256: definition.definitionSha256,
+            envelope,
+            episodeReceipt: core.episodeReceipt,
+            proposalRecoveryStateSha256:
+              core.proposalRecoveryState?.recoveryStateSha256 ?? null,
+            proposalReceiptSha256: outcome.proposalReceipt?.receiptSha256 ?? null,
+            outcomeProofReceiptSha256: outcome.outcomeProof?.receiptSha256 ?? null,
+            disposition: outcome.disposition,
+            proofReferences: outcome.proofReferences,
+          });
+        } catch (error) {
+          if (error instanceof ProviderNativeDurableRetryableErrorV2R) {
+            throw new EditorialPlanDurableRetryableErrorV1(
+              requireRetryCode(error.code),
+              error.message,
+              latestCheckpointSha256
+                ? retryCursor(scope, latestCheckpointSha256)
+                : freshRetryCursor(scope, envelope.envelopeSha256),
+            );
+          }
+          throw error;
+        }
+      }
       const resumed = job.resumeState
         ? decodeProviderNativeCheckpointStateV2R({
             state: {
@@ -157,16 +260,24 @@ export function createProviderNativePlanResumedExecutionOwnerV2R(input: Readonly
   };
 }
 
-function requireResumedEnvelope(
+function requireEnvelope(
   definition: Parameters<
     EditorialPlanDurableExecutionOwnerV1['assertDefinitionSupported']
   >[0]['definition'],
+  allowFresh: boolean,
 ): Readonly<ProviderNativePlanExecutionEnvelopeV2R> {
   const envelope = assertProviderNativePlanExecutionDefinitionV2R(definition);
-  if (!envelope.resumeCheckpoint) {
+  if (!allowFresh && !envelope.resumeCheckpoint) {
     throw new Error('PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_NOT_SUPPORTED');
   }
   return envelope;
+}
+
+function freshRetryCursor(
+  scope: Readonly<ProviderNativeDurableArtifactScopeV2R>,
+  envelopeSha256: string,
+): Readonly<Record<string, unknown>> {
+  return { episodeId: scope.episodeId, freshExecutionEnvelopeSha256: envelopeSha256 };
 }
 
 function assertPlanJobScope(
@@ -246,6 +357,55 @@ function buildOwnerReceipt(input: Readonly<{
   return {
     disposition: input.disposition,
     receiptId: `pnpr_${receiptSha256.slice(0, 24)}`,
+    receiptSha256,
+    proofReferences: input.proofReferences,
+  };
+}
+
+function buildFreshOwnerReceipt(input: Readonly<{
+  job: Readonly<DurableWorkflowJobSnapshotV1>;
+  planId: string;
+  planRevisionSha256: string;
+  nodeId: string;
+  nodeVersion: number;
+  definitionSha256: string;
+  envelope: Readonly<ProviderNativePlanExecutionEnvelopeV2R>;
+  episodeReceipt: Readonly<ProviderNativeEpisodeReceiptV2R>;
+  proposalRecoveryStateSha256: string | null;
+  proposalReceiptSha256: string | null;
+  outcomeProofReceiptSha256: string | null;
+  disposition: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
+  proofReferences: EditorialPlanDurableExecutionOwnerReceiptV1['proofReferences'];
+}>): Readonly<EditorialPlanDurableExecutionOwnerReceiptV1> {
+  const material = {
+    version: PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_RECEIPT_VERSION_V2R,
+    authority: 'PLAN_SERVICE_PROVIDER_NATIVE_FRESH_RESEARCH_PROXY_ONLY' as const,
+    jobBinding: {
+      jobId: input.job.jobId,
+      operationId: input.job.operationId,
+      tenantId: input.job.tenantId,
+      userId: input.job.userId,
+      projectId: input.job.projectId,
+    },
+    planBinding: {
+      planId: input.planId,
+      planRevisionSha256: input.planRevisionSha256,
+      nodeId: input.nodeId,
+      nodeVersion: input.nodeVersion,
+      definitionSha256: input.definitionSha256,
+    },
+    envelopeSha256: input.envelope.envelopeSha256,
+    episodeReceiptSha256: input.episodeReceipt.receiptSha256,
+    proposalRecoveryStateSha256: input.proposalRecoveryStateSha256,
+    proposalReceiptSha256: input.proposalReceiptSha256,
+    outcomeProofReceiptSha256: input.outcomeProofReceiptSha256,
+    disposition: input.disposition,
+    proofReferences: input.proofReferences,
+  };
+  const receiptSha256 = hashDurableWorkflowJobJsonV1(material);
+  return {
+    disposition: input.disposition,
+    receiptId: `pnpf_${receiptSha256.slice(0, 24)}`,
     receiptSha256,
     proofReferences: input.proofReferences,
   };

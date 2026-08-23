@@ -228,27 +228,37 @@ function assertProposalReceipt(
   receipt: Readonly<ProviderNativeDurableProposalReceiptV2R>,
   recovery?: Readonly<ProviderNativeProposalRecoveryStateV2R>,
 ): void {
-  if (!recovery) throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_REQUIRED');
   const { receiptSha256, ...material } = receipt;
+  if (!recovery && (
+    receipt.changedPaths.length
+    || receipt.operationReceipts.length
+    || receipt.finalStateSha256 !== receipt.baseStateSha256
+  )) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECOVERY_REQUIRED');
+  }
   if (receipt.schemaVersion !== 1
     || receipt.authority !== 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION'
     || receipt.episodeId !== scope.episodeId
     || receipt.projectId !== scope.projectId
     || receipt.baseProjectRevision !== clone.projectRevision
     || receipt.baseStateSha256 !== clone.stateSha256
-    || receipt.baseProjectRevision !== recovery.canonicalBaseProjectRevision
-    || receipt.baseStateSha256 !== recovery.canonicalBaseStateSha256
-    || receipt.finalStateSha256 !== recovery.isolatedWorkingStateSha256
+    || (recovery && (
+      receipt.baseProjectRevision !== recovery.canonicalBaseProjectRevision
+      || receipt.baseStateSha256 !== recovery.canonicalBaseStateSha256
+      || receipt.finalStateSha256 !== recovery.isolatedWorkingStateSha256
+    ))
     || receipt.canonicalProjectRevisionAfter !== clone.projectRevision
     || receipt.canonicalStateSha256After !== clone.stateSha256
     || receipt.canonicalUnchanged !== true
     || !isSha256(receipt.finalStateSha256)
     || !receipt.changedPaths.every((path) => typeof path === 'string' && path.startsWith('$'))
     || new Set(receipt.changedPaths).size !== receipt.changedPaths.length
-    || receipt.operationReceipts.length !== recovery.operations.length
-    || !receipt.operationReceipts.every((item, index) => (
-      validOperationReceipt(item)
-      && operationMatchesRecovery(item, recovery.operations[index])
+    || (recovery && (
+      receipt.operationReceipts.length !== recovery.operations.length
+      || !receipt.operationReceipts.every((item, index) => (
+        validOperationReceipt(item)
+        && operationMatchesRecovery(item, recovery.operations[index])
+      ))
     ))
     || hashCanonicalJsonV1(material) !== receiptSha256) {
     throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_RECEIPT_INVALID');

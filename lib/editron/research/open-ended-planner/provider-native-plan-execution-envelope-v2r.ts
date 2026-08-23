@@ -265,7 +265,6 @@ export function assertProviderNativePlanResumeArtifactsV2R(input: Readonly<{
 }>): void {
   const envelope = assertProviderNativePlanExecutionEnvelopeV2R(input.envelope);
   const initial = envelope.resumeCheckpoint;
-  if (!initial) fail('PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_NOT_SUPPORTED');
   assertResumeBinding({
     boundEpisodeDefinition: envelope.boundEpisodeDefinition,
     route: envelope.route,
@@ -274,10 +273,11 @@ export function assertProviderNativePlanResumeArtifactsV2R(input: Readonly<{
     resumeCheckpoint: input.checkpoint,
     resumeProposalRecoveryState: input.proposalRecoveryState ?? null,
   });
-  if (input.checkpoint.completedTurns.length < initial.completedTurns.length
+  if (initial && (
+    input.checkpoint.completedTurns.length < initial.completedTurns.length
     || hashEditronCanonicalJsonV1(
       input.checkpoint.completedTurns.slice(0, initial.completedTurns.length),
-    ) !== initial.completedTurnsSha256) {
+    ) !== initial.completedTurnsSha256)) {
     fail('PROVIDER_NATIVE_PLAN_RESUME_CHECKPOINT_NOT_AN_EXTENSION');
   }
 }

@@ -19,7 +19,10 @@ import {
   providerNativeEligibleOperationSetRefV2R,
   providerNativePlanExecutionEnvelopeSchemaRefV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-plan-execution-envelope-v2r';
-import { createProviderNativePlanResumedExecutionOwnerV2R }
+import {
+  createProviderNativePlanExecutionOwnerV2R,
+  createProviderNativePlanResumedExecutionOwnerV2R,
+}
   from '@/lib/editron/research/open-ended-planner/provider-native-plan-resumed-execution-owner-v2r';
 import {
   createProviderNativeProposalRecoveryStateV2R,
@@ -78,6 +81,34 @@ const CONTEXT: ProviderNativeEpisodeContextV2R = {
 };
 
 describe('provider-native PlanService resumed execution owner V2R', () => {
+  it('starts a fresh Plan episode without inventing a resume checkpoint', async () => {
+    const setup = await prepared('fresh', finishResponse());
+    const result = await runEditorialPlanDurableWorkerV1({
+      jobStore: setup.jobStore,
+      planStore: setup.planStore(),
+      jobId: setup.jobId,
+      workerId: 'plan-provider-worker-fresh',
+      executionOwner: createProviderNativePlanExecutionOwnerV2R({
+        artifactOwners: setup.artifactOwners,
+      }),
+      clock: () => START,
+    });
+
+    expect(result).toMatchObject({ kind: 'completed', disposition: 'UNVERIFIABLE' });
+    expect(setup.invoke).toHaveBeenCalledOnce();
+    expect(setup.freshProjectClone).toHaveBeenCalledWith({
+      tenantId: 'tenant-a', userId: 'user-a', projectId: 'project-a',
+      episodeId: CONTEXT.episodeId,
+    });
+    const persisted = await setup.jobStore.getAuthorized({
+      jobId: setup.jobId, tenantId: 'tenant-a', userId: 'user-a',
+    });
+    expect(persisted?.terminalReceipt?.proofReferences[0]).toMatchObject({
+      proofId: `provider_native_fresh_${CONTEXT.episodeId}`,
+      disposition: 'UNVERIFIABLE',
+    });
+  });
+
   it('resumes through the real Plan worker and stores one owner-bound receipt', async () => {
     const setup = await prepared('resumed', finishResponse());
     const result = await runEditorialPlanDurableWorkerV1({
@@ -301,26 +332,42 @@ async function prepared(
     },
     isolatedClone: isolatedClone(input.proposalRecoveryState),
   }));
+  const freshProjectClone = vi.fn(async (_input: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    episodeId: string;
+  }>) => ({
+    currentRevision: {
+      origin: 'PROJECTSERVICE_CURRENT_REVISION_READ' as const,
+      projectRevision: 'revision-r7',
+      readReceiptId: 'test-current-revision-read',
+      readReceiptSha256: HASH,
+    },
+    isolatedClone: isolatedClone(),
+  }));
   const artifactOwners: ProviderNativeDurableArtifactOwnersV2R = {
     episodeDefinition: { resolve: async () => ({ context: CONTEXT, eligibleOperatorIds: ELIGIBLE }) },
-    projectClone: { resolve: projectClone },
+    projectClone: { resolve: projectClone, resolveFresh: freshProjectClone },
     transport: { resolve: async () => invoke },
     runtimeGuard: { resolve: async () => runtimeGuard() },
   };
   return {
     ...stores, jobStore, jobId: job.jobId, active, definition,
-    artifactOwners, invoke, projectClone, recovery,
+    artifactOwners, invoke, projectClone, freshProjectClone, recovery,
   };
 }
 
 function isolatedClone(recovery?: Readonly<ProviderNativeProposalRecoveryStateV2R>) {
+  const workingRevision = recovery ? 'revision-r8' : 'revision-r7';
+  const workingStateSha256 = recovery ? WRITER_STATE_SHA : BASE_STATE_SHA;
   const material = {
     schemaVersion: 1 as const,
     authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING' as const,
     canonicalBaseProjectRevision: 'revision-r7',
     canonicalBaseStateSha256: BASE_STATE_SHA,
-    isolatedWorkingProjectRevision: 'revision-r8',
-    isolatedWorkingStateSha256: WRITER_STATE_SHA,
+    isolatedWorkingProjectRevision: workingRevision,
+    isolatedWorkingStateSha256: workingStateSha256,
   };
   return {
     origin: 'PROJECTSERVICE_REVISION_CLONE' as const,
