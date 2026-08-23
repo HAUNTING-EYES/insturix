@@ -221,17 +221,17 @@ async function handler(request: NextRequest) {
           console.warn(`[VideoAnalysisWorker] Reference source rejected: ${referenceSourceResult.reason}`);
         } else {
           const referenceSource = referenceSourceResult.source;
-          const refUrl = referenceSource.videoUrl;
-          const referenceId = referenceSource.referenceId;
+          let refUrl = referenceSource.videoUrl;
+          let referenceId = referenceSource.referenceId;
           const referenceDurationSec = referenceSource.durationSec;
           const referenceSourceLabel = referenceSource.sourceLabel;
           const referenceSourceFingerprint = referenceSource.sourceFingerprint;
 
-          // R1-C: enforce the canonical asset mandate for the intake path. Direct
-          // remote URLs are materialized into a canonical asset with the R1
-          // envelope (content hash + audio mode + demux receipt); asset / imported
-          // references already arrive canonical. Every downstream stage must use
-          // the canonical referenceAssetId, never the floating URL.
+          // R1-C currently materializes direct remote URLs with an exact
+          // envelope. Existing/imported asset promotion is a separate open
+          // boundary; do not describe those legacy rows as exact canonical
+          // sources until that owner is wired. Once materialized, every
+          // downstream stage must use the returned ID/URL pair.
           if (referenceSource.kind === 'remote-url') {
             try {
               const { canonicalizeReferenceVideo } = await import('@/lib/editron/reference-video/canonicalize-reference');
@@ -241,6 +241,11 @@ async function handler(request: NextRequest) {
                 audioUsageMode: 'preview-waveform-only',
               });
               if (canonical.referenceAssetId) {
+                // Canonicalization is an identity boundary, not metadata-only
+                // enrichment. Every downstream cache/read must use this exact
+                // returned source version rather than the floating intake URL.
+                refUrl = canonical.videoUrl;
+                referenceId = canonical.referenceAssetId;
                 referenceVideoAnalysis = {
                   provider: 'canonical-reference',
                   status: 'accepted',
@@ -290,7 +295,8 @@ async function handler(request: NextRequest) {
               }
             } catch (canonicalErr) {
               const msg = canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
-              console.warn(`[VideoAnalysisWorker] Reference canonicalization failed (${msg}) — using URL fallback`);
+              console.warn(`[VideoAnalysisWorker] Reference canonicalization failed: ${msg}`);
+              throw canonicalErr;
             }
           }
 
@@ -483,6 +489,12 @@ async function handler(request: NextRequest) {
         }
       } catch (refErr: unknown) {
         const msg = refErr instanceof Error ? refErr.message : String(refErr);
+        referenceVideoAnalysis = {
+          provider: 'canonical-reference',
+          status: 'failed',
+          sourceKind: referenceAssetId ? 'asset' : 'remote-url',
+          reason: msg,
+        };
         console.warn(`[VideoAnalysisWorker] Reference extraction failed: ${msg}`);
       }
     }
