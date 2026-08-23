@@ -16,13 +16,13 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_PRODUCT_BUDGET_AUTHORIZATION_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_AUTHORIZATION_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_AUTHORIZATION_V2R_2' as const;
 export const PROVIDER_NATIVE_PRODUCT_BUDGET_RESERVATION_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_RESERVATION_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_RESERVATION_V2R_2' as const;
 export const PROVIDER_NATIVE_PRODUCT_BUDGET_SETTLEMENT_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_SETTLEMENT_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_SETTLEMENT_V2R_2' as const;
 export const PROVIDER_NATIVE_PRODUCT_BUDGET_GUARD_KIND_V2R =
-  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_GUARD_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_GUARD_V2R_2' as const;
 
 export interface ProviderNativeProductBudgetScopeV2R {
   tenantId: string;
@@ -59,6 +59,7 @@ export interface ProviderNativeProductBudgetAuthorizationV2R {
     ownerVersion: string;
     currency: 'EDITRON_CREDIT';
     billingQuantum: 'CENTICREDIT';
+    creditPool: 'main';
     pricingSha256: string;
   }>;
   limits: Readonly<{
@@ -203,6 +204,7 @@ export function createProviderNativeProductBudgetAuthorizationV2R(input: Readonl
   customerPricing: Readonly<{
     ownerId: string;
     ownerVersion: string;
+    creditPool: 'main';
     pricingSha256: string;
   }>;
   limits: ProviderNativeProductBudgetAuthorizationV2R['limits'];
@@ -232,8 +234,12 @@ export function createProviderNativeProductBudgetAuthorizationV2R(input: Readonl
     ownerVersion: identity(input.customerPricing.ownerVersion, 'CUSTOMER_PRICING_VERSION'),
     currency: 'EDITRON_CREDIT' as const,
     billingQuantum: 'CENTICREDIT' as const,
+    creditPool: input.customerPricing.creditPool,
     pricingSha256: sha256(input.customerPricing.pricingSha256, 'CUSTOMER_PRICING'),
   };
+  if (customerPricing.creditPool !== 'main') {
+    fail('PRODUCT_BUDGET_CREDIT_POOL_INVALID');
+  }
   const limits = normalizeLimits(input.limits);
   const approval = {
     approvedBy: identity(input.approval.approvedBy, 'APPROVER'),
@@ -291,6 +297,7 @@ export function assertProviderNativeProductBudgetAuthorizationV2R(
     customerPricing: {
       ownerId: text(customerPricing.ownerId, 'CUSTOMER_PRICING_OWNER'),
       ownerVersion: text(customerPricing.ownerVersion, 'CUSTOMER_PRICING_VERSION'),
+      creditPool: text(customerPricing.creditPool, 'CUSTOMER_PRICING_POOL') as 'main',
       pricingSha256: text(customerPricing.pricingSha256, 'CUSTOMER_PRICING'),
     },
     limits: record(candidate.limits, 'LIMITS') as unknown as ProviderNativeProductBudgetAuthorizationV2R['limits'],

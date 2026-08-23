@@ -61,6 +61,7 @@ function authorization() {
     customerPricing: {
       ownerId: 'ProductPricingService',
       ownerVersion: 'editron-agent-v1',
+      creditPool: 'main',
       pricingSha256: A,
     },
     limits: {
@@ -102,7 +103,7 @@ describe('provider-native product budget V2R', () => {
     expect(providerNativeProductBudgetReservationRefV2R(held, auth)).toEqual({
       ownerId: 'CREDITS_SERVICE',
       artifactId: 'reservation-1',
-      artifactVersion: 'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_RESERVATION_V2R_1',
+      artifactVersion: 'EDITRON_PROVIDER_NATIVE_PRODUCT_BUDGET_RESERVATION_V2R_2',
       artifactSha256: held.guardIdentitySha256,
     });
     expect(Object.isFrozen(auth)).toBe(true);
@@ -122,6 +123,11 @@ describe('provider-native product budget V2R', () => {
       .outputNanoUsdPerToken = 1;
     expect(() => assertProviderNativeProductBudgetAuthorizationV2R(forgedPrice))
       .toThrow('PRODUCT_BUDGET_AUTHORIZATION_INVALID');
+
+    const forgedPool = structuredClone(auth) as Record<string, unknown>;
+    (forgedPool.customerPricing as Record<string, unknown>).creditPool = 'media';
+    expect(() => assertProviderNativeProductBudgetAuthorizationV2R(forgedPool))
+      .toThrow('PRODUCT_BUDGET_CREDIT_POOL_INVALID');
 
     const forgedHold = structuredClone(held) as Record<string, unknown>;
     forgedHold.walletReservationReceiptSha256 = C;
