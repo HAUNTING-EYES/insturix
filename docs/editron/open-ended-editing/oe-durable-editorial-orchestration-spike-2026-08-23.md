@@ -196,6 +196,16 @@ development configuration's port 8080 is occupied by EnterpriseDB Apache, so
 the proof used a process-only isolated emulator override; that configuration
 debt remains fail-loud and must be corrected independently.
 
+Commit `3703c0815` then reissues the separate CAP-2A research census as V7
+before any further provider dispatch. Fresh extraction adds the signed
+editorial-plan route and eight durable worker/job modules and reconciles eleven
+changed paths. V7 binds 231 paths and 486 observed identifiers under manifest
+`939ec670b175b7dd8144afd7f065e2a5619315e3c98f191334a2c6dd4155f770`;
+the catalog remains 37 declared and zero certified/product-eligible operations.
+The prior V3R4 cohort is therefore non-dispatchable: it binds V6 and rebuilds
+historical base identity from mutable current builders. A new V7-bound cohort
+must pin the historical base snapshot rather than editing V3R4.
+
 Commit `d42c1af5b` adds the exact reference-media registration owner over the
 existing `mediaAssets` collection. It create-or-compares source or derived-frame
 rows using byte SHA-256/length, USER/ORG ownership, the selected R2/GCS object
@@ -1055,12 +1065,15 @@ before advancing. This does not add a secret signer or second revision owner.
     job/wallet transactions plus official local-QStash signed redelivery prove
     the zero-attempt cancellation path. Hosted QStash, a provider-attempt crash,
     Finance-policy lookup and `ACTUAL_USAGE` settlement remain separate gates.
-58. Only after a fresh zero-inference preflight and explicit spend approval:
+58. **CAP-2A V7 complete at `3703c0815`:** current source extraction is
+    hash-bound without promoting the catalog. Issue a V7-bound replacement for
+    stale V3R4 and pin its historical base input.
+59. Only after that cohort's fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `a481f4d32` and orchestration-decision commit
+- Repository code through `3703c0815` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

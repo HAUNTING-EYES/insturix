@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `a481f4d32` on
+programme code checkpoint represented by this ledger is `3703c0815` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: a481f4d32. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 3703c0815. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -5411,6 +5411,24 @@ files. The stale port-8080 configuration must be repaired before treating the
 normal development environment as runnable. Next: freeze a fresh zero-
 inference paid-run preflight and obtain explicit spend approval; provider calls
 remain forbidden until then.
+
+**CAP-2A current-truth V7 checkpoint (2026-08-24):** commit `3703c0815`
+preserves V6 and issues a new research-only census after a fresh extractor
+found one new signed route, eight new durable worker/job modules and eleven
+changed evidence paths. V7 binds 231 exact source paths, 11 source
+observations, 486 observed identifier occurrences and normalized source
+snapshot `d476471bda793c1857152036da47804668532a115e23cdd7c04cca474a24c1d8`.
+Its manifest is
+`939ec670b175b7dd8144afd7f065e2a5619315e3c98f191334a2c6dd4155f770`.
+The catalog remains 37 declared operations, zero certified operations and zero
+production-eligible operations. The 11/11 V6/V7/inventory tests, repository
+typecheck and quiet ESLint pass.
+
+This reissue grants no runtime authority. The attempted V3R4 no-inference gate
+stopped before network use because it still binds CAP-2A V6 and reconstructs a
+historical base cohort from mutable current builders. Do not patch or dispatch
+V3R4. Issue a V7-bound cohort with a pinned historical base snapshot, then run
+its zero-inference preflight and seek explicit spend approval.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
