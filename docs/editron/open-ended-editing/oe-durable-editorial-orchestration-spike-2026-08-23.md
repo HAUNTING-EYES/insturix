@@ -775,20 +775,30 @@ before advancing. This does not add a secret signer or second revision owner.
 38. **Concrete canonical-media Mongo ledger complete at `07c59690b`:** one
     existing-client transaction validates media identity and create-or-compares
     all metadata. Transactional fakes pass; live Atlas remains open.
-39. Compose
-    the read ports with the CreditsService product-budget owner behind the
-    existing execution-owner boundary. Do not reuse
-    the research inline-reference or sealed-holdout budget, and do not add a
-    second media store, wallet writer, registry, job store, PlanService or
+39. **Route-scoped artifact-owner derivation complete at `061fc5168`:** derive
+    downstream owners separately for each already-validated Plan route and
+    stop forged definitions before the factory runs. This is not the product
+    root.
+40. Build one reusable product runtime-budget guard factory over the existing
+    CreditsService authorization/reservation/settlement owner. Do not copy or
+    promote the sealed-holdout controller as product authority.
+41. Connect the reference materializer to the existing `mediaAssets` owner so
+    source and derived artifacts have the content hash, byte length, storage
+    identity and canonical envelope required by the issuance transaction. The
+    current frame sampler uploads object bytes without these database records.
+42. Compose the canonical-media ports, CreditsService guard, route transport,
+    ProjectService isolated clone, existing native operator dispatcher and
+    proof owner behind the existing definition-bound execution owner. Do not
+    add a second media store, wallet writer, registry, job store, PlanService or
     project authority.
-40. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 39 exists.
-41. Only after fresh zero-inference preflight and explicit spend approval:
+43. Export authenticated routes and run the non-production QStash/Atlas
+    crash/restart/redelivery exercise only after step 42 exists.
+44. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `07c59690b` and orchestration-decision commit
+- Repository code through `061fc5168` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

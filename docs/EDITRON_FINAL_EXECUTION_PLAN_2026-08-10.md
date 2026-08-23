@@ -1481,15 +1481,41 @@ mid-transaction rollback and non-commit pass 29/29 focused tests with repository
 typecheck and quiet ESLint. This is
 `CONCRETE_TRANSACTION_ADAPTER_IMPLEMENTED_NOT_LIVE_PROVEN`: no Atlas instance
 was contacted and no product root invokes it.
-The next gate is single execution-root composition, followed by signed route export and a
-non-production Atlas/QStash crash/redelivery exercise that proves the real
-transaction. The inline research
-reference artifact and sealed-holdout controller remain ineligible as product
-authorities.
-Exercise the real renderer only
-with explicit external-cost authorization; do not rerun paid
-cohorts without fresh zero-inference preflight plus explicit spend
-authorization. -->
+Commit 061fc5168 closes one prerequisite that the earlier "single execution
+root" shorthand hid: the Plan-bound owner can now derive shared artifact owners
+from each already-validated definition. A Terra definition and a Luna
+definition therefore receive their own route-scoped downstream composition,
+while a forged Plan stops before that factory runs. The static injected-owner
+form remains available for bounded tests. This is
+`ROUTE_SCOPED_OWNER_DERIVATION_PROVEN_NO_PRODUCT_ROOT`; it does not itself
+construct canonical media, budget, transport, ProjectService-clone or proof
+owners.
+
+The production root is now explicitly decomposed into these remaining gates:
+
+1. Extract or implement one reusable **product runtime-budget guard factory**
+   over the CreditsService authorization/reservation/settlement contract. The
+   only complete runtime controller today is the sealed-holdout research
+   authority and is ineligible for product reuse as-is; copying it would create
+   a second accounting authority.
+2. Make the reference materializer register every source and derived artifact
+   in the existing `mediaAssets` owner with content hash, byte length, storage
+   identity and canonical envelope before issuance. The current reference-frame
+   sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
+   end to end.
+3. Compose, behind the existing definition-bound execution owner, the exact
+   route-scoped canonical reference owner, CreditsService locator/runtime guard,
+   ProjectService isolated clone, existing cut/keyframe dispatcher and proof
+   owner, and durable live transport. This remains an isolated proposal path;
+   it must not mutate the canonical project or create another timeline owner.
+4. Export the signed product route, then run the non-production Atlas/QStash
+   crash/restart/redelivery exercise that proves the actual transactions and
+   write-ahead recovery.
+
+The inline research reference artifact and sealed-holdout controller remain
+ineligible as product authorities. Exercise the real provider or renderer only
+after fresh zero-inference preflight and explicit external-cost authorization;
+do not rerun paid cohorts without both. -->
 
 **Immediate native-handoff reliability reconciliation:** the previously listed
 CAP-2A/native-V3R closeout is no longer pending. Its CAP-2A snapshot was
