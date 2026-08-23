@@ -3292,14 +3292,17 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b`, `32d9a91d2` and `7a584535c` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c` and `bde34941a` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
 asset sources and consumes the returned identity throughout; the live SaaS
-Studio intake now delegates to the same boundary. This remains partial
-convergence: ThinkForge/match-edit reconciliation, streaming long-form
-materialization, demux-artifact registration and live Mongo/R2/GCS proof are open.
+Studio intake and ThinkForge trend-analysis worker now delegate to the same
+boundary. ThinkForge no longer sends a floating YouTube/provider URL directly
+to inference: exact registered bytes and their receipt-derived fingerprint are
+required first. This remains partial convergence: legacy match-edit,
+streaming long-form materialization, demux-artifact registration and live
+Mongo/R2/GCS proof are open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
