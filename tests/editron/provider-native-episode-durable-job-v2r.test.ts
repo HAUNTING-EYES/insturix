@@ -5,6 +5,7 @@ import { hashCanonicalJsonV1 }
 import {
   buildProviderNativeEpisodeDurableJobInputV2R,
   persistProviderNativeEpisodeCheckpointV2R,
+  restoreProviderNativeEpisodeDurableStateV2R,
   restoreProviderNativeEpisodeCheckpointV2R,
   type ProviderNativeDurableEpisodeIdentityV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-episode-durable-job-v2r';
@@ -14,6 +15,10 @@ import {
   type ProviderNativeEpisodeResumeCheckpointV2R,
   type ProviderNativeRuntimeGuardResumeStateV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-episode-resume-v2r';
+import { createProviderNativeProposalRecoveryStateV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-proposal-recovery-v2r';
+import { PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-result-references-v2r';
 import type { ProviderNativeRouteV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-tool-codecs-v2r';
 import { DurableWorkflowJobLeaseLostErrorV1 }
@@ -134,6 +139,38 @@ describe('provider-native durable episode checkpoint adapter V2R', () => {
     expect(restoreProviderNativeEpisodeCheckpointV2R(persisted!)).toEqual(expected);
   });
 
+  it('persists a proposal recovery chain atomically with its exact checkpoint', async () => {
+    const { collection, store } = setup();
+    const created = await store.createOrGet(jobInput(), START);
+    const claim = await store.claim({
+      jobId: created.job.jobId, workerId: 'worker-a', now: START,
+    });
+    if (claim.kind !== 'claimed') throw new Error('expected durable claim');
+    const expected = checkpoint(IDENTITY, [writerTurn()]);
+    const proposalRecoveryState = createProviderNativeProposalRecoveryStateV2R({
+      checkpoint: expected,
+      projectId: 'project-1',
+      canonicalBaseProjectRevision: 'project-revision-v1:base-r7',
+      canonicalBaseStateSha256: 'e'.repeat(64),
+      operations: [{
+        turn: 1, beforeStateSha256: 'e'.repeat(64), afterStateSha256: 'f'.repeat(64),
+      }],
+    });
+    await persistProviderNativeEpisodeCheckpointV2R({
+      store, jobId: created.job.jobId, tenantId: 'tenant-1', userId: 'user-1',
+      leaseToken: claim.leaseToken, expectedSequence: 0, checkpoint: expected,
+      proposalRecoveryState, now: new Date(START.getTime() + 1),
+    });
+
+    const freshStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
+    const persisted = await freshStore.getAuthorized({
+      jobId: created.job.jobId, tenantId: 'tenant-1', userId: 'user-1',
+    });
+    expect(restoreProviderNativeEpisodeDurableStateV2R(persisted!)).toEqual({
+      checkpoint: expected, proposalRecoveryState,
+    });
+  });
+
   it('rejects forged, mismatched and stale checkpoint writes before changing state', async () => {
     const { store } = setup();
     const created = await store.createOrGet(jobInput(), START);
@@ -228,3 +265,24 @@ describe('provider-native durable episode checkpoint adapter V2R', () => {
     )).toThrow('PROVIDER_NATIVE_DURABLE_RESUME_STATE_INVALID');
   });
 });
+
+function writerTurn() {
+  return {
+    turn: 1,
+    modelCall: { callId: 'call-1', name: 'set_keyframes', arguments: {} },
+    normalizedArguments: { projectId: 'project-1', overlayId: 'overlay-1' },
+    execution: {
+      authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION', disposition: 'OK',
+      output: { receipt: { status: 'PASS', projectRevision: 'local-writer-r8' } },
+      evidenceIds: [],
+    },
+    issuedResultReferences: [{
+      version: PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R,
+      resultReferenceId: 'result_t1_1', originTurn: 1,
+      sourceOperatorId: 'set_keyframes',
+      sourceOutputField: 'receipt.projectRevision',
+      sourceOutputPath: ['receipt', 'projectRevision'], valueKind: 'STRING',
+      valueSha256: hashCanonicalJsonV1('local-writer-r8'),
+    }],
+  };
+}
