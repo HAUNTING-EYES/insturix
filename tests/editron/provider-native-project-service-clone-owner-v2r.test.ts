@@ -47,6 +47,60 @@ const CHECKPOINT = createProviderNativeEpisodeResumeCheckpointV2R({
 });
 
 describe('ProjectService-backed provider-native proposal clone V2R', () => {
+  it('opens a fresh clone without fabricating a resume checkpoint', async () => {
+    const canonical = project();
+    const writerCall = {
+      operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1,
+    } as const;
+    const expectedProject = structuredClone(canonical);
+    (expectedProject.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
+    const writerExecution = issuedWriterExecution({
+      before: canonical,
+      after: expectedProject,
+      call: writerCall,
+    });
+    const execute = vi.fn(async (input: Readonly<{
+      episodeId?: string;
+      checkpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+      project: Project;
+    }>) => {
+      expect(input.episodeId).toBe('fresh-proposal-episode-1');
+      expect(input.checkpoint).toBeUndefined();
+      (input.project.overlays[0].styles as Record<string, unknown>).opacity = 0.5;
+      return writerExecution;
+    });
+    const owner = createProviderNativeProjectServiceCloneOwnerV2R({
+      projectService: { loadProjectForMutation: async () => snapshot(canonical) },
+      isolatedOperatorOwner: { execute },
+    });
+
+    const resolved = await owner.resolveFresh!({
+      tenantId: 'tenant-1', userId: USER_ID, projectId: PROJECT_ID,
+      episodeId: 'fresh-proposal-episode-1',
+    });
+    await expect(resolved.isolatedClone.executeIsolated(writerCall)).resolves.toMatchObject({
+      disposition: 'OK',
+    });
+    const checkpoint = createProviderNativeEpisodeResumeCheckpointV2R({
+      route: CHECKPOINT.route,
+      episodeId: 'fresh-proposal-episode-1',
+      contextSha256: CHECKPOINT.contextSha256,
+      toolSetSha256: CHECKPOINT.toolSetSha256,
+      completedTurns: [committedWriterTurn(writerCall, writerExecution)],
+    });
+    await expect(
+      resolved.isolatedClone.captureProposalRecoveryState?.(checkpoint),
+    ).resolves.toMatchObject({
+      operations: [{ operatorId: 'set_keyframes', turn: 1 }],
+    });
+    await expect(resolved.isolatedClone.finalizeProposalReceipt?.()).resolves.toMatchObject({
+      episodeId: 'fresh-proposal-episode-1',
+      canonicalUnchanged: true,
+      changedPaths: ['$.overlays[0].styles.opacity'],
+    });
+    expect((canonical.overlays[0].styles as Record<string, unknown>).opacity).toBe(1);
+  });
+
   it('executes only on the clone and finalizes a hash-bound changed-path receipt', async () => {
     const canonical = project();
     const loadProjectForMutation = vi.fn(async () => snapshot(canonical));

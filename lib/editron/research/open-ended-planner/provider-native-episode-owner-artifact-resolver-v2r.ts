@@ -58,6 +58,15 @@ export interface ProviderNativeDurableProjectCloneOwnerV2R {
     currentRevision: Readonly<ProviderNativeDurableCurrentRevisionReadV2R>;
     isolatedClone: Readonly<ProviderNativeDurableIsolatedCloneV2R>;
   }>>;
+  resolveFresh?(input: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    episodeId: string;
+  }>): Promise<Readonly<{
+    currentRevision: Readonly<ProviderNativeDurableCurrentRevisionReadV2R>;
+    isolatedClone: Readonly<ProviderNativeDurableIsolatedCloneV2R>;
+  }>>;
 }
 
 export interface ProviderNativeDurableTransportOwnerV2R {

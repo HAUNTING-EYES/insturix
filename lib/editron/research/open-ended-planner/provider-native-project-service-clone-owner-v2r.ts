@@ -48,7 +48,8 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
     tenantId: string;
     userId: string;
     projectId: string;
-    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    episodeId?: string;
+    checkpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Project;
     baseRevision: Readonly<ProjectRevisionV1>;
     currentProjectRevision: string;
@@ -58,6 +59,7 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
     tenantId: string;
     userId: string;
     projectId: string;
+    episodeId?: string;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
     project: Project;
     baseRevision: Readonly<ProjectRevisionV1>;
@@ -109,6 +111,10 @@ interface OperationAuditV2R {
   operationReceiptSha256: string;
 }
 
+type ResolvedProjectServiceCloneV2R = Awaited<ReturnType<
+  ProviderNativeDurableProjectCloneOwnerV2R['resolve']
+>>;
+
 /**
  * Adapts the existing ProjectService paired snapshot/revision read to the
  * durable research episode. The supplied operator owner can mutate only the
@@ -119,8 +125,14 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
   isolatedOperatorOwner: Readonly<ProjectServiceIsolatedOperatorOwnerV2R>;
   isolatedOutcomeProofOwner?: Readonly<ProjectServiceIsolatedOutcomeProofOwnerV2R>;
 }>): Readonly<ProviderNativeDurableProjectCloneOwnerV2R> {
-  return {
-    resolve: async (scope) => {
+  const resolveClone = async (scope: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    episodeId: string;
+    checkpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+  }>): Promise<Readonly<ResolvedProjectServiceCloneV2R>> => {
       const initial = await input.projectService.loadProjectForMutation(
         scope.userId,
         scope.projectId,
@@ -142,13 +154,18 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
       let finalizedExecutionBoundProofInputSha256: string | null = null;
       const operations: OperationAuditV2R[] = [];
       const recovery = scope.proposalRecoveryState;
-      const writerTurns = proposalRecoveryWriterTurnsV2R(scope.checkpoint);
+      const checkpoint = scope.checkpoint;
+      const writerTurns = checkpoint
+        ? proposalRecoveryWriterTurnsV2R(checkpoint) : [];
+      if (recovery && !checkpoint) {
+        throw new Error('PROJECTSERVICE_PROPOSAL_RECOVERY_CHECKPOINT_REQUIRED');
+      }
       if (writerTurns.length && !recovery) {
         throw new Error('PROJECTSERVICE_PROPOSAL_RECOVERY_REQUIRED');
       }
       if (recovery) {
         verifyProviderNativeProposalRecoveryStateV2R({
-          checkpoint: scope.checkpoint,
+          checkpoint: checkpoint!,
           projectId: scope.projectId,
           state: recovery,
         });
@@ -160,7 +177,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_OWNER_REQUIRED');
         }
         const replayed = await replayCommittedProposal({
-          scope,
+          scope: { ...scope, checkpoint: checkpoint! },
           projectService: input.projectService,
           isolatedOperatorOwner: input.isolatedOperatorOwner,
           baseProject: initial.project,
@@ -181,7 +198,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         tenantId: scope.tenantId,
         userId: scope.userId,
         projectId: scope.projectId,
-        episodeId: scope.checkpoint.episodeId,
+        episodeId: scope.episodeId,
         projectRevision: baseRevisionIdentity,
         stateSha256: baseStateSha256,
       } as const;
@@ -210,7 +227,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         const material = {
           schemaVersion: 1 as const,
           authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_NO_PROJECT_MUTATION' as const,
-          episodeId: scope.checkpoint.episodeId,
+          episodeId: scope.episodeId,
           projectId: scope.projectId,
           baseProjectRevision: baseRevisionIdentity,
           baseStateSha256,
@@ -257,7 +274,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           tenantId: scope.tenantId,
           userId: scope.userId,
           projectId: scope.projectId,
-          checkpoint: scope.checkpoint,
+          checkpoint: checkpoint!,
           project: structuredClone(workingProject),
           baselineProject: structuredClone(initial.project),
           baseRevision: structuredClone(baseRevision),
@@ -312,7 +329,7 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           tenantId: scope.tenantId,
           userId: scope.userId,
           projectId: scope.projectId,
-          checkpoint: scope.checkpoint,
+          checkpoint: checkpoint!,
           project: structuredClone(workingProject),
           baselineProject: structuredClone(initial.project),
           baseRevision: structuredClone(baseRevision),
@@ -371,7 +388,8 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
                 tenantId: scope.tenantId,
                 userId: scope.userId,
                 projectId: scope.projectId,
-                checkpoint: scope.checkpoint,
+                episodeId: scope.episodeId,
+                ...(checkpoint ? { checkpoint } : {}),
                 project: workingProject,
                 baseRevision,
                 currentProjectRevision: workingProjectRevision,
@@ -455,12 +473,21 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
             return state;
           },
           finalizeProposalReceipt,
-          ...(input.isolatedOutcomeProofOwner ? { finalizeOutcomeProof } : {}),
-          ...(input.isolatedOutcomeProofOwner?.proveExecutionBound
+          ...(checkpoint && input.isolatedOutcomeProofOwner
+            ? { finalizeOutcomeProof } : {}),
+          ...(checkpoint && input.isolatedOutcomeProofOwner?.proveExecutionBound
             ? { finalizeExecutionBoundOutcomeProof } : {}),
         },
       };
-    },
+  };
+  return {
+    resolve: async (scope) => resolveClone({
+      ...scope,
+      episodeId: scope.checkpoint.episodeId,
+    }),
+    // A fresh clone has no checkpoint-shaped history. Its first checkpoint is
+    // created only after a real dispatch intent, attempt, or writer commits.
+    resolveFresh: async (scope) => resolveClone(scope),
   };
 }
 
@@ -469,6 +496,7 @@ async function replayCommittedProposal(input: Readonly<{
     tenantId: string;
     userId: string;
     projectId: string;
+    episodeId: string;
     checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
   }>;
   projectService: Readonly<ProjectServiceProposalSnapshotOwnerV2R>;
@@ -503,6 +531,7 @@ async function replayCommittedProposal(input: Readonly<{
       tenantId: input.scope.tenantId,
       userId: input.scope.userId,
       projectId: input.scope.projectId,
+      episodeId: input.scope.episodeId,
       checkpoint: input.scope.checkpoint,
       project: input.workingProject,
       baseRevision: input.baseRevision,
