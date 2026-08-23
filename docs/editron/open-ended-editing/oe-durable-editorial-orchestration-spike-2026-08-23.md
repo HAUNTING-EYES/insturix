@@ -39,6 +39,7 @@ production-ready and no live workflow reaches the store.
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay; all other family/live gates remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
+| Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -140,12 +141,19 @@ Completed foundation:
   through their owning validators; wrong scope/hash, altered bytes and copied
   outer identity fail closed. Reference owner/resume suites pass 18/18; full
   typecheck and quiet ESLint pass.
+- `8ecc87a1c` adapts the existing sealed runtime-budget controller to the
+  durable runtime-guard owner port. The immutable artifact binds exact episode
+  scope, source provenance, case/manifest, route, authorization, pricing and
+  guard identity; the provider-specific token counter remains an injected
+  owner. Scope/kind/identity, authorization and outer-envelope forgery fail
+  closed before counting. Focused accounting/recovery tests pass 13/13; full
+  typecheck and quiet ESLint pass.
 
 Open work:
 
-- remaining artifact resolution for scopes, locks, approvals, runtime budget
-  and rendered proof, plus a production canonical-media locator behind the now
-  proven reference owner contract;
+- remaining artifact resolution for scopes, locks, approvals and rendered
+  proof, plus a production canonical-media locator behind the now proven
+  reference owner contract;
 - expand the now-proven `cut_section` bridge to other certified/pure operator
   owners without introducing another operation registry or project authority;
 - proposal review/apply/reload through the sole ProjectService CAS remains
@@ -305,6 +313,11 @@ arms. It is deliberately an inline research artifact, not a new media database;
 production retrieval, rights/privacy/egress policy and interpretation remain
 open.
 
+Commit `8ecc87a1c` binds the existing sealed resource-accounting controller to
+the durable runtime-guard owner. It proves exact scope and guard-identity
+reconstruction without counting tokens or invoking a provider. It neither
+authorizes spend nor supplies a generic product budget authority.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -337,15 +350,18 @@ open.
 10. **Reference research owner complete at `90d034578`:** resolve exact scoped
     ordered-frame or native-video evidence and reject scope/hash/byte forgery.
     Add production canonical-media retrieval separately.
-11. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+11. **Runtime guard research owner complete at `8ecc87a1c`:** resolve a fresh
+    exact-identity sealed budget controller and reject scope, kind, identity,
+    authorization and envelope forgery before token counting.
+12. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
    authority.
-12. Only after fresh zero-inference preflight and explicit spend approval:
+13. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `90d034578` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `8ecc87a1c` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
