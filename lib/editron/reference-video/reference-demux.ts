@@ -18,8 +18,6 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -34,6 +32,7 @@ import {
 } from '@/lib/editron/services/canonical-json-v1';
 import type { UploadResult } from '@/lib/editron/services/upload-service';
 import {
+  measureStableReferenceMediaFileV1,
   REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
   registerReferenceMaterializedMediaFileV1,
   type ReferenceMaterializedMediaFileRegistrationInputV1,
@@ -514,18 +513,8 @@ interface FileIdentity {
 }
 
 async function measureStableFile(filePath: string): Promise<Readonly<FileIdentity>> {
-  const before = await stat(filePath);
-  if (!before.isFile() || !Number.isSafeInteger(before.size) || before.size < 1
-    || !Number.isFinite(before.mtimeMs)) {
-    throw new Error('file is absent, empty, or not a stable regular file');
-  }
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
-  const after = await stat(filePath);
-  if (!after.isFile() || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-    throw new Error('file changed while it was being hashed');
-  }
-  return { size: before.size, sha256: hash.digest('hex') };
+  const identity = await measureStableReferenceMediaFileV1(filePath, {});
+  return { size: identity.byteLength, sha256: identity.bytesSha256 };
 }
 
 async function measureOptionalStableFile(

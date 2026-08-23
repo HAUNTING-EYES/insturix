@@ -89,7 +89,7 @@ export async function registerReferenceMaterializedMediaFileV1(
   input: ReferenceMaterializedMediaFileRegistrationInputV1,
   deps: Readonly<ReferenceMaterializedMediaFileRegistrationDepsV1> = {},
 ): Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>> {
-  const identity = await measureStableFile(input.filePath, deps);
+  const identity = await measureStableReferenceMediaFileV1(input.filePath, deps);
   const { filePath: _filePath, ...registration } = input;
   const normalized = normalizeReferenceMaterializedMediaIdentityRegistrationV1({
     ...registration,
@@ -124,7 +124,8 @@ async function persistRegistration(
   }) as Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
 }
 
-async function measureStableFile(
+/** Stable, streamed local-file identity shared by materialization owners. */
+export async function measureStableReferenceMediaFileV1(
   filePath: string,
   deps: Readonly<ReferenceMaterializedMediaFileRegistrationDepsV1>,
 ): Promise<Readonly<{ byteLength: number; bytesSha256: string }>> {

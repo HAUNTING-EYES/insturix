@@ -1,16 +1,18 @@
 import { spawn } from 'child_process';
-import { createHash } from 'node:crypto';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import { getFFmpegPath } from '@/lib/editron/services/media/analysis-service';
-import { uploadMedia } from '@/lib/editron/services/upload-service';
+import { uploadMediaFromFile, type UploadResult } from '@/lib/editron/services/upload-service';
 
 import { buildReferenceFrameAssetId } from './reference-frame-asset-id';
 import {
-  registerReferenceMaterializedMediaAssetV1,
-  type ReferenceMaterializedMediaRegistrationInputV1,
+  measureStableReferenceMediaFileV1,
+  REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+  registerReferenceMaterializedMediaFileV1,
+  type ReferenceMaterializedMediaFileRegistrationInputV1,
   type ReferenceMaterializedMediaRegistrationReceiptV1,
 } from './reference-materialized-media-registration-v1';
 import {
@@ -43,12 +45,13 @@ export interface SampleReferenceVideoFramesParams {
   maxDownloadBytes?: number;
   fetchImpl?: typeof fetch;
   orgId?: string;
+  abortSignal?: AbortSignal;
 }
 
 export interface ReferenceVideoFrameSamplerDeps {
-  upload?: typeof uploadMedia;
-  register?: (
-    input: Readonly<ReferenceMaterializedMediaRegistrationInputV1>,
+  uploadFile?: typeof uploadMediaFromFile;
+  registerFile?: (
+    input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
   ) => Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>>;
   extractFrame?: typeof extractFrame;
 }
@@ -64,44 +67,53 @@ export async function sampleReferenceVideoFrames(
   if (!params.referenceAssetId.trim()) throw new Error('referenceAssetId is required for reference frame sampling.');
 
   const sampleCount = params.sampleCount ?? REQUIRED_GATE_FRAME_COUNT;
-  const upload = deps.upload ?? uploadMedia;
-  const register = deps.register ?? registerReferenceMaterializedMediaAssetV1;
+  const maxDownloadBytes = params.maxDownloadBytes ?? DEFAULT_MAX_REFERENCE_DOWNLOAD_BYTES;
+  if (!Number.isSafeInteger(maxDownloadBytes) || maxDownloadBytes < 1) {
+    throw new Error('maxDownloadBytes must be a positive safe integer.');
+  }
+  const uploadFile = deps.uploadFile ?? uploadMediaFromFile;
+  const registerFile = deps.registerFile ?? registerReferenceMaterializedMediaFileV1;
   const extract = deps.extractFrame ?? extractFrame;
   const schedule = buildGateFrameSchedule(params.durationSec ?? 120, sampleCount);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-reference-frames-'));
-  const inputPath = await resolveInputPath({
-    videoUrl: params.videoUrl,
-    tempDir,
-    maxDownloadBytes: params.maxDownloadBytes ?? DEFAULT_MAX_REFERENCE_DOWNLOAD_BYTES,
-    fetchImpl: params.fetchImpl ?? fetch,
-  });
 
   try {
+    const inputPath = await resolveInputPath({
+      videoUrl: params.videoUrl,
+      tempDir,
+      maxDownloadBytes,
+      fetchImpl: params.fetchImpl ?? fetch,
+      abortSignal: params.abortSignal,
+    });
     const samples: ReferenceVideoFrameSample[] = [];
     for (const [index, timestampSec] of schedule.entries()) {
+      if (params.abortSignal?.aborted) throw new Error('Reference frame sampling was cancelled.');
       const outputPath = path.join(tempDir, `frame-${index}.jpg`);
       await extract({ inputPath, outputPath, timestampSec });
-      const frameBuffer = await fs.readFile(outputPath);
+      const frameIdentity = await measureStableReferenceMediaFileV1(outputPath, {});
       const logicalAssetId = buildReferenceFrameAssetId({
         referenceAssetId: params.referenceAssetId,
         index,
         timestampSec,
       });
-      const frameBytesSha256 = createHash('sha256').update(frameBuffer).digest('hex');
-      const assetId = buildReferenceFrameVersionAssetId(logicalAssetId, frameBytesSha256);
-      const uploaded = await upload(
-        frameBuffer,
+      const assetId = buildReferenceFrameVersionAssetId(
+        logicalAssetId,
+        frameIdentity.bytesSha256,
+      );
+      const uploaded = await uploadFile(
+        outputPath,
         params.userId,
         `${assetId}.jpg`,
         'image/jpeg',
         { customAssetId: assetId },
       );
+      assertReferenceFrameUpload(uploaded, assetId, frameIdentity.byteLength);
       const frameId = `frame_${String(index).padStart(6, '0')}`;
       const timestampUs = String(Math.round(timestampSec * 1_000_000));
       // Registration is part of materialization, not best-effort metadata. A
       // frame must never be returned to canonical issuance as an orphaned URL.
-      const registration = await register({
-        bytes: frameBuffer,
+      const registration = await registerFile({
+        filePath: outputPath,
         upload: uploaded,
         actorUserId: params.userId,
         mediaOwner: params.orgId
@@ -115,6 +127,17 @@ export async function sampleReferenceVideoFrames(
           frameId,
           timestampUs,
         },
+      });
+      assertReferenceFrameRegistration({
+        registration,
+        uploaded,
+        assetId,
+        frameIdentity,
+        referenceAssetId: params.referenceAssetId,
+        frameId,
+        timestampUs,
+        userId: params.userId,
+        orgId: params.orgId,
       });
 
       samples.push({
@@ -147,32 +170,126 @@ export function buildReferenceFrameVersionAssetId(
   return `${logicalAssetId}_${frameBytesSha256.slice(0, 16)}`;
 }
 
+function assertReferenceFrameUpload(
+  upload: Readonly<UploadResult>,
+  assetId: string,
+  byteLength: number,
+): void {
+  if (upload.assetId !== assetId || upload.size !== byteLength
+    || upload.contentType !== 'image/jpeg' || !upload.signedUrl.trim()
+    || (!upload.r2Key && !upload.gcsPath)) {
+    throw new Error('Reference frame upload receipt does not match the extracted file.');
+  }
+}
+
+function assertReferenceFrameRegistration(args: Readonly<{
+  registration: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
+  uploaded: Readonly<UploadResult>;
+  assetId: string;
+  frameIdentity: Readonly<{ byteLength: number; bytesSha256: string }>;
+  referenceAssetId: string;
+  frameId: string;
+  timestampUs: string;
+  userId: string;
+  orgId?: string;
+}>): void {
+  const { registration } = args;
+  const storage = args.uploaded.r2Key
+    ? { backend: 'R2' as const, key: args.uploaded.r2Key }
+    : { backend: 'GCS' as const, key: args.uploaded.gcsPath! };
+  const mediaOwner = args.orgId
+    ? { type: 'ORG' as const, orgId: args.orgId }
+    : { type: 'USER' as const, userId: args.userId };
+  const provenance = {
+    version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+    role: 'DERIVED_FRAME' as const,
+    sourceAssetId: args.referenceAssetId,
+    frameId: args.frameId,
+    timestampUs: args.timestampUs,
+  };
+  const material = {
+    version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+    assetId: args.assetId,
+    mediaOwner,
+    contentType: 'image/jpeg',
+    byteLength: args.frameIdentity.byteLength,
+    bytesSha256: args.frameIdentity.bytesSha256,
+    storage,
+    provenance,
+  };
+  if (registration.version !== REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1
+    || registration.assetId !== material.assetId
+    || registration.contentType !== material.contentType
+    || registration.byteLength !== material.byteLength
+    || registration.bytesSha256 !== material.bytesSha256
+    || hashEditronCanonicalJsonV1(registration.mediaOwner) !== hashEditronCanonicalJsonV1(mediaOwner)
+    || hashEditronCanonicalJsonV1(registration.storage) !== hashEditronCanonicalJsonV1(storage)
+    || hashEditronCanonicalJsonV1(registration.provenance) !== hashEditronCanonicalJsonV1(provenance)
+    || registration.receiptSha256 !== hashEditronCanonicalJsonV1(material)) {
+    throw new Error('Reference frame registration receipt does not match the extracted file.');
+  }
+}
+
 
 async function resolveInputPath(args: {
   videoUrl: string;
   tempDir: string;
   maxDownloadBytes: number;
   fetchImpl: typeof fetch;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   if (!/^https?:\/\//i.test(args.videoUrl)) return args.videoUrl;
 
-  const response = await args.fetchImpl(args.videoUrl);
+  const response = await args.fetchImpl(args.videoUrl, { signal: args.abortSignal });
   if (!response.ok) {
     throw new Error(`Failed to download reference video for frame sampling: HTTP ${response.status}.`);
   }
 
   const contentLength = response.headers.get('content-length');
-  if (contentLength && Number(contentLength) > args.maxDownloadBytes) {
-    throw new Error(`Reference video is too large for frame sampling (${contentLength} bytes).`);
+  if (contentLength !== null) {
+    const declaredBytes = Number(contentLength);
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes < 0) {
+      throw new Error(`Reference video returned an invalid content-length (${contentLength}).`);
+    }
+    if (declaredBytes > args.maxDownloadBytes) {
+      throw new Error(`Reference video is too large for frame sampling (${contentLength} bytes).`);
+    }
   }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > args.maxDownloadBytes) {
-    throw new Error(`Reference video is too large for frame sampling (${buffer.byteLength} bytes).`);
+  if (!response.body) {
+    throw new Error('Reference video returned no response body for frame sampling.');
   }
 
   const inputPath = path.join(args.tempDir, 'reference-video.mp4');
-  await fs.writeFile(inputPath, buffer);
+  const output = await fs.open(inputPath, 'wx');
+  const reader = response.body.getReader();
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      byteLength += value.byteLength;
+      if (byteLength > args.maxDownloadBytes) {
+        await reader.cancel('Reference frame-sampling byte limit exceeded.').catch(() => undefined);
+        throw new Error(`Reference video is too large for frame sampling (${byteLength} bytes).`);
+      }
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const { bytesWritten } = await output.write(
+          value,
+          offset,
+          value.byteLength - offset,
+          null,
+        );
+        if (bytesWritten < 1) throw new Error('Reference video stream write made no progress.');
+        offset += bytesWritten;
+      }
+    }
+    if (byteLength < 1) throw new Error('Reference video response body is empty.');
+  } finally {
+    reader.releaseLock();
+    await output.close();
+  }
   return inputPath;
 }
 
