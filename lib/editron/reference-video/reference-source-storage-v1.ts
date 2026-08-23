@@ -101,7 +101,10 @@ function buildExistingManagedStorageUpload(
     signedUrl: httpUrl(source.videoUrl),
     gcsPath,
     r2Key,
-    urlExpiresAt: validDateOrNull(source.asset.urlExpiresAt),
+    // R2 browser URLs are permanent in UploadResult. An importer may carry a
+    // compatibility Date on MediaAsset, but that must not become a false
+    // expiry on the canonical alias.
+    urlExpiresAt: r2Key ? null : validDateOrNull(source.asset.urlExpiresAt),
     size: byteLength,
     contentType,
   };

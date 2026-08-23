@@ -1,4 +1,8 @@
 import type { NormalizedSaasExplainerIntake } from "@/lib/editron/saas-explainer/intake";
+import {
+  resolveCanonicalSaasReferenceSourceV1,
+  SaasReferenceIngestErrorV1,
+} from "@/lib/editron/saas-explainer/reference-ingest-owner-v1";
 import type { SaasReferenceStyleAnalysis } from "@/lib/editron/reference-video/saas-reference-video-analyzer";
 
 export type SaasExplainerReferenceResult =
@@ -47,22 +51,20 @@ export async function analyzeSaasExplainerReference(args: {
 }): Promise<SaasExplainerReferenceResult> {
   if (!args.input.referenceVideoUrl) return { ok: true };
 
-  const [{ assetResolver }, sourceModule] = await Promise.all([
-    import("@/lib/editron/services/asset-resolver"),
-    import("@/lib/editron/reference-video/reference-video-source"),
-  ]);
-  const resolved = await sourceModule.resolveReferenceVideoSource({
-    userId: args.userId,
-    referenceVideoUrl: args.input.referenceVideoUrl,
-    assetResolver,
-  });
-  if (!resolved.ok) {
+  let source;
+  try {
+    source = await resolveCanonicalSaasReferenceSourceV1({
+      userId: args.userId,
+      referenceVideoUrl: args.input.referenceVideoUrl,
+    });
+  } catch (error) {
+    if (!(error instanceof SaasReferenceIngestErrorV1)) throw error;
     return {
       ok: false,
-      status: 422,
-      code: resolved.reason,
-      error: resolved.diagnostics[0] || "Reference video is unavailable.",
-      details: resolved.diagnostics,
+      status: error.status,
+      code: error.code,
+      error: error.status < 500 ? error.message : "Reference video is unavailable.",
+      details: error.diagnostics,
     };
   }
 
@@ -73,12 +75,11 @@ export async function analyzeSaasExplainerReference(args: {
     import("@/lib/editron/reference-video/saas-reference-analysis-cache"),
   ]);
 
-  const source = resolved.source;
   const brandContext = [args.input.productName, args.productUrl, args.input.audience, args.input.outcome]
     .filter(Boolean)
     .join("\n");
   const cacheKey = cache.buildSaasReferenceAnalysisCacheKey({
-    referenceAssetId: source.referenceId,
+    referenceAssetId: source.referenceAssetId,
     durationSec: source.durationSec,
     sourceFingerprint: source.sourceFingerprint || source.videoUrl,
     script: args.scriptSummary,
@@ -95,11 +96,11 @@ export async function analyzeSaasExplainerReference(args: {
         analysis: cached.analysis,
         gate: cached.gate,
         cacheKey: cached.cacheKey,
-        sourceName: source.sourceLabel,
+        sourceName: source.sourceLabel ?? "Reference Video",
       }),
       analysis: {
         status: "accepted",
-        sourceKind: source.kind,
+        sourceKind: source.sourceKind,
         confidence: cached.gate.confidence,
         analysisModel: cached.analysisModel,
         gateModel: cached.gateModel,
@@ -122,14 +123,14 @@ export async function analyzeSaasExplainerReference(args: {
   const frames = await sampler.sampleReferenceVideoFrames({
     videoUrl: source.videoUrl,
     userId: args.userId,
-    referenceAssetId: source.referenceId,
+    referenceAssetId: source.referenceAssetId,
     durationSec: source.durationSec,
   });
   const analysis = await analyzer.analyzeSaasReferenceVideo({
     videoUrl: source.videoUrl,
     frameImageUrls: frames.map((frame) => frame.url),
     durationSec: source.durationSec,
-    sourceLabel: args.referenceType ?? source.kind,
+    sourceLabel: args.referenceType ?? source.sourceKind,
     script: args.scriptSummary,
     brandContext,
   });
@@ -140,7 +141,7 @@ export async function analyzeSaasExplainerReference(args: {
         status: "rejected",
         cacheKey,
         analyzerCacheKey: analysis.cacheKey,
-        referenceAssetId: source.referenceId,
+        referenceAssetId: source.referenceAssetId,
         sourceFingerprint: source.sourceFingerprint,
         gateModel: analyzer.DEFAULT_GLM_GATE_MODEL,
         analysisModel: analyzer.DEFAULT_GLM_ANALYSIS_MODEL,
@@ -170,7 +171,7 @@ export async function analyzeSaasExplainerReference(args: {
     status: "accepted",
     cacheKey,
     analyzerCacheKey: analysis.cacheKey,
-    referenceAssetId: source.referenceId,
+    referenceAssetId: source.referenceAssetId,
     sourceFingerprint: source.sourceFingerprint,
     gateModel: analyzer.DEFAULT_GLM_GATE_MODEL,
     analysisModel: analyzer.DEFAULT_GLM_ANALYSIS_MODEL,
@@ -188,11 +189,11 @@ export async function analyzeSaasExplainerReference(args: {
       analysis: analysis.analysis,
       gate: analysis.gate,
       cacheKey,
-      sourceName: source.sourceLabel,
+      sourceName: source.sourceLabel ?? "Reference Video",
     }),
     analysis: {
       status: "accepted",
-      sourceKind: source.kind,
+      sourceKind: source.sourceKind,
       confidence: analysis.gate.confidence,
       analysisModel: analyzer.DEFAULT_GLM_ANALYSIS_MODEL,
       gateModel: analyzer.DEFAULT_GLM_GATE_MODEL,
