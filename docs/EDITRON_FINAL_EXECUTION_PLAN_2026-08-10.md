@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `8a2f4d535` on
+programme code checkpoint represented by this ledger is `93a72e756` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 8a2f4d535. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 93a72e756. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1359,10 +1359,20 @@ reconciled attempt afterward. The Plan integration test proves sequence 1 is
 the pending intent, sequence 2 contains the reconciled 429 attempt with no
 pending intent, and an incompatible runtime guard dead-letters before invoke.
 The focused Plan/core/worker suite passes 25/25, with repository typecheck and
-quiet ESLint clean. Fresh provider execution remains disabled and automatic
-retry is still not authorised. Next add truthful native fresh execution/proof,
-then run zero-inference crash/redelivery and authenticated non-production
-QStash/Atlas recovery.
+quiet ESLint clean. Commits bfecfb314 and c6c416592 then add a real fresh
+ProjectService proposal clone and a store-neutral fresh provider core without
+manufacturing checkpoint history. Commit 898c3ba63 wires that core through the
+existing Plan lifecycle: the first durable state is created only by a real
+dispatch, attempt or writer event, and any later delivery resumes through the
+same checkpoint/recovery path. Commit 93a72e756 removes the checkpoint-only
+restriction from the existing cut/focal V2 proof port; a fresh cut now produces
+the same exact state/render/visual proof contract as a resumed cut while the
+canonical project remains unchanged. The focused fresh/resumed Plan and proof
+suites pass, with repository typecheck and quiet ESLint clean. This proves the
+fresh core and the concrete proof owner separately; a single full Plan-to-real-
+native-owner integration receipt, zero-inference crash/redelivery and live
+authenticated QStash/Atlas recovery remain open. Automatic provider retry is
+still not authorised.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -4756,7 +4766,8 @@ built around it.
 
 **Durable provider-dispatch checkpoint (2026-08-23):** commits
 `f57d0cb1c`, `88114ec5a`, `55b06b9e8`, `5f2c3b1f9`, `7cc90f161`,
-`da252954b`, `9cf3cde0f` and `8a2f4d535` supersede older plan
+`da252954b`, `9cf3cde0f`, `8a2f4d535`, `bfecfb314`, `c6c416592`,
+`898c3ba63` and `93a72e756` supersede older plan
 wording that listed all failed-attempt accounting as absent. The current
 research episode core can hash-bind a provider request/result, conservatively
 charge an unknown transport outcome, persist the attempt and runtime budget in
@@ -4772,12 +4783,13 @@ the shared resumed core and the product Plan worker's existing leased resume
 CAS. Its 429 integration proves pending intent before invocation and a separate
 reconciled-attempt checkpoint afterward; an incompatible guard stops before
 invocation. The focused Plan/core/worker suite passes 25/25 with full typecheck
-and quiet ESLint. This is **partial durable retry groundwork**, not automatic
-retry authorization. The next bounded reliability order is therefore:
-truthful fresh execution plus native fresh V2 proof, zero-inference crash/
-redelivery tests, authenticated non-production QStash/Atlas exercise, and only
-then a fresh paid preflight with explicit approval. Canonical project mutation
-remains disabled.
+and quiet ESLint. Fresh Plan startup and native fresh cut proof are now
+separately zero-inference proven without an invented checkpoint. This is still
+**partial durable retry groundwork**, not automatic retry authorization. The
+next bounded reliability order is therefore: one full Plan-to-real-native-owner
+proof receipt, zero-inference crash/redelivery tests, authenticated non-
+production QStash/Atlas exercise, and only then a fresh paid preflight with
+explicit approval. Canonical project mutation remains disabled.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.

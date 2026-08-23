@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus resume-only PlanService execution adapter, versioned fresh/resumed proof identity and Plan-lifecycle write-ahead provider-attempt recovery; zero inference; no truthful fresh execution, authenticated live ingress or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, native fresh cut proof and Plan-lifecycle write-ahead provider-attempt recovery; zero inference; no full Plan-to-native integration receipt, authenticated live ingress or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -24,7 +24,7 @@ rebuildable execution projection bound to exact PlanService and ProjectService
 revisions.
 
 This is a choice of ownership boundaries. The PlanService contract,
-persistence, lifecycle worker, resume-only provider adapter and a truthful V2
+persistence, lifecycle worker, fresh/resumed provider adapter and a truthful V2
 fresh/resumed proof identity now exist. The provider episode core can also
 persist an opt-in, hash-chained failed-attempt receipt, write a pending dispatch
 intent before invocation, restore its conservative spend reservation after
@@ -32,10 +32,14 @@ process restart and retry only while the original ProjectService revision
 remains current. The product Plan resume adapter emits
 V2 through the sole ProjectService clone and concrete cut/focal proof owner;
 the separate research worker retains V1 compatibility. Both durable attempt
-phases now pass through the shared resumed core and the Plan worker's existing
-leased resume-state CAS. Fresh execution and a native fresh proof owner remain
-absent, so the current durable path is
-not production-ready and no authenticated live workflow reaches the store.
+phases now pass through the shared cores and the Plan worker's existing leased
+resume-state CAS. A fresh episode opens the existing ProjectService proposal
+clone without checkpoint-shaped history; only a real dispatch, attempt or
+writer event creates its first checkpoint. The existing cut/focal proof owner
+now accepts that fresh execution trace and proves the same state/render/visual
+claims without mutating the canonical project. A single full Plan-to-real-
+native-owner receipt, crash/redelivery proof and authenticated live workflow
+remain absent, so the current path is not production-ready.
 
 ## Current code evidence
 
@@ -46,11 +50,11 @@ not production-ready and no authenticated live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope; `454fb721a` extracts one store-neutral resumed execution core plus durable outcome finalizer; `e1a8e4a3f` binds proposal recovery into the Plan envelope; `31fcb279e` shares the exact checkpoint codec; `cd1829223` connects the Plan lifecycle to that resume-only core through the existing scoped artifact owners; `2e2471adc` adds a backward-compatible V2 outcome-proof subject; `f3b6ad44d` adds its strict finalizer; and `d17ba67c1` wires the product Plan resumed path through the existing clone and cut/focal proof owner. Commits `f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` add hash-chained provider-attempt receipts, conservative unknown-result settlement, attempt-bound runtime restart and an opt-in episode callback. Commits `7cc90f161`, `da252954b` and `9cf3cde0f` add the immutable pre-dispatch intent, pending checkpoint and actual write-ahead episode boundary with conservative recovery. Commit `8a2f4d535` requires and persists both phases through the existing Plan lifecycle CAS. Fresh execution, authenticated review ingress and live Atlas/QStash proof remain absent. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions; `1764a8ff8` supplies the transport-neutral leased execution lifecycle; `ee07f11cf` freezes the exact provider-native research-proxy envelope; `454fb721a` extracts one store-neutral resumed execution core plus durable outcome finalizer; `e1a8e4a3f` binds proposal recovery into the Plan envelope; `31fcb279e` shares the exact checkpoint codec; `cd1829223` connects the Plan lifecycle to that resume-only core through the existing scoped artifact owners; `2e2471adc` adds a backward-compatible V2 outcome-proof subject; `f3b6ad44d` adds its strict finalizer; and `d17ba67c1` wires the product Plan resumed path through the existing clone and cut/focal proof owner. Commits `f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` add hash-chained provider-attempt receipts, conservative unknown-result settlement, attempt-bound runtime restart and an opt-in episode callback. Commits `7cc90f161`, `da252954b` and `9cf3cde0f` add the immutable pre-dispatch intent, pending checkpoint and actual write-ahead episode boundary with conservative recovery. Commit `8a2f4d535` requires and persists both phases through the existing Plan lifecycle CAS. Commits `bfecfb314`, `c6c416592` and `898c3ba63` add a real fresh clone/core/Plan path whose first checkpoint is caused only by real work. Full Plan-to-native integration, authenticated review ingress and live Atlas/QStash proof remain absent. |
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay. `1af638999` removes that owner's private revision map: the clone supplies its current revision and the concrete owner uses one shared deterministic issuer. `b0f1442c0` adds the bounded focal-scale `set_keyframes` owner and a same-process cut/keyframe chain on that revision origin. `349a586c3` adds exact state/render/visual policy for that ordered chain, including a reconstructed cut-only comparison baseline and inspected pixel deltas. `be8e12871` proves serialized fresh-process cut replay plus focal-only suffix execution through the same revision origin while preserving canonical state. `ee650e18b` makes the clone independently recompute and validate every admitted writer revision from exact receipt/call/state material. Live rendering and live-store recovery remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
-| Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. `2e2471adc` preserves that V1 receipt hash and adds V2 `FRESH_EPISODE_RECEIPT` / `RESUMED_EPISODE_RECEIPT` provenance; `f3b6ad44d` finalizes it without a V1 fallback; `d17ba67c1` makes the product resumed path and concrete cut/focal proof owner emit V2 while rejecting fresh before render. Live Lambda evidence, a native fresh proof path and production apply remain unproven. |
+| Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. `53baee0f3` adds the first concrete versioned policy and defaults its single-cut adapter to the existing Phase-0/Remotion producer. `349a586c3` extends that same factory to the ordered cut/focal-scale chain and refuses visual PASS without inspected per-frame deltas. `be8e12871` carries the same policy through two OS processes with deliberately skipped render evidence. `2e2471adc` preserves that V1 receipt hash and adds V2 `FRESH_EPISODE_RECEIPT` / `RESUMED_EPISODE_RECEIPT` provenance; `f3b6ad44d` finalizes it without a V1 fallback; `d17ba67c1` makes the product resumed path emit V2; and `93a72e756` makes the same concrete cut/focal proof policy accept a real fresh trace without a checkpoint. Live Lambda evidence, full product integration and production apply remain unproven. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -287,6 +291,14 @@ Completed foundation:
   sequence 2 contains the reconciled attempt with no pending intent, and an
   incompatible guard dead-letters before provider invocation. The focused
   Plan/core/worker suite passes 25/25 with full typecheck and quiet ESLint.
+- `bfecfb314` opens a fresh ProjectService proposal clone at the exact canonical
+  base without a fake checkpoint. `c6c416592` adds the store-neutral fresh core.
+  `898c3ba63` connects that core to the existing Plan lifecycle and routes any
+  later real checkpoint through the resumed path. `93a72e756` lets the existing
+  cut/focal proof owner bind `FRESH_EPISODE_RECEIPT` through the same state,
+  render and visual obligations; zero-network fresh cut proof passes while the
+  canonical project remains unchanged. Full Plan-to-concrete-owner integration
+  and live infrastructure remain separate gates.
 
 Open work:
 
@@ -302,8 +314,7 @@ Open work:
 - proposal review/apply/reload through the sole ProjectService CAS remains
   separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
-- add a native fresh proof owner and truthful fresh execution without
-  fabricating a resume checkpoint;
+- add one full Plan-to-real-native-owner fresh proof integration receipt;
 - add zero-inference product-lifecycle crash tests around intent persistence,
   post-result reconciliation, redelivery and cancellation. Automatic timeout/
   rate-limit retry remains unauthorized until those adapter tests pass;
@@ -596,8 +607,11 @@ before advancing. This does not add a secret signer or second revision owner.
     persist dispatch intent before invoke and the reconciled attempt afterward
     through the existing leased Plan resume-state CAS. Automatic provider retry
     remains unauthorized.
-28. Add truthful fresh execution plus a native fresh V2 proof owner without
-    fabricating a resume checkpoint or mutating canonical project state.
+28. **Fresh execution/proof foundations complete at `bfecfb314`, `c6c416592`,
+    `898c3ba63` and `93a72e756`:** open a real fresh clone, persist only real
+    work-derived checkpoints and apply the same native cut/focal V2 proof policy
+    without mutating canonical project state. Full Plan-to-native integration
+    remains step 29 input, not implied by these separate tests.
 29. Authenticated non-production product wiring plus QStash/Atlas crash/restart
     and redelivery exercise, using real artifact/operator owners and no second
     authority.
@@ -606,7 +620,7 @@ before advancing. This does not add a secret signer or second revision owner.
 
 ## Evidence basis
 
-- Repository code through `8a2f4d535` and orchestration-decision commit
+- Repository code through `93a72e756` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
