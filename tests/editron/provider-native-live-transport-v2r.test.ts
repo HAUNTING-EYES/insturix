@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { createProviderNativeLiveTransportV2R } from '@/lib/editron/research/open-ended-planner/provider-native-live-transport-v2r';
-import type { SerializedProviderNativeTurnV2R } from '@/lib/editron/research/open-ended-planner/provider-native-tool-codecs-v2r';
+import { hashCanonicalJsonV1 }
+  from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import {
+  createProviderNativeDurableLiveTransportOwnerV2R,
+  createProviderNativeLiveTransportV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-live-transport-v2r';
+import type {
+  ProviderNativeRouteV2R,
+  SerializedProviderNativeTurnV2R,
+} from '@/lib/editron/research/open-ended-planner/provider-native-tool-codecs-v2r';
 
 describe('provider-native live transport V2R', () => {
   it('uses exact provider auth while keeping secrets out of receipts', async () => {
@@ -54,7 +62,84 @@ describe('provider-native live transport V2R', () => {
       .toEqual([{ attempt: 1, status: 429 }, { attempt: 2, status: 200 }]);
     expect(new Set(receipt.calls.map((call) => call.requestHash)).size).toBe(1);
   });
+
+  it.each([
+    {
+      route: LUNA_ROUTE,
+      environment: { OPENAI_API_KEY: 'openai-only' },
+      expectedHeader: ['authorization', 'Bearer openai-only'],
+    },
+    {
+      route: GOOGLE_ROUTE,
+      environment: { GEMINI_API_KEY: 'google-only' },
+      expectedHeader: ['x-goog-api-key', 'google-only'],
+    },
+  ] as const)('resolves $route.routeId with only its provider credential', async ({
+    route, environment, expectedHeader,
+  }) => {
+    const observed: RequestInit[] = [];
+    const owner = createProviderNativeDurableLiveTransportOwnerV2R({
+      environment,
+      fetchImpl: (async (_url, init) => {
+        observed.push(init ?? {});
+        return new Response(JSON.stringify({ id: 'route-bound', model: route.model }), {
+          status: 200,
+        });
+      }) as typeof fetch,
+    });
+    const invoke = await owner.resolve({ route, episodeId: 'episode-route-bound' });
+    await expect(invoke(boundRequest(route))).resolves.toMatchObject({ status: 200 });
+    expect(new Headers(observed[0].headers).get(expectedHeader[0])).toBe(expectedHeader[1]);
+  });
+
+  it('rejects route, model, and request-hash substitution before network access', async () => {
+    let called = false;
+    const owner = createProviderNativeDurableLiveTransportOwnerV2R({
+      environment: { OPENAI_API_KEY: 'openai-only' },
+      fetchImpl: (async () => {
+        called = true;
+        return new Response(JSON.stringify({ model: LUNA_ROUTE.model }), { status: 200 });
+      }) as typeof fetch,
+    });
+    const invoke = await owner.resolve({ route: LUNA_ROUTE, episodeId: 'episode-bound' });
+    const substituted = boundRequest(TERRA_ROUTE);
+    await expect(invoke(substituted)).rejects.toThrow('REQUEST_ROUTE_MISMATCH');
+    await expect(invoke({ ...boundRequest(LUNA_ROUTE), requestHash: 'f'.repeat(64) }))
+      .rejects.toThrow('REQUEST_HASH_MISMATCH');
+    expect(called).toBe(false);
+    await expect(owner.resolve({
+      route: { ...LUNA_ROUTE, claimedModelIdentity: TERRA_ROUTE.model },
+      episodeId: 'episode-forged-route',
+    })).rejects.toThrow('ROUTE_IDENTITY_INVALID');
+    await expect(owner.resolve({
+      route: {
+        ...TERRA_ROUTE, model: 'gpt-unregistered',
+        claimedModelIdentity: 'gpt-unregistered',
+      } as unknown as ProviderNativeRouteV2R,
+      episodeId: 'episode-unregistered-model',
+    })).rejects.toThrow('ROUTE_IDENTITY_INVALID');
+    await expect(owner.resolve({
+      route: { ...LUNA_ROUTE, routeId: 'UNKNOWN_ROUTE' } as unknown as ProviderNativeRouteV2R,
+      episodeId: 'episode-unknown-route',
+    })).rejects.toThrow('ROUTE_IDENTITY_INVALID');
+  });
+
+  it('rejects a successful response issued by a different model', async () => {
+    const owner = createProviderNativeDurableLiveTransportOwnerV2R({
+      environment: { OPENAI_API_KEY: 'openai-only' },
+      fetchImpl: (async () => new Response(JSON.stringify({
+        id: 'wrong-model', model: TERRA_ROUTE.model,
+      }), { status: 200 })) as typeof fetch,
+    });
+    const invoke = await owner.resolve({ route: LUNA_ROUTE, episodeId: 'episode-model-check' });
+    await expect(invoke(boundRequest(LUNA_ROUTE)))
+      .rejects.toThrow('RETURNED_MODEL_IDENTITY_MISMATCH');
+  });
 });
+
+const LUNA_ROUTE = route('OPENAI_LUNA', 'openai', 'gpt-5.6-luna');
+const TERRA_ROUTE = route('OPENAI_TERRA', 'openai', 'gpt-5.6-terra');
+const GOOGLE_ROUTE = route('GOOGLE_FLASH', 'google', 'gemini-3.7-flash');
 
 function request(provider: 'openai' | 'google'): SerializedProviderNativeTurnV2R {
   return {
@@ -65,5 +150,29 @@ function request(provider: 'openai' | 'google'): SerializedProviderNativeTurnV2R
     authMode: provider === 'openai' ? 'BEARER' : 'X_GOOG_API_KEY',
     body: { model: provider === 'openai' ? 'gpt-5.6-luna' : 'gemini-3.7-flash' },
     requestHash: 'a'.repeat(64),
+  };
+}
+
+function route(
+  routeId: ProviderNativeRouteV2R['routeId'],
+  provider: ProviderNativeRouteV2R['provider'],
+  model: ProviderNativeRouteV2R['model'],
+): Readonly<ProviderNativeRouteV2R> {
+  return { routeId, provider, model, claimedModelIdentity: model, reasoningMode: 'medium' };
+}
+
+function boundRequest(
+  selectedRoute: Readonly<ProviderNativeRouteV2R>,
+): SerializedProviderNativeTurnV2R {
+  const endpoint = selectedRoute.provider === 'openai'
+    ? 'https://api.openai.com/v1/responses'
+    : 'https://generativelanguage.googleapis.com/v1beta/interactions';
+  const body = { model: selectedRoute.model, input: [] };
+  return {
+    provider: selectedRoute.provider,
+    endpoint,
+    authMode: selectedRoute.provider === 'openai' ? 'BEARER' : 'X_GOOG_API_KEY',
+    body,
+    requestHash: hashCanonicalJsonV1({ endpoint, body }),
   };
 }

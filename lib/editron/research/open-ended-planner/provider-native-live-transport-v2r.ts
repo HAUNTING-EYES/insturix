@@ -1,9 +1,15 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
+  normalizeProviderNativeTurnV2R,
+  type ProviderNativeRouteV2R,
+  type SerializedProviderNativeTurnV2R,
+} from './provider-native-tool-codecs-v2r';
+import {
   ProviderNativeTransportErrorV2R,
   type ProviderNativeInvokeResponseV2R,
 } from './provider-native-tool-episode-v2r';
-import type { SerializedProviderNativeTurnV2R } from './provider-native-tool-codecs-v2r';
+import type { ProviderNativeDurableTransportOwnerV2R }
+  from './provider-native-episode-owner-artifact-resolver-v2r';
 
 type JsonRecord = Record<string, unknown>;
 type FetchV2R = typeof fetch;
@@ -62,6 +68,56 @@ export function createProviderNativeLiveTransportV2R(input: {
   snapshot: () => Readonly<ProviderNativeLiveTransportReceiptV2R>;
 }> {
   const { openAiKey, googleKey } = resolveProviderNativeCredentialsV2R(input.environment);
+  return createLiveTransport({
+    ...input,
+    credentialFor: (provider) => provider === 'openai' ? openAiKey : googleKey,
+  });
+}
+
+/**
+ * Resolves one exact durable route with only that provider's credential. The
+ * wrapper binds the serialized request and successful response model to the
+ * route frozen in the durable checkpoint before the worker can consume it.
+ */
+export function createProviderNativeDurableLiveTransportOwnerV2R(input: {
+  environment: Readonly<Record<string, string | undefined>>;
+  fetchImpl?: FetchV2R;
+  timeoutMs?: number;
+  maxTransientAttempts?: number;
+}): Readonly<ProviderNativeDurableTransportOwnerV2R> {
+  return {
+    resolve: async ({ route, episodeId }) => {
+      validateDurableRoute(route);
+      if (!episodeId.trim()) throw new Error('PROVIDER_NATIVE_DURABLE_EPISODE_ID_INVALID');
+      const credential = resolveRouteCredential(route.provider, input.environment);
+      const transport = createLiveTransport({
+        ...input,
+        credentialFor: (provider) => {
+          if (provider !== route.provider) {
+            throw new Error('PROVIDER_NATIVE_DURABLE_PROVIDER_SUBSTITUTION');
+          }
+          return credential;
+        },
+      });
+      return async (request) => {
+        validateDurableRequest(route, request);
+        const response = await transport.invoke(request);
+        validateDurableResponse(route, response);
+        return response;
+      };
+    },
+  };
+}
+
+function createLiveTransport(input: {
+  fetchImpl?: FetchV2R;
+  timeoutMs?: number;
+  maxTransientAttempts?: number;
+  credentialFor: (provider: SerializedProviderNativeTurnV2R['provider']) => string;
+}): Readonly<{
+  invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
+  snapshot: () => Readonly<ProviderNativeLiveTransportReceiptV2R>;
+}> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const timeoutMs = input.timeoutMs ?? 240_000;
   const maxTransientAttempts = input.maxTransientAttempts ?? 3;
@@ -77,7 +133,7 @@ export function createProviderNativeLiveTransportV2R(input: {
     request: Readonly<SerializedProviderNativeTurnV2R>,
   ): Promise<ProviderNativeInvokeResponseV2R> => {
     validateEndpoint(request);
-    const apiKey = request.provider === 'openai' ? openAiKey : googleKey;
+    const apiKey = input.credentialFor(request.provider);
     for (let attempt = 1; attempt <= maxTransientAttempts; attempt += 1) {
       try {
         const response = await fetchImpl(request.endpoint, {
@@ -125,6 +181,63 @@ export function createProviderNativeLiveTransportV2R(input: {
       return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
     },
   };
+}
+
+function validateDurableRoute(route: Readonly<ProviderNativeRouteV2R>): void {
+  const expected = {
+    OPENAI_LUNA: { provider: 'openai', model: 'gpt-5.6-luna' },
+    OPENAI_TERRA: { provider: 'openai', model: 'gpt-5.6-terra' },
+    GOOGLE_FLASH: { provider: 'google', model: 'gemini-3.7-flash' },
+  } as const;
+  const exact = expected[route.routeId as keyof typeof expected];
+  if (!exact || route.provider !== exact.provider || route.model !== exact.model
+    || route.claimedModelIdentity !== exact.model) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_ROUTE_IDENTITY_INVALID');
+  }
+}
+
+function validateDurableRequest(
+  route: Readonly<ProviderNativeRouteV2R>,
+  request: Readonly<SerializedProviderNativeTurnV2R>,
+): void {
+  if (request.provider !== route.provider || request.body.model !== route.model) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_REQUEST_ROUTE_MISMATCH');
+  }
+  const expectedHash = hashCanonicalJsonV1({
+    endpoint: request.endpoint,
+    body: request.body,
+  });
+  if (request.requestHash !== expectedHash) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_REQUEST_HASH_MISMATCH');
+  }
+}
+
+function validateDurableResponse(
+  route: Readonly<ProviderNativeRouteV2R>,
+  response: Readonly<ProviderNativeInvokeResponseV2R>,
+): void {
+  if (response.status < 200 || response.status >= 300) return;
+  const returned = normalizeProviderNativeTurnV2R(route.provider, response.body).providerModel;
+  if (returned !== route.claimedModelIdentity) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_RETURNED_MODEL_IDENTITY_MISMATCH');
+  }
+}
+
+function resolveRouteCredential(
+  provider: ProviderNativeRouteV2R['provider'],
+  environment: Readonly<Record<string, string | undefined>>,
+): string {
+  if (provider === 'openai') return secret(environment.OPENAI_API_KEY, 'OPENAI_API_KEY');
+  const candidates = [
+    ['GOOGLE_GENERATIVE_AI_API_KEY', environment.GOOGLE_GENERATIVE_AI_API_KEY],
+    ['GEMINI_API_KEY', environment.GEMINI_API_KEY],
+    ['GOOGLE_API_KEY', environment.GOOGLE_API_KEY],
+  ] as const;
+  const selected = candidates.find(([, value]) => Boolean(value?.trim()));
+  if (!selected) {
+    throw new Error('PROVIDER_NATIVE_LIVE_SECRET_MISSING:GOOGLE_GENERATIVE_AI_API_KEY_OR_GEMINI_API_KEY_OR_GOOGLE_API_KEY');
+  }
+  return secret(selected[1], selected[0]);
 }
 
 function validateEndpoint(request: Readonly<SerializedProviderNativeTurnV2R>): void {
