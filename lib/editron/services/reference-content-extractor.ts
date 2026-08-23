@@ -160,7 +160,7 @@ export async function extractReferenceAnalysis(
   deps: ReferenceAnalysisDepsV1 = {},
 ): Promise<ReferenceAnalysis> {
   const { source, userId } = input;
-  assertCanonicalSource(input);
+  assertCanonicalReferenceAnalysisSourceV1(input);
 
   // Objective cut evidence and subjective model observation run in parallel.
   // Missing cut evidence is fatal; model-authored timing is never substituted.
@@ -234,7 +234,10 @@ export async function extractReferenceAnalysis(
   };
 }
 
-function assertCanonicalSource(input: CanonicalReferenceAnalysisInputV1): void {
+/** Shared exact-source gate for every provider observation over a reference. */
+export function assertCanonicalReferenceAnalysisSourceV1(
+  input: CanonicalReferenceAnalysisInputV1,
+): void {
   const { source, userId } = input;
   const { receiptSha256, ...receiptMaterial } = source.registration;
   const ownerMatches = source.registration.mediaOwner.type === 'USER'

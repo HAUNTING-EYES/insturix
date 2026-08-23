@@ -6,28 +6,39 @@
  *   - everything else     → Gemini (extract-visual-fingerprint.ts): treatment, typography, structure,
  *                           graphics, performance, and the SUBJECTIVE decision families (zoom/speed/…).
  *
- * The merge STRIPS any transition_* Gemini still emits (it's told not to, but the parser is permissive)
- * and splices in the deterministic cuts, so cuts are single-sourced. Gemini reads the URL directly;
- * ffmpeg needs bytes, so fetchReferenceVideoFile downloads a URL / passes a local upload through.
- *
- * NOTE: the default subjective extractor sends `reference` to Gemini as a fileUri, so it requires a
- * URL. Subjective extraction from a LOCAL upload needs a Gemini Files-API upload (deferred) — inject
- * `extractSubjective` for that case. All three steps are injected seams so this is testable offline.
+ * The merge strips any transition_* observation and splices in measured cuts,
+ * so cut timing is single-sourced. Both branches consume the same validated
+ * canonical source; the caller must supply its authorized local byte reader.
  */
 
 import { detectCutsFfmpeg, cutsToDecisionStream, type FfmpegCutDetection } from './detect-cuts-ffmpeg';
-import { extractVisualFingerprint } from './extract-visual-fingerprint';
-import { fetchReferenceVideoFile, type FetchedReferenceVideo } from './fetch-reference-video';
+import {
+  extractVisualFingerprint,
+  VisualFingerprintExtractionErrorV1,
+  type GenerateVisual,
+  type UploadVisualReference,
+} from './extract-visual-fingerprint';
+import type { FetchedReferenceVideo } from './fetch-reference-video';
 import type { VisualExtractionTarget } from './fingerprint-eval';
 import type { FingerprintDecision } from '@/lib/editron/types/edit-fingerprint';
+import {
+  assertCanonicalReferenceAnalysisSourceV1,
+  type CanonicalReferenceAnalysisInputV1,
+} from '@/lib/editron/services/reference-content-extractor';
 
 export interface ExtractVisualWithCutsOptions {
   seed?: number;
   sceneThreshold?: number;
-  // Injection seams — real defaults for production; overridden in tests + the future local-upload path.
-  fetchFile?: (reference: string) => Promise<FetchedReferenceVideo>;
+  /** Authorized exact-byte reader over the canonical registered source. */
+  fetchFile?: (
+    source: Readonly<CanonicalReferenceAnalysisInputV1['source']>,
+  ) => Promise<FetchedReferenceVideo>;
   detectCuts?: (filePath: string) => Promise<FfmpegCutDetection>;
-  extractSubjective?: (reference: string) => Promise<VisualExtractionTarget>;
+  extractSubjective?: (
+    input: Readonly<CanonicalReferenceAnalysisInputV1>,
+  ) => Promise<VisualExtractionTarget>;
+  upload?: UploadVisualReference;
+  generate?: GenerateVisual;
 }
 
 /**
@@ -46,16 +57,35 @@ export function mergeCutsIntoVisual(subjective: VisualExtractionTarget, cutStrea
  * and never while ffmpeg is still reading it (allSettled waits for both before cleanup).
  */
 export async function extractVisualFingerprintWithCuts(
-  reference: string,
-  opts: ExtractVisualWithCutsOptions = {},
+  input: Readonly<CanonicalReferenceAnalysisInputV1> | string,
+  opts: Readonly<ExtractVisualWithCutsOptions> = {},
 ): Promise<VisualExtractionTarget> {
-  const fetchFile = opts.fetchFile ?? fetchReferenceVideoFile;
+  if (typeof input === 'string') {
+    throw new VisualFingerprintExtractionErrorV1(
+      'canonical_source_required',
+      'Visual fingerprint extraction requires a scoped canonical reference receipt',
+    );
+  }
+  assertCanonicalReferenceAnalysisSourceV1(input);
+  const fetchFile = opts.fetchFile;
+  if (!fetchFile) {
+    throw new VisualFingerprintExtractionErrorV1(
+      'canonical_media_reader_required',
+      'Measured cuts require an authorized reader for the registered canonical source bytes',
+    );
+  }
   const detectCuts = opts.detectCuts ?? ((filePath: string) => detectCutsFfmpeg(filePath, { sceneThreshold: opts.sceneThreshold }));
-  const extractSubjective = opts.extractSubjective ?? ((ref: string) => extractVisualFingerprint(ref, { seed: opts.seed }));
+  const extractSubjective = opts.extractSubjective ?? ((canonicalInput) => extractVisualFingerprint(
+    canonicalInput,
+    { seed: opts.seed, upload: opts.upload, generate: opts.generate },
+  ));
 
-  const fetched = await fetchFile(reference);
+  const fetched = await fetchFile(input.source);
   try {
-    const [cutRes, subjRes] = await Promise.allSettled([detectCuts(fetched.filePath), extractSubjective(reference)]);
+    const [cutRes, subjRes] = await Promise.allSettled([
+      detectCuts(fetched.filePath),
+      extractSubjective(input),
+    ]);
     if (cutRes.status === 'rejected') throw cutRes.reason;
     if (subjRes.status === 'rejected') throw subjRes.reason;
     return mergeCutsIntoVisual(subjRes.value, cutsToDecisionStream(cutRes.value.cuts));

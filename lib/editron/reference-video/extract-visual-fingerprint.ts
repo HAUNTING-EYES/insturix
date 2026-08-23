@@ -1,32 +1,28 @@
 /**
  * Visual-perception extractor (Master v1.1 §7.2) — the LLM half of the EditFingerprint extractor.
  *
- * Gemini watches a reference short and returns its VISUAL layers (treatment/typography/structure/
- * graphics/performance/decisionStream) as a VisualExtractionTarget — the exact shape the eval
- * harness (fingerprint-eval.ts) scores. Reuses the getAnalysisModel + generateContent pattern from
- * reference-content-extractor.ts; Gemini accepts a YouTube URL directly, so no download/upload
- * (side-stepping the Gemini-Files 90s-timeout prod bug).
+ * A provider watches exact registered reference bytes and returns VISUAL layers
+ * (treatment/typography/structure/graphics/performance/decisionStream) as a
+ * VisualExtractionTarget — the exact shape the eval harness scores.
  *
- * `parseVisualExtraction` (pure) is the testable core; `generate` is injected so the real Gemini
- * call is exercised only in live runs. decisionStream families are validated against the platform
- * decision vocabulary (capabilities.EDITRON_EXECUTABLES); unknown families are dropped.
+ * `parseVisualExtraction` is the testable strict core. Source identity, MIME and
+ * ownership are validated by the shared canonical reference gate before upload.
+ * This remains a learned observation, never proof or a final editing decision.
  *
  * Rule 35: this prompt is XML-structured, rules-over-examples, seeded. It is NOT "deployed" until
  * it clears the eval harness (min-F1 >= 0.85) against human-corrected ground truth.
  */
 
-import { EDITRON_EXECUTABLES, type EditronExecutable } from '@/lib/shared/capabilities';
+import { z } from 'zod';
+
+import {
+  assertCanonicalReferenceAnalysisSourceV1,
+  type CanonicalReferenceAnalysisInputV1,
+} from '@/lib/editron/services/reference-content-extractor';
 import type { VisualExtractionTarget } from './fingerprint-eval';
 import type {
   FingerprintDecision,
-  FingerprintTreatmentLayer,
-  FingerprintTypographyLayer,
-  FingerprintStructure,
-  FingerprintGraphicsLayer,
-  FingerprintPerformanceLayer,
 } from '@/lib/editron/types/edit-fingerprint';
-
-const EXECUTABLE_SET = new Set<string>(EDITRON_EXECUTABLES);
 
 /**
  * The SUBJECTIVE decision families Gemini is good at (a subset of EDITRON_EXECUTABLES). Cuts and
@@ -39,7 +35,6 @@ const VISUAL_FAMILIES = [
   'zoom_push',
   'zoom_pull_back',
   'caption_emphasis',
-  'sfx_impact',
   'speed_ramp',
   'speed_slow_motion',
   'camera_shake',
@@ -69,26 +64,81 @@ export const VISUAL_PROMPT = [
   '</output_format>',
 ].join('\n');
 
-export type GenerateVisual = (videoUrl: string, prompt: string, seed?: number) => Promise<string>;
-
-export async function extractVisualFingerprint(
+export type UploadVisualReference = (
   videoUrl: string,
-  opts: { seed?: number; generate?: GenerateVisual } = {},
-): Promise<VisualExtractionTarget> {
-  const generate = opts.generate ?? defaultGenerate;
-  const text = await generate(videoUrl, VISUAL_PROMPT, opts.seed);
-  return parseVisualExtraction(text);
+  contentType: string,
+) => Promise<string>;
+
+export type GenerateVisual = (
+  fileUri: string,
+  contentType: string,
+  prompt: string,
+  seed?: number,
+) => Promise<string>;
+
+export interface ExtractVisualFingerprintOptionsV1 {
+  seed?: number;
+  upload?: UploadVisualReference;
+  generate?: GenerateVisual;
 }
 
-/** Real Gemini call: pass the YouTube URL as fileData, seed for reproducibility (Rule 35). */
-async function defaultGenerate(videoUrl: string, prompt: string, seed?: number): Promise<string> {
+export class VisualFingerprintExtractionErrorV1 extends Error {
+  constructor(
+    public readonly code:
+      | 'canonical_source_required'
+      | 'canonical_media_reader_required'
+      | 'model_response_invalid',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'VisualFingerprintExtractionErrorV1';
+  }
+}
+
+export async function extractVisualFingerprint(
+  input: Readonly<CanonicalReferenceAnalysisInputV1> | string,
+  opts: Readonly<ExtractVisualFingerprintOptionsV1> = {},
+): Promise<VisualExtractionTarget> {
+  if (typeof input === 'string') {
+    throw new VisualFingerprintExtractionErrorV1(
+      'canonical_source_required',
+      'Visual fingerprint extraction requires a scoped canonical reference receipt',
+    );
+  }
+  assertCanonicalReferenceAnalysisSourceV1(input);
+  const contentType = input.source.registration.contentType;
+  const upload = opts.upload ?? defaultUpload;
+  const fileUri = await upload(input.source.videoUrl, contentType);
+  const generate = opts.generate ?? defaultGenerate;
+  const text = await generate(fileUri, contentType, VISUAL_PROMPT, opts.seed);
+  return parseVisualExtraction(text, {
+    ...(input.source.durationSec === undefined
+      ? {}
+      : { durationMs: input.source.durationSec * 1_000 }),
+  });
+}
+
+async function defaultUpload(videoUrl: string, contentType: string): Promise<string> {
+  const { uploadReferenceVideoToGemini } = await import(
+    '@/lib/editron/services/reference-gemini-upload-v1'
+  );
+  return uploadReferenceVideoToGemini(videoUrl, contentType);
+}
+
+/** Real provider call receives only the URI returned by the upload owner. */
+async function defaultGenerate(
+  fileUri: string,
+  contentType: string,
+  prompt: string,
+  seed?: number,
+): Promise<string> {
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
   const result = await model.generateContent({
     contents: [
       {
         role: 'user',
-        parts: [{ fileData: { fileUri: videoUrl, mimeType: 'video/*' } }, { text: prompt }],
+        parts: [{ fileData: { fileUri, mimeType: contentType } }, { text: prompt }],
       },
     ],
     generationConfig: { temperature: 0, ...(seed !== undefined ? { seed } : {}) },
@@ -96,108 +146,106 @@ async function defaultGenerate(videoUrl: string, prompt: string, seed?: number):
   return result.response.text();
 }
 
-// ─── Pure parse (the testable core) ──────────────────────────────────────────
+// ─── Strict parse (the testable core) ───────────────────────────────────────
 
-function num(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+const VisualObservationSchema = z.object({
+  treatment: z.object({
+    saturate: z.number().finite().min(0.5).max(2).optional(),
+    contrast: z.number().finite().min(0.5).max(2).optional(),
+    brightness: z.number().finite().min(0.5).max(2).optional(),
+    sepia: z.number().finite().min(0).max(1).optional(),
+    hueRotateDeg: z.number().finite().min(-180).max(180).optional(),
+    grain: z.number().finite().min(0).max(1).optional(),
+  }).strict().optional(),
+  typography: z.object({
+    textCase: z.enum(['upper', 'sentence', 'lower', 'as-is']).optional(),
+    reveal: z.enum(['none', 'fade', 'slide-up', 'pop', 'typewriter']).optional(),
+    position: z.enum(['center', 'lower_third', 'top', 'varied']).optional(),
+  }).strict().optional(),
+  structure: z.object({
+    slots: z.array(z.object({
+      role: z.string().trim().min(1).max(80),
+      startMs: z.number().finite().nonnegative(),
+      endMs: z.number().finite().positive(),
+    }).strict()).max(5_000),
+  }).strict().optional(),
+  graphics: z.object({
+    classes: z.array(z.string().trim().min(1).max(120)).max(128),
+    density: z.enum(['heavy', 'moderate', 'minimal']).optional(),
+  }).strict().optional(),
+  performance: z.object({
+    shotScales: z.array(z.enum(['ecu', 'cu', 'mcu', 'ms', 'ws', 'ews'])).max(256).optional(),
+    subjectPosition: z.enum(['left', 'center', 'right', 'varied']).optional(),
+    cameraMotion: z.enum(['static', 'push_in', 'pull_out', 'handheld', 'whip', 'varied']).optional(),
+  }).strict().optional(),
+  decisionStream: z.array(z.object({
+    family: z.enum(VISUAL_FAMILIES),
+    tMs: z.number().finite().nonnegative(),
+    confidence: z.number().finite().min(0).max(1),
+  }).strict()).max(10_000).optional(),
+}).strict().refine((value) => Object.keys(value).length > 0);
+
+export interface ParseVisualExtractionOptionsV1 {
+  durationMs?: number;
 }
 
-function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
-}
-
-/** Parse the model's JSON into a validated (partial) VisualExtractionTarget. Unknown/invalid fields are dropped. */
-export function parseVisualExtraction(text: string): VisualExtractionTarget {
+/** Parse one strict learned observation; malformed or invented fields fail. */
+export function parseVisualExtraction(
+  text: string,
+  options: Readonly<ParseVisualExtractionOptionsV1> = {},
+): VisualExtractionTarget {
   const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return {};
-  let raw: Record<string, unknown>;
+  if (!match) {
+    throw invalidModelResponse('Visual fingerprint model returned no JSON');
+  }
+  let raw: unknown;
   try {
-    raw = JSON.parse(match[0]) as Record<string, unknown>;
+    raw = JSON.parse(match[0]);
   } catch {
-    return {};
+    throw invalidModelResponse('Visual fingerprint model returned malformed JSON');
   }
+  const parsed = VisualObservationSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw invalidModelResponse('Visual fingerprint model response violated its schema');
+  }
+  validateTiming(parsed.data, options.durationMs);
 
-  const out: VisualExtractionTarget = {};
+  const decisions: FingerprintDecision[] | undefined = parsed.data.decisionStream?.map((decision) => ({
+    family: decision.family,
+    anchor: { kind: 'none', tMs: decision.tMs },
+    params: {},
+    confidence: decision.confidence,
+  }));
+  return {
+    ...(parsed.data.treatment ? { treatment: parsed.data.treatment } : {}),
+    ...(parsed.data.typography ? { typography: parsed.data.typography } : {}),
+    ...(parsed.data.structure ? { structure: parsed.data.structure } : {}),
+    ...(parsed.data.graphics ? { graphics: parsed.data.graphics } : {}),
+    ...(parsed.data.performance ? { performance: parsed.data.performance } : {}),
+    ...(decisions ? { decisionStream: decisions } : {}),
+  };
+}
 
-  const t = raw.treatment as Record<string, unknown> | undefined;
-  if (t) {
-    const treatment: FingerprintTreatmentLayer = {};
-    for (const k of ['saturate', 'contrast', 'brightness', 'sepia', 'hueRotateDeg', 'grain'] as const) {
-      const v = num(t[k]);
-      if (v !== undefined) treatment[k] = v;
+function validateTiming(
+  value: z.infer<typeof VisualObservationSchema>,
+  durationMs: number | undefined,
+): void {
+  let priorStartMs = -1;
+  for (const slot of value.structure?.slots ?? []) {
+    if (slot.endMs <= slot.startMs || slot.startMs < priorStartMs) {
+      throw invalidModelResponse('Visual fingerprint structure slots are invalid or unordered');
     }
-    if (Object.keys(treatment).length) out.treatment = treatment;
-  }
-
-  const ty = raw.typography as Record<string, unknown> | undefined;
-  if (ty) {
-    const typography: FingerprintTypographyLayer = {};
-    const textCase = oneOf(ty.textCase, ['upper', 'sentence', 'lower', 'as-is'] as const);
-    const reveal = oneOf(ty.reveal, ['none', 'fade', 'slide-up', 'pop', 'typewriter'] as const);
-    const position = oneOf(ty.position, ['center', 'lower_third', 'top', 'varied'] as const);
-    if (textCase) typography.textCase = textCase;
-    if (reveal) typography.reveal = reveal;
-    if (position) typography.position = position;
-    if (Object.keys(typography).length) out.typography = typography;
-  }
-
-  const st = raw.structure as { slots?: unknown } | undefined;
-  if (st && Array.isArray(st.slots)) {
-    const slots = st.slots
-      .map((s) => {
-        const slot = s as Record<string, unknown>;
-        const role = typeof slot.role === 'string' ? slot.role : '';
-        const startMs = num(slot.startMs);
-        const endMs = num(slot.endMs);
-        return role && startMs !== undefined && endMs !== undefined ? { role, startMs, endMs } : null;
-      })
-      .filter((s): s is { role: string; startMs: number; endMs: number } => s !== null);
-    if (slots.length) out.structure = { slots } as FingerprintStructure;
-  }
-
-  const g = raw.graphics as Record<string, unknown> | undefined;
-  if (g) {
-    const graphics: FingerprintGraphicsLayer = {
-      classes: Array.isArray(g.classes) ? g.classes.filter((c): c is string => typeof c === 'string') : [],
-    };
-    const density = oneOf(g.density, ['heavy', 'moderate', 'minimal'] as const);
-    if (density) graphics.density = density;
-    if (graphics.classes.length || graphics.density) out.graphics = graphics;
-  }
-
-  const p = raw.performance as Record<string, unknown> | undefined;
-  if (p) {
-    const performance: FingerprintPerformanceLayer = {};
-    const subjectPosition = oneOf(p.subjectPosition, ['left', 'center', 'right', 'varied'] as const);
-    const cameraMotion = oneOf(p.cameraMotion, ['static', 'push_in', 'pull_out', 'handheld', 'whip', 'varied'] as const);
-    if (Array.isArray(p.shotScales)) {
-      const scales = p.shotScales.filter((s): s is 'ecu' | 'cu' | 'mcu' | 'ms' | 'ws' | 'ews' =>
-        ['ecu', 'cu', 'mcu', 'ms', 'ws', 'ews'].includes(s as string),
-      );
-      if (scales.length) performance.shotScales = scales;
+    if (durationMs !== undefined && slot.endMs > durationMs) {
+      throw invalidModelResponse('Visual fingerprint structure exceeds source duration');
     }
-    if (subjectPosition) performance.subjectPosition = subjectPosition;
-    if (cameraMotion) performance.cameraMotion = cameraMotion;
-    if (Object.keys(performance).length) out.performance = performance;
+    priorStartMs = slot.startMs;
   }
-
-  if (Array.isArray(raw.decisionStream)) {
-    const decisions = raw.decisionStream
-      .map((d): FingerprintDecision | null => {
-        const dec = d as Record<string, unknown>;
-        const family = typeof dec.family === 'string' && EXECUTABLE_SET.has(dec.family) ? (dec.family as EditronExecutable) : null;
-        const tMs = num(dec.tMs);
-        if (!family || tMs === undefined) return null;
-        return {
-          family,
-          anchor: { kind: 'none', tMs },
-          params: {},
-          confidence: num(dec.confidence) ?? 0.5,
-        };
-      })
-      .filter((d): d is FingerprintDecision => d !== null);
-    if (decisions.length) out.decisionStream = decisions;
+  if (durationMs !== undefined
+    && (value.decisionStream ?? []).some((decision) => decision.tMs > durationMs)) {
+    throw invalidModelResponse('Visual fingerprint decision exceeds source duration');
   }
+}
 
-  return out;
+function invalidModelResponse(message: string): VisualFingerprintExtractionErrorV1 {
+  return new VisualFingerprintExtractionErrorV1('model_response_invalid', message);
 }
