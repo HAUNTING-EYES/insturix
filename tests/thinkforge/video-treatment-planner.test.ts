@@ -299,6 +299,64 @@ describe('video treatment planner', () => {
     expect(request.systemInstruction).toContain('<creative_content_knowledge_retrieval>');
     expect(request.systemInstruction).toContain('constraint:overlay.visual_clutter');
     expect(request.systemInstruction).not.toContain(result.treatment.treatmentId);
+    expect(request.thinkingBudgetTokens).toBeGreaterThan(0);
+  });
+
+  it('uses a bounded model contract rather than accepting unbounded treatment prose', () => {
+    const output = modelOutputFrom(abstractExplainerTreatment);
+    output.narrativeArc = 'x'.repeat(1_801);
+
+    expect(VideoTreatmentModelOutputSchema.safeParse(output).success).toBe(false);
+  });
+
+  it('recovers one provider-truncated treatment response with a compact retry', async () => {
+    const lengthError = Object.assign(
+      new Error('No object generated: could not parse the response.'),
+      { name: 'AI_NoObjectGeneratedError', finishReason: 'length' },
+    );
+    const generator = vi.fn()
+      .mockRejectedValueOnce(lengthError)
+      .mockResolvedValueOnce({
+        result: modelOutputFrom(abstractExplainerTreatment),
+        cacheStatus: 'inline',
+        modelName: 'gemini-test',
+      });
+    const receipts = vi.fn(async () => undefined);
+
+    const result = await planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: generator,
+      recordReceipt: receipts,
+      knowledge: { loadEditronGraph: graphFixture },
+    });
+
+    const initialRequest = generator.mock.calls[0]?.[0] as Parameters<NonNullable<VideoTreatmentPlannerDependencies['generate']>>[0];
+    const recoveryRequest = generator.mock.calls[1]?.[0] as Parameters<NonNullable<VideoTreatmentPlannerDependencies['generate']>>[0];
+    expect(generator).toHaveBeenCalledTimes(2);
+    expect(recoveryRequest.maxTokens).toBe(initialRequest.maxTokens);
+    expect(recoveryRequest.thinkingBudgetTokens).toBeLessThan(initialRequest.thinkingBudgetTokens);
+    expect(recoveryRequest.prompt).toContain('<video_treatment_length_recovery>');
+    expect(result.treatment.treatmentId).toMatch(/^treatment_/);
+    expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ recoveryAttempted: true }));
+  });
+
+  it('returns a stable planner error after a second truncated response', async () => {
+    const lengthError = Object.assign(
+      new Error('No object generated: could not parse the response.'),
+      { name: 'AI_NoObjectGeneratedError', finishReason: 'length' },
+    );
+    const generator = vi.fn().mockRejectedValue(lengthError);
+
+    await expect(planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: generator,
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    })).rejects.toMatchObject({
+      code: 'response_truncated',
+      message: 'ThinkForge could not complete the audiovisual plan after a bounded retry. Please try again.',
+    } satisfies Partial<VideoTreatmentPlannerError>);
+    expect(generator).toHaveBeenCalledTimes(2);
   });
 
   it('fails closed when a treatment invents source provenance', async () => {

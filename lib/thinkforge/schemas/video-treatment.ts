@@ -8,6 +8,16 @@ const IdentifierSchema = z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/);
 const NonEmptyTextSchema = z.string().min(1);
 const NonEmptyTextListSchema = z.array(NonEmptyTextSchema).default([]);
 
+// Persisted treatments remain permissive enough to read historical records.
+// The model-facing schema below is bounded so planning cannot exhaust its
+// response budget by restating input context instead of finishing the treatment.
+const ModelTreatmentSummarySchema = NonEmptyTextSchema.max(1_200);
+const ModelTreatmentDetailSchema = NonEmptyTextSchema.max(1_800);
+
+function boundedModelTextList(maxItems: number, maxItemChars = 720) {
+  return z.array(NonEmptyTextSchema.max(maxItemChars)).max(maxItems).default([]);
+}
+
 function addIssue(
   ctx: z.RefinementCtx,
   path: Array<string | number>,
@@ -158,6 +168,20 @@ export const VideoTreatmentModelDecisionTraceSchema = VideoTreatmentDecisionTrac
   editronCreativeGraphVersion: true,
 });
 
+const ModelTreatmentDecisionSchema = TreatmentDecisionSchema.extend({
+  decision: ModelTreatmentSummarySchema,
+  rationale: NonEmptyTextSchema.max(1_200),
+  evidenceIds: boundedModelTextList(32, 160),
+});
+
+const BoundedVideoTreatmentModelDecisionTraceSchema = VideoTreatmentModelDecisionTraceSchema.extend({
+  sourceRefs: boundedModelTextList(64, 160),
+  creativeReferenceIds: boundedModelTextList(64, 160),
+  appliedConstraintIds: boundedModelTextList(64, 200),
+  unresolvedAssumptions: boundedModelTextList(16),
+  decisions: z.array(ModelTreatmentDecisionSchema).min(1).max(32),
+});
+
 export const CaptureRequirementKindSchema = z.enum([
   'physical-camera',
   'screen-recording',
@@ -226,6 +250,31 @@ export const VisualEventSchema = z.object({
   accessibilityRequirements: NonEmptyTextListSchema,
   captureRequirementIds: NonEmptyTextListSchema,
 }).strict();
+
+const ModelCaptureRequirementSchema = z.object({
+  id: IdentifierSchema,
+  objective: ModelTreatmentSummarySchema,
+  whyRequired: ModelTreatmentDetailSchema,
+  subjectOrEvidence: ModelTreatmentSummarySchema.optional(),
+  captureKind: CaptureRequirementKindSchema.default('unspecified'),
+  requiredCapabilities: z.array(CaptureRequirementCapabilitySchema).max(5).default([]),
+  sourceRefs: boundedModelTextList(32, 160),
+  creativeReferenceIds: boundedModelTextList(32, 160),
+  constraints: boundedModelTextList(12),
+  unresolvedCapabilityQuestions: boundedModelTextList(12),
+}).strict();
+
+const ModelVisualEventSchema = VisualEventSchema.extend({
+  audienceJob: ModelTreatmentSummarySchema,
+  visualThesis: ModelTreatmentDetailSchema,
+  timingNote: ModelTreatmentSummarySchema,
+  continuityNotes: boundedModelTextList(12),
+  sourceRefs: boundedModelTextList(32, 160),
+  creativeReferenceIds: boundedModelTextList(32, 160),
+  brandConstraints: boundedModelTextList(12),
+  accessibilityRequirements: boundedModelTextList(12),
+  captureRequirementIds: boundedModelTextList(16, 160),
+});
 
 const VideoTreatmentObjectSchema = z.object({
   // Server-owned version values use defaults to avoid Gemini numeric enum incompatibility later.
@@ -300,7 +349,19 @@ export const VideoTreatmentModelOutputSchema = VideoTreatmentObjectSchema
     decisionTrace: true,
   })
   .extend({
-    decisionTrace: VideoTreatmentModelDecisionTraceSchema,
+    audienceOutcome: ModelTreatmentSummarySchema,
+    viewerPromise: ModelTreatmentSummarySchema,
+    narrativeArc: ModelTreatmentDetailSchema,
+    visualRhythm: ModelTreatmentSummarySchema,
+    informationHierarchy: boundedModelTextList(16),
+    brandBoundaries: boundedModelTextList(16),
+    referenceSynthesis: boundedModelTextList(16),
+    continuityStrategy: ModelTreatmentDetailSchema,
+    audioVoiceStrategy: ModelTreatmentDetailSchema,
+    userConstraints: boundedModelTextList(16),
+    visualEvents: z.array(ModelVisualEventSchema).min(1).max(48),
+    captureRequirements: z.array(ModelCaptureRequirementSchema).max(24).default([]),
+    decisionTrace: BoundedVideoTreatmentModelDecisionTraceSchema,
   });
 
 export const VideoTreatmentSidecarBindingSchema = z.object({

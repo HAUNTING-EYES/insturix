@@ -37,7 +37,11 @@ import {
 
 const VIDEO_TREATMENT_MODEL = 'gemini-2.5-flash';
 const VIDEO_TREATMENT_TEMPERATURE = 0.35;
-const VIDEO_TREATMENT_MAX_TOKENS = 8_000;
+// Gemini 2.5 counts hidden reasoning against maxOutputTokens. Treatment planning
+// therefore reserves capacity for bounded semantic JSON and reasoning together.
+const VIDEO_TREATMENT_MAX_TOKENS = 20_480;
+const VIDEO_TREATMENT_THINKING_BUDGET_TOKENS = 4_096;
+const VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS = 2_048;
 const VIDEO_TREATMENT_CACHE_VERSION = 1;
 const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
 const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
@@ -54,6 +58,7 @@ export type VideoTreatmentPlanningReceipt = {
   writingContextCacheStatus?: 'hit' | 'created' | 'inline';
   writingKnowledgeVersion: string;
   editronCreativeGraphVersion: string | null;
+  recoveryAttempted?: boolean;
   userId?: string;
   orgId?: string | null;
   sessionId?: string;
@@ -87,6 +92,7 @@ export type VideoTreatmentPlannerGenerator = (input: {
   modelName: string;
   temperature: number;
   maxTokens: number;
+  thinkingBudgetTokens: number;
   abortSignal?: AbortSignal;
 }) => Promise<{
   result: VideoTreatmentModelOutput;
@@ -133,7 +139,8 @@ export class VideoTreatmentPlannerError extends Error {
       | 'unsupported_output'
       | 'editorial_plan_invalid'
       | 'prompt_boundary_truncated'
-      | 'provenance_invalid',
+      | 'provenance_invalid'
+      | 'response_truncated',
     message: string,
   ) {
     super(message);
@@ -187,6 +194,7 @@ export async function planVideoTreatment(
       cacheStatus: 'hit',
       writingKnowledgeVersion: knowledge.writingKnowledge.version,
       editronCreativeGraphVersion: knowledge.editronGraph.version,
+      recoveryAttempted: false,
       userId: input.userId,
       orgId: input.orgId,
       sessionId: input.sessionId,
@@ -212,7 +220,8 @@ export async function planVideoTreatment(
   });
   assertNoCriticalPromptTruncation(promptParts.truncatedFields);
   const startedAt = Date.now();
-  const generation = await (dependencies.generate ?? generateVideoTreatment)( {
+  const generate = dependencies.generate ?? generateVideoTreatment;
+  const generationInput = {
     prompt: promptParts.prompt,
     cacheSystemInstruction: VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION,
     systemInstruction: promptParts.systemInstruction,
@@ -220,8 +229,30 @@ export async function planVideoTreatment(
     modelName: VIDEO_TREATMENT_MODEL,
     temperature: VIDEO_TREATMENT_TEMPERATURE,
     maxTokens: VIDEO_TREATMENT_MAX_TOKENS,
+    thinkingBudgetTokens: VIDEO_TREATMENT_THINKING_BUDGET_TOKENS,
     abortSignal: input.abortSignal,
-  });
+  } satisfies Parameters<VideoTreatmentPlannerGenerator>[0];
+  let recoveryAttempted = false;
+  let generation: Awaited<ReturnType<VideoTreatmentPlannerGenerator>>;
+  try {
+    generation = await generate(generationInput);
+  } catch (error) {
+    if (!isLengthLimitedStructuredOutput(error)) throw error;
+    recoveryAttempted = true;
+    try {
+      generation = await generate({
+        ...generationInput,
+        prompt: buildTreatmentLengthRecoveryPrompt(promptParts.prompt),
+        thinkingBudgetTokens: VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS,
+      });
+    } catch (recoveryError) {
+      if (!isLengthLimitedStructuredOutput(recoveryError)) throw recoveryError;
+      throw new VideoTreatmentPlannerError(
+        'response_truncated',
+        'ThinkForge could not complete the audiovisual plan after a bounded retry. Please try again.',
+      );
+    }
+  }
   const latencyMs = Math.max(0, Date.now() - startedAt);
   const treatment = materializeVideoTreatment({
     modelOutput: generation.result,
@@ -254,6 +285,7 @@ export async function planVideoTreatment(
     writingContextCacheStatus: generation.cacheStatus,
     writingKnowledgeVersion: knowledge.writingKnowledge.version,
     editronCreativeGraphVersion: knowledge.editronGraph.version,
+    recoveryAttempted,
     userId: input.userId,
     orgId: input.orgId,
     sessionId: input.sessionId,
@@ -410,7 +442,25 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
 - Treat selected creative-content knowledge and selected Editron semantic evidence as binding guidance. They constrain attention, accessibility, continuity, rhythm, and audiovisual relationships; they do not license final form choices.
 - Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
+- Keep the treatment decision-dense and complete: state each top-level strategy once, keep lists to distinct material decisions, and never restate Brand Vault, source-ledger, or reference input verbatim. Visual events represent meaningful audiovisual/narrative turns, never every line, shot, or edit.
 </video_treatment_planner_contract>`;
+
+function isLengthLimitedStructuredOutput(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    finishReason?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+  if (candidate.finishReason !== 'length') return false;
+  return candidate.name === 'AI_NoObjectGeneratedError'
+    || (typeof candidate.message === 'string'
+      && candidate.message.startsWith('No object generated:'));
+}
+
+function buildTreatmentLengthRecoveryPrompt(prompt: string): string {
+  return `${prompt}\n\n<video_treatment_length_recovery>\nA prior provider response ended before its JSON closed. Return the complete schema now. Preserve every material audiovisual decision, but use one concise sentence per text field, do not paraphrase the input, and include only distinct hierarchy, boundary, reference, continuity, and trace entries. Do not omit visualEvents, captureRequirements, or decisionTrace.\n</video_treatment_length_recovery>`;
+}
 
 function assertNoCriticalPromptTruncation(truncatedFields: readonly string[]): void {
   const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile))/.test(path));
@@ -542,6 +592,7 @@ async function recordVideoTreatmentPlanningReceipt(input: VideoTreatmentPlanning
       writingContextCacheStatus: input.writingContextCacheStatus,
       writingKnowledgeVersion: input.writingKnowledgeVersion,
       editronCreativeGraphVersion: input.editronCreativeGraphVersion,
+      recoveryAttempted: input.recoveryAttempted === true,
       upstreamCostOperation: 'writing_context_cache',
     },
   });
