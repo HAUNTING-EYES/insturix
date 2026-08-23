@@ -90,6 +90,14 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         stateSha256: baseStateSha256,
       } as const;
       const readReceiptSha256 = hashCanonicalJsonV1(readMaterial);
+      const proposalRevisionMaterial = {
+        schemaVersion: 1 as const,
+        authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING' as const,
+        canonicalBaseProjectRevision: baseRevisionIdentity,
+        canonicalBaseStateSha256: baseStateSha256,
+        isolatedWorkingProjectRevision: baseRevisionIdentity,
+        isolatedWorkingStateSha256: baseStateSha256,
+      };
 
       return {
         currentRevision: {
@@ -102,6 +110,10 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
           origin: 'PROJECTSERVICE_REVISION_CLONE' as const,
           projectRevision: baseRevisionIdentity,
           stateSha256: baseStateSha256,
+          proposalRevisionBinding: {
+            ...proposalRevisionMaterial,
+            bindingSha256: hashCanonicalJsonV1(proposalRevisionMaterial),
+          },
           executeIsolated: async (call) => {
             if (finalized) {
               return conflict('PROJECTSERVICE_PROPOSAL_ALREADY_FINALIZED', {

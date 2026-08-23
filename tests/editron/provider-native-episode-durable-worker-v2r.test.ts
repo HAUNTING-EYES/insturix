@@ -190,6 +190,63 @@ describe('provider-native durable recovery worker V2R', () => {
     });
   });
 
+  it('rejects a ProjectService proposal owner without distinct revision identities', async () => {
+    const setup = await preparedJob();
+    const invoke = vi.fn();
+    const executeIsolated = vi.fn();
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke, executeIsolated,
+        finalizeProposalReceipt: async () => durableProposalReceipt(),
+        omitProposalRevisionBinding: true,
+      }) },
+      clock: () => RESUME_AT,
+    });
+
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_REQUIRED',
+    });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(executeIsolated).not.toHaveBeenCalled();
+  });
+
+  it('resumes from the isolated working revision while keeping the canonical base distinct', async () => {
+    const setup = await preparedJob();
+    const invoke = vi.fn(async () => finishResponse());
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke, executeIsolated: vi.fn(),
+        canonicalBaseProjectRevision: 'project-revision-v1:canonical-r7',
+        isolatedWorkingProjectRevision: 'revision-43',
+      }) },
+      clock: () => RESUME_AT,
+    });
+
+    expect(result).toMatchObject({ kind: 'completed', durableDisposition: 'UNVERIFIABLE' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a forged proposal revision binding before provider execution', async () => {
+    const setup = await preparedJob();
+    const invoke = vi.fn();
+    const result = await runProviderNativeEpisodeDurableWorkerV2R({
+      store: setup.freshStore, jobId: setup.jobId, workerId: 'worker-b',
+      artifactResolver: { resolve: async () => artifacts({
+        invoke, executeIsolated: vi.fn(), forgeProposalRevisionBinding: true,
+      }) },
+      clock: () => RESUME_AT,
+    });
+
+    expect(result).toEqual({
+      kind: 'dead_letter', jobId: setup.jobId,
+      errorCode: 'PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_INVALID',
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it('schedules only explicitly retryable artifact failures', async () => {
     const setup = await preparedJob();
     const result = await runProviderNativeEpisodeDurableWorkerV2R({
@@ -311,17 +368,38 @@ function artifacts(overrides: Readonly<{
     ProviderNativeDurableResolvedArtifactsV2R['isolatedClone']['finalizeProposalReceipt']
   >;
   context?: ProviderNativeEpisodeContextV2R;
+  omitProposalRevisionBinding?: boolean;
+  canonicalBaseProjectRevision?: string;
+  isolatedWorkingProjectRevision?: string;
+  forgeProposalRevisionBinding?: boolean;
 }>): ProviderNativeDurableResolvedArtifactsV2R {
+  const canonicalBaseProjectRevision = overrides.canonicalBaseProjectRevision ?? 'revision-43';
+  const isolatedWorkingProjectRevision = overrides.isolatedWorkingProjectRevision ?? 'revision-43';
+  const proposalRevisionMaterial = {
+    schemaVersion: 1 as const,
+    authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING' as const,
+    canonicalBaseProjectRevision,
+    canonicalBaseStateSha256: 'e'.repeat(64),
+    isolatedWorkingProjectRevision,
+    isolatedWorkingStateSha256: 'e'.repeat(64),
+  };
   return {
     context: overrides.context ?? CONTEXT,
     eligibleOperatorIds: ELIGIBLE,
     currentRevision: {
-      origin: 'PROJECTSERVICE_CURRENT_REVISION_READ', projectRevision: 'revision-43',
+      origin: 'PROJECTSERVICE_CURRENT_REVISION_READ',
+      projectRevision: canonicalBaseProjectRevision,
       readReceiptId: 'revision-read-43', readReceiptSha256: 'd'.repeat(64),
     },
     isolatedClone: {
-      origin: 'PROJECTSERVICE_REVISION_CLONE', projectRevision: 'revision-43',
-      stateSha256: 'e'.repeat(64), executeIsolated: overrides.executeIsolated,
+      origin: 'PROJECTSERVICE_REVISION_CLONE', projectRevision: canonicalBaseProjectRevision,
+      stateSha256: 'e'.repeat(64),
+      ...(!overrides.omitProposalRevisionBinding ? { proposalRevisionBinding: {
+        ...proposalRevisionMaterial,
+        bindingSha256: overrides.forgeProposalRevisionBinding
+          ? '0'.repeat(64) : hashCanonicalJsonV1(proposalRevisionMaterial),
+      } } : {}),
+      executeIsolated: overrides.executeIsolated,
       ...(overrides.finalizeProposalReceipt
         ? { finalizeProposalReceipt: overrides.finalizeProposalReceipt } : {}),
     },

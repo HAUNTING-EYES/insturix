@@ -51,10 +51,21 @@ export interface ProviderNativeDurableProposalReceiptV2R {
   receiptSha256: string;
 }
 
+export interface ProviderNativeDurableProposalRevisionBindingV2R {
+  schemaVersion: 1;
+  authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING';
+  canonicalBaseProjectRevision: string;
+  canonicalBaseStateSha256: string;
+  isolatedWorkingProjectRevision: string;
+  isolatedWorkingStateSha256: string;
+  bindingSha256: string;
+}
+
 export interface ProviderNativeDurableIsolatedCloneV2R {
   origin: 'PROJECTSERVICE_REVISION_CLONE';
   projectRevision: string;
   stateSha256: string;
+  proposalRevisionBinding?: Readonly<ProviderNativeDurableProposalRevisionBindingV2R>;
   executeIsolated: EpisodeInput['executeIsolated'];
   finalizeProposalReceipt?: () => Promise<Readonly<ProviderNativeDurableProposalReceiptV2R>>;
 }
@@ -163,7 +174,7 @@ export async function runProviderNativeEpisodeDurableWorkerV2R(input: Readonly<{
         ? { additionalInstructions: artifacts.additionalInstructions } : {}),
       ...(artifacts.runtimeGuard ? { runtimeGuard: artifacts.runtimeGuard } : {}),
       resumeCheckpoint: checkpoint,
-      resumeCurrentProjectRevision: artifacts.currentRevision.projectRevision,
+      resumeCurrentProjectRevision: resumeWorkingProjectRevision(artifacts),
       invoke: async (request) => {
         await heartbeat();
         const response = await artifacts.invoke(request);
@@ -278,10 +289,39 @@ function assertResolvedArtifacts(
   }
   const clone = artifacts.isolatedClone;
   if (clone.origin !== 'PROJECTSERVICE_REVISION_CLONE'
-    || clone.projectRevision !== revision.projectRevision
     || !isSha256(clone.stateSha256)) {
     throw new Error('PROVIDER_NATIVE_DURABLE_ISOLATED_CLONE_BINDING_INVALID');
   }
+  const proposalBinding = clone.proposalRevisionBinding;
+  if (!proposalBinding) {
+    if (clone.finalizeProposalReceipt) {
+      throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_REQUIRED');
+    }
+    if (clone.projectRevision !== revision.projectRevision) {
+      throw new Error('PROVIDER_NATIVE_DURABLE_ISOLATED_CLONE_BINDING_INVALID');
+    }
+    return;
+  }
+  const { bindingSha256, ...bindingMaterial } = proposalBinding;
+  if (proposalBinding.schemaVersion !== 1
+    || proposalBinding.authority !== 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING'
+    || !proposalBinding.canonicalBaseProjectRevision.trim()
+    || !proposalBinding.isolatedWorkingProjectRevision.trim()
+    || !isSha256(proposalBinding.canonicalBaseStateSha256)
+    || !isSha256(proposalBinding.isolatedWorkingStateSha256)
+    || proposalBinding.canonicalBaseProjectRevision !== revision.projectRevision
+    || proposalBinding.canonicalBaseProjectRevision !== clone.projectRevision
+    || proposalBinding.canonicalBaseStateSha256 !== clone.stateSha256
+    || hashCanonicalJsonV1(bindingMaterial) !== bindingSha256) {
+    throw new Error('PROVIDER_NATIVE_DURABLE_PROPOSAL_REVISION_BINDING_INVALID');
+  }
+}
+
+function resumeWorkingProjectRevision(
+  artifacts: Readonly<ProviderNativeDurableResolvedArtifactsV2R>,
+): string {
+  return artifacts.isolatedClone.proposalRevisionBinding
+    ?.isolatedWorkingProjectRevision ?? artifacts.currentRevision.projectRevision;
 }
 
 async function settleFailure(

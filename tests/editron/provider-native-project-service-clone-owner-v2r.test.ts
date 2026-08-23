@@ -48,6 +48,16 @@ describe('ProjectService-backed provider-native proposal clone V2R', () => {
     expect(resolved.currentRevision.projectRevision)
       .toBe(resolved.isolatedClone.projectRevision);
     expect(resolved.currentRevision.readReceiptSha256).toMatch(/^[a-f0-9]{64}$/);
+    const proposalRevisionBinding = resolved.isolatedClone.proposalRevisionBinding!;
+    expect(proposalRevisionBinding).toMatchObject({
+      authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING',
+      canonicalBaseProjectRevision: resolved.currentRevision.projectRevision,
+      canonicalBaseStateSha256: resolved.isolatedClone.stateSha256,
+      isolatedWorkingProjectRevision: resolved.currentRevision.projectRevision,
+      isolatedWorkingStateSha256: resolved.isolatedClone.stateSha256,
+    });
+    const { bindingSha256, ...bindingMaterial } = proposalRevisionBinding;
+    expect(bindingSha256).toBe(hashCanonicalJsonV1(bindingMaterial));
 
     await expect(resolved.isolatedClone.executeIsolated({
       operatorId: 'set_keyframes', arguments: { overlayId: 'overlay-1' }, turn: 1,
