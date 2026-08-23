@@ -14,6 +14,13 @@ import type {
 import type {
   ProviderNativeEpisodeResumeCheckpointV2R,
 } from './provider-native-episode-resume-v2r';
+import {
+  createProviderNativeProposalRecoveryStateV2R,
+  proposalRecoveryWriterTurnsV2R,
+  verifyProviderNativeProposalRecoveryStateV2R,
+  type ProviderNativeProposalRecoveryStateV2R,
+  type ProviderNativeProposalRecoveryWriterTurnV2R,
+} from './provider-native-proposal-recovery-v2r';
 import type {
   ProviderNativeToolExecutionV2R,
 } from './provider-native-tool-episode-v2r';
@@ -40,6 +47,16 @@ export interface ProjectServiceIsolatedOperatorOwnerV2R {
     baseRevision: Readonly<ProjectRevisionV1>;
     call: Readonly<IsolatedCallV2R>;
   }>): Promise<Readonly<ProviderNativeToolExecutionV2R>>;
+  replayCommitted?(input: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+    project: Project;
+    baseRevision: Readonly<ProjectRevisionV1>;
+    call: Readonly<IsolatedCallV2R>;
+    recordedExecution: Readonly<ProviderNativeToolExecutionV2R>;
+  }>): Promise<Readonly<ProviderNativeToolExecutionV2R>>;
 }
 
 interface OperationAuditV2R {
@@ -50,6 +67,7 @@ interface OperationAuditV2R {
   afterStateSha256: string;
   changedPaths: readonly string[];
   executionSha256: string;
+  writerProjectRevision: string;
   operationReceiptSha256: string;
 }
 
@@ -75,9 +93,43 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
       const canonicalBaseState = projectProposalStateV2R(initial.project);
       const baseStateSha256 = hashCanonicalJsonV1(canonicalBaseState);
       let workingProject = structuredClone(initial.project);
+      let workingProjectRevision = baseRevisionIdentity;
       let stale = false;
       let finalized: Readonly<ProviderNativeDurableProposalReceiptV2R> | null = null;
       const operations: OperationAuditV2R[] = [];
+      const recovery = scope.proposalRecoveryState;
+      const writerTurns = proposalRecoveryWriterTurnsV2R(scope.checkpoint);
+      if (writerTurns.length && !recovery) {
+        throw new Error('PROJECTSERVICE_PROPOSAL_RECOVERY_REQUIRED');
+      }
+      if (recovery) {
+        verifyProviderNativeProposalRecoveryStateV2R({
+          checkpoint: scope.checkpoint,
+          projectId: scope.projectId,
+          state: recovery,
+        });
+        if (recovery.canonicalBaseProjectRevision !== baseRevisionIdentity
+          || recovery.canonicalBaseStateSha256 !== baseStateSha256) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_RECOVERY_BASE_MISMATCH');
+        }
+        if (!input.isolatedOperatorOwner.replayCommitted) {
+          throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_OWNER_REQUIRED');
+        }
+        const replayed = await replayCommittedProposal({
+          scope,
+          projectService: input.projectService,
+          isolatedOperatorOwner: input.isolatedOperatorOwner,
+          baseProject: initial.project,
+          workingProject,
+          baseRevision,
+          baseRevisionIdentity,
+          baseStateSha256,
+          recovery,
+          writerTurns,
+        });
+        operations.push(...replayed.operations);
+        workingProjectRevision = replayed.workingProjectRevision;
+      }
 
       const readMaterial = {
         schemaVersion: 1,
@@ -95,8 +147,10 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
         authority: 'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_BINDING' as const,
         canonicalBaseProjectRevision: baseRevisionIdentity,
         canonicalBaseStateSha256: baseStateSha256,
-        isolatedWorkingProjectRevision: baseRevisionIdentity,
-        isolatedWorkingStateSha256: baseStateSha256,
+        isolatedWorkingProjectRevision: workingProjectRevision,
+        isolatedWorkingStateSha256: hashCanonicalJsonV1(
+          projectProposalStateV2R(workingProject),
+        ),
       };
 
       return {
@@ -160,20 +214,45 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
 
             const afterState = projectProposalStateV2R(workingProject);
             const afterStateSha256 = hashCanonicalJsonV1(afterState);
-            const material = {
-              operatorId: call.operatorId,
-              turn: call.turn,
-              callSha256: hashCanonicalJsonV1(call),
-              beforeStateSha256,
-              afterStateSha256,
-              changedPaths: changedProjectProposalPathsV2R(beforeState, afterState),
-              executionSha256: hashCanonicalJsonV1(execution),
-            };
-            operations.push(deepFreezeV1({
-              ...material,
-              operationReceiptSha256: hashCanonicalJsonV1(material),
-            }) as OperationAuditV2R);
+            const writerProjectRevision = executionWriterProjectRevision(execution);
+            if (beforeStateSha256 !== afterStateSha256 && !writerProjectRevision) {
+              workingProject = beforeProject;
+              throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_REQUIRED');
+            }
+            if (writerProjectRevision) {
+              assertOperationOrder(operations, call.turn);
+              operations.push(operationAudit({
+                call,
+                beforeState,
+                afterState,
+                execution,
+                writerProjectRevision,
+              }));
+              workingProjectRevision = writerProjectRevision;
+            }
             return execution;
+          },
+          captureProposalRecoveryState: async (checkpoint) => {
+            if (!operations.length) return undefined;
+            const state = createProviderNativeProposalRecoveryStateV2R({
+              checkpoint,
+              projectId: scope.projectId,
+              canonicalBaseProjectRevision: baseRevisionIdentity,
+              canonicalBaseStateSha256: baseStateSha256,
+              operations: operations.map((operation) => ({
+                turn: operation.turn,
+                beforeStateSha256: operation.beforeStateSha256,
+                afterStateSha256: operation.afterStateSha256,
+              })),
+            });
+            const currentStateSha256 = hashCanonicalJsonV1(
+              projectProposalStateV2R(workingProject),
+            );
+            if (state.isolatedWorkingProjectRevision !== workingProjectRevision
+              || state.isolatedWorkingStateSha256 !== currentStateSha256) {
+              throw new Error('PROJECTSERVICE_PROPOSAL_RECOVERY_CAPTURE_MISMATCH');
+            }
+            return state;
           },
           finalizeProposalReceipt: async () => {
             if (finalized) return finalized;
@@ -209,6 +288,137 @@ export function createProviderNativeProjectServiceCloneOwnerV2R(input: Readonly<
       };
     },
   };
+}
+
+async function replayCommittedProposal(input: Readonly<{
+  scope: Readonly<{
+    tenantId: string;
+    userId: string;
+    projectId: string;
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  }>;
+  projectService: Readonly<ProjectServiceProposalSnapshotOwnerV2R>;
+  isolatedOperatorOwner: Readonly<ProjectServiceIsolatedOperatorOwnerV2R>;
+  baseProject: Readonly<Project>;
+  workingProject: Project;
+  baseRevision: Readonly<ProjectRevisionV1>;
+  baseRevisionIdentity: string;
+  baseStateSha256: string;
+  recovery: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+  writerTurns: readonly Readonly<ProviderNativeProposalRecoveryWriterTurnV2R>[];
+}>): Promise<Readonly<{
+  operations: readonly Readonly<OperationAuditV2R>[];
+  workingProjectRevision: string;
+}>> {
+  const replay = input.isolatedOperatorOwner.replayCommitted;
+  if (!replay) throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_OWNER_REQUIRED');
+  const operations: OperationAuditV2R[] = [];
+  let workingProjectRevision = input.baseRevisionIdentity;
+  for (const [index, writer] of input.writerTurns.entries()) {
+    const expected = input.recovery.operations[index];
+    const beforeState = projectProposalStateV2R(input.workingProject);
+    if (hashCanonicalJsonV1(beforeState) !== expected.beforeStateSha256) {
+      throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_BEFORE_STATE_MISMATCH');
+    }
+    const call: IsolatedCallV2R = {
+      operatorId: writer.operatorId,
+      arguments: writer.arguments,
+      turn: writer.turn,
+    };
+    const execution = await replay({
+      tenantId: input.scope.tenantId,
+      userId: input.scope.userId,
+      projectId: input.scope.projectId,
+      checkpoint: input.scope.checkpoint,
+      project: input.workingProject,
+      baseRevision: input.baseRevision,
+      call,
+      recordedExecution: writer.recordedExecution as unknown as ProviderNativeToolExecutionV2R,
+    });
+    assertExecutionEnvelope(execution);
+    assertCloneIdentity(input.baseProject, input.workingProject);
+    const afterState = projectProposalStateV2R(input.workingProject);
+    const writerProjectRevision = executionWriterProjectRevision(execution);
+    if (execution.disposition !== 'OK'
+      || hashCanonicalJsonV1(execution) !== expected.recordedExecutionSha256
+      || hashCanonicalJsonV1(afterState) !== expected.afterStateSha256
+      || writerProjectRevision !== expected.writerProjectRevision) {
+      throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_RESULT_MISMATCH');
+    }
+    const audit = operationAudit({
+      call,
+      beforeState,
+      afterState,
+      execution,
+      writerProjectRevision,
+    });
+    if (audit.callSha256 !== expected.callSha256
+      || audit.executionSha256 !== expected.recordedExecutionSha256
+      || audit.beforeStateSha256 !== expected.beforeStateSha256
+      || audit.afterStateSha256 !== expected.afterStateSha256) {
+      throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_AUDIT_MISMATCH');
+    }
+    operations.push(audit);
+    workingProjectRevision = writerProjectRevision;
+    const current = await readCanonicalGuard(input.projectService, input.scope);
+    if (!guardMatches(current, input.baseRevision, input.baseStateSha256)) {
+      throw new Error('PROJECTSERVICE_PROPOSAL_BASE_STALE');
+    }
+  }
+  if (workingProjectRevision !== input.recovery.isolatedWorkingProjectRevision
+    || hashCanonicalJsonV1(projectProposalStateV2R(input.workingProject))
+      !== input.recovery.isolatedWorkingStateSha256) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_REPLAY_FINAL_STATE_MISMATCH');
+  }
+  return { operations, workingProjectRevision };
+}
+
+function operationAudit(input: Readonly<{
+  call: Readonly<IsolatedCallV2R>;
+  beforeState: ReturnType<typeof projectProposalStateV2R>;
+  afterState: ReturnType<typeof projectProposalStateV2R>;
+  execution: Readonly<ProviderNativeToolExecutionV2R>;
+  writerProjectRevision: string;
+}>): Readonly<OperationAuditV2R> {
+  const material = {
+    operatorId: input.call.operatorId,
+    turn: input.call.turn,
+    callSha256: hashCanonicalJsonV1(input.call),
+    beforeStateSha256: hashCanonicalJsonV1(input.beforeState),
+    afterStateSha256: hashCanonicalJsonV1(input.afterState),
+    changedPaths: changedProjectProposalPathsV2R(input.beforeState, input.afterState),
+    executionSha256: hashCanonicalJsonV1(input.execution),
+    writerProjectRevision: input.writerProjectRevision,
+  };
+  return deepFreezeV1({
+    ...material,
+    operationReceiptSha256: hashCanonicalJsonV1(material),
+  }) as Readonly<OperationAuditV2R>;
+}
+
+function executionWriterProjectRevision(
+  execution: Readonly<ProviderNativeToolExecutionV2R>,
+): string | null {
+  const receipt = execution.output.receipt;
+  if (receipt === undefined) return null;
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_RECEIPT_INVALID');
+  }
+  const value = (receipt as Record<string, unknown>).projectRevision;
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_WRITER_REVISION_INVALID');
+  }
+  return value;
+}
+
+function assertOperationOrder(
+  operations: readonly Readonly<OperationAuditV2R>[],
+  turn: number,
+): void {
+  if (!Number.isSafeInteger(turn) || turn < 1 || (operations.at(-1)?.turn ?? 0) >= turn) {
+    throw new Error('PROJECTSERVICE_PROPOSAL_OPERATION_ORDER_INVALID');
+  }
 }
 
 async function readCanonicalGuard(
