@@ -1630,11 +1630,30 @@ unreconciled source-input paths, while Match Edit generation retains a
 placeholder/video-only fallback. Streaming, demux-artifact registration and
 live-store proof also remain open.
 
+Commit a801ee6a1 performs the required Step-0 cleanup on the legacy style
+service before changing its owner boundary. Commit e22cee1c4 then converges the
+standalone style-transfer route, the legacy chat `extract_style` caller and the
+main video-analysis worker's legacy style fallback on one
+`resolveStyleReferenceSourceV1` adapter. The adapter accepts exactly one legacy
+target or a receipt-bearing canonical handoff, resolves overlay targets through
+their owned asset identity, and delegates exact-byte materialization and
+registration to the existing canonical reference owner. The main worker reuses
+the canonical source it already issued instead of downloading, demuxing or
+registering it again. `extractEditDNA` now consumes the existing strict,
+measured-reference analyzer; missing registration or measured cut evidence
+fails before profile persistence. Raw source URLs, random profile IDs, guessed
+model defaults and the duplicate loose provider prompt are removed from this
+path. Five focused suites pass 26/26 with repository typecheck and quiet ESLint.
+This is `STYLE_REFERENCE_SOURCE_AND_OBSERVATION_CONVERGED`, not style-execution
+certification: the downstream prose action planner/Director mutation and render
+proof remain separate, and the experimental visual-fingerprint path is still
+open.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Reconcile standalone style-transfer/chat style extraction and the
-   experimental visual-fingerprint extractor against the same canonical source
-   owner; fail-close or qualify Match Edit generation's placeholder path. Then
+1. Reconcile the experimental visual-fingerprint extractor against the same
+   canonical source owner; fail-close or qualify Match Edit generation's
+   placeholder/video-only path. Then
    replace full-file buffering and provisional 90-second/10-KB assumptions with
    a streaming, probed, long-form-safe owner and register required demux
    artifacts through the same media authority.
@@ -3310,7 +3329,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a` and `1e18e6d0e` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e` and `e22cee1c4` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
@@ -3319,8 +3338,11 @@ Studio intake, ThinkForge trend-analysis worker and legacy Match Edit analysis
 now delegate to the same boundary. ThinkForge no longer sends a floating
 YouTube/provider URL directly to inference; Match Edit additionally requires a
 valid scoped source receipt, strict observation schema and measured cut
-evidence. This remains partial convergence: standalone style-transfer/chat
-style extraction, experimental visual-fingerprint extraction, Match Edit gap
+evidence. The standalone style-transfer route, legacy chat tool and main-worker
+fallback now share one canonical receipt-bearing adapter and the existing
+strict measured-reference observation owner; the worker reuses its already
+canonicalized source, and no raw source URL or guessed model default is
+persisted. This remains partial convergence: experimental visual-fingerprint extraction, Match Edit gap
 generation, streaming long-form materialization, demux-artifact registration
 and live Mongo/R2/GCS proof are open.
 

@@ -96,6 +96,10 @@ pnpm test                # vitest run
   commit before starting the next phase, and leave concise adjacent authority/
   invariant comments wherever code alone would not preserve the reason across
   compaction or another agent handoff.
+- This duty survives context compaction and agent handoff: resume from the
+  ledger, update it before leaving a changed boundary, and add or refresh the
+  smallest useful adjacent comment whenever an owner, invariant, unresolved
+  risk or next step would otherwise be recoverable only from chat history.
 - Keep `RAW_EXECUTED`, `VALID_EVIDENCE`, `INVALID_EVIDENCE` and production
   promotion status separate. A paid call, green unit test or attractive render
   is not automatically valid evidence and is never production certification.
@@ -312,7 +316,7 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a` and `1e18e6d0e` wire exact source/frame
+3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e` and `e22cee1c4` wire exact source/frame
    registration and make the main analysis worker canonicalize every resolved
    source kind before carrying the returned ID/URL through cache, sampling,
    analysis and legacy extraction. Managed R2/GCS objects are reused through a
@@ -322,13 +326,20 @@ Migrated from the prior Claude-Code sessions. Layout:
    `bde34941a` removes ThinkForge's direct-provider URL shortcut and binds trend
    analysis to the registered exact bytes. `1e18e6d0e` similarly makes legacy
    Match Edit analysis require a valid source receipt, truthful MIME, strict
-   model schema and measured cut evidence. Standalone style-transfer/chat style
-   extraction and the experimental visual-fingerprint path still need source-
-   identity reconciliation; Match Edit generation still contains an unqualified
-   placeholder fallback. Full-source buffering is provisional and live
+   model schema and measured cut evidence. `a801ee6a1` first removes dead
+   provider/debug plumbing from the legacy style service; `e22cee1c4` then
+   converges the standalone style-transfer route, legacy chat `extract_style`
+   path and the main worker's legacy fallback on one receipt-bearing source
+   adapter plus the existing strict measured-reference analyzer. The worker
+   reuses its canonical receipt, and style persistence no longer stores the raw
+   source URL or guessed model defaults. The experimental visual-fingerprint
+   path still needs source-identity reconciliation; Match Edit generation still
+   contains an unqualified placeholder/video-only fallback. Full-source
+   buffering is provisional and live
    Mongo/R2/GCS proof is absent. Do not describe project-wide reference
    materialization or long-form ingest as converged.
-4. Reconcile the remaining style/fingerprint and Match Edit generation paths,
+4. Reconcile the remaining experimental visual-fingerprint and Match Edit
+   generation paths,
    then replace full buffering/provisional limits and register demux artifacts.
 5. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
