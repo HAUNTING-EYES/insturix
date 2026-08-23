@@ -514,6 +514,13 @@ describe('chat edit rendered verification', () => {
       mutationStatus: 'pass',
       mutationChangedFrameCount: 1,
     });
+    expect(evidence.renderedAestheticReport?.frames?.[0]).toMatchObject({
+      frame: 45,
+      mutationPixelCount: expect.any(Number),
+      sampledPixelCount: expect.any(Number),
+    });
+    expect(evidence.renderedAestheticReport?.frames?.[0]?.mutationPixelCount)
+      .toBeGreaterThan(0);
     expect(evidence.renderedAestheticReport?.summary?.status).not.toBe('fail');
     expect(evidence.renderedAestheticReport?.summary?.absoluteQualityStatus).not.toBe('fail');
     expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))

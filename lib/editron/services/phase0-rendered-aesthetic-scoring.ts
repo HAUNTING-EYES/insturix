@@ -607,6 +607,12 @@ function buildRenderedAestheticReport(input: {
       activeOverlayTypes: frame.activeOverlayTypes,
       fullStill: frame.fullStill,
       baselineStill: frame.baselineStill,
+      ...(frame.mutationPixelCount !== undefined
+        ? {
+            mutationPixelCount: frame.mutationPixelCount,
+            sampledPixelCount: frame.sampledPixelCount,
+          }
+        : {}),
       report: {
         status: mutationFailed ? 'fail' as const : frame.report.status,
         score: mutationFailed ? 0 : frame.report.score,

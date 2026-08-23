@@ -98,6 +98,9 @@ export interface Phase0RenderedAestheticReportLike {
     activeOverlayTypes?: string[];
     fullStill?: string;
     baselineStill?: string;
+    /** Exact sampled-pixel delta retained for operation-specific proof owners. */
+    mutationPixelCount?: number;
+    sampledPixelCount?: number;
     report?: {
       status?: Phase0RenderedAestheticStatus;
       score?: number;
