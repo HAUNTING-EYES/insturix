@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `6d8fdf1ea` on
+programme code checkpoint represented by this ledger is `582c927d0` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 6d8fdf1ea. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 582c927d0. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1421,11 +1421,23 @@ pricing now hash-binds the existing `main` credit pool, revision-1 product-
 budget artifact/guard identifiers advance to revision 2, and an altered pool
 fails reconstruction. No revision-1 fallback or live artifact migration is
 needed because no product route or stored product reservation exists.
-The next gate is those concrete canonical-media ports plus that concrete
-CreditsService-owned reservation/settlement implementation—not the inline
-research reference artifact or sealed-holdout controller—followed by their
-single execution-root composition, signed route export and non-production
-Atlas/QStash exercise.
+Commit 582c927d0 adds the product-budget policy coordinator and its explicit
+atomic-ledger transaction boundary. It deterministically reserves the exact
+revision-2 authorization against the main wallet pool, allocates subscription
+before top-up, replays duplicate reservations without a second write, settles
+actual usage by charging subscription before top-up, releases proven unused
+credit, preserves the full hold when provider outcome is unknown and resolves
+only an exact still-reserved runtime guard. Insufficient balances, subscription
+lifetime conflicts, expired releases, forged scope and conflicting settlement
+replays fail closed. The 15 focused and 83 adjacent tests pass with repository
+typecheck and quiet ESLint. Its ledger is injected and tested in memory: no
+Mongo collection, multi-document transaction, CreditsService wallet write,
+live credit movement or production reservation locator is thereby proven.
+The next gate is the concrete same-database Mongo transaction adapter through
+the existing CreditsService wallet owner, followed by concrete canonical-media
+ports, their single execution-root composition, signed route export and a
+non-production Atlas/QStash exercise. The inline research reference artifact
+and sealed-holdout controller remain ineligible as product authorities.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
