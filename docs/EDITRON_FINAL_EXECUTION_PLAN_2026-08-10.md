@@ -1505,36 +1505,40 @@ injected, persisted resume events are re-derived, and unsafe-integer token or
 cost arithmetic fails `RESOURCE_ACCOUNTING_UNVERIFIABLE` before dispatch or
 further execution. Accounting, settlement, dispatch and resume verification
 passes 24/24 with repository typecheck and quiet ESLint. This is
-`SHARED_RUNTIME_ACCOUNTING_MECHANICS_PROVEN_PRODUCT_FACTORY_NOT_IMPLEMENTED`:
-no product CreditsService reservation currently constructs the core and no
-provider was called.
+`SHARED_RUNTIME_ACCOUNTING_MECHANICS_PROVEN`.
+Commit 9a2a8d9ad then implements the product runtime-guard factory. It strictly
+rebinds one exact CreditsService authorization/reservation, maps its immutable
+route, pricing and limits into the shared core, and accepts input-token evidence
+only through a route- and serialized-request-bound receipt. Copied receipts,
+route drift, forged reservations and token-counter failure stop before provider
+dispatch. The focused runtime/budget/resume suite passes 36/36 with repository
+typecheck and quiet ESLint. This is
+`PRODUCT_RUNTIME_GUARD_FACTORY_PROVEN_CONCRETE_TOKEN_COUNTER_NOT_IMPLEMENTED`:
+the counter is still an injected product port and no provider was called.
 
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Implement the product runtime-budget guard factory over the shared mechanics
-   from `2683002e7` and the exact CreditsService authorization/reservation. The
-   sealed-holdout wrapper remains research-only and must not become the product
-   factory or product receipt owner.
-2. Add the route-scoped product token-count owner used by that guard. It must
+1. Add the route-scoped product token-count owner used by the `9a2a8d9ad`
+   guard. It must
    bind the exact serialized request and use the provider-specific measured or
    conservative upper-bound policy; the current product composition has no such
    owner.
-3. Add one durable terminal settlement boundary. It must turn committed
+2. Add one durable terminal settlement boundary. It must turn committed
    provider-attempt and workflow-job evidence into exactly one CreditsService
    actual, conservative-maximum or pre-dispatch-cancellation settlement. The
    current durable worker completes/dead-letters/cancels jobs but never invokes
    the product wallet settlement port.
-4. Make the reference materializer register every source and derived artifact
+3. Make the reference materializer register every source and derived artifact
    in the existing `mediaAssets` owner with content hash, byte length, storage
    identity and canonical envelope before issuance. The current reference-frame
    sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
    end to end.
-5. Compose, behind the existing definition-bound execution owner, the exact
+4. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
    owner, and durable live transport. This remains an isolated proposal path;
    it must not mutate the canonical project or create another timeline owner.
-6. Export the signed product route, then run the non-production Atlas/QStash
+5. Export the signed product route, then run the non-production Atlas/QStash
    crash/restart/redelivery exercise that proves the actual transactions and
    write-ahead recovery.
 
