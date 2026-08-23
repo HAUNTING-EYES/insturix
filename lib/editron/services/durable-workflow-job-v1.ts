@@ -157,7 +157,7 @@ export type ClaimDurableWorkflowJobResultV1 =
   | Readonly<{
       kind: 'skipped';
       reason: 'not_found' | 'lease_held' | 'terminal' | 'cancel_requested'
-        | 'retry_not_due' | 'attempts_exhausted';
+        | 'retry_not_due' | 'attempts_exhausted' | 'expired';
     }>;
 
 export class DurableWorkflowJobConflictErrorV1 extends Error {}

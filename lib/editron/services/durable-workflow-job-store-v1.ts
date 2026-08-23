@@ -108,16 +108,18 @@ export class DurableWorkflowJobStoreV1 {
     messageId: string;
     now?: Date;
   }>): Promise<void> {
+    const now = input.now ?? new Date();
     const result = await (await this.collectionProvider()).updateOne(
       {
         _id: requireIdentity(input.jobId, 'JOB_ID'),
         status: { $in: ['queued', 'retry_wait'] },
+        expiresAt: { $gt: now },
       },
       {
         $set: {
           dispatchTransport: requireIdentity(input.transport, 'DISPATCH_TRANSPORT'),
           dispatchMessageId: requireIdentity(input.messageId, 'DISPATCH_MESSAGE_ID'),
-          updatedAt: input.now ?? new Date(),
+          updatedAt: now,
         },
         $inc: { dispatchCount: 1 },
       },
@@ -142,6 +144,7 @@ export class DurableWorkflowJobStoreV1 {
         _id: jobId,
         remainingAttempts: { $gt: 0 },
         cancelRequestedAt: null,
+        expiresAt: { $gt: now },
         $or: [
           { status: 'queued' },
           { status: 'retry_wait', nextAttemptAt: { $lte: now } },
@@ -191,6 +194,11 @@ export class DurableWorkflowJobStoreV1 {
       current = await collection.findOne({ _id: jobId });
       if (!current) return { kind: 'skipped', reason: 'not_found' };
     }
+    if (await expireJobIfNeeded(collection, jobId, now)) {
+      return { kind: 'skipped', reason: 'expired' };
+    }
+    current = await collection.findOne({ _id: jobId });
+    if (!current) return { kind: 'skipped', reason: 'not_found' };
     if (current.status === 'running' && !current.cancelRequestedAt
       && current.remainingAttempts <= 0 && current.leaseExpiresAt
       && current.leaseExpiresAt <= now) {
@@ -358,7 +366,7 @@ export class DurableWorkflowJobStoreV1 {
     const collection = await this.collectionProvider();
     const update = await collection.updateOne(
       {
-        ...activeLeaseFilter(input.jobId, input.leaseToken, now),
+        ...cancellationLeaseFilter(input.jobId, input.leaseToken, now),
         cancelRequestedAt: { $ne: null },
       },
       {
@@ -449,6 +457,10 @@ export class DurableWorkflowJobStoreV1 {
     const limit = Math.max(1, Math.min(input.limit ?? 25, 100));
     const records = await (await this.collectionProvider()).find({
       $or: [
+        {
+          status: { $in: ['queued', 'retry_wait', 'running'] },
+          cancelRequestedAt: null, expiresAt: { $lte: now },
+        },
         {
           status: 'queued', remainingAttempts: { $gt: 0 }, cancelRequestedAt: null,
           updatedAt: { $lte: input.staleBefore },
@@ -631,11 +643,52 @@ function assertSameContract(
 
 function activeLeaseFilter(jobId: string, leaseToken: string, now: Date) {
   return {
+    ...cancellationLeaseFilter(jobId, leaseToken, now),
+    expiresAt: { $gt: now },
+  };
+}
+
+function cancellationLeaseFilter(jobId: string, leaseToken: string, now: Date) {
+  return {
     _id: requireIdentity(jobId, 'JOB_ID'),
     status: 'running' as const,
     leaseToken: requireIdentity(leaseToken, 'LEASE_TOKEN'),
     leaseExpiresAt: { $gt: now },
   };
+}
+
+async function expireJobIfNeeded(
+  collection: Collection<DurableWorkflowJobRecordV1>,
+  jobId: string,
+  now: Date,
+): Promise<boolean> {
+  const expired = await collection.findOneAndUpdate(
+    {
+      _id: jobId,
+      status: { $in: ['queued', 'retry_wait', 'running'] },
+      cancelRequestedAt: null,
+      expiresAt: { $lte: now },
+    },
+    {
+      $set: {
+        status: 'dead_letter',
+        error: {
+          code: 'JOB_EXPIRED',
+          message: 'The durable job expired before reaching a terminal disposition.',
+          retryable: false,
+          occurredAt: now,
+        },
+        retryCursor: null,
+        nextAttemptAt: null,
+        leaseToken: null,
+        leaseOwnerId: null,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  return expired !== null;
 }
 
 async function requireActiveLease(

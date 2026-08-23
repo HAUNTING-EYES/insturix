@@ -37,6 +37,14 @@ export type EditorialPlanDurableFixtureRecordsV1 = Readonly<{
   definitions?: readonly EditorialPlanExecutionDefinitionRecordV1[];
   jobs?: readonly DurableWorkflowJobRecordV1[];
 }>;
+export type EditorialPlanDurableFixtureOptionsV1 = Readonly<{
+  approvalRequirementRefs?: readonly EditorialPlanArtifactRefV1[];
+  activeAcceptedBy?: Readonly<{
+    actorId: string;
+    actorKind: 'USER' | 'MODEL' | 'SYSTEM';
+  }>;
+  expiresAt?: Date;
+}>;
 
 export function createEditorialPlanDurableFixtureStoresV1(
   initial: EditorialPlanDurableFixtureRecordsV1 = {},
@@ -55,9 +63,13 @@ export function createEditorialPlanDurableFixtureStoresV1(
   return { plans, definitions, jobs, planStore, jobStoreFactory };
 }
 
-export async function createPreparedEditorialPlanDurableFixtureV1() {
+export async function createPreparedEditorialPlanDurableFixtureV1(
+  options: EditorialPlanDurableFixtureOptionsV1 = {},
+) {
   const stores = createEditorialPlanDurableFixtureStoresV1();
-  const source = createEditorialPlanRevisionV1(editorialPlanFixtureInputV1());
+  const source = createEditorialPlanRevisionV1(editorialPlanFixtureInputV1({
+    nodes: [node(options.approvalRequirementRefs)],
+  }));
   await stores.planStore().createInitial(source, EDITORIAL_PLAN_FIXTURE_START_V1);
   const sourceNode = source.nodes[0];
   const definition = createEditorialPlanExecutionDefinitionV1({
@@ -87,7 +99,9 @@ export async function createPreparedEditorialPlanDurableFixtureV1() {
     nodes: [{
       ...sourceNode, nodeVersion: 2,
       executionDefinitionRef: executionDefinitionRefV1(definition),
-    }], changeReason: 'attach exact execution definition',
+    }],
+    ...(options.activeAcceptedBy ? { acceptedBy: options.activeAcceptedBy } : {}),
+    changeReason: 'attach exact execution definition',
   }));
   await stores.planStore().appendSuccessor({
     plan: active, expectedCurrentRevisionSha256: source.revisionSha256,
@@ -103,6 +117,7 @@ export async function createPreparedEditorialPlanDurableFixtureV1() {
       planRevisionSha256: active.revisionSha256,
       nodeId: active.nodes[0].nodeId, nodeVersion: active.nodes[0].nodeVersion,
       parentCommandId: 'command-a', parentReceiptId: 'receipt-a', maxAttempts: 3,
+      ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
     },
   });
   return { ...stores, jobStore, source, definition, active, jobId: job.jobId };
@@ -124,7 +139,9 @@ export function editorialPlanFixtureInputV1(
   };
 }
 
-function node(): EditorialPlanNodeV1 {
+function node(
+  approvalRequirementRefs: readonly EditorialPlanArtifactRefV1[] = [],
+): EditorialPlanNodeV1 {
   const authority = ref('EVIDENCE', 'scope-root');
   return {
     nodeId: 'root', nodeVersion: 1, parentNodeId: null, supersedesNodeId: null,
@@ -143,7 +160,8 @@ function node(): EditorialPlanNodeV1 {
     dependsOnNodeIds: [], reads: [], writes: [], requires: [], produces: [],
     invalidates: [], status: 'READY', executionDefinitionRef: null,
     eligibleOperationSetRef: ref('CAPABILITY_REGISTRY', 'eligible-ops-v1'),
-    evidenceRequirementRefs: [], preservationLockRefs: [], approvalRequirementRefs: [],
+    evidenceRequirementRefs: [], preservationLockRefs: [],
+    approvalRequirementRefs: [...approvalRequirementRefs],
     budgetReservationRefs: [ref('BUDGET_SERVICE', 'budget-v1')],
     whatHasNotBeenChecked: ['preview'], previewRefs: [], proofRefs: [], receiptRefs: [],
     finalDisposition: null,

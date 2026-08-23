@@ -153,6 +153,12 @@ export function buildEditorialPlanDurableJobContractV1(input: Readonly<{
   expectedPlanHeadRevisionSha256: string;
 }>) {
   if (input.node.status !== 'READY') fail('PLAN_JOB_NODE_NOT_RUNNABLE');
+  // The immutable plan revision is the approval-lineage receipt. Route-level
+  // authentication still has to establish that this USER actor is genuine.
+  if (input.node.approvalRequirementRefs.length
+    && input.plan.acceptedBy.actorKind !== 'USER') {
+    fail('PLAN_JOB_USER_APPROVAL_REQUIRED');
+  }
   assertDefinitionBinding(input.node, input.definition);
   if (input.sourcePlan.revisionSha256
       !== input.definition.sourcePlanBinding.planRevisionSha256) {
@@ -237,7 +243,15 @@ function dependencies(
     refDependency('planner-envelope-schema', definition.plannerEnvelopeSchemaRef),
     refDependency('privacy-policy', definition.privacyPolicyRef),
     refDependency('proof-policy', definition.proofPolicyRef),
+    ...nodeApprovalDependencies(node),
   ];
+}
+
+function nodeApprovalDependencies(node: Readonly<EditorialPlanNodeV1>) {
+  return node.approvalRequirementRefs.map((ref, index) => refDependency(
+    `approval-requirement-${String(index + 1).padStart(3, '0')}`,
+    ref,
+  ));
 }
 
 function executableNodeMaterial(node: Readonly<EditorialPlanNodeV1>) {
