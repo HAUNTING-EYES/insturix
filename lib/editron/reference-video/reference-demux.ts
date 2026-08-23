@@ -26,7 +26,7 @@ import path from 'node:path';
 
 import type {
   ReferenceAudioUsageMode,
-  ReferenceCanonicalEnvelope,
+  ReferenceCanonicalEnvelopeV2,
 } from '@/lib/editron/services/asset-resolver';
 import {
   deepFreezeEditronJsonV1,
@@ -42,7 +42,7 @@ import {
 
 export const DEMUX_RECEIPT_VERSION = 'editron-r1-demux-receipt-v2' as const;
 export const DEMUX_CORE_RECEIPT_VERSION = 'editron-r1-demux-core-receipt-v1' as const;
-export const REFERENCE_ENVELOPE_VERSION = 'editron-r1-reference-envelope-v1' as const;
+export const REFERENCE_ENVELOPE_VERSION = 'editron-r1-reference-envelope-v2' as const;
 const DERIVED_STREAM_ASSET_ID_VERSION = 'editron-r1-derived-stream-asset-id-v1' as const;
 
 /** AAC 192k — the same codec/bitrate the YouTube reference importer already uses. */
@@ -669,7 +669,7 @@ function sanitizeAssetPart(value: string): string {
 export function buildReferenceCanonicalEnvelope(
   receipt: DemuxReceipt,
   audioUsageMode: ReferenceAudioUsageMode,
-): ReferenceCanonicalEnvelope {
+): ReferenceCanonicalEnvelopeV2 {
   return {
     version: REFERENCE_ENVELOPE_VERSION,
     contentHash: receipt.source.sourceSha256,
@@ -681,6 +681,10 @@ export function buildReferenceCanonicalEnvelope(
       videoSha256: receipt.video.sha256,
       audioSha256: receipt.audio?.sha256 ?? null,
       audioPresent: receipt.audio?.present ?? false,
+      receiptSha256: receipt.receiptSha256,
+      coreReceiptSha256: receipt.coreReceiptSha256,
+      videoRegistrationReceiptSha256: receipt.video.registrationReceiptSha256,
+      audioRegistrationReceiptSha256: receipt.audio?.registrationReceiptSha256 ?? null,
     },
   };
 }

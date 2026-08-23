@@ -62,27 +62,50 @@ export type ReferenceAudioUsageMode =
   /** User chose to include the reference song in export AND supplied required attestation. */
   | 'export-attested';
 
-/** R1 canonical demux envelope stored on the reference video MediaAsset. */
-export interface ReferenceCanonicalEnvelope {
-  /** Version of the canonical envelope contract. */
-  version: string;
+interface ReferenceCanonicalEnvelopeBase {
   /** SHA-256 of the original source bytes (dedup + integrity key). */
   contentHash: string;
   /** Constraint #7 audio usage mode. */
   audioUsageMode: ReferenceAudioUsageMode;
-  /** Demux receipt summary; null when not yet demuxed. */
+}
+
+/** Historical R1 envelope. Read-compatible only; new issuance uses V2. */
+export interface ReferenceCanonicalEnvelopeV1 extends ReferenceCanonicalEnvelopeBase {
+  version: 'editron-r1-reference-envelope-v1';
   demux: {
-    /** Demux receipt contract version. */
     version: string;
     demuxedAt: string;
     durationMs: number | null;
-    /** SHA-256 of demuxed video bytes. */
     videoSha256: string;
-    /** SHA-256 of demuxed audio bytes; null when no audio track. */
     audioSha256: string | null;
     audioPresent: boolean;
   } | null;
 }
+
+/**
+ * Current R1 envelope. Its demux summary binds the stable demux identity,
+ * final demux receipt and both materialized-stream registration receipts.
+ */
+export interface ReferenceCanonicalEnvelopeV2 extends ReferenceCanonicalEnvelopeBase {
+  version: 'editron-r1-reference-envelope-v2';
+  demux: {
+    version: 'editron-r1-demux-receipt-v2';
+    demuxedAt: string;
+    durationMs: number | null;
+    videoSha256: string;
+    audioSha256: string | null;
+    audioPresent: boolean;
+    receiptSha256: string;
+    coreReceiptSha256: string;
+    videoRegistrationReceiptSha256: string;
+    audioRegistrationReceiptSha256: string | null;
+  };
+}
+
+/** R1 canonical source provenance stored on a reference video MediaAsset. */
+export type ReferenceCanonicalEnvelope =
+  | ReferenceCanonicalEnvelopeV1
+  | ReferenceCanonicalEnvelopeV2;
 
 /** Persisted generated MG sequence. Kept distinct from searchable user media. */
 export interface SequenceMediaAsset extends Omit<MediaAsset, 'type' | 'source'> {

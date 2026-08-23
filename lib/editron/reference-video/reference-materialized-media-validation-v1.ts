@@ -6,6 +6,9 @@ import type { UploadResult } from '@/lib/editron/services/upload-service';
 
 export const REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1 =
   'EDITRON_REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_V1_1' as const;
+const LEGACY_REFERENCE_ENVELOPE_VERSION_V1 = 'editron-r1-reference-envelope-v1' as const;
+const CURRENT_REFERENCE_ENVELOPE_VERSION_V2 = 'editron-r1-reference-envelope-v2' as const;
+const CURRENT_DEMUX_RECEIPT_VERSION_V2 = 'editron-r1-demux-receipt-v2' as const;
 
 export type ReferenceMaterializedMediaKindV1 = 'video' | 'audio' | 'image';
 export type ReferenceMaterializedMediaOwnerV1 =
@@ -217,36 +220,99 @@ function normalizeEnvelope(
   const candidate = record(value, 'REFERENCE_ENVELOPE');
   exactKeys(candidate, ['version', 'contentHash', 'audioUsageMode', 'demux'], 'REFERENCE_ENVELOPE');
   const version = identity(candidate.version, 'REFERENCE_ENVELOPE_VERSION');
+  if (version !== LEGACY_REFERENCE_ENVELOPE_VERSION_V1
+    && version !== CURRENT_REFERENCE_ENVELOPE_VERSION_V2) {
+    fail('REFERENCE_ENVELOPE_VERSION_UNSUPPORTED');
+  }
   const contentHash = sha256(candidate.contentHash, 'REFERENCE_ENVELOPE_CONTENT');
   if (contentHash !== bytesSha256) fail('REFERENCE_ENVELOPE_CONTENT_MISMATCH');
   const audioUsageMode = candidate.audioUsageMode;
   if (audioUsageMode !== 'preview-waveform-only' && audioUsageMode !== 'export-attested') {
     fail('REFERENCE_ENVELOPE_AUDIO_MODE_INVALID');
   }
-  let demux: ReferenceCanonicalEnvelope['demux'] = null;
-  if (candidate.demux !== null) {
-    const source = record(candidate.demux, 'REFERENCE_ENVELOPE_DEMUX');
-    exactKeys(source, [
-      'version', 'demuxedAt', 'durationMs', 'videoSha256', 'audioSha256', 'audioPresent',
-    ], 'REFERENCE_ENVELOPE_DEMUX');
-    const durationMs = source.durationMs;
-    if (durationMs !== null && (!Number.isSafeInteger(durationMs) || Number(durationMs) < 0)) {
-      fail('REFERENCE_ENVELOPE_DURATION_INVALID');
+  if (candidate.demux === null) {
+    if (version === CURRENT_REFERENCE_ENVELOPE_VERSION_V2) {
+      fail('REFERENCE_ENVELOPE_DEMUX_REQUIRED');
     }
-    if (typeof source.audioPresent !== 'boolean') fail('REFERENCE_ENVELOPE_AUDIO_PRESENT_INVALID');
-    demux = {
-      version: identity(source.version, 'REFERENCE_ENVELOPE_DEMUX_VERSION'),
-      demuxedAt: validDate(new Date(String(source.demuxedAt)), 'REFERENCE_ENVELOPE_DEMUXED_AT')
-        .toISOString(),
-      durationMs: durationMs === null ? null : Number(durationMs),
-      videoSha256: sha256(source.videoSha256, 'REFERENCE_ENVELOPE_VIDEO'),
-      audioSha256: source.audioSha256 === null
-        ? null
-        : sha256(source.audioSha256, 'REFERENCE_ENVELOPE_AUDIO'),
-      audioPresent: source.audioPresent,
+    return {
+      version: LEGACY_REFERENCE_ENVELOPE_VERSION_V1,
+      contentHash,
+      audioUsageMode,
+      demux: null,
     };
   }
-  return { version, contentHash, audioUsageMode, demux };
+
+  const source = record(candidate.demux, 'REFERENCE_ENVELOPE_DEMUX');
+  const commonKeys = [
+    'version', 'demuxedAt', 'durationMs', 'videoSha256', 'audioSha256', 'audioPresent',
+  ];
+  exactKeys(source, version === LEGACY_REFERENCE_ENVELOPE_VERSION_V1
+    ? commonKeys
+    : [
+        ...commonKeys,
+        'receiptSha256',
+        'coreReceiptSha256',
+        'videoRegistrationReceiptSha256',
+        'audioRegistrationReceiptSha256',
+      ], 'REFERENCE_ENVELOPE_DEMUX');
+  const durationMs = source.durationMs;
+  if (durationMs !== null && (!Number.isSafeInteger(durationMs) || Number(durationMs) < 0)) {
+    fail('REFERENCE_ENVELOPE_DURATION_INVALID');
+  }
+  if (typeof source.audioPresent !== 'boolean') fail('REFERENCE_ENVELOPE_AUDIO_PRESENT_INVALID');
+  const demuxVersion = identity(source.version, 'REFERENCE_ENVELOPE_DEMUX_VERSION');
+  const demuxedAt = validDate(new Date(String(source.demuxedAt)), 'REFERENCE_ENVELOPE_DEMUXED_AT')
+    .toISOString();
+  const videoSha256 = sha256(source.videoSha256, 'REFERENCE_ENVELOPE_VIDEO');
+  const audioSha256 = source.audioSha256 === null
+    ? null
+    : sha256(source.audioSha256, 'REFERENCE_ENVELOPE_AUDIO');
+
+  if (version === LEGACY_REFERENCE_ENVELOPE_VERSION_V1) {
+    return {
+      version: LEGACY_REFERENCE_ENVELOPE_VERSION_V1,
+      contentHash,
+      audioUsageMode,
+      demux: {
+        version: demuxVersion,
+        demuxedAt,
+        durationMs: durationMs === null ? null : Number(durationMs),
+        videoSha256,
+        audioSha256,
+        audioPresent: source.audioPresent,
+      },
+    };
+  }
+
+  if (demuxVersion !== CURRENT_DEMUX_RECEIPT_VERSION_V2) {
+    fail('REFERENCE_ENVELOPE_DEMUX_VERSION_UNSUPPORTED');
+  }
+  const audioRegistrationReceiptSha256 = source.audioRegistrationReceiptSha256 === null
+    ? null
+    : sha256(source.audioRegistrationReceiptSha256, 'REFERENCE_ENVELOPE_AUDIO_REGISTRATION');
+  if (source.audioPresent !== (audioSha256 !== null && audioRegistrationReceiptSha256 !== null)) {
+    fail('REFERENCE_ENVELOPE_AUDIO_BINDING_INCONSISTENT');
+  }
+  return {
+    version: CURRENT_REFERENCE_ENVELOPE_VERSION_V2,
+    contentHash,
+    audioUsageMode,
+    demux: {
+      version: CURRENT_DEMUX_RECEIPT_VERSION_V2,
+      demuxedAt,
+      durationMs: durationMs === null ? null : Number(durationMs),
+      videoSha256,
+      audioSha256,
+      audioPresent: source.audioPresent,
+      receiptSha256: sha256(source.receiptSha256, 'REFERENCE_ENVELOPE_DEMUX_RECEIPT'),
+      coreReceiptSha256: sha256(source.coreReceiptSha256, 'REFERENCE_ENVELOPE_DEMUX_CORE'),
+      videoRegistrationReceiptSha256: sha256(
+        source.videoRegistrationReceiptSha256,
+        'REFERENCE_ENVELOPE_VIDEO_REGISTRATION',
+      ),
+      audioRegistrationReceiptSha256,
+    },
+  };
 }
 
 function normalizeOwner(

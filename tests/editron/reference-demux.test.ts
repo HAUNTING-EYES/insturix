@@ -355,7 +355,7 @@ describe('R1-B canonical reference envelope', () => {
     receiptSha256: '1'.repeat(64),
   };
 
-  it('builds a v1 envelope from a demux receipt (audio present)', () => {
+  it('builds a v2 envelope that binds demux and registration receipts', () => {
     const envelope = buildReferenceCanonicalEnvelope(receipt, 'preview-waveform-only');
     expect(envelope.version).toBe(REFERENCE_ENVELOPE_VERSION);
     expect(envelope.contentHash).toBe('c'.repeat(64));
@@ -367,6 +367,10 @@ describe('R1-B canonical reference envelope', () => {
       videoSha256: 'a'.repeat(64),
       audioSha256: 'b'.repeat(64),
       audioPresent: true,
+      receiptSha256: '1'.repeat(64),
+      coreReceiptSha256: 'd'.repeat(64),
+      videoRegistrationReceiptSha256: 'e'.repeat(64),
+      audioRegistrationReceiptSha256: 'f'.repeat(64),
     });
   });
 
@@ -381,5 +385,6 @@ describe('R1-B canonical reference envelope', () => {
     const envelope = buildReferenceCanonicalEnvelope(noAudio, 'preview-waveform-only');
     expect(envelope.demux?.audioPresent).toBe(false);
     expect(envelope.demux?.audioSha256).toBeNull();
+    expect(envelope.demux?.audioRegistrationReceiptSha256).toBeNull();
   });
 });

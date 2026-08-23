@@ -3,6 +3,10 @@ import { PassThrough } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
+import type {
+  ReferenceCanonicalEnvelopeV1,
+  ReferenceCanonicalEnvelopeV2,
+} from '@/lib/editron/services/asset-resolver';
 import {
   registerReferenceMaterializedMediaAssetV1,
   registerReferenceMaterializedMediaFileV1,
@@ -54,6 +58,56 @@ describe('reference materialized media registration V1', () => {
       referenceEnvelope: { contentHash: sha(bytes) },
     });
     expect(Object.isFrozen(first)).toBe(true);
+  });
+
+  it('accepts bound V2 envelopes and fails closed on missing or inconsistent receipt evidence', async () => {
+    const bytes = Buffer.from('bound-source-video');
+    const valid = {
+      bytes,
+      upload: upload('bound_source', bytes, { r2Key: 'bound_source.mp4' }),
+      actorUserId: 'user-1',
+      mediaOwner: { type: 'USER' as const, userId: 'user-1' },
+      mediaKind: 'video' as const,
+      filename: 'bound-source.mp4',
+      role: { kind: 'SOURCE' as const, referenceEnvelope: envelopeV2(bytes) },
+      uploadedAt: NOW,
+    };
+    const store = new MemoryStore();
+
+    await registerReferenceMaterializedMediaAssetV1(valid, { store });
+    expect(store.rows[0].referenceEnvelope).toMatchObject({
+      version: 'editron-r1-reference-envelope-v2',
+      demux: {
+        receiptSha256: 'b'.repeat(64),
+        coreReceiptSha256: 'c'.repeat(64),
+        videoRegistrationReceiptSha256: 'd'.repeat(64),
+      },
+    });
+
+    const { receiptSha256: _missing, ...unboundDemux } = envelopeV2(bytes).demux;
+    await expect(registerReferenceMaterializedMediaAssetV1({
+      ...valid,
+      role: {
+        kind: 'SOURCE',
+        referenceEnvelope: { ...envelopeV2(bytes), demux: unboundDemux },
+      } as typeof valid.role,
+    }, { store: new MemoryStore() })).rejects.toThrow('REFERENCE_ENVELOPE_DEMUX_FIELDS_INVALID');
+
+    await expect(registerReferenceMaterializedMediaAssetV1({
+      ...valid,
+      role: {
+        kind: 'SOURCE',
+        referenceEnvelope: {
+          ...envelopeV2(bytes),
+          demux: {
+            ...envelopeV2(bytes).demux,
+            audioPresent: true,
+            audioSha256: null,
+            audioRegistrationReceiptSha256: null,
+          },
+        },
+      },
+    }, { store: new MemoryStore() })).rejects.toThrow('REFERENCE_ENVELOPE_AUDIO_BINDING_INCONSISTENT');
   });
 
   it('registers a GCS-derived frame with source/timestamp provenance and org ownership', async () => {
@@ -254,7 +308,7 @@ function byteStream(bytes: Buffer) {
   return value;
 }
 
-function envelope(bytes: Buffer) {
+function envelope(bytes: Buffer): ReferenceCanonicalEnvelopeV1 {
   return {
     version: 'editron-r1-reference-envelope-v1',
     contentHash: sha(bytes),
@@ -266,6 +320,26 @@ function envelope(bytes: Buffer) {
       videoSha256: 'a'.repeat(64),
       audioSha256: null,
       audioPresent: false,
+    },
+  };
+}
+
+function envelopeV2(bytes: Buffer): ReferenceCanonicalEnvelopeV2 {
+  return {
+    version: 'editron-r1-reference-envelope-v2',
+    contentHash: sha(bytes),
+    audioUsageMode: 'preview-waveform-only',
+    demux: {
+      version: 'editron-r1-demux-receipt-v2',
+      demuxedAt: '2026-08-23T09:00:00.000Z',
+      durationMs: 4_000,
+      videoSha256: 'a'.repeat(64),
+      audioSha256: null,
+      audioPresent: false,
+      receiptSha256: 'b'.repeat(64),
+      coreReceiptSha256: 'c'.repeat(64),
+      videoRegistrationReceiptSha256: 'd'.repeat(64),
+      audioRegistrationReceiptSha256: null,
     },
   };
 }
