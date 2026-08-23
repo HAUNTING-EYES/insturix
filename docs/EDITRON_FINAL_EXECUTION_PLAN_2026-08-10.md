@@ -5424,11 +5424,24 @@ The catalog remains 37 declared operations, zero certified operations and zero
 production-eligible operations. The 11/11 V6/V7/inventory tests, repository
 typecheck and quiet ESLint pass.
 
-This reissue grants no runtime authority. The attempted V3R4 no-inference gate
-stopped before network use because it still binds CAP-2A V6 and reconstructs a
-historical base cohort from mutable current builders. Do not patch or dispatch
-V3R4. Issue a V7-bound cohort with a pinned historical base snapshot, then run
-its zero-inference preflight and seek explicit spend approval.
+This reissue grants no runtime authority. Do not confuse two different V3R4
+records. **Native handoff/order V3R4** already executed eighteen rows and
+remains valid bounded evidence for its DEV-03 writer-revision claim.
+**H03 generated-source V3R4** also already executed all eighteen authorised
+rows at `7064fe381`; receipt `47a57bf2...` records four rendered passes, eight
+proof-unverifiable OpenAI rows, six Gemini HTTP-429 non-evaluations,
+`$0.21068595` spend and zero project access. Those historical results are not
+invalidated by CAP-2A V7.
+
+What stopped before network use on 2026-08-24 was an attempted **current-code
+reconstruction** of H03 V3R4. Its immutable manifest binds CAP-2A V6, while its
+operator-input builder reconstructs the older V2 -> V3 -> V3R2 base from
+mutable current builders; current tests therefore fail closed with
+`HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT`. Do not patch or redispatch V3R4. A
+current-source comparison, if still needed, must use a new V7-bound identity
+with a committed pinned historical-base input, a fresh zero-inference
+preflight and new explicit spend approval. The old run remains historical
+evidence, not current-source evidence or production authority.
 
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.

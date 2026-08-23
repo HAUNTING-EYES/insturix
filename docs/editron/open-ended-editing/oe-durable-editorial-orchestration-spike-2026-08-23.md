@@ -1066,10 +1066,17 @@ before advancing. This does not add a secret signer or second revision owner.
     the zero-attempt cancellation path. Hosted QStash, a provider-attempt crash,
     Finance-policy lookup and `ACTUAL_USAGE` settlement remain separate gates.
 58. **CAP-2A V7 complete at `3703c0815`:** current source extraction is
-    hash-bound without promoting the catalog. Issue a V7-bound replacement for
-    stale V3R4 and pin its historical base input.
-59. Only after that cohort's fresh zero-inference preflight and explicit spend approval:
-    resumed paid model inference.
+    hash-bound without promoting the catalog. Historical H03 generated-source
+    V3R4 is not pending: it ran eighteen authorised rows at `7064fe381` under
+    receipt `47a57bf2...`. Its four rendered passes, eight proof-unverifiable
+    rows, six Gemini-429 non-evaluations and `$0.21068595` spend remain bounded
+    historical evidence. The current constructor is non-dispatchable because
+    it binds V6 and rebuilds an older base from mutable builders.
+59. **Current-source replacement not yet issued:** only if another H03
+    current-source comparison is required, issue a new V7-bound identity with
+    a committed pinned historical-base input. Do not patch or rerun V3R4.
+    Paid inference under a successor still requires its own fresh
+    zero-inference preflight and explicit spend approval.
 
 ## Evidence basis
 
