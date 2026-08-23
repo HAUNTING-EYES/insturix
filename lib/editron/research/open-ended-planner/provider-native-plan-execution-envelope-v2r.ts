@@ -16,6 +16,11 @@ import {
   verifyProviderNativeEpisodeResumeCheckpointV2R,
   type ProviderNativeEpisodeResumeCheckpointV2R,
 } from './provider-native-episode-resume-v2r';
+import {
+  proposalRecoveryWriterTurnsV2R,
+  verifyProviderNativeProposalRecoveryStateV2R,
+  type ProviderNativeProposalRecoveryStateV2R,
+} from './provider-native-proposal-recovery-v2r';
 import type { ProviderNativeRouteV2R } from './provider-native-tool-codecs-v2r';
 import { PROVIDER_NATIVE_EPISODE_VERSION_V2R }
   from './provider-native-tool-episode-v2r';
@@ -25,7 +30,7 @@ import { PROVIDER_NATIVE_TOOL_SET_VERSION_V2R }
 type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_PLAN_EXECUTION_ENVELOPE_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_PLAN_EXECUTION_ENVELOPE_V2R_1' as const;
+  'EDITRON_PROVIDER_NATIVE_PLAN_EXECUTION_ENVELOPE_V2R_2' as const;
 export const PROVIDER_NATIVE_PLAN_EXECUTION_OWNER_ID_V2R =
   'ProviderNativeToolEpisodeV2R' as const;
 
@@ -56,6 +61,8 @@ export interface ProviderNativePlanExecutionEnvelopeV2R {
   }>;
   referenceInputManifestSha256: string | null;
   resumeCheckpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R> | null;
+  resumeProposalRecoveryState:
+    Readonly<ProviderNativeProposalRecoveryStateV2R> | null;
   envelopeSha256: string;
 }
 
@@ -90,6 +97,7 @@ export function createProviderNativePlanExecutionEnvelopeV2R(input: Readonly<{
   }>;
   referenceInputManifestSha256?: string;
   resumeCheckpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  resumeProposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
 }>): Readonly<ProviderNativePlanExecutionEnvelopeV2R> {
   const boundEpisodeDefinition = assertProviderNativeEpisodeDefinitionArtifactV2R(
     input.boundEpisodeDefinition,
@@ -107,10 +115,18 @@ export function createProviderNativePlanExecutionEnvelopeV2R(input: Readonly<{
     ? sha256(input.referenceInputManifestSha256, 'REFERENCE_INPUT_MANIFEST') : null;
   const resumeCheckpoint = input.resumeCheckpoint
     ? structuredClone(input.resumeCheckpoint) : null;
-  if (resumeCheckpoint) assertResumeBinding({
-    boundEpisodeDefinition, route, runtimeGuardBinding,
-    referenceInputManifestSha256, resumeCheckpoint,
-  });
+  const resumeProposalRecoveryState = input.resumeProposalRecoveryState
+    ? structuredClone(input.resumeProposalRecoveryState) : null;
+  if (!resumeCheckpoint && resumeProposalRecoveryState) {
+    fail('PROVIDER_NATIVE_PLAN_ENVELOPE_RECOVERY_WITHOUT_CHECKPOINT');
+  }
+  if (resumeCheckpoint) {
+    assertResumeBinding({
+      boundEpisodeDefinition, route, runtimeGuardBinding,
+      referenceInputManifestSha256, resumeCheckpoint,
+      resumeProposalRecoveryState,
+    });
+  }
   const material = {
     version: PROVIDER_NATIVE_PLAN_EXECUTION_ENVELOPE_VERSION_V2R,
     authority: 'PLAN_SERVICE_BOUND_RESEARCH_PROXY_ONLY' as const,
@@ -125,6 +141,7 @@ export function createProviderNativePlanExecutionEnvelopeV2R(input: Readonly<{
     runtimeGuardBinding,
     referenceInputManifestSha256,
     resumeCheckpoint,
+    resumeProposalRecoveryState,
   };
   return deepFreezeEditronJsonV1({
     ...material, envelopeSha256: hashEditronCanonicalJsonV1(material),
@@ -151,6 +168,12 @@ export function assertProviderNativePlanExecutionEnvelopeV2R(
     }),
     ...(candidate.resumeCheckpoint === null ? {} : {
       resumeCheckpoint: record(candidate.resumeCheckpoint, 'RESUME_CHECKPOINT') as unknown as ProviderNativeEpisodeResumeCheckpointV2R,
+    }),
+    ...(candidate.resumeProposalRecoveryState === null ? {} : {
+      resumeProposalRecoveryState: record(
+        candidate.resumeProposalRecoveryState,
+        'RESUME_PROPOSAL_RECOVERY_STATE',
+      ) as unknown as ProviderNativeProposalRecoveryStateV2R,
     }),
   });
   if (candidate.version !== PROVIDER_NATIVE_PLAN_EXECUTION_ENVELOPE_VERSION_V2R
@@ -201,6 +224,8 @@ function assertResumeBinding(input: Readonly<{
   runtimeGuardBinding: Readonly<{ guardKind: string; guardIdentitySha256: string }>;
   referenceInputManifestSha256: string | null;
   resumeCheckpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  resumeProposalRecoveryState:
+    Readonly<ProviderNativeProposalRecoveryStateV2R> | null;
 }>): void {
   verifyProviderNativeEpisodeResumeCheckpointV2R(input.resumeCheckpoint);
   const checkpoint = input.resumeCheckpoint;
@@ -216,6 +241,44 @@ function assertResumeBinding(input: Readonly<{
       !== checkpoint.runtimeGuardResumeState.guardIdentitySha256
     || input.referenceInputManifestSha256 !== referenceSha256) {
     fail('PROVIDER_NATIVE_PLAN_ENVELOPE_RESUME_BINDING_MISMATCH');
+  }
+  const writerTurns = proposalRecoveryWriterTurnsV2R(checkpoint);
+  if (writerTurns.length && !input.resumeProposalRecoveryState) {
+    fail('PROVIDER_NATIVE_PLAN_ENVELOPE_PROPOSAL_RECOVERY_REQUIRED');
+  }
+  if (!writerTurns.length && input.resumeProposalRecoveryState) {
+    fail('PROVIDER_NATIVE_PLAN_ENVELOPE_PROPOSAL_RECOVERY_UNEXPECTED');
+  }
+  if (input.resumeProposalRecoveryState) {
+    verifyProviderNativeProposalRecoveryStateV2R({
+      checkpoint,
+      projectId: input.boundEpisodeDefinition.scope.projectId,
+      state: input.resumeProposalRecoveryState,
+    });
+  }
+}
+
+export function assertProviderNativePlanResumeArtifactsV2R(input: Readonly<{
+  envelope: Readonly<ProviderNativePlanExecutionEnvelopeV2R>;
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  proposalRecoveryState?: Readonly<ProviderNativeProposalRecoveryStateV2R>;
+}>): void {
+  const envelope = assertProviderNativePlanExecutionEnvelopeV2R(input.envelope);
+  const initial = envelope.resumeCheckpoint;
+  if (!initial) fail('PROVIDER_NATIVE_PLAN_FRESH_EXECUTION_NOT_SUPPORTED');
+  assertResumeBinding({
+    boundEpisodeDefinition: envelope.boundEpisodeDefinition,
+    route: envelope.route,
+    runtimeGuardBinding: envelope.runtimeGuardBinding,
+    referenceInputManifestSha256: envelope.referenceInputManifestSha256,
+    resumeCheckpoint: input.checkpoint,
+    resumeProposalRecoveryState: input.proposalRecoveryState ?? null,
+  });
+  if (input.checkpoint.completedTurns.length < initial.completedTurns.length
+    || hashEditronCanonicalJsonV1(
+      input.checkpoint.completedTurns.slice(0, initial.completedTurns.length),
+    ) !== initial.completedTurnsSha256) {
+    fail('PROVIDER_NATIVE_PLAN_RESUME_CHECKPOINT_NOT_AN_EXTENSION');
   }
 }
 
