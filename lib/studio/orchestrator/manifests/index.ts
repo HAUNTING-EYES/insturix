@@ -9,14 +9,16 @@
 import type { StudioCapability } from "@/lib/studio/contracts/objects";
 import type { StudioDomainManifest, StudioToolManifest } from "@/lib/studio/contracts/manifest";
 import { EDIT_DOMAIN_MANIFEST } from "./edit";
+import { DESIGN_DOMAIN_MANIFEST } from "./design";
+import { DISTRIBUTE_DOMAIN_MANIFEST } from "./distribute";
 import { WRITE_DOMAIN_MANIFEST } from "./write";
 
 const DOMAIN_MANIFESTS: Record<StudioCapability, StudioDomainManifest | null> = {
   write: WRITE_DOMAIN_MANIFEST,
   edit: EDIT_DOMAIN_MANIFEST,
-  design: null, // Phase 4 — Clickatron mount
+  design: DESIGN_DOMAIN_MANIFEST,
   analyze: null, // Phase 5 — Alyzitron mount
-  distribute: null, // Phase 4 — CalOS/UploaderX mount
+  distribute: DISTRIBUTE_DOMAIN_MANIFEST,
 };
 
 export function getDomainManifests(): StudioDomainManifest[] {

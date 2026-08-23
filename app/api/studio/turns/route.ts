@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { StudioTurnRequestSchema } from "@/lib/studio/contracts/turn";
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
 import { runEditTurn } from "@/lib/studio/orchestrator/edit";
+import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,9 +53,13 @@ export async function POST(req: Request) {
       state.scriptId = scriptId;
     }
   }
-  /* capability dispatch: a reel attachment routes the turn to EDIT */
+  /* capability dispatch, in priority order:
+   * 1. reel attachment → EDIT (the deliverable's reel is the target)
+   * 2. schedule/publish keywords → DISTRIBUTE (cadence + gates)
+   * 3. default → WRITE */
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
   const editProjectId = reelAttachment?.ref ?? null;
+  const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
   const forwardHeaders: Record<string, string> = {};
@@ -76,18 +81,20 @@ export async function POST(req: Request) {
               request.text,
               req.signal,
             )
-          : runWriteTurn(
-              {
-                userId,
-                orgId: orgId ?? null,
-                isOrgAdmin: Boolean(orgId),
-                deliverableTitle: "Studio draft",
-                brandId: request.brandId ?? null,
-                ...state,
-              },
-              request.text,
-              req.signal,
-            );
+          : wantsDistribute
+            ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null }, request.text)
+            : runWriteTurn(
+                {
+                  userId,
+                  orgId: orgId ?? null,
+                  isOrgAdmin: Boolean(orgId),
+                  deliverableTitle: "Studio draft",
+                  brandId: request.brandId ?? null,
+                  ...state,
+                },
+                request.text,
+                req.signal,
+              );
         for await (const event of events) {
           send(event);
         }
