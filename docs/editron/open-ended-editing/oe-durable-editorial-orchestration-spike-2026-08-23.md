@@ -36,7 +36,7 @@ production-ready and no live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision persistence and exact execution-definition storage. No route, job binding or live Atlas proof exists. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract. No route, worker binding or live Atlas proof exists. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -65,11 +65,16 @@ Completed foundation:
   plan revisions and definitions. It rejects stale/concurrent branches,
   cross-scope reads, copied definition ownership and forged plan-node/envelope
   bindings; it remains non-wired and performs no product mutation.
+- `9687dbd9f` creates one idempotent durable job only from the latest accepted
+  `READY` revision whose executable node material still matches the exact
+  PlanService-issued definition. The job binds the plan, node, definition,
+  operation set, direction, ProjectService base, policies and one aggregate
+  budget without dispatching or executing it.
 
 Open work:
 
 - artifact-owner resolution for scopes, locks, approvals and proof;
-- binding a runnable node revision into a durable job input;
+- execution-time plan-head/definition revalidation and artifact resolution;
 - event history, approval suspension and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
@@ -160,13 +165,23 @@ The slice adds collection indexes and authorized reads, but no API route,
 workflow dispatch, live Atlas exercise, artifact resolver or ProjectService
 effect.
 
+Commit `9687dbd9f` implements the accepted-node-to-job binding. The binder
+requires an exact current plan revision, a `READY` node, a definition attached
+by one successor revision without changing executable node material, an exact
+eligible-operation set and one explicit aggregate budget. It writes only the
+existing durable lifecycle record. The input carries the expected plan-head
+hash, but a later execution adapter must resolve that head and every artifact
+again before effects; the plan/job writes are deliberately not presented as
+one cross-collection transaction.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
    adversarial graph, scope, lock, stale revision and proof cases.
 2. **Complete at `0c94bc059`:** immutable Mongo revision/definition store with
    concurrent-writer, authorization, owner and forgery tests.
-3. Bind one accepted node definition into the existing durable job input.
+3. **Complete at `9687dbd9f`:** bind one accepted node definition into the
+   existing durable job input with stale/forgery/idempotency tests.
 4. Crash/restart and redelivery with zero provider inference.
 5. Approval wait/cancel/expiry and tenant-isolation tests.
 6. ProjectService clone/proposal execution and exact receipt handoff.
@@ -176,7 +191,7 @@ effect.
 
 ## Evidence basis
 
-- Repository code at `0c94bc059` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `9687dbd9f` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
