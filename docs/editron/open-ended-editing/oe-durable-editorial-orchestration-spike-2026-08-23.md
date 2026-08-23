@@ -40,6 +40,7 @@ production-ready and no live workflow reaches the store.
 | Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. `a9882903a` separately hash-binds the unchanged canonical base revision/state and the isolated working revision/state. `270792c1a`, `d143da69a` and `df61e818d` add compact writer/state recovery, durable enforcement and pure committed-writer replay; `9f955033e` proves the path across two OS processes with zero inference and no canonical mutation. `7c9e7e6ea` binds the first real native owner, `cutTimelineRange`, to that clone and proves deterministic replay; all other family/live gates remain below. |
 | Reference artifact owner | `90d034578` binds either ordered timestamped images or native MP4 bytes to exact tenant/user/project/episode, source provenance and manifest identity. It is an immutable research value owner, not canonical media storage or a production locator. |
 | Runtime guard owner | `8ecc87a1c` binds the existing sealed-holdout controller, authorization, pricing, route and guard identity to exact tenant/user/project/episode scope. It injects the existing token-count owner and performs no counting, inference or project access while binding/resolving. It is benchmark accounting, not a generic product budget authority. |
+| Outcome-proof completion | `f85bc0f09` requires any changed proof-eligible isolated proposal to produce a scope/policy/obligation/evidence/final-state-bound receipt before durable completion. The injected test owner proves the seam only; no real renderer is connected yet. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -148,12 +149,22 @@ Completed foundation:
   owner. Scope/kind/identity, authorization and outer-envelope forgery fail
   closed before counting. Focused accounting/recovery tests pass 13/13; full
   typecheck and quiet ESLint pass.
+- `fba3ff58d` first completes the required Step-0 cleanup by removing three
+  unused type-only exports from the two large durable proposal modules.
+- `f85bc0f09` then adds the strict isolated-outcome-proof receipt and completion
+  gate. It binds scope, episode/resume/proposal/final-state identities, policy,
+  standardized obligations, evidence references and derived disposition. The
+  clone supplies only a transient copy of its final state, protects the
+  canonical base around inspection and cannot be mutated through the proof
+  owner. Missing owner, wrong subject and mid-proof canonical drift fail
+  closed. Focused worker/clone/recovery tests pass 30/30; full typecheck and
+  quiet ESLint pass. The owner used in these tests is not a renderer.
 
 Open work:
 
-- remaining artifact resolution for scopes, locks, approvals and rendered
-  proof, plus a production canonical-media locator behind the now proven
-  reference owner contract;
+- concrete Phase-0/Remotion proof production against the exact isolated state,
+  plus scope/lock/approval artifact resolution and a production canonical-media
+  locator behind the now proven reference owner contract;
 - expand the now-proven `cut_section` bridge to other certified/pure operator
   owners without introducing another operation registry or project authority;
 - proposal review/apply/reload through the sole ProjectService CAS remains
@@ -318,6 +329,12 @@ the durable runtime-guard owner. It proves exact scope and guard-identity
 reconstruction without counting tokens or invoking a provider. It neither
 authorizes spend nor supplies a generic product budget authority.
 
+Commits `fba3ff58d` and `f85bc0f09` narrow the durable public surface and make
+an exact outcome-proof receipt mandatory for a changed proposal that reaches
+the proof gate. This closes the false-success completion seam, not rendered
+quality: a concrete Remotion/Phase-0 owner and versioned operation-specific
+proof policies remain open.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -353,15 +370,20 @@ authorizes spend nor supplies a generic product budget authority.
 11. **Runtime guard research owner complete at `8ecc87a1c`:** resolve a fresh
     exact-identity sealed budget controller and reject scope, kind, identity,
     authorization and envelope forgery before token counting.
-12. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+12. **Outcome-proof mechanics complete at `f85bc0f09`:** require and validate
+    an exact scope/policy/obligation/evidence/final-state receipt for changed
+    proof-eligible proposals. Connect and certify the real renderer separately.
+13. Concrete isolated Phase-0/Remotion proof owner plus versioned policy and
+    rendered artifact verification.
+14. Authenticated non-production product wiring plus QStash/Atlas crash/restart
    and redelivery exercise, using real artifact/operator owners and no second
    authority.
-13. Only after fresh zero-inference preflight and explicit spend approval:
+15. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `8ecc87a1c` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `f85bc0f09` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
