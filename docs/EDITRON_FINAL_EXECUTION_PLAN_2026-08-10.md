@@ -4735,6 +4735,25 @@ built around it.
     PlanService rather than a second owner.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.
+
+**Durable failed-provider-attempt checkpoint (2026-08-23):** commits
+`f57d0cb1c`, `88114ec5a`, `55b06b9e8` and `5f2c3b1f9` supersede older plan
+wording that listed all failed-attempt accounting as absent. The current
+research episode core can hash-bind a provider request/result, conservatively
+charge an unknown transport outcome, persist the attempt and runtime budget in
+a zero-turn resume checkpoint, restore both in a fresh process, and refuse the
+retry before invocation when the original ProjectService revision changed.
+The focused restart/adversarial suite passes 15/15; repository typecheck and
+quiet ESLint pass. This is **partial durable retry groundwork**, not automatic
+retry authorization: the product Plan lifecycle does not yet supply the
+attempt callback, and a crash after network dispatch but before the callback
+is durably stored can still leave an ambiguous attempt. The next bounded
+reliability order is therefore: pre-dispatch durable reservation/intent,
+post-result reconciliation through the product lifecycle, truthful fresh
+execution plus native fresh V2 proof, zero-inference crash/redelivery tests,
+authenticated non-production QStash/Atlas exercise, and only then a fresh paid
+preflight with explicit approval. Canonical project mutation remains disabled.
+
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
   simplification checkpoint after V2-2.
   - Surfaced by: explicit user deferral.
