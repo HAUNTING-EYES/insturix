@@ -150,6 +150,14 @@ export interface ProviderNativeProductBudgetSettlementV2R {
   settlementSha256: string;
 }
 
+export type ProviderNativeProductBudgetSettlementRequestV2R = Readonly<Omit<
+  ProviderNativeProductBudgetSettlementV2R,
+  'version' | 'authority' | 'authorizationSha256' | 'reservationSha256'
+  | 'reservationId' | 'expectedReservationVersion' | 'settlementVersion'
+  | 'status' | 'walletSettlementReceiptSha256' | 'idempotencyKey'
+  | 'settledAt' | 'settlementSha256'
+>>;
+
 export interface ProviderNativeProductBudgetWalletPortV2R {
   /**
    * Owner boundary only. A production implementation must delegate both
@@ -162,12 +170,7 @@ export interface ProviderNativeProductBudgetWalletPortV2R {
   settle(input: Readonly<{
     authorization: Readonly<ProviderNativeProductBudgetAuthorizationV2R>;
     reservation: Readonly<ProviderNativeProductBudgetReservationV2R>;
-    requested: Readonly<Omit<
-      ProviderNativeProductBudgetSettlementV2R,
-      'version' | 'authority' | 'authorizationSha256' | 'reservationSha256'
-      | 'reservationId' | 'expectedReservationVersion' | 'settlementVersion'
-      | 'status' | 'idempotencyKey' | 'settlementSha256'
-    >>;
+    requested: ProviderNativeProductBudgetSettlementRequestV2R;
   }>): Promise<Readonly<ProviderNativeProductBudgetSettlementV2R>>;
 }
 
@@ -247,7 +250,8 @@ export function createProviderNativeProductBudgetAuthorizationV2R(input: Readonl
     expiresAt: timestamp(input.approval.expiresAt, 'AUTHORIZATION_EXPIRY'),
   };
   requireOrderedTimes(approval.approvedAt, approval.expiresAt, 'AUTHORIZATION');
-  if (Date.parse(approval.expiresAt) > Date.parse(providerPricing.expiresAt)) {
+  if (Date.parse(approval.approvedAt) < Date.parse(providerPricing.effectiveAt)
+    || Date.parse(approval.expiresAt) > Date.parse(providerPricing.expiresAt)) {
     fail('PRODUCT_BUDGET_AUTHORIZATION_OUTLIVES_PRICING');
   }
   const material = {
