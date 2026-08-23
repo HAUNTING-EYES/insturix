@@ -1769,6 +1769,19 @@ not re-authenticated from a live receipt store during source registration,
 frame sampling still buffers complete HTTP responses and derived JPEGs, and no
 live R2/GCS/Mongo store was exercised.
 
+Commit `849ecc8a5` closes that specific frame-sampler memory boundary. Remote
+HTTP response chunks are written incrementally under the existing byte ceiling;
+extracted JPEGs are stream-hashed, file-uploaded and file-registered through the
+existing owners; returned upload/registration receipts are independently
+rechecked; failed downloads are inside temp cleanup; and demux/frame sampling
+share one stable-file measurement owner. The dependent reference cluster passes
+68/68 with repository typecheck and quiet ESLint. This is
+`REMOTE_REFERENCE_FRAME_PATH_STREAMED_ROOT_COMPOSITION_PENDING`: the SaaS
+multipart request route still begins with an in-memory Buffer, the 350-MiB
+frame-sampler ceiling and 1280/JPEG extraction recipe remain provisional, and
+upload/registration reconciliation, durable worker-bound cancellation, live
+receipt/object proof and live R2/GCS/Mongo exercise remain absent.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
@@ -1776,8 +1789,8 @@ The production root is now explicitly decomposed into these remaining gates:
    observer's authorized canonical byte-reader, evaluation receipt and product
    caller only through the existing owners. Use the existing file-registration
    owner and V2 source-envelope linkage implemented by `a70a37158`; do not
-   permit new V1 issuance or loosen its exact-key validation. Now migrate the
-   HTTP frame sampler away from complete-response buffering.
+   permit new V1 issuance or loosen its exact-key validation. Preserve the
+   streamed frame-sampler boundary implemented by `849ecc8a5`.
    Default remote source canonicalization and demux file I/O are already
    streamed by `7855aa90e` and `0917a6c4e`; do not regress either boundary.
 2. Compose, behind the existing definition-bound execution owner, the exact
@@ -3507,9 +3520,11 @@ content-addressed VIDEO/AUDIO children through the existing `mediaAssets`
 owner, and returns a V2 final receipt binding those registration hashes.
 Commit `a70a37158` makes new source envelopes V2 and binds that final receipt,
 the stable core identity and both child-registration receipts while preserving
-strict legacy-V1 reads. The HTTP frame sampler, upload/registration
-reconciliation, receipt-body lookup, durable cancellation/deadline binding and
-live storage verification remain open.
+strict legacy-V1 reads. The HTTP frame-sampler path is streamed by `849ecc8a5`,
+which also uses file-backed JPEG upload/
+registration and one shared stable-file measurement owner. Request-body
+streaming, upload/registration reconciliation, receipt-body lookup, durable
+cancellation/deadline binding and live storage verification remain open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
@@ -5320,10 +5335,10 @@ and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner; `7855aa90e` connects the default remote
 canonicalizer, `0917a6c4e` streams the existing demux file path and
-`54273324d` registers its derived artifacts, and `a70a37158` binds those
-receipts into newly issued V2 source envelopes. The next bounded reliability
-order is therefore: HTTP frame-sampler streaming, one execution-root
-composition, signed route export,
+`54273324d` registers its derived artifacts, `a70a37158` binds those receipts
+into newly issued V2 source envelopes, and `849ecc8a5` streams the remote frame
+sampler plus JPEG materialization. The next bounded reliability order is
+therefore: one execution-root composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.
