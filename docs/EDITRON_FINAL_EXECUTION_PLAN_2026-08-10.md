@@ -1702,14 +1702,25 @@ not a media-quality or compatibility limit, no canonicalizer/demux caller uses
 the new path yet, source and demux registration still operate from whole-file
 buffers, and no live R2/GCS transfer was exercised.
 
+Commit a8b7036f9 extends the same create-or-compare `mediaAssets` owner with
+streamed local-file hashing and explicit `DERIVED_STREAM` provenance for VIDEO
+and AUDIO demux children. The provenance binds the canonical parent source,
+stream kind and demux-receipt SHA-256; invalid kind/hash, changed-during-read
+files and stored provenance drift fail closed. Existing SOURCE and
+DERIVED_FRAME receipt material is preserved. The focused reference cluster
+passes 18/18 with repository typecheck and quiet ESLint. This is
+`FILE_REGISTRATION_AND_DERIVED_STREAM_CONTRACT_PROVEN_NOT_CALLER_WIRED`: upload
+and registration are still separate operations, no canonicalizer/demux caller
+uses the file path, and live object bytes/checksums have not been compared.
+
 The production root is now explicitly decomposed into these remaining gates:
 
 1. Keep Match Edit generation disabled until the existing plan, wallet, project
    mutation and proof owners are composed. Provide the experimental visual
    observer's authorized canonical byte-reader, evaluation receipt and product
-   caller only through the existing owners. Extend the existing media
-   registration owner to hash/register local files, migrate canonicalization
-   and demux to the verified file-stream upload boundary, replace provisional
+   caller only through the existing owners. Use the existing file-registration
+   owner to migrate canonicalization and demux to the verified file-stream
+   upload boundary, replace provisional
    90-second/10-KB assumptions with probed failure policy, and register video/
    audio demux artifacts through the same media authority.
 2. Compose, behind the existing definition-bound execution owner, the exact
@@ -3414,6 +3425,13 @@ R2 split is a provisional infrastructure policy recorded in the evidence-debt
 register, not a duration, format, quality or long-form product limit. No
 reference caller is wired yet, so full reference materialization remains
 buffered and demux artifacts remain unregistered. Live storage proof is also
+open.
+
+Commit `a8b7036f9` now supplies streamed local-file hashing plus exact
+`DERIVED_STREAM` parent/VIDEO-or-AUDIO/demux-receipt provenance through the
+same `mediaAssets` create-or-compare owner. It does not wire a reference caller
+or prove that remote object bytes equal the local hash. Canonicalizer/demux
+migration, artifact receipt composition and live storage verification remain
 open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
@@ -5224,8 +5242,8 @@ proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
 and wire idempotent terminal redelivery without rerunning execution; live wallet
 proof remains absent. Commit `d42c1af5b` supplies the exact existing-
 `mediaAssets` registration owner but does not yet connect upload callers. The
-next bounded reliability order is therefore: file-based media registration,
-canonicalizer/demux migration and demux-artifact registration, one execution-root
+next bounded reliability order is therefore: canonicalizer/demux migration,
+demux-artifact receipt composition, one execution-root
 composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
