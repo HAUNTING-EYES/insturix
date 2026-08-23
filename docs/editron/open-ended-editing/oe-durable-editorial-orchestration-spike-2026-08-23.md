@@ -23,8 +23,9 @@ step/session/approval mechanics only when it proves that its state is a
 rebuildable execution projection bound to exact PlanService and ProjectService
 revisions.
 
-This is a choice of ownership boundaries, not a claim that PlanService is
-implemented or that the current durable path is production-ready.
+This is a choice of ownership boundaries. The first non-wired PlanService
+contract and persistence slices now exist, but the current durable path is not
+production-ready and no live workflow reaches the store.
 
 ## Current code evidence
 
@@ -35,7 +36,7 @@ implemented or that the current durable path is production-ready.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; Mongo persistence and executable definition storage remain missing |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision persistence and exact execution-definition storage. No route, job binding or live Atlas proof exists. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -60,10 +61,13 @@ Completed foundation:
 - `a012e226e` freezes strict canonical plan revisions, bounded DAG validation,
   terminal proof requirements and append/supersede safety checks without
   adding a route, store, scheduler or project mutation.
+- `0c94bc059` adds the sole immutable Mongo persistence adapter for accepted
+  plan revisions and definitions. It rejects stale/concurrent branches,
+  cross-scope reads, copied definition ownership and forged plan-node/envelope
+  bindings; it remains non-wired and performs no product mutation.
 
 Open work:
 
-- immutable Mongo persistence and accepted episode-definition storage;
 - artifact-owner resolution for scopes, locks, approvals and proof;
 - binding a runnable node revision into a durable job input;
 - event history, approval suspension and authenticated dispatch;
@@ -148,11 +152,20 @@ Commit `a012e226e` implements this first contract/validator slice. It does not
 schedule work, persist a plan or mutate a project. It establishes the typed
 boundary to which the Mongo store and later job/transport adapters bind.
 
+Commit `0c94bc059` implements the next non-wired persistence slice. The store
+accepts immutable initial revisions, append-only successors and execution
+definitions bound to an exact accepted plan/node hash. Mongo uniqueness plus
+expected-revision checks gives one winner for concurrent successor branches.
+The slice adds collection indexes and authorized reads, but no API route,
+workflow dispatch, live Atlas exercise, artifact resolver or ProjectService
+effect.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
    adversarial graph, scope, lock, stale revision and proof cases.
-2. Immutable Mongo revision store with concurrent-writer conflict tests.
+2. **Complete at `0c94bc059`:** immutable Mongo revision/definition store with
+   concurrent-writer, authorization, owner and forgery tests.
 3. Bind one accepted node definition into the existing durable job input.
 4. Crash/restart and redelivery with zero provider inference.
 5. Approval wait/cancel/expiry and tenant-isolation tests.
@@ -163,7 +176,7 @@ boundary to which the Mongo store and later job/transport adapters bind.
 
 ## Evidence basis
 
-- Repository code at `a012e226e` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `0c94bc059` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
