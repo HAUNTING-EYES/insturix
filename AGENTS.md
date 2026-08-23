@@ -338,15 +338,19 @@ Migrated from the prior Claude-Code sessions. Layout:
    and reject malformed model output. Its measured-cut orchestrator now requires
    a caller-supplied canonical byte reader instead of its private URL downloader.
    No product caller or accepted visual-evaluation receipt exists, and four old
-   dev probes intentionally fail before upload until migrated. Match Edit
-   generation still contains an unqualified placeholder/video-only fallback. Full-source
+   dev probes intentionally fail before upload until migrated. `c9137a489`
+   removes Match Edit's direct-provider, placeholder and video-only generation
+   behavior; the authenticated route now returns a non-retryable capability
+   gap before reading caller input. Safe activation still requires the accepted
+   MatchPlan, CreditsService, ProjectService mutation and proof owners. Full-source
    buffering is provisional and live
    Mongo/R2/GCS proof is absent. Do not describe project-wide reference
    materialization or long-form ingest as converged.
-4. Reconcile Match Edit generation, then supply the experimental visual path's
-   authorized canonical byte reader and evaluation/product caller only when its
-   production owner is ready;
-   then replace full buffering/provisional limits and register demux artifacts.
+4. Supply the experimental visual path's authorized canonical byte reader and
+   evaluation/product caller only when its production owner is ready; then
+   replace full buffering/provisional limits and register demux artifacts. Keep
+   Match Edit generation disabled until the existing plan, wallet, project and
+   proof owners are composed; do not reconnect a provider in the route.
 5. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed

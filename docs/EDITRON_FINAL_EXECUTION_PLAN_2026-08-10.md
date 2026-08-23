@@ -1666,14 +1666,25 @@ canonical byte-reader composition or accepted visual-evaluation receipt, and
 the four historical dev probes now fail before provider upload until explicitly
 migrated.
 
+Commit c9137a489 closes the unsafe Match Edit generation behavior without
+pretending the feature is activated. The authenticated route now returns a
+structured, non-retryable `CAPABILITY_GAP` before parsing caller-authored scene
+data. Direct Fal configuration, the placeholder image, the video-only fallback
+and false credit-deduction claim are removed. Focused Match Edit tests pass 8/8
+with repository typecheck and quiet ESLint. This is
+`MATCH_EDIT_GAP_GENERATION_FAIL_CLOSED_NOT_ACTIVATED`: an accepted MatchPlan,
+CreditsService authorization/settlement, ProjectService attachment receipt and
+generated-media/render proof are still required before the route may generate.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Fail-close or qualify Match Edit generation's placeholder/video-only path;
-   provide the experimental visual observer's authorized canonical byte-reader,
-   evaluation receipt and product caller only through the existing owners. Then
-   replace full-file buffering and provisional 90-second/10-KB assumptions with
-   a streaming, probed, long-form-safe owner and register required demux
-   artifacts through the same media authority.
+1. Keep Match Edit generation disabled until the existing plan, wallet, project
+   mutation and proof owners are composed. Provide the experimental visual
+   observer's authorized canonical byte-reader, evaluation receipt and product
+   caller only through the existing owners. Then replace full-file buffering
+   and provisional 90-second/10-KB assumptions with a streaming, probed,
+   long-form-safe owner and register required demux artifacts through the same
+   media authority.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3346,7 +3357,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4` and `cf47083c3` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
@@ -3361,10 +3372,11 @@ strict measured-reference observation owner; the worker reuses its already
 canonicalized source, and no raw source URL or guessed model default is
 persisted. The experimental visual observer now requires the same valid receipt,
 truthful MIME and strict response schema, while its measured-cut branch refuses
-to invent a byte reader. This remains partial convergence: its product caller,
-canonical byte-reader composition and accepted evaluation receipt, Match Edit gap
-generation, streaming long-form materialization, demux-artifact registration
-and live Mongo/R2/GCS proof are open.
+to invent a byte reader. Match Edit gap generation now fails closed before
+caller input or provider access; safe activation remains open. This remains
+partial convergence: the visual observer's product caller, canonical byte-reader
+composition and accepted evaluation receipt, streaming long-form materialization,
+demux-artifact registration and live Mongo/R2/GCS proof are open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
