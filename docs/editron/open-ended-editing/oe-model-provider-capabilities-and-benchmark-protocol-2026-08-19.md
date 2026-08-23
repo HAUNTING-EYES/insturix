@@ -1,10 +1,12 @@
 # Editron model-provider capabilities and fair benchmark protocol
 
-**Status:** governing evidence and protocol for the next Editron model run
-**Last verified:** 2026-08-19, against official provider documentation, live
+**Status:** governing protocol plus the V27 provider-native result index
+**Last verified:** 2026-08-20, against official provider documentation, live
 provider metadata/tool-call probes, current repository code and immutable V2R
 receipts
-**Scope:** GPT-5.6 Luna, GPT-5.6 Terra, Gemini 3.7 Flash and Qwen3.8-Max
+**Current scope:** GPT-5.6 Luna, GPT-5.6 Terra and Gemini 3.7 Flash. Qwen3.8-Max
+is retained below only to interpret historical receipts; it is retired from all
+future benchmark cohorts by operator decision on 2026-08-20.
 **Authority:** this document governs how these routes are described and tested;
 it does not select a production winner or authorise production mutation
 
@@ -22,9 +24,11 @@ test an iterative editing episode using provider-native tool calls, actual tool
 results, bounded replanning, isolated execution and rendered proof. Structured
 artifact construction remains a separate scored arm.
 
-No model is the production winner yet. Qwen remains in the cohort. Gemini 3.7
-must be added to the full connected cohort. Luna and Terra remain separate
+No model is the production winner yet. The next cohort is Luna, Terra and
+Gemini 3.7 only. Luna and Terra remain separate
 cost/quality candidates rather than being treated as the same OpenAI route.
+No new Qwen call, trial, repair, score or production-routing candidate is
+authorised. Historical Qwen code and receipts remain audit evidence only.
 
 ## Why Qwen could write passing code but later receive benchmark failures
 
@@ -46,7 +50,10 @@ artifact failure does not prove that Qwen cannot choose or call editing tools.
 Both abilities must be measured under the interface in which we plan to use
 them.
 
-## Fair Qwen report from immutable receipts
+## Historical Qwen report from immutable receipts
+
+**Retired route:** this section is preserved to explain V17-V19 and must not be
+used to place Qwen in a future cohort.
 
 The following table is derived from the six Qwen rows in each stored cohort,
 not from chat recollection. `Expected` means the final disposition matched the
@@ -97,11 +104,10 @@ the calls were free.
 | Rendered-quality failure | V19 DEV-03 passed planning and lowering, but the selected 0.15 camera shake was not observably different at the proof sample. | Genuine execution-quality failure for that plan and proof raster. |
 | Harness/interface pressure | V17 DEV-03 Stage 2 used 53,366 input tokens for a staged JSON plan; Qwen's OpenAI-compatible structured-output surface provides JSON-object mode rather than OpenAI-style strict JSON Schema enforcement. | The benchmark made exact serialization a large part of the score. This must remain a separate arm, not be mislabeled as tool-calling competence. |
 
-**Qwen verdict:** promising and currently unstable. It has the strongest stored
+**Historical Qwen verdict:** promising and unstable under the tested interface. It has the strongest stored
 evidence in this cohort of one complete model-selected DEV-03 proxy pass, plus
-consistent capability-gap behavior, but it has not shown repeatable safety and
-schema correctness. Keep it; do not promote it; retest through its native
-tool-calling loop.
+consistent capability-gap behavior, but it did not show repeatable safety and
+schema correctness. The route is now retired; do not promote or retest it.
 
 ## What the current repository harness actually does
 
@@ -114,12 +120,11 @@ Current code is explicit:
 - OpenAI receives one Responses request with a non-strict `json_schema` output
   format at `provider-codecs-v2.ts:147`.
 - Gemini receives `responseJsonSchema` at `provider-codecs-v2.ts:156`.
-- Qwen receives `response_format: { type: 'json_object' }` and no `tools` array
-  at `qwen-direct-provider-v2.ts:45-53`.
-- `development-cohort-routes-v2.ts:59-87` builds the connected V2R cohort from
-  Luna, Terra and Qwen only. Its older Google comparison fact still names
-  Gemini 3.6; the current smoke preflight correctly names
-  `gemini-3.7-flash`.
+- V17-V19 sent Qwen `response_format: { type: 'json_object' }` and no `tools`
+  array through `qwen-direct-provider-v2.ts`.
+- The future builders in `development-cohort-routes-v2.ts` now return Luna,
+  Terra and `gemini-3.7-flash` only. The V4 route-roster builder remains solely
+  to verify already-issued V17-V19 manifests and receipts.
 
 Therefore the V17-V19 results are properly named:
 
@@ -136,7 +141,8 @@ one interface from being mistaken for the complete product interaction.
 
 ## Provider capability matrix
 
-The table records only capabilities relevant to Editron's benchmark. Prices
+The table records capabilities needed to interpret both the future cohort and
+historical Qwen evidence. The Qwen column is not a current candidate. Prices
 are public standard API prices verified on 2026-08-19 and are volatile.
 
 | Property | GPT-5.6 Luna | GPT-5.6 Terra | Gemini 3.7 Flash | Qwen3.8-Max |
@@ -277,6 +283,26 @@ and select the correct first resolver among distractors. It does **not** prove:
 
 Those are the next benchmark's scored stages.
 
+## V27 provider-native result - 2026-08-20
+
+The corrected V27 manifest is
+`1f807926d6c6a1fa061611e771d211dd36a1dc025173b7e9c0791ce80341ebe2`.
+Luna and Terra each matched 17 of 18 expected outcomes across three repetitions
+of all six cases. Both passed DEV-01, DEV-02, both missing-evidence controls and
+DEV-04 in every repetition. Each missed one DEV-03 baseline repetition. No row
+produced a false product success, a harness error or a real-project state
+effect.
+
+Gemini 3.7 remains provider-infrastructure-unverifiable: both the prior six-row
+attempt and the current bounded V27 probe returned HTTP 429 on every retry
+before any model output. It has not received an editing score.
+
+The exact matrix, receipt hashes, failure traces and qualified research verdict
+are recorded in
+[the V27 results](oe-v2r-provider-native-v27-results-2026-08-20.md). The
+architectural hypothesis advances as `MODIFY_AND_PROCEED_RESEARCH`; no model is
+production-approved.
+
 ## Governing fair benchmark protocol
 
 ### Arm A: structured-plan artifact compliance
@@ -336,8 +362,8 @@ Run separate, declared input arms:
 - ordered, individually timestamped images plus audio/evidence;
 - text/structured evidence only.
 
-Do not compare these as if the model saw identical information. Gemini and
-Qwen receive their supported native media forms. Luna/Terra receive images and
+Do not compare these as if the model saw identical information. Gemini receives
+its supported native media forms. Luna/Terra receive images and
 the same hash-bound derived observations. A specialist-observer + planner
 combination is scored as its own route with both costs and failure surfaces.
 
@@ -405,28 +431,28 @@ Every issued comparison must satisfy all of these:
 
 | Candidate | Keep? | Current evidence-based role |
 | --- | --- | --- |
-| Luna | Yes | Cheapest baseline and plausible high-volume planner. Native tool smoke passed. Must prove dependent episodes and quality. |
-| Terra | Yes | Higher-cost OpenAI quality route. Native tool smoke passed. Earlier 429s are transport/billing outcomes, not editing failures. |
-| Gemini 3.7 Flash | Yes; add now | Required multimodal/tool-calling comparison arm. Live model metadata and native tool smoke passed. It was omitted by the cohort builder. |
-| Qwen3.8-Max | Yes | Keep as multimodal planning/coding candidate. It has one complete DEV-03 proxy pass and consistent DEV-04 gap behavior, but repeatability/evidence discipline remain unproved. |
+| Luna | Yes | 17/18 V27 outcomes. Strong low-cost research orchestrator candidate; one DEV-03 rendered-form/repair miss prevents production approval. |
+| Terra | Yes | 17/18 V27 outcomes. Strong research orchestrator candidate; one DEV-03 causal evidence-order miss prevents production approval. |
+| Gemini 3.7 Flash | Yes; blocked on inference access | Required multimodal comparison arm. Metadata/token preflight passes, but repeated HTTP 429s produced no V27 model output. |
+| Qwen3.8-Max | **No — retired** | Historical evidence only. No future calls, repairs, scores or production-routing consideration. |
 
-Do not add more models until one of these four fails a required capability or a
-new candidate has a specific hypothesis: materially better editing quality,
-latency, privacy, modality coverage or cost. Four is already enough to test the
+Do not add more models until one of these three fails a required capability or
+a new candidate has a specific hypothesis: materially better editing quality,
+latency, privacy, modality coverage or cost. Three is enough to test the
 architecture without confusing provider breadth with experimental rigor.
 
 ## Required next implementation phase
 
-The next phase is **not another paid run through the old prompt**. It is one
-bounded benchmark-adapter phase:
+The provider-native adapter and first corrected OpenAI cohort now exist. The
+next phase is a bounded reliability and holdout phase:
 
-1. add provider-native tool-call episode transport for Luna, Terra, Gemini 3.7
-   and Qwen3.8;
-2. keep the existing structured-artifact route as Arm A;
-3. issue equivalent function schemas from the same operator authority;
-4. add fake-adapter tests for sequential results, provider-specific options,
-   missing evidence, timeout/429 and raw-output retention;
-5. freeze a new cohort identity and only then run all four routes repeatedly.
+1. move raw DEV-03 shake intensity/duration choice behind the existing visual
+   form owner while preserving the model's semantic operation choice;
+2. reissue the changed tool/manifest identity and repeat DEV-03 for Luna/Terra;
+3. run Gemini only after a bounded inference probe returns model output;
+4. add raw-reference, operation-order and stale-revision held-outs plus blind
+   editor quality/correction-time review;
+5. design ProjectService-owned proposal integration only after those gates.
 
 This phase remains research-only and cannot import ProjectService mutation,
 become a second timeline authority or claim production model approval.
@@ -450,7 +476,7 @@ become a second timeline authority or claim production model approval.
 - [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - [Gemini video understanding](https://ai.google.dev/gemini-api/docs/video-understanding)
 
-### Alibaba Cloud / Qwen
+### Alibaba Cloud / Qwen — historical receipts only
 
 - [Qwen3.8-Max model information](https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max)
 - [Qwen function calling](https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling)
@@ -478,6 +504,7 @@ lib/editron/research/open-ended-planner/development-cohort-routes-v2.ts
 lib/editron/research/open-ended-planner/smoke-preflight-v2.ts
 docs/EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md
 docs/editron/open-ended-editing/oe-v2-1f-connected-model-episode-results-2026-08-19.md
+docs/editron/open-ended-editing/oe-v2r-provider-native-v27-results-2026-08-20.md
 ```
 
 No API key, raw private media or secret value belongs in this document or any
