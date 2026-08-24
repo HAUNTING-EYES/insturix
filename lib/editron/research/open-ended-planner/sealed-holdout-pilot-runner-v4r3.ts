@@ -20,7 +20,7 @@ import type { SealedHoldoutRouteHealthReceiptV4R3 }
   from './sealed-holdout-route-health-v4r3';
 
 export const SEALED_HOLDOUT_PILOT_RUNNER_VERSION_V4R3 =
-  'EDITRON_OE_SEALED_HOLDOUT_PILOT_RUNNER_V4R3_2_LIVE_ADAPTER_BOUND' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_PILOT_RUNNER_V4R3_3_LIVE_OPERATOR_BOUND' as const;
 export const SEALED_HOLDOUT_PILOT_RUNNER_PATH_V4R3 =
   'lib/editron/research/open-ended-planner/sealed-holdout-pilot-runner-v4r3.ts' as const;
 export const SEALED_HOLDOUT_PILOT_RUNNER_ROOTS_V4R3 = Object.freeze([
@@ -29,6 +29,8 @@ export const SEALED_HOLDOUT_PILOT_RUNNER_ROOTS_V4R3 = Object.freeze([
   'lib/editron/research/open-ended-planner/sealed-holdout-no-spend-readiness-v4r3.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-route-health-v4r3.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-pilot-live-adapter-v4r3.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-pilot-live-operator-v4r3.ts',
+  'scripts/run-editron-v4r3-pilot.ts',
 ] as const);
 
 export interface SealedHoldoutPilotPortResultV4R3 {
