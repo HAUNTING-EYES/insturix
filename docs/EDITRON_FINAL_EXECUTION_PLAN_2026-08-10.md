@@ -3644,18 +3644,33 @@ relabelled as model behaviour.
   counts; and rejects duplicate rows, inconsistent axes, proof-ceiling
   inflation and self-rehashed forgeries. Its focused tests pass 3/3, with
   repository typecheck and quiet ESLint passing. This is the common receipt
-  contract only: the V4R and long-form lane-specific zero-inference issuers and
-  their actual status receipts remain outstanding.
+  contract only: the lane-specific issuers and actual status receipts were not
+  part of that commit.
+- Commit `893ed2ae0` adds the V4R lane-specific zero-inference issuer and a
+  reproducible CLI, reusing the current readiness owner and the existing H07
+  attempt-eligibility owner rather than duplicating either. Clean-HEAD receipt
+  `145a927335ff9a128dc0ecef17272e7ef3a0c2526900566d0d86c3067979346f`
+  binds source artifact set
+  `b3773beffa71f8f89ecb755559e1c0ac815fd17d64c6431d51f240fb9b46ad1b`
+  and records four rendered-proxy passes, seven safe-stop passes, two
+  owner-blocked unsafe-attempt failures, fifteen provider-infrastructure
+  non-evaluations and seventeen unresolved proof failures. The focused suite
+  passes 7/7, with repository typecheck and quiet ESLint passing. The receipt
+  records zero provider inference, network, project reads/mutations and media
+  writes; forbids provider ranking, reliability estimates and production
+  promotion; and does not resolve the seventeen rows that still need bounded
+  successor replay.
 
 The corrected audit disposition is therefore:
 
 - the historical nine paid calls are authentic raw executions, but only two
   rows are currently clean structural passes, one is a clean structural
   failure, and six are harness-confounded pending a fair successor rescore;
-- the V4R raw receipt's thirteen passes contain eleven currently defensible
-  fixture successes and two HOLD-07 false positives; fifteen provider-
-  infrastructure non-evaluations remain non-evaluations and the other seventeen
-  rows remain unresolved until the successor zero-inference rescore;
+- the V4R derived status receipt now records eleven defensible fixture
+  successes and two HOLD-07 unsafe attempts rather than inheriting the raw
+  thirteen-pass claim; fifteen provider-infrastructure non-evaluations remain
+  non-evaluations and seventeen rows remain unresolved pending targeted
+  successor replay;
 - neither cohort supports a provider leaderboard, a model-failure percentage,
   production routing, or Stage 2.5 `GO`.
 
@@ -3669,9 +3684,9 @@ CAP current-truth reissue. Current rebuild status is:
 2. **Complete:** issue new successor cohort identities from current CAP truth
    while retaining the historical manifests and paid artifacts unchanged;
 3. **In progress:** strict Git-HEAD closure roots, clean-HEAD adversarial
-   integration tests and the shared historical-status receipt contract are
-   complete; implement each lane's zero-inference rescore owner and publish its
-   immutable status receipt;
+   integration tests, the shared status contract and the V4R derived receipt
+   are complete; publish the long-form derived receipt and run only the bounded
+   V4 H02/H04 successor replays needed to resolve remaining rows;
 4. only after a clean no-spend receipt, request explicit authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
