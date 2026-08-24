@@ -3628,6 +3628,14 @@ relabelled as model behaviour.
   lint, but this checkpoint intentionally does **not** yet claim a current
   readiness receipt: the real clean-HEAD closure and adversarial integration
   tests follow in the next commit.
+- Commit `4d8b8e6cf` executes those real clean-HEAD issuer paths in integration
+  tests. Both lanes independently recompute their required sentinels, bind the
+  exact strict `GIT_HEAD_BLOB` import-closure roots, record zero inference,
+  network, project and media effects, and reject a self-rehashed alternate root
+  or non-zero inference authority. The focused integration suite passes 4/4,
+  with repository typecheck and quiet ESLint passing. This proves readiness
+  only for a zero-inference historical rescore; it does not publish the rescore
+  status, authorize provider dispatch or certify either cohort.
 
 The corrected audit disposition is therefore:
 
@@ -3650,9 +3658,9 @@ CAP current-truth reissue. Current rebuild status is:
    negative and metamorphic sentinel through the real lane owners;
 2. **Complete:** issue new successor cohort identities from current CAP truth
    while retaining the historical manifests and paid artifacts unchanged;
-3. **In progress:** bind the sentinel/readiness owner modules themselves as strict Git-HEAD
-   closure roots, then run a zero-inference full rescore and publish immutable
-   status receipts;
+3. **In progress:** strict Git-HEAD closure roots and clean-HEAD adversarial
+   integration tests are complete; run the zero-inference full rescore and
+   publish immutable status receipts;
 4. only after a clean no-spend receipt, request explicit authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
