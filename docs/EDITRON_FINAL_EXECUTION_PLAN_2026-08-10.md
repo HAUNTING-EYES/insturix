@@ -3743,8 +3743,8 @@ relabelled as model behaviour.
   yet a readiness receipt or a live provider route. Focused V4R2/V4R3 manifest
   and V4R3 policy tests pass 11/11, with full repository typecheck and quiet
   ESLint passing. Provider inference, network, project and media effects remain
-  zero. The next no-spend work is to bind V4R3 sentinel/readiness closure and
-  a route-health-gated one-row pilot runner before any provider generation.
+  zero. At that checkpoint the sentinel/readiness closure and pilot gate were
+  still open; the later closeout record below supersedes that status.
 - **V4R3 route-health checkpoint (2026-08-24):** the successor now has a
   hash-bound, zero-inference `sealed-holdout-route-health-v4r3` receipt that
   accepts only the V4R3 manifest plus its exact V4R2 provenance, and rejects
@@ -3759,8 +3759,27 @@ relabelled as model behaviour.
   substitution. The local suite uses mocked metadata only: 12 focused tests,
   repository typecheck and quiet ESLint pass; no live provider metadata call,
   inference, project/media operation or state effect occurred. This is not a
-  pilot authorization. The remaining no-spend closeout is V4R3
-  sentinel/readiness binding and a route-health-gated one-row-per-route runner.
+  pilot authorization. Commit `123cf8a63` supersedes the timeless form: every
+  receipt now has a canonical observation time and fixed five-minute validity
+  window, and pilot-use validation rejects future-dated or expired evidence.
+- **V4R3 sentinel/readiness and pilot-gate closeout (2026-08-24):** commit
+  `adbf17298` recomputes the eight inherited V4R2 sentinels plus four
+  successor-specific checks through the bound owners: H02 blanket-range
+  rejection, H02 exact-window acceptance, H04 equivalent ordered-partition
+  acceptance and H04 reordered-plan rejection. Commit `1e85b12b9` binds those
+  twelve results, the V4R3 manifest and route-health implementation to a clean
+  strict Git-HEAD executable closure. Commit `2da382b84` adds an expiring,
+  explicit operator authorization and source-bound pilot runner. It can select
+  only the manifest's one non-scored row for each currently healthy route,
+  permits one provider attempt per row with no internal retry, caps the whole
+  pilot at USD 3.000000, and rejects route/model/receipt/cost or project/media
+  effect drift. Mocked transport verification passes 16/16; combined
+  sentinel, freshness and strict-readiness verification passes 13/13; full
+  repository typecheck and quiet ESLint pass. No provider inference occurred.
+  The injected live transport adapter is deliberately not implemented or
+  inferred: a separately approved slice must bind the existing provider-native
+  episode runner to this port and prove truthful request, response, model,
+  attempt and billing receipts before the authorization can be exercised.
 
 The corrected audit disposition is therefore:
 
@@ -3792,11 +3811,14 @@ CAP current-truth reissue. Current rebuild status is:
    corrected safety axes, and V4R3 now supplies the research-only H02 pre-write
    source-window gate plus H04 whole-plan partitioned-cut authorization; V4R3
    now has its own manifest that rejects V4R2 as dispatch authority;
-5. **In progress, no spend:** issue V4R3 sentinel/readiness closure and bind a
-   one-row-per-route pilot runner to the implemented V4R3 route-health receipt;
-6. **Then, explicit approval required:** authorize only available provider
-   routes for their one non-scored pilot row, audit those pilots, and separately
-   request any full-cohort spend authorization;
+5. **Complete, no spend:** V4R3 sentinel/readiness closure, expiring route
+   health, explicit capped authorization and the one-row-per-healthy-route
+   runner are bound and adversarially verified with injected transport doubles;
+6. **Next, explicit approval required:** implement/bind the live
+   provider-native transport adapter, refresh route health, issue the exact
+   short-lived authorization, execute only the available routes' one
+   non-scored pilot row, audit those pilots, and separately request any
+   full-cohort spend authorization;
 7. continue the existing Stage 2.5 generalisation gates only from valid
    successor evidence: genuinely new dependency/invalidation shapes, forced
    native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
