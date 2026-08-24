@@ -22,6 +22,20 @@ import {
 
 export const EDITORIAL_PLAN_DURABLE_JOB_INPUT_VERSION_V1 =
   'EDITRON_EDITORIAL_PLAN_DURABLE_JOB_INPUT_V1_1' as const;
+export const EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1 =
+  deepFreezeEditronJsonV1({
+    version: 'EDITRON_EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1_1',
+    authority: 'PLAN_SERVICE',
+    executionDependencyField: 'dependsOnNodeIds',
+    parentNodeIdIsExecutionDependency: false,
+    requiredStatus: 'VERIFIED',
+    requiredFinalDisposition: 'PASS',
+    proofRefsRequired: true,
+    receiptRefsRequired: true,
+    maximumUncheckedClaims: 0,
+  } as const);
+export const EDITORIAL_PLAN_DURABLE_JOB_OPERATION_IDENTITY_VERSION_V2 =
+  'EDITRON_EDITORIAL_PLAN_DURABLE_JOB_OPERATION_IDENTITY_V2_1' as const;
 
 const ID = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/);
 const SHA256 = z.string().regex(/^[a-f0-9]{64}$/);
@@ -153,6 +167,7 @@ export function buildEditorialPlanDurableJobContractV1(input: Readonly<{
   expectedPlanHeadRevisionSha256: string;
 }>) {
   if (input.node.status !== 'READY') fail('PLAN_JOB_NODE_NOT_RUNNABLE');
+  const verifiedDependencies = verifiedExecutionDependencies(input.plan, input.node);
   // The immutable plan revision is the approval-lineage receipt. Route-level
   // authentication still has to establish that this USER actor is genuine.
   if (input.node.approvalRequirementRefs.length
@@ -195,10 +210,18 @@ export function buildEditorialPlanDurableJobContractV1(input: Readonly<{
     baseProjectRevisionRef: input.plan.baseProjectRevisionRef,
   });
   const bindingSha256 = hashDurableWorkflowJobJsonV1(payload);
+  const jobDependencies = dependencies(
+    input.plan, input.node, input.definition, verifiedDependencies,
+  ).sort(compareDependencyIds);
+  const operationIdentitySha256 = hashDurableWorkflowJobJsonV1({
+    version: EDITORIAL_PLAN_DURABLE_JOB_OPERATION_IDENTITY_VERSION_V2,
+    inputBindingSha256: bindingSha256,
+    dependencies: jobDependencies,
+  });
   return deepFreezeEditronJsonV1({
     payload, bindingSha256, budget,
-    dependencies: dependencies(input.plan, input.node, input.definition),
-    operationIdentity: `epn_${bindingSha256}`,
+    dependencies: jobDependencies,
+    operationIdentity: `epn_${operationIdentitySha256}`,
   });
 }
 
@@ -232,6 +255,7 @@ function dependencies(
     baseProjectRevisionRef: EditorialPlanArtifactRefV1 }>,
   node: Readonly<EditorialPlanNodeV1>,
   definition: Readonly<EditorialPlanExecutionDefinitionV1>,
+  verifiedDependencies: readonly Readonly<EditorialPlanNodeV1>[],
 ) {
   return [
     dependency('accepted-plan-revision', String(plan.planRevision), plan.revisionSha256),
@@ -243,8 +267,74 @@ function dependencies(
     refDependency('planner-envelope-schema', definition.plannerEnvelopeSchemaRef),
     refDependency('privacy-policy', definition.privacyPolicyRef),
     refDependency('proof-policy', definition.proofPolicyRef),
+    dependency(
+      'execution-dependency-readiness-policy',
+      EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.version,
+      hashEditronCanonicalJsonV1(EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1),
+    ),
+    ...verifiedDependencyBindings(verifiedDependencies),
     ...nodeApprovalDependencies(node),
   ];
+}
+
+/**
+ * PlanService owns execution readiness. This boundary follows only explicit
+ * dependsOnNodeIds; parentNodeId is structural hierarchy, not permission to run.
+ */
+function verifiedExecutionDependencies(
+  plan: Readonly<EditorialPlanRevisionV1>,
+  target: Readonly<EditorialPlanNodeV1>,
+): readonly Readonly<EditorialPlanNodeV1>[] {
+  const nodes = new Map<string, Readonly<EditorialPlanNodeV1>>();
+  for (const node of plan.nodes) {
+    if (nodes.has(node.nodeId)) fail('PLAN_JOB_DEPENDENCY_GRAPH_INVALID');
+    nodes.set(node.nodeId, node);
+  }
+  const canonicalTarget = nodes.get(target.nodeId);
+  if (!canonicalTarget
+    || hashEditronCanonicalJsonV1(canonicalTarget) !== hashEditronCanonicalJsonV1(target)) {
+    fail('PLAN_JOB_NODE_NOT_FOUND');
+  }
+
+  const visiting = new Set<string>();
+  const verified = new Map<string, Readonly<EditorialPlanNodeV1>>();
+  const visit = (nodeId: string): void => {
+    if (verified.has(nodeId)) return;
+    if (visiting.has(nodeId) || nodeId === target.nodeId) {
+      fail('PLAN_JOB_DEPENDENCY_GRAPH_INVALID');
+    }
+    const node = nodes.get(nodeId);
+    if (!node) fail('PLAN_JOB_DEPENDENCY_NODE_MISSING');
+    if (node.status !== EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.requiredStatus) {
+      fail('PLAN_JOB_DEPENDENCY_NOT_VERIFIED');
+    }
+    if (node.finalDisposition
+      !== EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.requiredFinalDisposition) {
+      fail('PLAN_JOB_DEPENDENCY_DISPOSITION_INVALID');
+    }
+    if (!node.proofRefs.length || !node.receiptRefs.length
+      || node.whatHasNotBeenChecked.length
+        > EDITORIAL_PLAN_DEPENDENCY_READINESS_POLICY_V1.maximumUncheckedClaims) {
+      fail('PLAN_JOB_DEPENDENCY_PROOF_INCOMPLETE');
+    }
+    visiting.add(nodeId);
+    for (const dependencyId of node.dependsOnNodeIds) visit(dependencyId);
+    visiting.delete(nodeId);
+    verified.set(nodeId, node);
+  };
+  for (const dependencyId of target.dependsOnNodeIds) visit(dependencyId);
+  return [...verified.values()].sort(compareNodeIds);
+}
+
+function verifiedDependencyBindings(
+  nodes: readonly Readonly<EditorialPlanNodeV1>[],
+) {
+  return nodes.map((node, index) => dependency(
+    `verified-plan-dependency-${String(index + 1).padStart(3, '0')}-${
+      hashEditronCanonicalJsonV1(node.nodeId).slice(0, 16)}`,
+    String(node.nodeVersion),
+    hashEditronCanonicalJsonV1(node),
+  ));
 }
 
 function nodeApprovalDependencies(node: Readonly<EditorialPlanNodeV1>) {
@@ -263,6 +353,19 @@ function refDependency(dependencyId: string, ref: EditorialPlanArtifactRefV1) {
 }
 function dependency(dependencyId: string, dependencyVersion: string, bindingSha256: string) {
   return { dependencyId, dependencyVersion, bindingSha256 };
+}
+function compareDependencyIds(
+  left: Readonly<{ dependencyId: string }>,
+  right: Readonly<{ dependencyId: string }>,
+) {
+  return left.dependencyId < right.dependencyId
+    ? -1 : left.dependencyId > right.dependencyId ? 1 : 0;
+}
+function compareNodeIds(
+  left: Readonly<Pick<EditorialPlanNodeV1, 'nodeId'>>,
+  right: Readonly<Pick<EditorialPlanNodeV1, 'nodeId'>>,
+) {
+  return left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0;
 }
 function sameRef(
   left: EditorialPlanArtifactRefV1 | null,
