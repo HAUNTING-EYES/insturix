@@ -30,9 +30,11 @@ const runtimeRequire = createRequire(import.meta.url);
 const ts: typeof import('typescript') = runtimeRequire(['type', 'script'].join(''));
 
 export const EXECUTABLE_IMPORT_CLOSURE_VERSION_V1 =
-  'EDITRON_EXECUTABLE_IMPORT_CLOSURE_V1_1' as const;
+  'EDITRON_EXECUTABLE_IMPORT_CLOSURE_V1_2' as const;
 export const EXECUTABLE_IMPORT_RESOLVER_VERSION_V1 =
-  'EDITRON_TYPESCRIPT_IMPORT_RESOLVER_V1_1' as const;
+  'EDITRON_TYPESCRIPT_IMPORT_RESOLVER_V1_2' as const;
+export const EXECUTABLE_DEPENDENCY_AUTHORITY_VERSION_V1 =
+  'EDITRON_EXECUTABLE_DEPENDENCY_AUTHORITY_V1_1' as const;
 
 const FILE_EXTENSIONS = [
   '', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs',
@@ -48,7 +50,19 @@ const PACKAGE_MANAGER_USER_AGENT_TOKEN_PATTERN =
 const PACKAGE_MANAGER_VERSION_PATTERN =
   /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
-type PackageManagerName = 'pnpm' | 'npm' | 'yarn' | 'bun';
+export type PackageManagerName = 'pnpm' | 'npm' | 'yarn' | 'bun';
+
+const LOCKFILE_CANDIDATES_BY_MANAGER: Readonly<
+  Record<PackageManagerName, readonly string[]>
+> = {
+  pnpm: ['pnpm-lock.yaml'],
+  npm: ['package-lock.json'],
+  yarn: ['yarn.lock'],
+  bun: ['bun.lock', 'bun.lockb'],
+};
+const ALL_LOCKFILE_CANDIDATES = [...new Set(
+  Object.values(LOCKFILE_CANDIDATES_BY_MANAGER).flat(),
+)].sort(CODE_POINT_ORDER);
 
 export type ExecutableImportClosureModeV1 = 'runtime' | 'verification';
 
@@ -69,6 +83,17 @@ export interface ExecutableImportClosureBoundFileV1 {
   gitBlobOid: string | null;
 }
 
+export interface ExecutableDependencyAuthorityV1 {
+  version: typeof EXECUTABLE_DEPENDENCY_AUTHORITY_VERSION_V1;
+  selection: 'DECLARED_PACKAGE_MANAGER' | 'UNDECLARED_PACKAGE_MANAGER';
+  declaredPackageManager: Readonly<{
+    name: PackageManagerName;
+    version: string;
+  }> | null;
+  authoritativeLockfilePaths: readonly string[];
+  excludedLockfileCandidates: readonly string[];
+}
+
 export interface ExecutableImportClosureReceiptV1 {
   version: typeof EXECUTABLE_IMPORT_CLOSURE_VERSION_V1;
   resolverVersion: typeof EXECUTABLE_IMPORT_RESOLVER_VERSION_V1;
@@ -81,6 +106,7 @@ export interface ExecutableImportClosureReceiptV1 {
   configFiles: readonly Readonly<ExecutableImportClosureBoundFileV1>[];
   resources: readonly Readonly<ExecutableImportClosureBoundFileV1>[];
   dependencyManifests: readonly Readonly<ExecutableImportClosureBoundFileV1>[];
+  dependencyAuthority: Readonly<ExecutableDependencyAuthorityV1>;
   sourceControl: Readonly<{
     strict: boolean;
     headSha: string | null;
@@ -166,14 +192,14 @@ export function computeExecutableImportClosureV1(
     rootDir,
   );
   const packageJsonPath = resolveRequiredInput(rootDir, 'package.json', 'PACKAGE_JSON');
+  const packageJson = readPackageJson(packageJsonPath);
+  const declaredPackageManager = readDeclaredPackageManager(packageJson.packageManager);
+  const dependencyAuthority = resolveDependencyAuthority(rootDir, declaredPackageManager);
   const dependencyManifestPaths = [
     packageJsonPath,
-    ...['pnpm-lock.yaml', 'package-lock.json']
-      .map((file) => path.join(rootDir, file))
-      .filter((file) => existsSync(file))
-      .map((file) => assertRepositoryFile(rootDir, file, 'DEPENDENCY_MANIFEST')),
+    ...dependencyAuthority.authoritativeLockfilePaths.map((file) =>
+      assertRepositoryFile(rootDir, path.join(rootDir, file), 'DEPENDENCY_MANIFEST')),
   ];
-  const packageJson = readPackageJson(packageJsonPath);
 
   const graph = resolveImportGraph({
     rootDir,
@@ -201,6 +227,8 @@ export function computeExecutableImportClosureV1(
   const bind = (values: readonly string[]) =>
     bindFiles(rootDir, uniquePaths(values, rootDir), gitEvidence);
   const roots = rootPaths.map((file) => toRepoPath(rootDir, file)).sort(CODE_POINT_ORDER);
+  const dependencyManifests = bind(dependencyManifestPaths);
+  assertExecutableDependencyAuthorityV1(dependencyAuthority, dependencyManifests);
   const material = {
     version: EXECUTABLE_IMPORT_CLOSURE_VERSION_V1,
     resolverVersion: EXECUTABLE_IMPORT_RESOLVER_VERSION_V1,
@@ -214,18 +242,76 @@ export function computeExecutableImportClosureV1(
     externalPackages: [...graph.externalPackages].sort(CODE_POINT_ORDER),
     configFiles: bind(configPaths),
     resources: bind(resourcePaths),
-    dependencyManifests: bind(dependencyManifestPaths),
+    dependencyManifests,
+    dependencyAuthority,
     sourceControl: {
       strict: strictGit,
       headSha: gitIdentity.headSha,
       treeSha: gitIdentity.treeSha,
     },
-    toolchain: buildToolchain(packageJson),
+    toolchain: buildToolchain(declaredPackageManager),
   };
   return deepFreezeEditronJsonV1({
     ...material,
     closureSha256: hashEditronCanonicalJsonV1(material),
   });
+}
+
+export function assertExecutableDependencyAuthorityV1(
+  authority: Readonly<ExecutableDependencyAuthorityV1>,
+  manifests: readonly Readonly<ExecutableImportClosureBoundFileV1>[],
+): void {
+  if (authority.version !== EXECUTABLE_DEPENDENCY_AUTHORITY_VERSION_V1) {
+    fail('DEPENDENCY_AUTHORITY_VERSION_DRIFT');
+  }
+  if (!['DECLARED_PACKAGE_MANAGER', 'UNDECLARED_PACKAGE_MANAGER']
+    .includes(authority.selection)) {
+    fail('DEPENDENCY_AUTHORITY_SELECTION_INVALID');
+  }
+  const manifestPaths = manifests.map(({ path: file }) => file);
+  const sortedManifestPaths = [...manifestPaths].sort(CODE_POINT_ORDER);
+  if (new Set(manifestPaths).size !== manifestPaths.length
+    || !sameStrings(manifestPaths, sortedManifestPaths)) {
+    fail('DEPENDENCY_MANIFEST_SET_NON_CANONICAL');
+  }
+  if (!manifestPaths.includes('package.json')) fail('PACKAGE_JSON_AUTHORITY_MISSING');
+  const authoritative = [...authority.authoritativeLockfilePaths];
+  const excluded = [...authority.excludedLockfileCandidates];
+  const sortedAuthoritative = [...authoritative].sort(CODE_POINT_ORDER);
+  const sortedExcluded = [...excluded].sort(CODE_POINT_ORDER);
+  if (new Set(authoritative).size !== authoritative.length
+    || new Set(excluded).size !== excluded.length
+    || !sameStrings(authoritative, sortedAuthoritative)
+    || !sameStrings(excluded, sortedExcluded)
+    || authoritative.some((file) => excluded.includes(file))) {
+    fail('DEPENDENCY_AUTHORITY_LOCKFILE_SET_INVALID');
+  }
+  if (authority.selection === 'UNDECLARED_PACKAGE_MANAGER') {
+    if (authority.declaredPackageManager !== null || authoritative.length !== 0
+      || !sameStrings(excluded, ALL_LOCKFILE_CANDIDATES)) {
+      fail('UNDECLARED_DEPENDENCY_AUTHORITY_INVALID');
+    }
+  } else {
+    const declared = authority.declaredPackageManager;
+    if (!declared) fail('DECLARED_DEPENDENCY_AUTHORITY_MISSING');
+    if (!Object.hasOwn(LOCKFILE_CANDIDATES_BY_MANAGER, declared.name)
+      || !PACKAGE_MANAGER_VERSION_PATTERN.test(declared.version)) {
+      fail('DECLARED_DEPENDENCY_AUTHORITY_IDENTITY_INVALID');
+    }
+    const allowed = LOCKFILE_CANDIDATES_BY_MANAGER[declared.name];
+    if (authoritative.length !== 1 || !allowed.includes(authoritative[0])) {
+      fail('AUTHORITATIVE_LOCKFILE_SELECTION_INVALID', declared.name);
+    }
+    const expectedExcluded = ALL_LOCKFILE_CANDIDATES
+      .filter((file) => file !== authoritative[0]);
+    if (!sameStrings(excluded, expectedExcluded)) {
+      fail('EXCLUDED_LOCKFILE_POLICY_DRIFT', declared.name);
+    }
+  }
+  const expectedManifests = ['package.json', ...authoritative].sort(CODE_POINT_ORDER);
+  if (!sameStrings(manifestPaths, expectedManifests)) {
+    fail('DEPENDENCY_MANIFEST_AUTHORITY_MISMATCH');
+  }
 }
 
 function parseConfiguration(rootDir: string, configPath: string | null): ParsedConfiguration {
@@ -596,9 +682,8 @@ function bindFiles(
 }
 
 function buildToolchain(
-  packageJson: Record<string, unknown>,
+  declared: DeclaredPackageManager | null,
 ): ExecutableImportClosureReceiptV1['toolchain'] {
-  const declared = readDeclaredPackageManager(packageJson.packageManager);
   const launcher = readPackageManagerLauncher();
   const resolvedCommand = declared
     ? readResolvedPackageManagerCommand(declared.name)
@@ -630,7 +715,7 @@ function buildToolchain(
 
 function readDeclaredPackageManager(
   declaredValue: unknown,
-): Readonly<{ raw: string; name: PackageManagerName; version: string }> | null {
+): DeclaredPackageManager | null {
   if (declaredValue === undefined) return null;
   if (typeof declaredValue !== 'string') fail('PACKAGE_MANAGER_DECLARATION_INVALID');
   const match = PACKAGE_MANAGER_PATTERN.exec(declaredValue);
@@ -640,6 +725,43 @@ function readDeclaredPackageManager(
     name: match[1] as PackageManagerName,
     version: match[2].split('+')[0],
   };
+}
+
+interface DeclaredPackageManager {
+  raw: string;
+  name: PackageManagerName;
+  version: string;
+}
+
+function resolveDependencyAuthority(
+  rootDir: string,
+  declared: DeclaredPackageManager | null,
+): Readonly<ExecutableDependencyAuthorityV1> {
+  if (!declared) {
+    return deepFreezeEditronJsonV1({
+      version: EXECUTABLE_DEPENDENCY_AUTHORITY_VERSION_V1,
+      selection: 'UNDECLARED_PACKAGE_MANAGER' as const,
+      declaredPackageManager: null,
+      authoritativeLockfilePaths: [] as const,
+      excludedLockfileCandidates: ALL_LOCKFILE_CANDIDATES,
+    });
+  }
+  const present = LOCKFILE_CANDIDATES_BY_MANAGER[declared.name]
+    .filter((file) => existsSync(path.join(rootDir, file)));
+  if (present.length === 0) {
+    fail('AUTHORITATIVE_LOCKFILE_MISSING', declared.name);
+  }
+  if (present.length > 1) {
+    fail('AUTHORITATIVE_LOCKFILE_AMBIGUOUS', `${declared.name}:${present.join(',')}`);
+  }
+  return deepFreezeEditronJsonV1({
+    version: EXECUTABLE_DEPENDENCY_AUTHORITY_VERSION_V1,
+    selection: 'DECLARED_PACKAGE_MANAGER' as const,
+    declaredPackageManager: { name: declared.name, version: declared.version },
+    authoritativeLockfilePaths: present,
+    excludedLockfileCandidates: ALL_LOCKFILE_CANDIDATES
+      .filter((file) => file !== present[0]),
+  });
 }
 
 function readPackageManagerLauncher(): Readonly<{
@@ -957,6 +1079,10 @@ function samePath(left: string, right: string): boolean {
   return process.platform === 'win32'
     ? left.toLowerCase() === right.toLowerCase()
     : left === right;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function tryGitText(rootDir: string, args: readonly string[]): string | null {

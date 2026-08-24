@@ -181,6 +181,12 @@ describe('no-spend readiness draft v1', () => {
     rehashNestedClosure(inconsistentLauncherFlag);
     expect(() => assertNoSpendExecutableClosureV1(asClosure(inconsistentLauncherFlag)))
       .toThrow(/VALIDATION_LAUNCHER_MATCH_FLAG_INCONSISTENT/);
+
+    const forgedDependencyOwner = clone(draft.executableClosure);
+    forgedDependencyOwner.dependencyAuthority.declaredPackageManager!.name = 'npm';
+    rehashNestedClosure(forgedDependencyOwner);
+    expect(() => assertNoSpendExecutableClosureV1(asClosure(forgedDependencyOwner)))
+      .toThrow(/AUTHORITATIVE_LOCKFILE_SELECTION_INVALID/);
   });
 
   it('rejects expired drafts and unresolved executable roots', () => {
@@ -197,15 +203,26 @@ describe('no-spend readiness draft v1', () => {
     })).toThrow(/ROOT_MISSING/);
   });
 
-  it('keeps the current repository NOT_READY while its bound package-lock is untracked', () => {
+  it('excludes a non-authoritative ignored lockfile without issuing READY', () => {
     const fixture = draftFixture('PILOT', null);
-    expect(() => issueNoSpendReadinessDraftV1({
+    const draft = issueNoSpendReadinessDraftV1({
       ...fixture.input,
       executableClosure: {
         rootDir: process.cwd(),
         roots: ['lib/editron/services/canonical-json-v1.ts'],
       },
-    })).toThrow(/STRICT_GIT_UNTRACKED: package-lock\.json/);
+    });
+    expect(draft.executableClosure.dependencyManifests.map(({ path: file }) => file))
+      .toEqual(['package.json', 'pnpm-lock.yaml']);
+    expect(draft.executableClosure.dependencyAuthority).toMatchObject({
+      selection: 'DECLARED_PACKAGE_MANAGER',
+      authoritativeLockfilePaths: ['pnpm-lock.yaml'],
+    });
+    expect(draft).toMatchObject({
+      assessment: 'PENDING_LANE_SENTINEL_RECOMPUTATION',
+      dispatchAuthorized: false,
+      spendAuthorizedMicroUsd: 0,
+    });
   });
 });
 

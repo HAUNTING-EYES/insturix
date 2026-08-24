@@ -94,10 +94,14 @@ describe('executable import closure V1', () => {
       'vitest.config.ts',
     ]);
     expect(first.dependencyManifests.map(({ path: file }) => file)).toEqual([
-      'package-lock.json',
       'package.json',
       'pnpm-lock.yaml',
     ]);
+    expect(first.dependencyAuthority).toMatchObject({
+      selection: 'DECLARED_PACKAGE_MANAGER',
+      declaredPackageManager: { name: 'pnpm', version: '10.17.1' },
+      authoritativeLockfilePaths: ['pnpm-lock.yaml'],
+    });
     expect(first.resources.map(({ path: file }) => file)).toEqual(['fixture.txt']);
     expect(first.closureSha256).toBe(repeated.closureSha256);
     expect(duplicateRoots.roots).toEqual(['src/entry.ts']);
@@ -149,6 +153,37 @@ describe('executable import closure V1', () => {
       rootDir, roots: ['src/entry.ts'], resources: ['fixture.txt'],
     });
     expect(lockfileChanged.closureSha256).not.toBe(configChanged.closureSha256);
+
+    write(rootDir, 'package-lock.json', '{"lockfileVersion":3,"incidental":true}\n');
+    const incidentalLockChanged = computeExecutableImportClosureV1({
+      rootDir, roots: ['src/entry.ts'], resources: ['fixture.txt'],
+    });
+    expect(incidentalLockChanged.closureSha256).toBe(lockfileChanged.closureSha256);
+  });
+
+  it('selects only the declared manager lockfile and rejects missing or ambiguous authority', () => {
+    const npmRoot = fixtureRoot({ packageManager: 'npm@10.9.8' });
+    write(npmRoot, 'src/entry.ts', 'export const entry = true;\n');
+    expect(computeExecutableImportClosureV1({
+      rootDir: npmRoot, roots: ['src/entry.ts'],
+    }).dependencyManifests.map(({ path: file }) => file)).toEqual([
+      'package-lock.json', 'package.json',
+    ]);
+
+    const missing = fixtureRoot();
+    write(missing, 'src/entry.ts', 'export const entry = true;\n');
+    rmSync(path.join(missing, 'pnpm-lock.yaml'));
+    expect(() => computeExecutableImportClosureV1({
+      rootDir: missing, roots: ['src/entry.ts'],
+    })).toThrow(/AUTHORITATIVE_LOCKFILE_MISSING: pnpm/);
+
+    const ambiguous = fixtureRoot({ packageManager: 'bun@1.2.0' });
+    write(ambiguous, 'src/entry.ts', 'export const entry = true;\n');
+    write(ambiguous, 'bun.lock', '{}\n');
+    write(ambiguous, 'bun.lockb', 'legacy\n');
+    expect(() => computeExecutableImportClosureV1({
+      rootDir: ambiguous, roots: ['src/entry.ts'],
+    })).toThrow(/AUTHORITATIVE_LOCKFILE_AMBIGUOUS: bun/);
   });
 
   it('includes genuine type-only edges only in verification mode', () => {
@@ -320,7 +355,7 @@ describe('executable import closure V1', () => {
       'tsconfig.json', 'vitest.config.ts',
     ]);
     expect(v4r.dependencyManifests.map(({ path: file }) => file)).toEqual([
-      'package-lock.json', 'package.json', 'pnpm-lock.yaml',
+      'package.json', 'pnpm-lock.yaml',
     ]);
     expect(v4r.toolchain.node.version).toBe(process.version);
     expect(v4r.toolchain.node.platform).toBe(process.platform);
@@ -348,7 +383,9 @@ describe('executable import closure V1', () => {
   });
 });
 
-function fixtureRoot(packageJson: Record<string, unknown> = {}): string {
+function fixtureRoot(packageJson: Record<string, unknown> = {
+  packageManager: 'pnpm@10.17.1',
+}): string {
   return fixtureRootWithSandbox(packageJson).rootDir;
 }
 

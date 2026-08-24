@@ -1,6 +1,7 @@
 import {
   EXECUTABLE_IMPORT_CLOSURE_VERSION_V1,
   EXECUTABLE_IMPORT_RESOLVER_VERSION_V1,
+  assertExecutableDependencyAuthorityV1,
   type ExecutableImportClosureBoundFileV1,
   type ExecutableImportClosureReceiptV1,
 } from '../../services/executable-import-closure-v1';
@@ -562,6 +563,13 @@ export function assertNoSpendExecutableClosureV1(
   assertCanonicalBoundFileSet(
     closure.dependencyManifests, 'EXECUTABLE_CLOSURE_DEPENDENCY_MANIFEST', false,
   );
+  assertExecutableDependencyAuthorityV1(
+    closure.dependencyAuthority,
+    closure.dependencyManifests,
+  );
+  if (closure.dependencyAuthority.selection !== 'DECLARED_PACKAGE_MANAGER') {
+    fail('DECLARED_PACKAGE_MANAGER_AUTHORITY_REQUIRED');
+  }
   assertSha(closure.toolchain.node.executableSha256, 'EXECUTABLE_CLOSURE_NODE_EXECUTABLE');
   assertIdentifier(closure.toolchain.node.version, 'EXECUTABLE_CLOSURE_NODE_VERSION');
   assertIdentifier(closure.toolchain.node.platform, 'EXECUTABLE_CLOSURE_NODE_PLATFORM');
