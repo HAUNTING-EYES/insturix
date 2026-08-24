@@ -3892,9 +3892,12 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
 
 ### Active exit evidence, in order
 
-1. Package the sole project owner's actual HREF-01 full-video, dense-motion and
-   audio judgment as one qualified receipt. Keep independent agreement
-   `UNVERIFIABLE`; never invent a second reviewer.
+1. HREF-01's sole project-owner full-video, dense-motion and audio judgment is
+   packaged as qualified receipt `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`.
+   It is an all-nine-requirement `PASS` with no observed hard failure and a
+   zero-minute correction estimate. Independent agreement remains
+   `UNVERIFIABLE_SINGLE_REVIEWER`; no second reviewer is invented and no
+   production promotion follows from the receipt.
 2. Freeze genuinely new dependency and invalidation holdouts with public
    model-visible rules, equivalent-good/known-bad/safe-stop sentinels and exact
    proof ceilings before any inference.
@@ -3943,12 +3946,13 @@ authorization are all present.
   pack/template/media bindings, incomplete playback, missing or unexplained
   decisions and an inflated overall `PASS` fail closed. Focused verification is
   12/12, with full repository typecheck and quiet ESLint passing.
-- This is review infrastructure, not the HREF-01 judgment. The real form remains
-  incomplete until the sole project owner watches the 64.75-second reference,
-  the `[20s,23s)` dense 60/1 motion window and its audio, then supplies the nine
-  decisions. Any resulting receipt must retain
-  `UNVERIFIABLE_SINGLE_REVIEWER`; it cannot promote independent agreement or
-  authorize product execution.
+- The sole project owner completed the actual form after watching the
+  64.75-second reference, the `[20s,23s)` dense 60/1 motion window and its
+  audio. The finalizer issued receipt `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`, binding the form, pack and exact
+  reference/dense-media hashes. The result is `PASS` for all nine requirements,
+  no observed hard failure and a zero-minute correction estimate. It remains
+  `UNVERIFIABLE_SINGLE_REVIEWER`, cannot promote independent agreement and does
+  not authorize product execution.
 - Concurrent read-only audits found that existing forced-route evidence covers
   only one moving-panel family, not broad native/generated/hybrid
   generalisation. They also found a real active-product risk: chat
