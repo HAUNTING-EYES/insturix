@@ -52,8 +52,8 @@ ProjectService-issued command/receipt boundary:
 
 | Path | Current write role | Current gap |
 | --- | --- | --- |
-| `app/api/internal/workers/director/route.ts` | Claims `analysis_complete`/`directing_queued` into `directing`, writes stage progress, completes the auto-edit status, and records non-assist failure. | Claim, progress, completion and failure do not share one ProjectService revision/receipt lifecycle. |
-| `lib/editron/agent/director-agent.ts` | Writes intelligence summaries, decision logs, status/audit facts and quality-review data while separately using the Director lease, final editor save and Phase-0 proof owner. | The final overlay/proof write is receipt-bound, but the intervening facts are direct Mongo writes without revision advancement or receipts. |
+| `app/api/internal/workers/director/route.ts` | Claims `analysis_complete`/`directing_queued` into `directing`, completes the auto-edit status, and records non-assist failure. Director stage progress now enters only through `ProjectService.recordDirectorProgressV1`. | Claim, completion and runtime failure still do not share one typed ProjectService lifecycle. |
+| `lib/editron/agent/director-agent.ts` | Carries lease-bound progress receipts and ProjectService action receipts into the final editor save; it still writes intelligence summaries, decision logs, status/audit facts and quality-review data directly. | The progress/final-save revision race is closed, but the intervening legacy facts remain direct Mongo writes without revision advancement or receipts. |
 | `app/api/internal/workers/video-analysis/route.ts` and `tribe-analysis/route.ts` | Advance analysis/directing status and persist analysis facts; development fallbacks can run the Director inline. | Many state transitions/evidence writes remain raw and must be migrated by lifecycle, not bulk-wrapped. |
 | `app/api/internal/workers/pipeline/audio/route.ts` | Pushes BGM/SFX overlays, beat-aligned overlay state and audio-plan facts. | Direct overlay mutation can bypass writer-issued revision/receipt semantics. |
 | `app/api/internal/workers/pipeline/video/route.ts` | Replaces generated-video overlay source/asset fields, adds quality warnings and clears pending Director flags. | Direct project mutation is not coupled to ProjectService revision/receipt semantics. |
@@ -68,42 +68,43 @@ The Director route is the highest-risk bounded next owner migration because it
 currently splits one lifecycle across two authorities:
 
 ```text
-route raw claim/status/progress/completion
+route raw claim/status/completion/failure
         +
-Director agent lease -> ProjectService final editor save -> Phase-0 proof
+Director agent lease -> ProjectService progress/action receipts -> final editor save -> Phase-0 proof
 ```
 
 The raw route claim does not carry a ProjectService revision or receipt. The
-raw progress writes change project fields without a receipt. The raw completion
-write only checks `autoEditStatus: 'directing'`, so it does not bind the status
-transition to the final writer/proof revision. The non-assist failure update is
-also a direct terminal project update.
+raw completion write only checks `autoEditStatus: 'directing'`, so it does not
+bind the status transition to the final writer/proof revision. The non-assist
+failure update is also a direct terminal project update.
 
 The Director agent already has the useful canonical pieces: a token-bound
 lease, a final editor-state CAS, and a Phase-0 proof CAS. The migration must
 extend those existing owners; it must not add a parallel Director journal,
 checkpoint store, timeline, or generic project-metadata authority.
 
-## Important implementation constraint
+## Completed progress/revision repair
 
-Progress cannot simply begin incrementing `projectRevision` while the Director
-agent still saves against the revision returned when it acquired its lease. If
-that happened, the agent's final `saveProjectWithReceipt` would correctly fail
-as stale. A future progress migration must therefore either:
+Commit `8823a676a` makes Director progress a specific lease-bound
+`ProjectService` command. It validates an exact expected revision, active lease
+token, `autoEditStatus: 'directing'`, bounded `0..99` progress and a bounded
+stage description. A lost compare-and-swap, rescued project, wrong lease or
+stale revision returns no receipt and fails closed.
 
-- carry each ProjectService-issued progress revision forward into the final
-  writer's expected revision; or
-- move transient progress out of canonical project state under a separately
-  designed UI/telemetry contract.
+`executeDirectorPlan` awaits each opt-in progress command, validates the
+contiguous receipt chain emitted by its own ProjectService action tools, and
+uses the resulting current revision for its final editor save. The QStash
+Director route only logs progress. Other Director callers are observer-only,
+so they do not accidentally persist a stage on a non-`directing` project.
 
-No silent non-revision "telemetry exception" is authorized.
+This is intentionally not a generic worker-status port and creates no second
+project, timeline, journal, checkpoint or proof owner.
 
 ## Next bounded implementation slice
 
-Before code changes, perform the required Step-0 audit on the over-300-line
-Director agent. The first lifecycle implementation must remain scoped to the
-Director route and ProjectService, with explicit methods—not a generic worker
-status port—for:
+The required Step-0 audit is complete. The next lifecycle implementation must
+remain scoped to the Director route and ProjectService, with explicit methods
+not a generic worker-status port, for:
 
 1. claiming a run from the allowed analysis states;
 2. recognizing an ownership loss without resurrection;
@@ -114,6 +115,16 @@ Assist refund/settlement, upload-batch aggregation, inline-development
 Director execution, raw analysis facts, generic range locks/rebase, and the
 remaining worker families are deliberately outside that first migration. Each
 needs its own owner and atomicity design.
+
+## Known remaining reconciliation limit
+
+The Director's existing final overlay merge recognizes newly added overlays
+and transition keyframe tracks from the fresh project read. It is not yet a
+general field-level three-way reconciliation for every legacy action/tool
+mutation. The new receipt chain prevents a stale final CAS from pretending to
+be current; it does not certify that every legacy in-memory/direct-write merge
+is lossless. That requires a separate owner-level audit before the Director
+can be called fully migrated.
 
 ## Non-claims
 

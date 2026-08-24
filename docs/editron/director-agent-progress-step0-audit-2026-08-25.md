@@ -58,6 +58,31 @@ the Director-run progress fields and returns the existing
 `ProjectMutationReceiptV1`. It does not create a second timeline, journal,
 checkpoint, renderer, or proof store.
 
+## Implementation outcome
+
+Commit `8823a676a` implements the approved repair exactly at the listed
+boundary:
+
+1. `ProjectService.recordDirectorProgressV1` validates bounded progress,
+   expected revision, active lease and `directing` state in one CAS write and
+   returns `ProjectMutationReceiptV1`.
+2. `executeDirectorPlan` awaits every opt-in progress update, validates every
+   contiguous receipt captured from its own ProjectService action calls, and
+   carries the latest writer-issued revision into its final save.
+3. The QStash Director route no longer has a raw asynchronous progress write;
+   it only observes/logs. Its `persistProjectProgress` option is explicit, so
+   other existing Director callers remain observer-only.
+4. The regression suite covers fresh receipt issuance, stale/lost ownership,
+   malformed input, foreign/non-contiguous receipt rejection, the route
+   migration guard and final-save revision handoff. Focused ProjectService and
+   Director verification passed 129/129; repository typecheck and quiet ESLint
+   also passed.
+
+The repair is revision safety, not a claim that every legacy action-state merge
+is now lossless. The current fresh-project merge still has limited known
+coverage for newly-added overlays and transition keyframes; broader
+field-level reconciliation remains a separate owner audit.
+
 ## Deliberate exclusions
 
 - Route claim, assist handoff, terminal completion and non-assist failure are

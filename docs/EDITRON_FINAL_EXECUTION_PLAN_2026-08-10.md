@@ -53,19 +53,35 @@ changes.
   non-atomic aggregate update by design: reconciliation after a post-project
   batch-write failure is still an open owner-design gap. Focused owner/ingress
   verification was 33/33, with repository typecheck and quiet ESLint passing.
+- Commit `8823a676a` closes the first Director progress/revision seam. The
+  QStash Director worker now opts into the narrow
+  `ProjectService.recordDirectorProgressV1` command; it requires the active
+  lease token, exact revision and `autoEditStatus: 'directing'`, advances the
+  revision in one CAS write and returns the existing writer receipt. The
+  Director awaits that receipt, validates every contiguous ProjectService
+  action-receipt chain, and uses the carried revision for its final editor
+  save. The route is now observation/logging only for progress. Direct/manual,
+  Video Analysis and Tribe callers retain observer-only progress and therefore
+  do not gain an unexpected stage write. Focused ProjectService/Director
+  verification was 129/129, with repository typecheck and quiet ESLint
+  passing. This repairs the Director's own progress and receipt race; it does
+  not migrate the route claim/completion/runtime-failure lifecycle, legacy
+  Director facts, other worker writers, range collaboration or generic state
+  reconciliation.
 - The immediate next foundation work is the remaining legacy-project-writer
   audit and the next highest-risk bounded owner migration. Current-source
   audit [project-authority-current-truth-audit-2026-08-25.md](./editron/project-authority-current-truth-audit-2026-08-25.md)
   confirms that no additional inspected production worker falls through to a
   raw handler when QStash signing keys are absent. It also identifies the
   split Director lifecycle as the next bounded migration: raw route
-  claim/progress/completion/failure writes surround a ProjectService lease,
-  final editor write and Phase-0 proof. Progress cannot be migrated by merely
-  incrementing the revision, because the Director's final CAS must carry the
-  resulting latest revision. The required Director-agent Step-0 audit is
-  recorded in [director-agent-progress-step0-audit-2026-08-25.md](./editron/director-agent-progress-step0-audit-2026-08-25.md);
-  its first implementation scope is only lease-bound progress and revision
-  handoff. No Stage 2.5 paid dispatch is authorized by this audit.
+  claim/completion/runtime-failure writes still surround a ProjectService
+  lease, final editor write and Phase-0 proof. Progress now carries its own
+  receipt revision, including receipts emitted by Director action tools. The
+  required Director-agent Step-0 audit and completed first repair are recorded
+  in [director-agent-progress-step0-audit-2026-08-25.md](./editron/director-agent-progress-step0-audit-2026-08-25.md).
+  The next slice must give claim, ownership-loss completion and active-run
+  failure one typed lifecycle design; it must not use a generic metadata port.
+  No Stage 2.5 paid dispatch is authorized by this audit.
 
 ## The desired experience, in plain words
 
