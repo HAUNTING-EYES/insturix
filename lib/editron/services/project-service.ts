@@ -44,6 +44,13 @@ import {
   parseProjectGeneratedCompositionStateV1,
 } from "./project-generated-composition-state-verifier-v1";
 import type { ProjectGeneratedCompositionStateV1 } from "./project-generated-composition-state-v1";
+import {
+  cutTimelineRange,
+  type TimelineFrameRangeV1,
+  type TimelineRangeCutCoordinateTransformV1,
+  type TimelineRangeCutResult,
+  type TimelineRangeCutSplitChildV1,
+} from "./timeline-range-cut";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -77,6 +84,66 @@ export interface ProjectMutationReceiptV1 {
   projectId: string;
   revision: ProjectRevisionV1;
   committedAt: string;
+}
+
+/**
+ * Current product frame-coordinate vocabulary for ProjectService timeline
+ * changes. This deliberately does not claim rational, PTS, VFR, reel or
+ * timecode semantics; those belong to the later canonical media spine.
+ */
+export type ProjectTimelineChangeActorKindV1 = "USER" | "AGENT" | "SYSTEM";
+
+export interface ProjectTimelineRippleEffectV1 {
+  kind: "REMOVE_AND_SHIFT_LEFT";
+  removedFrameRange: TimelineFrameRangeV1;
+  shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
+  shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
+  deltaFrames: number;
+}
+
+/**
+ * A ProjectService-owned, durable account of one timeline mutation. The
+ * invalidation status is intentionally non-passing until the Stage-2 media /
+ * evidence owner can materialize actual artifact invalidations.
+ */
+export interface ProjectTimelineRangeChangeReceiptV1 {
+  schemaVersion: 1;
+  receiptId: string;
+  projectId: string;
+  operation: "CUT_TIMELINE_RANGE";
+  actorKind: ProjectTimelineChangeActorKindV1;
+  coordinateDomain: "PROJECT_TIMELINE_FRAME_V1";
+  fps: number;
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  committedAt: string;
+  readFrameRangesBefore: readonly TimelineFrameRangeV1[];
+  writeFrameRangesBefore: readonly TimelineFrameRangeV1[];
+  affectedFrameRangesAfter: readonly TimelineFrameRangeV1[];
+  affectedOverlayRefs: readonly string[];
+  changedPaths: readonly ["overlays", "durationInFrames", "timelineRangeChangeReceipts"];
+  timelineCoordinateTransform: TimelineRangeCutCoordinateTransformV1;
+  splitChildren: readonly TimelineRangeCutSplitChildV1[];
+  ripple: ProjectTimelineRippleEffectV1;
+  downstreamInvalidation: {
+    status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN";
+    affectedFrameRangesBefore: readonly TimelineFrameRangeV1[];
+  };
+}
+
+export interface ProjectTimelineRangeCutCommandV1 {
+  /** Omit only for an interactive caller that asks ProjectService to take its
+      own immediate snapshot. Background/planned work must carry this token. */
+  expectedRevision?: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  startFrame: number;
+  endFrame: number;
+}
+
+export interface ProjectTimelineRangeCutResultV1 {
+  cut: TimelineRangeCutResult;
+  mutationReceipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
 }
 
 export type ProjectGeneratedCompositionPrepareCommandV1 =
@@ -321,6 +388,8 @@ export interface Project {
   projectRevision?: number;
   /** ProjectService-owned active and in-flight generated composition revisions. */
   generatedCompositions?: ProjectGeneratedCompositionEntryV1[];
+  /** Bounded ProjectService-owned history for timeline-range reconciliation. */
+  timelineRangeChangeReceipts?: ProjectTimelineRangeChangeReceiptV1[];
   lastAutosaveAt?: Date;
   // Organization support
   orgId?: string | null;
@@ -791,6 +860,146 @@ export class ProjectService {
       project: structuredClone(project),
       revision: projectRevisionFor(project),
     };
+  }
+
+  /**
+   * The single live ProjectService owner for a ripple timeline cut. It binds
+   * the pure coordinate transform, complete pre-cut effect region and split
+   * lineage to the same CAS write that persists the new timeline state.
+   */
+  async cutTimelineRangeV1(
+    userId: string,
+    projectId: string,
+    input: ProjectTimelineRangeCutCommandV1,
+  ): Promise<ProjectTimelineRangeCutResultV1> {
+    if (input.expectedRevision) assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+
+    const currentRevision = projectRevisionFor(project);
+    const expectedRevision = input.expectedRevision ?? currentRevision;
+    if (!sameProjectRevisionV1(expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before retrying.",
+      );
+    }
+
+    const fps = project.fps || 30;
+    const cut = cutTimelineRange({
+      overlays: project.overlays || [],
+      startFrame: input.startFrame,
+      endFrame: input.endFrame,
+      fps,
+      durationInFrames: project.durationInFrames,
+    });
+    const beforeDurationInFrames = cut.timelineCoordinateTransform.beforeDurationInFrames;
+    const removedRange = cut.timelineCoordinateTransform.removedRange;
+    const affectedRangeBefore: TimelineFrameRangeV1 = {
+      startFrame: removedRange.startFrame,
+      endFrame: beforeDurationInFrames,
+    };
+    const affectedOverlayRefs = collectAffectedTimelineCutOverlayRefsV1(
+      project.overlays || [],
+      affectedRangeBefore.startFrame,
+    );
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const shiftedBeforeFrameRange = removedRange.endFrame < beforeDurationInFrames
+      ? { startFrame: removedRange.endFrame, endFrame: beforeDurationInFrames }
+      : null;
+    const shiftedAfterFrameRange = removedRange.endFrame < beforeDurationInFrames
+      ? {
+          startFrame: removedRange.startFrame,
+          endFrame: cut.newDurationInFrames,
+        }
+      : null;
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-cut_${nanoid(18)}`,
+      projectId,
+      operation: "CUT_TIMELINE_RANGE",
+      actorKind: input.actorKind,
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps,
+      beforeProjectRevision: expectedRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: [{ startFrame: 0, endFrame: beforeDurationInFrames }],
+      writeFrameRangesBefore: [affectedRangeBefore],
+      affectedFrameRangesAfter: shiftedAfterFrameRange ? [shiftedAfterFrameRange] : [],
+      affectedOverlayRefs,
+      changedPaths: ["overlays", "durationInFrames", "timelineRangeChangeReceipts"],
+      timelineCoordinateTransform: cut.timelineCoordinateTransform,
+      splitChildren: cut.splitChildren,
+      ripple: {
+        kind: "REMOVE_AND_SHIFT_LEFT",
+        removedFrameRange: removedRange,
+        shiftedBeforeFrameRange,
+        shiftedAfterFrameRange,
+        deltaFrames: cut.timelineCoordinateTransform.shiftAfterRemovedRangeFrames,
+      },
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [affectedRangeBefore],
+      },
+    };
+    const persistedOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(cut.overlays as Overlay[]),
+      "project-service-timeline-range-cut",
+    );
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(expectedRevision),
+      },
+      {
+        $set: {
+          overlays: persistedOverlays,
+          durationInFrames: cut.newDurationInFrames,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return { cut, mutationReceipt, timelineChangeReceipt };
   }
 
   /**
@@ -2780,6 +2989,7 @@ function assertCheckpointRestoreFields(
     "createdAt",
     "updatedAt",
     "projectRevision",
+    "timelineRangeChangeReceipts",
     "lastAutosaveAt",
   ]);
   const fieldNames = [...Object.keys(setFields), ...unsetFields];
@@ -2816,6 +3026,61 @@ function validDimensions(
       Number.isFinite(value.width) &&
       Number.isFinite(value.height),
   );
+}
+
+function assertProjectTimelineChangeActorKindV1(
+  actorKind: ProjectTimelineChangeActorKindV1,
+): void {
+  if (actorKind !== "USER" && actorKind !== "AGENT" && actorKind !== "SYSTEM") {
+    throw new ProjectMutationWriteError("Timeline change actor kind is invalid.");
+  }
+}
+
+function collectAffectedTimelineCutOverlayRefsV1(
+  overlays: readonly Overlay[],
+  cutStartFrame: number,
+): string[] {
+  const refs = new Set<string>();
+  for (const overlay of overlays) {
+    const rawStartFrame = Number((overlay as { from?: unknown }).from);
+    const rawDurationInFrames = Number((overlay as { durationInFrames?: unknown }).durationInFrames);
+    const startFrame = Number.isFinite(rawStartFrame) ? Math.round(rawStartFrame) : 0;
+    const durationInFrames = Math.max(
+      0,
+      Number.isFinite(rawDurationInFrames) ? Math.round(rawDurationInFrames) : 0,
+    );
+    const endFrame = startFrame + durationInFrames;
+    if (durationInFrames <= 0 || endFrame <= cutStartFrame) {
+      continue;
+    }
+    const id = (overlay as { id?: unknown }).id;
+    const reference = typeof id === "string" && id.trim()
+      ? `overlay:${id}`
+      : typeof id === "number" && Number.isSafeInteger(id)
+        ? `overlay:${id}`
+        : null;
+    if (!reference) {
+      throw new ProjectMutationWriteError(
+        "A timeline range change cannot issue durable affected-object references for an overlay without a stable ID.",
+      );
+    }
+    if (refs.has(reference)) {
+      throw new ProjectMutationWriteError(
+        `A timeline range change requires unique affected overlay IDs; found ${reference}.`,
+      );
+    }
+    refs.add(reference);
+  }
+  return [...refs].sort();
+}
+
+function hasActiveDirectorMutationLeaseV1(
+  project: Pick<Project, "directorLock" | "directorLockAt">,
+): boolean {
+  if (project.directorLock !== true) return false;
+  const startedAt = project.directorLockAt ? new Date(project.directorLockAt) : null;
+  if (!startedAt || Number.isNaN(startedAt.getTime())) return true;
+  return Date.now() - startedAt.getTime() < DIRECTOR_LEASE_DURATION_MS;
 }
 
 // Singleton instance
