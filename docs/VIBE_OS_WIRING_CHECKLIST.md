@@ -14,14 +14,14 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | edit | BRIDGED (chat/stream SSE) | synthetic smoke PASS; receipts from registry labels; live-loop needs a seeded reel in the deliverable |
 | design | BRIDGED (session create) | prod quote card verified (9cr real math); confirm continuation reworked serverless-safe |
 | distribute | WIRED (suggestCadence direct) | dev smoke PASS (linkedin 3x/wk + rationale) |
-| analyze | BRIDGED (analyze submit) | queued artifact + from-2cr gate; report render MOCK until report polling lands |
+| analyze | BRIDGED (analyze submit + polling) | queued artifact resolves from real task status; report render still MOCK |
 
 ## Confirm gates (serverless-safe continuation pattern)
 | Gate | Status | Evidence |
 |---|---|---|
 | spend (design) | DONE (pattern) | quote ends stream; answer re-posts; server re-derives price |
 | spend (analyze) | DONE (pattern) | same mechanism |
-| publish (CalOS) | OPEN | gate contract exists; CalOS queue wiring next |
+| publish (CalOS) | DONE (pattern) | gate card w/ real targets; accept queues idea-stage cards via bridge (smoke PASS; nothing auto-publishes) |
 | destructive (edit high-risk) | OPEN | rides the edit registry riskLevel at bridge v2 |
 
 ## Stage views
@@ -41,7 +41,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Editron auto-edit (upload→8 stages→needs_input) | OPEN |
 | Checkpoints/undo in thread | OPEN (mock shows pattern) |
 | SaaS explainer flow | OPEN |
-| Clickatron variations polling → artifact done-state | OPEN |
+| Clickatron variations polling → artifact done-state | DONE — useArtifactPolling (4s, real telemetry, honest percent) |
 | CalOS calendar/review rail/delivery states | OPEN |
 | UploaderX platform arming + receipts | OPEN |
 | Musitron/DAW audio stage | OPEN |

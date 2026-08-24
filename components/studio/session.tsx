@@ -15,6 +15,7 @@ import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import { MOCK_DELIVERABLE, MOCK_THREAD, MOCK_WALLET } from "@/lib/studio/mock/data";
 import { runMockTurn, type MockTurnHandle } from "@/lib/studio/mock/orchestrator";
 import { runRealTurn, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { useArtifactPolling } from "./use-artifact-polling";
 import { ThreadItems, ClarifyCard, CapabilityGapCard, ConfirmSpendCard, ConfirmPublishCard } from "./thread";
 import { StageHost } from "./stage";
 
@@ -47,6 +48,8 @@ export function StudioSession() {
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [items, pendingConfirm, busy]);
+
+  useArtifactPolling(artifacts, setArtifacts, REAL);
 
   const showArtifact = useCallback((artifactId: string) => {
     setFocus((f) => (f ? { ...f, artifactId, reason: "user_asked", why: "you asked for it", since: new Date().toISOString() } : f));
@@ -149,7 +152,7 @@ export function StudioSession() {
   }, []);
 
   const runTurn = useCallback(
-    async (text: string, confirmQuoteId?: string) => {
+    async (text: string, confirmQuoteId?: string, confirmAccepted?: boolean) => {
       if (busy || !text.trim()) return;
       setBusy(true);
       setInput("");
@@ -198,6 +201,7 @@ export function StudioSession() {
               clientContext: { focusedArtifactId: focus?.artifactId ?? null },
               operationId: crypto.randomUUID(),
               confirmAcceptedQuoteId: confirmQuoteId ?? null,
+              confirmAccepted: confirmAccepted ?? undefined,
             },
             abort.signal,
           )) {
@@ -250,9 +254,9 @@ export function StudioSession() {
   const answerConfirm = useCallback(
     (accepted: boolean) => {
       setPendingConfirm((pc) => {
-        if (pc && REAL && accepted && pc.quote) {
+        if (pc && REAL && accepted && (pc.quote || pc.kind === "publish")) {
           /* serverless continuation: re-post the original ask with the yes */
-          void runTurn(pc.originalText, pc.quote.quoteId);
+          void runTurn(pc.originalText, pc.quote?.quoteId, pc.kind === "publish" ? true : undefined);
         } else if (pc && REAL && !accepted) {
           setItems((prev) => [
             ...prev,

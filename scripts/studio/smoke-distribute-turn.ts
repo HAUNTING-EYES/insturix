@@ -3,7 +3,7 @@
 import mongoose from "mongoose";
 import { runDistributeTurn } from "../../lib/studio/orchestrator/distribute";
 async function main() {
-  const ctx = { userId: "user_39thc9JTDrECB50Lmv886FqlAqN", orgId: null, brandId: null };
+  const ctx = { userId: "user_39thc9JTDrECB50Lmv886FqlAqN", orgId: null, brandId: null, forwardHeaders: {}, origin: "http://studio.test" };
   for await (const ev of runDistributeTurn(ctx, "plan our week")) {
     console.log(ev.type === "turn.done" ? `DONE · ${ev.summary}` : ev.type === "step.done" ? `receipt ✓ ${ev.receipt.label} · ${ev.receipt.detail}` : ev.type);
     if (ev.type === "turn.capability_gap") process.exitCode = 2;

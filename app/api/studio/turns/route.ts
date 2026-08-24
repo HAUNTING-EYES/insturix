@@ -86,7 +86,7 @@ export async function POST(req: Request) {
               req.signal,
             )
           : wantsDistribute
-            ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null }, request.text)
+            ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
             : wantsDesign
               ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
               : wantsAnalyze

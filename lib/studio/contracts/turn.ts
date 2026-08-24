@@ -65,6 +65,8 @@ export const StudioTurnRequestSchema = z.object({
    * (never trusts a client-echoed price); this field is the YES signal.
    */
   confirmAcceptedQuoteId: z.string().nullable().optional(),
+  /** accept-side of quote-less gates (publish): true = the yes signal */
+  confirmAccepted: z.boolean().optional(),
 });
 export type StudioTurnRequest = z.infer<typeof StudioTurnRequestSchema>;
 
