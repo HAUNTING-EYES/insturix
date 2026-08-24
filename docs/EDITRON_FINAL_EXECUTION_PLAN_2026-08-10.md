@@ -3584,6 +3584,20 @@ relabelled as model behaviour.
   quiet ESLint and diff checks pass. This is research-only pre-execution safety:
   it makes no provider call, project mutation, media write or production
   certification, and it permits no weaker fallback edit.
+- Commit `7544c1fad` replaces caller-authored V4 sentinel axes with an
+  independent zero-inference runner. It recomputes all eight required outcomes
+  through the isolated execution owner, current H02/H04 semantic/final-state
+  proof owners and the existing budgeted-trace integrity validator: safe stop,
+  stale attempted write, missing generated-composition evidence, noisy
+  transcript mutation, missing reframe tracking, H02 variable-duration/
+  intentional-repeat equivalence, H04 multi-cut final-state equivalence and
+  trace tampering. The receipt binds the current V4R2 catalog, current V2R
+  manifest, frozen V1 expectations and all per-sentinel fixtures/results; a
+  caller cannot provide result axes. Focused current-owner coverage passes
+  19/19, full typecheck and quiet ESLint pass, and provider/network/canonical-
+  project effects are zero. Historical H02/H04 V3 suites still stop at the
+  already-recorded `HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT`; they were not
+  patched and remain a successor-identity task.
 
 The corrected audit disposition is therefore:
 
