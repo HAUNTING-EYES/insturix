@@ -4035,6 +4035,29 @@ authorization are all present.
   ceiling remains `SCALE_PROXY_ONLY`: no media/evidence payload, real storage
   or index owner, provider tokenizer, semantic retrieval quality, renderer,
   ProjectService path or long-form product certification was exercised.
+- Commit `fd26eea7b` adds a research-only Stage 2.5 machine-telemetry receipt.
+  It binds queue/provider/tool/execution/render/proof/review/correction timings,
+  retry and repair counts, provider usage and provider price to the exact
+  ordered durable-attempt receipt chain. A research cost-per-accepted-edit
+  estimate is available only when an execution-bound hard proof passes for the
+  declared final-state hash, the exact result receives blind-review `PASS`, and
+  every provider/render/storage/egress/human cost component is present. Missing,
+  conservative, unresolved, unrelated or forged evidence remains unavailable
+  with an explicit reason. Focused verification is 17/17 with full typecheck
+  and quiet ESLint passing. This artifact is not an accounting owner, invoice,
+  provider call, render, project mutation or production-quality certificate;
+  it only defines and validates the evidence needed to calculate those metrics.
+- Commit `ed4dff7ea` materializes the zero-spend owner paths for the genuinely
+  new dependency/invalidation freeze. `HOLD-DEP-01` and `HOLD-DEP-04` execute
+  their 24 deterministic sentinel outcomes only on fresh in-memory
+  ProjectService clones; known-good/equivalent forms agree on task-specific
+  final state, and stale, forged, incomplete and unsafe forms do not receive
+  proof. `HOLD-DEP-02` remains blocked on the public replacement form/rights/
+  source-handle contract; `HOLD-DEP-03` remains blocked on the public
+  source-time transform contract. Focused verification is 19/19 with full
+  typecheck and quiet ESLint passing. This is structural owner evidence only:
+  provider inference, render, canonical project mutation, current-source
+  closure, media quality and model competence remain unproved.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
