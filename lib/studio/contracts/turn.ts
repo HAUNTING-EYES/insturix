@@ -59,6 +59,12 @@ export const StudioTurnRequestSchema = z.object({
     .default([]),
   /** idempotency — same contract as Editron chat operations */
   operationId: z.string().uuid(),
+  /**
+   * Serverless confirm continuation: set when answering a prior turn's
+   * turn.confirm_required. The server re-derives the quote deterministically
+   * (never trusts a client-echoed price); this field is the YES signal.
+   */
+  confirmAcceptedQuoteId: z.string().nullable().optional(),
 });
 export type StudioTurnRequest = z.infer<typeof StudioTurnRequestSchema>;
 

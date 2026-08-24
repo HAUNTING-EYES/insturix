@@ -11,13 +11,14 @@ import type { StudioDomainManifest, StudioToolManifest } from "@/lib/studio/cont
 import { EDIT_DOMAIN_MANIFEST } from "./edit";
 import { DESIGN_DOMAIN_MANIFEST } from "./design";
 import { DISTRIBUTE_DOMAIN_MANIFEST } from "./distribute";
+import { ANALYZE_DOMAIN_MANIFEST } from "./analyze";
 import { WRITE_DOMAIN_MANIFEST } from "./write";
 
 const DOMAIN_MANIFESTS: Record<StudioCapability, StudioDomainManifest | null> = {
   write: WRITE_DOMAIN_MANIFEST,
   edit: EDIT_DOMAIN_MANIFEST,
   design: DESIGN_DOMAIN_MANIFEST,
-  analyze: null, // Phase 5 — Alyzitron mount
+  analyze: ANALYZE_DOMAIN_MANIFEST,
   distribute: DISTRIBUTE_DOMAIN_MANIFEST,
 };
 

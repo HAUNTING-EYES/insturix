@@ -5,6 +5,7 @@ import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/wri
 import { runEditTurn } from "@/lib/studio/orchestrator/edit";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
+import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +63,7 @@ export async function POST(req: Request) {
   const editProjectId = reelAttachment?.ref ?? null;
   const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
   const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute;
+  const wantsAnalyze = /\b(analyz|teardown|score|audit|grade)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsDesign;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
   const forwardHeaders: Record<string, string> = {};
@@ -86,7 +88,9 @@ export async function POST(req: Request) {
           : wantsDistribute
             ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null }, request.text)
             : wantsDesign
-              ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal)
+              ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
+              : wantsAnalyze
+                ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
             : runWriteTurn(
                 {
                   userId,

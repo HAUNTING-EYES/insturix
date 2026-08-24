@@ -14,7 +14,6 @@ import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioTurnCostQuote } from "@/lib/studio/contracts/credits";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
 import { DESIGN_DOMAIN_MANIFEST } from "./manifests/design";
-import { awaitConfirm } from "./confirm-registry";
 
 const TOOL = (name: string) => {
   const tool = DESIGN_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
@@ -78,7 +77,12 @@ function canvasArtifact(sessionId: string, title: string): StudioArtifact {
   };
 }
 
-export async function* runDesignTurn(ctx: DesignTurnContext, text: string, signal?: AbortSignal): AsyncGenerator<StudioTurnEvent> {
+export async function* runDesignTurn(
+  ctx: DesignTurnContext,
+  text: string,
+  signal?: AbortSignal,
+  confirmAcceptedQuoteId?: string | null,
+): AsyncGenerator<StudioTurnEvent> {
   const turnId = `t_${crypto.randomUUID().slice(0, 8)}`;
   const compiler = TOOL("generation-prompt-compiler");
   const job = TOOL("create-image-job");
@@ -119,17 +123,22 @@ export async function* runDesignTurn(ctx: DesignTurnContext, text: string, signa
 
   /* step 2 — spend gate, then the real bridge */
   yield { type: "step.start", turnId, stepId: "g2", toolName: job.name, loadingMessage: job.loadingMessages[0] };
-  yield {
-    type: "turn.confirm_required",
-    turnId,
-    stepId: "g2",
-    kind: "spend",
-    quote: JSON.stringify(stepQuote),
-    publishTargets: [],
-  };
-  const answer = await awaitConfirm(turnId);
-  if (!answer.accepted) {
-    yield { type: "turn.done", turnId, summary: "Left it — nothing generated, nothing charged.", creditsConsumedTotal: 0, artifactIds: [] };
+  if (confirmAcceptedQuoteId && confirmAcceptedQuoteId !== stepQuote.quoteId) {
+    yield { type: "turn.error", turnId, message: "Quote changed since you confirmed — the card shows fresh numbers.", retryable: true, refundIssued: false };
+    return;
+  }
+  if (!confirmAcceptedQuoteId) {
+    /* serverless-safe: the gate ENDS the stream; the answer re-posts as a
+     * continuation turn that re-derives this same quote deterministically. */
+    yield {
+      type: "turn.confirm_required",
+      turnId,
+      stepId: "g2",
+      kind: "spend",
+      quote: JSON.stringify(stepQuote),
+      publishTargets: [],
+    };
+    yield { type: "turn.done", turnId, summary: "Quoted — say yes on the card and I'll generate.", creditsConsumedTotal: 0, artifactIds: [] };
     return;
   }
 

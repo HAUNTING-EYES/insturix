@@ -25,6 +25,7 @@ interface PendingConfirm {
   quote: StudioTurnCostQuote | null;
   publishTargets: { platform: string; scheduledAt: string }[];
   answered: boolean;
+  originalText: string;
 }
 
 export function StudioSession() {
@@ -40,6 +41,7 @@ export function StudioSession() {
   const [clarifyEv, setClarifyEv] = useState<Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null>(null);
   const [gapEv, setGapEv] = useState<Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null>(null);
   const handleRef = useRef<MockTurnHandle | null>(null);
+  const lastTextRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export function StudioSession() {
           quote: ev.quote ? (JSON.parse(ev.quote) as StudioTurnCostQuote) : null,
           publishTargets: ev.publishTargets,
           answered: false,
+          originalText: lastTextRef.current ?? "",
         });
         break;
       case "turn.done":
@@ -146,10 +149,11 @@ export function StudioSession() {
   }, []);
 
   const runTurn = useCallback(
-    async (text: string) => {
+    async (text: string, confirmQuoteId?: string) => {
       if (busy || !text.trim()) return;
       setBusy(true);
       setInput("");
+      lastTextRef.current = text.trim();
       setClarifyEv(null);
       setGapEv(null);
       setPendingConfirm(null);
@@ -193,6 +197,7 @@ export function StudioSession() {
               mentions: [],
               clientContext: { focusedArtifactId: focus?.artifactId ?? null },
               operationId: crypto.randomUUID(),
+              confirmAcceptedQuoteId: confirmQuoteId ?? null,
             },
             abort.signal,
           )) {
@@ -242,10 +247,24 @@ export function StudioSession() {
     [busy, applyEvent, artifacts, mode, focus],
   );
 
-  const answerConfirm = useCallback((accepted: boolean) => {
-    setPendingConfirm((pc) => (pc ? { ...pc, answered: true } : pc));
-    handleRef.current?.answer({ accepted });
-  }, []);
+  const answerConfirm = useCallback(
+    (accepted: boolean) => {
+      setPendingConfirm((pc) => {
+        if (pc && REAL && accepted && pc.quote) {
+          /* serverless continuation: re-post the original ask with the yes */
+          void runTurn(pc.originalText, pc.quote.quoteId);
+        } else if (pc && REAL && !accepted) {
+          setItems((prev) => [
+            ...prev,
+            { kind: "prose", id: `decline_${pc.quote?.quoteId ?? Date.now()}`, text: "Left it — nothing generated, nothing charged.", createdAt: new Date().toISOString() },
+          ]);
+        }
+        return pc ? { ...pc, answered: true } : pc;
+      });
+      handleRef.current?.answer({ accepted });
+    },
+    [runTurn],
+  );
 
   return (
     <div className="stu">
