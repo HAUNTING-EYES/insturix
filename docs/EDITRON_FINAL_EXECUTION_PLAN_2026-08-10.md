@@ -54,8 +54,16 @@ changes.
   batch-write failure is still an open owner-design gap. Focused owner/ingress
   verification was 33/33, with repository typecheck and quiet ESLint passing.
 - The immediate next foundation work is the remaining legacy-project-writer
-  audit and the next highest-risk bounded owner migration. No Stage 2.5 paid
-  dispatch is authorized by these commits.
+  audit and the next highest-risk bounded owner migration. Current-source
+  audit [project-authority-current-truth-audit-2026-08-25.md](./editron/project-authority-current-truth-audit-2026-08-25.md)
+  confirms that no additional inspected production worker falls through to a
+  raw handler when QStash signing keys are absent. It also identifies the
+  split Director lifecycle as the next bounded migration: raw route
+  claim/progress/completion/failure writes surround a ProjectService lease,
+  final editor write and Phase-0 proof. Progress cannot be migrated by merely
+  incrementing the revision, because the Director's final CAS must carry the
+  resulting latest revision. No Stage 2.5 paid dispatch is authorized by this
+  audit.
 
 ## The desired experience, in plain words
 
