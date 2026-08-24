@@ -3708,9 +3708,10 @@ relabelled as model behaviour.
   24/24, repository typecheck and quiet ESLint pass, and all replay evidence is
   independently hash-recomputable. Provider inference, network, canonical-
   project reads/mutations, media writes and state effects remain zero. This
-  closes the historical H02/H04 replay, not the successor runtime gates: H02
-   still needs pre-execution source-window enforcement and H04 needs a versioned
-   graph-aware evidence policy that can validate equivalent partitioned cuts.
+  closes the historical H02/H04 replay. At that point, the successor runtime
+  gates still lacked H02 pre-execution source-window enforcement and an H04
+  graph-aware policy for equivalent partitioned cuts; those gaps are addressed
+  separately by the later V4R3 record below.
 - Commit `729ba86a4` closes those two no-spend successor-policy debts without
   changing V4R2 or introducing project authority. The V4R3 catalog derives from
   the frozen V4R2 identity and adds a research-only owner policy. For H02, every
@@ -3733,6 +3734,17 @@ relabelled as model behaviour.
   or media effect occurred. This proves the successor benchmark pre-write gate;
   it does not certify a production mutation path or convert the historical
   five unsafe attempts into passes.
+- Commit `ecededf95` issues the first V4R3 successor generalisation manifest.
+  It preserves the immutable V4R2 task/row/historical-evidence bindings but
+  binds the repaired V4R3 catalog identity, explicitly records the V4R2
+  manifest as predecessor provenance rather than dispatch authority, and rejects
+  V4R2 substitution, forged catalog identity or self-rehashed dispatch
+  authorization. The manifest remains `dispatchAuthorized: false`; it is not
+  yet a readiness receipt or a live provider route. Focused V4R2/V4R3 manifest
+  and V4R3 policy tests pass 11/11, with full repository typecheck and quiet
+  ESLint passing. Provider inference, network, project and media effects remain
+  zero. The next no-spend work is to bind V4R3 sentinel/readiness closure and
+  a route-health-gated one-row pilot runner before any provider generation.
 
 The corrected audit disposition is therefore:
 
@@ -3762,12 +3774,14 @@ CAP current-truth reissue. Current rebuild status is:
    derived receipts are published from current clean-HEAD evidence;
 4. **Complete:** the bounded H02/H04 replay is reissued on clean HEAD with
    corrected safety axes, and V4R3 now supplies the research-only H02 pre-write
-   source-window gate plus H04 whole-plan partitioned-cut authorization. Product
-   integration and production certification remain separate future work;
-5. **Next, explicit approval required:** request authorization for one
-   non-scored row per provider route, audit those pilots, and separately request
-   any full-cohort spend authorization;
-6. continue the existing Stage 2.5 generalisation gates only from valid
+   source-window gate plus H04 whole-plan partitioned-cut authorization; V4R3
+   now has its own manifest that rejects V4R2 as dispatch authority;
+5. **In progress, no spend:** issue V4R3 sentinel/readiness closure, add
+   route-health preflight and bind a one-row-per-route pilot runner to V4R3;
+6. **Then, explicit approval required:** authorize only available provider
+   routes for their one non-scored pilot row, audit those pilots, and separately
+   request any full-cohort spend authorization;
+7. continue the existing Stage 2.5 generalisation gates only from valid
    successor evidence: genuinely new dependency/invalidation shapes, forced
    native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
    resume, realistic long-form limits and blind editor quality/correction-time
