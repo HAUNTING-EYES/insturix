@@ -3709,8 +3709,30 @@ relabelled as model behaviour.
   independently hash-recomputable. Provider inference, network, canonical-
   project reads/mutations, media writes and state effects remain zero. This
   closes the historical H02/H04 replay, not the successor runtime gates: H02
-  still needs pre-execution source-window enforcement and H04 needs a versioned
-  graph-aware evidence policy that can validate equivalent partitioned cuts.
+   still needs pre-execution source-window enforcement and H04 needs a versioned
+   graph-aware evidence policy that can validate equivalent partitioned cuts.
+- Commit `729ba86a4` closes those two no-spend successor-policy debts without
+  changing V4R2 or introducing project authority. The V4R3 catalog derives from
+  the frozen V4R2 identity and adds a research-only owner policy. For H02, every
+  `add_overlay` write now requires the exact resolved source-window and narrative
+  evidence, a known asset role, a source range contained within one owner window
+  and equal source/target duration before the isolated research revision may
+  advance. The historical blanket process range `[0,570)` is therefore blocked,
+  and noisy callback identity remains `UNVERIFIABLE`. For H04, a hash-bound
+  complete ordered cut plan is simulated through the existing source-state
+  equivalence owner before any constituent cut executes. Both the one-cut form
+  and the equivalent `[120,192)` then `[120,153)` current-timeline partition are
+  legal; incomplete, excessive, ambiguous, missing-reference, reordered,
+  repeated or forged plans fail before mutation. The resolver issues the normal
+  exact one-cut authorization, while externally planned equivalent partitions
+  must present their validated authorization reference. The policy remains
+  inside `SealedHoldoutOwnerSessionV2R`, records `stateEffects: []`, and creates
+  no ProjectService, timeline, checkpoint, registry, renderer or proof owner.
+  Focused V4R3/V4R2/sentinel/targeted-replay verification passes 20/20, full
+  repository typecheck and quiet ESLint pass, and no provider, network, project
+  or media effect occurred. This proves the successor benchmark pre-write gate;
+  it does not certify a production mutation path or convert the historical
+  five unsafe attempts into passes.
 
 The corrected audit disposition is therefore:
 
@@ -3739,8 +3761,9 @@ CAP current-truth reissue. Current rebuild status is:
    integration tests, the shared status contract and both V4R and long-form
    derived receipts are published from current clean-HEAD evidence;
 4. **Complete:** the bounded H02/H04 replay is reissued on clean HEAD with
-   corrected safety axes; the missing H02 pre-execution gate and H04 graph-aware
-   partitioned-cut policy remain explicit successor compatibility debt;
+   corrected safety axes, and V4R3 now supplies the research-only H02 pre-write
+   source-window gate plus H04 whole-plan partitioned-cut authorization. Product
+   integration and production certification remain separate future work;
 5. **Next, explicit approval required:** request authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
