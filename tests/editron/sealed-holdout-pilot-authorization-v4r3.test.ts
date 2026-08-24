@@ -40,6 +40,10 @@ describe('sealed holdout V4R3 pilot authorization', () => {
     expect(authorization.authorizedRows.map(({ routeId }) => routeId)).toEqual([
       'OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH',
     ]);
+    expect(context.routeHealth.routeHealth.find(({ routeId }) => routeId === 'GOOGLE_FLASH')
+      ?.returnedModelIdentity).toBe('models/gemini-3.7-flash');
+    expect(authorization.authorizedRows.find(({ routeId }) => routeId === 'GOOGLE_FLASH')
+      ?.confirmedReturnedModelIdentity).toBe('gemini-3.7-flash');
     expect(authorization.limits).toEqual({
       maximumProviderInferenceCalls: 3, maximumAttemptsPerRow: 1,
       automaticRetry: false, absoluteMaxSpendMicroUsd: 3_000_000,

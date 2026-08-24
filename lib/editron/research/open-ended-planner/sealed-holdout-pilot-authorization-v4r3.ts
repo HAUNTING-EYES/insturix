@@ -190,11 +190,20 @@ function authorizedRows(context: Readonly<ContextV4R3>): SealedHoldoutPilotAutho
     const route = record(row.route);
     const health = context.routeHealth.routeHealth.find(({ routeId }) => routeId === route.routeId)
       ?? fail('HEALTHY_ROUTE_BINDING_MISSING');
+    const provider = text(route.provider);
+    const requestedModel = text(route.model);
+    const inferenceModelIdentity = text(route.claimedModelIdentity);
+    const metadataModelIdentity = provider === 'google'
+      ? `models/${requestedModel}` : requestedModel;
+    if (health.returnedModelIdentity !== metadataModelIdentity
+      || inferenceModelIdentity !== requestedModel) fail('HEALTHY_ROUTE_IDENTITY_DRIFT');
     const absoluteMaxRowSpendMicroUsd = index === rows.length - 1 ? remaining : share;
     remaining -= absoluteMaxRowSpendMicroUsd;
     const material = { rowId: text(row.rowId), routeId: text(route.routeId),
-      provider: text(route.provider), requestedModel: text(route.model),
-      confirmedReturnedModelIdentity: health.returnedModelIdentity ?? '',
+      provider, requestedModel,
+      // Metadata and inference responses use different Google spellings. The health
+      // receipt binds the former; this row binds the exact identity expected at inference.
+      confirmedReturnedModelIdentity: inferenceModelIdentity,
       rowPlanSha256: text(row.rowPlanSha256), absoluteMaxRowSpendMicroUsd };
     if (!material.rowId || !material.provider || !material.requestedModel
       || !material.confirmedReturnedModelIdentity || !isSha(material.rowPlanSha256)
