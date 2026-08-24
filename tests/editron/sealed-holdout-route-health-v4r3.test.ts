@@ -18,9 +18,12 @@ import {
   SEALED_HOLDOUT_GENERALISATION_PATH_V4R3,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-generalisation-cohort-v4r3';
 import {
+  assertFreshSealedHoldoutRouteHealthReceiptV4R3,
   assertSealedHoldoutRouteHealthReceiptV4R3,
   preflightSealedHoldoutRouteHealthV4R3,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-route-health-v4r3';
+
+const OBSERVED_AT = '2026-08-24T12:00:00.000Z';
 
 describe('sealed holdout V4R3 route-health preflight', () => {
   it('binds only V4R3 authority and records three zero-inference healthy routes', async () => {
@@ -28,12 +31,15 @@ describe('sealed holdout V4R3 route-health preflight', () => {
     const network = providerFetch();
     const receipt = await preflightSealedHoldoutRouteHealthV4R3({
       ...input, environment: environment(), fetchImpl: network.fetchImpl,
+      now: () => new Date(OBSERVED_AT),
     });
 
     expect(receipt).toMatchObject({
       assessment: 'PASS_ALL_ROUTES_HEALTHY_NO_DISPATCH',
       availableRouteIds: ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'],
       unavailableRouteIds: [],
+      observedAt: OBSERVED_AT,
+      expiresAt: '2026-08-24T12:05:00.000Z',
       networkCalls: { modelMetadataGets: 3, inferenceCalls: 0 },
       secretsPersisted: false,
       projectReads: 0,
@@ -132,6 +138,38 @@ describe('sealed holdout V4R3 route-health preflight', () => {
     expect(() => assertSealedHoldoutRouteHealthReceiptV4R3({
       ...input,
       value: forged,
+    })).toThrow('SEALED_V4R3_ROUTE_HEALTH_RECEIPT_INVALID');
+  });
+
+  it('accepts only a currently fresh receipt and rejects future or expired use', async () => {
+    const input = fixture();
+    const receipt = await preflightSealedHoldoutRouteHealthV4R3({
+      ...input, environment: environment(), fetchImpl: providerFetch().fetchImpl,
+      now: () => new Date(OBSERVED_AT),
+    });
+    expect(assertFreshSealedHoldoutRouteHealthReceiptV4R3({
+      ...input, value: receipt, now: '2026-08-24T12:04:59.999Z',
+    })).toEqual(receipt);
+    expect(() => assertFreshSealedHoldoutRouteHealthReceiptV4R3({
+      ...input, value: receipt, now: '2026-08-24T11:59:59.999Z',
+    })).toThrow('SEALED_V4R3_ROUTE_HEALTH_RECEIPT_OBSERVED_IN_FUTURE');
+    expect(() => assertFreshSealedHoldoutRouteHealthReceiptV4R3({
+      ...input, value: receipt, now: '2026-08-24T12:05:00.000Z',
+    })).toThrow('SEALED_V4R3_ROUTE_HEALTH_RECEIPT_EXPIRED');
+  });
+
+  it('rejects a self-rehashed receipt with an arbitrary validity window', async () => {
+    const input = fixture();
+    const receipt = await preflightSealedHoldoutRouteHealthV4R3({
+      ...input, environment: environment(), fetchImpl: providerFetch().fetchImpl,
+      now: () => new Date(OBSERVED_AT),
+    });
+    const forged = structuredClone(receipt) as unknown as Record<string, unknown>;
+    forged.expiresAt = '2026-08-24T13:00:00.000Z';
+    const { receiptSha256: _ignored, ...material } = forged;
+    forged.receiptSha256 = hashCanonicalJsonV1(material);
+    expect(() => assertSealedHoldoutRouteHealthReceiptV4R3({
+      ...input, value: forged,
     })).toThrow('SEALED_V4R3_ROUTE_HEALTH_RECEIPT_INVALID');
   });
 });

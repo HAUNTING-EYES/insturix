@@ -22,7 +22,8 @@ import type { ProviderNativeRouteV2R } from './provider-native-tool-codecs-v2r';
 type JsonRecord = Record<string, unknown>;
 
 export const SEALED_HOLDOUT_ROUTE_HEALTH_VERSION_V4R3 =
-  'EDITRON_OE_SEALED_HOLDOUT_ROUTE_HEALTH_V4R3_1' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_ROUTE_HEALTH_V4R3_2_FRESHNESS_BOUND' as const;
+export const SEALED_HOLDOUT_ROUTE_HEALTH_TTL_MS_V4R3 = 5 * 60 * 1_000;
 
 export interface SealedHoldoutRouteHealthV4R3 {
   routeId: ProviderNativeRouteV2R['routeId'];
@@ -56,6 +57,8 @@ export interface SealedHoldoutRouteHealthReceiptV4R3 {
   predecessorManifestSha256: string;
   operatorCatalogIdentitySha256: string;
   routeRosterSha256: string;
+  observedAt: string;
+  expiresAt: string;
   routeHealth: readonly Readonly<SealedHoldoutRouteHealthV4R3>[];
   availableRouteIds: readonly string[];
   unavailableRouteIds: readonly string[];
@@ -78,6 +81,7 @@ export async function preflightSealedHoldoutRouteHealthV4R3(input: Readonly<{
   predecessorManifest: Readonly<SealedHoldoutGeneralisationManifestV4R2>;
   environment: Readonly<Record<string, string | undefined>>;
   fetchImpl?: typeof fetch;
+  now?: () => Date;
 }>): Promise<Readonly<SealedHoldoutRouteHealthReceiptV4R3>> {
   const baseManifest = assertSealedHoldoutCohortManifestV2R(input.baseManifest);
   const predecessorManifest = assertSealedHoldoutGeneralisationManifestV4R2({
@@ -108,6 +112,10 @@ export async function preflightSealedHoldoutRouteHealthV4R3(input: Readonly<{
   const unavailableRouteIds = routeHealth
     .filter(({ availability }) => availability !== 'AVAILABLE_MODEL_IDENTITY_CONFIRMED')
     .map(({ routeId }) => routeId);
+  const observedAt = canonicalDate(input.now?.() ?? new Date(), 'OBSERVED_AT');
+  const expiresAt = new Date(
+    Date.parse(observedAt) + SEALED_HOLDOUT_ROUTE_HEALTH_TTL_MS_V4R3,
+  ).toISOString();
   const material = {
     version: SEALED_HOLDOUT_ROUTE_HEALTH_VERSION_V4R3,
     authority: 'RESEARCH_V4R3_ROUTE_HEALTH_NO_INFERENCE_NO_PROJECT_AUTHORITY' as const,
@@ -116,6 +124,8 @@ export async function preflightSealedHoldoutRouteHealthV4R3(input: Readonly<{
     predecessorManifestSha256: predecessorManifest.manifestSha256,
     operatorCatalogIdentitySha256: hashCanonicalJsonV1(manifest.operatorCatalogIdentity),
     routeRosterSha256: hashCanonicalJsonV1(routes),
+    observedAt,
+    expiresAt,
     routeHealth,
     availableRouteIds,
     unavailableRouteIds,
@@ -176,6 +186,8 @@ export function assertSealedHoldoutRouteHealthReceiptV4R3(input: Readonly<{
     .filter((entry) => entry.availability !== 'AVAILABLE_MODEL_IDENTITY_CONFIRMED')
     .map((entry) => entry.routeId);
   const allAvailable = expectedUnavailable.length === 0;
+  const observedAtMs = canonicalTimestamp(candidate.observedAt, 'OBSERVED_AT');
+  const expiresAtMs = canonicalTimestamp(candidate.expiresAt, 'EXPIRES_AT');
   if (candidate.version !== SEALED_HOLDOUT_ROUTE_HEALTH_VERSION_V4R3
     || candidate.authority !== 'RESEARCH_V4R3_ROUTE_HEALTH_NO_INFERENCE_NO_PROJECT_AUTHORITY'
     || candidate.manifestSha256 !== manifest.manifestSha256
@@ -183,6 +195,7 @@ export function assertSealedHoldoutRouteHealthReceiptV4R3(input: Readonly<{
     || candidate.predecessorManifestSha256 !== predecessorManifest.manifestSha256
     || candidate.operatorCatalogIdentitySha256 !== hashCanonicalJsonV1(manifest.operatorCatalogIdentity)
     || candidate.routeRosterSha256 !== hashCanonicalJsonV1(routes)
+    || expiresAtMs - observedAtMs !== SEALED_HOLDOUT_ROUTE_HEALTH_TTL_MS_V4R3
     || health.length !== rawHealth.length || health.length !== routes.length
     || !sameArray(health.map((entry) => entry.routeId), routes.map((route) => route.routeId))
     || routes.some((route) => !health.some((entry) => validHealthEntry(entry, route)))
@@ -203,6 +216,22 @@ export function assertSealedHoldoutRouteHealthReceiptV4R3(input: Readonly<{
     fail('RECEIPT_INVALID');
   }
   return deepFreezeV1(structuredClone(candidate));
+}
+
+export function assertFreshSealedHoldoutRouteHealthReceiptV4R3(input: Readonly<{
+  manifest: Readonly<SealedHoldoutGeneralisationManifestV4R3>;
+  baseManifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  predecessorManifest: Readonly<SealedHoldoutGeneralisationManifestV4R2>;
+  value: unknown;
+  now: string;
+}>): Readonly<SealedHoldoutRouteHealthReceiptV4R3> {
+  const receipt = assertSealedHoldoutRouteHealthReceiptV4R3(input);
+  const nowMs = canonicalTimestamp(input.now, 'FRESHNESS_NOW');
+  const observedAtMs = Date.parse(receipt.observedAt);
+  const expiresAtMs = Date.parse(receipt.expiresAt);
+  if (nowMs < observedAtMs) fail('RECEIPT_OBSERVED_IN_FUTURE');
+  if (nowMs >= expiresAtMs) fail('RECEIPT_EXPIRED');
+  return receipt;
 }
 
 function assertV4R3Bindings(input: Readonly<{
@@ -314,5 +343,17 @@ function strings(value: unknown): string[] {
 }
 function sameArray(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+function canonicalDate(value: Date, label: string): string {
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) fail(`${label}_INVALID`);
+  return value.toISOString();
+}
+function canonicalTimestamp(value: unknown, label: string): number {
+  if (typeof value !== 'string') fail(`${label}_INVALID`);
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) {
+    fail(`${label}_INVALID`);
+  }
+  return timestamp;
 }
 function fail(code: string): never { throw new Error(`SEALED_V4R3_ROUTE_HEALTH_${code}`); }
