@@ -3957,6 +3957,18 @@ authorization are all present.
   ProjectService conflict/rebase/lock work must therefore begin with a bounded
   writer-issued-revision cut trial and then replace that unsafe chat path; it
   must not wire the research reconciler directly into production.
+- Commit `c9b7b8171` freezes four genuinely new dependency/invalidation task
+  identities (`HOLD-DEP-01` through `HOLD-DEP-04`) under freeze
+  `1901f375...` and zero-spend sentinel receipt `40487156...`. Every scored
+  rule is public; each task has known-good, equivalent-good, unsafe-attempt,
+  zero-write safe-stop and tamper coverage. Focused verification is 11/11,
+  with full typecheck and quiet ESLint passing. This proves specification
+  integrity only: fixtures/effect owners are not materialized, dispatch is
+  disabled and state effects are empty. `HOLD-DEP-03` remains
+  `NOT_READY_PUBLIC_CONTRACT_GAP` because `apply_speed_ramp` exposes a receipt
+  but no public downstream source-time transform. No inference may begin until
+  fresh exact owners execute the sentinels and a successor readiness receipt
+  binds current-source closure.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
