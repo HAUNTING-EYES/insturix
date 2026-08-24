@@ -3610,6 +3610,16 @@ relabelled as model behaviour.
   records one scripted invocation but zero inference, network, canonical-
   project reads/mutations or state effects. The focused surrounding long-form
   cluster passes 25/25, with full typecheck and quiet ESLint passing.
+- Commit `4c547fe51` issues successor cohort identities without changing the
+  frozen historical manifests. The V4R2 identity binds the immutable fifteen-
+  case task packet input, the V4R2 evidence-policy catalog and CAP-2A V7, then
+  separates three non-scored route pilots from forty-five scored rows. The
+  long-form V3 identity binds the corrected V2 context, proposal, protocol,
+  compiler and evaluator, then separates three non-scored route pilots from
+  nine scored rows. Both retain the old paid manifest/receipt hashes only as
+  immutable zero-inference rescore inputs; neither inherits their verdicts,
+  authorizes dispatch, or exceeds structural/provenance proof. Focused tests
+  pass 6/6, with repository typecheck and quiet ESLint passing.
 
 The corrected audit disposition is therefore:
 
@@ -3626,14 +3636,13 @@ The corrected audit disposition is therefore:
 The frozen V3/V3R2/V4 contracts must not be patched to accept current hashes.
 Their identity drift is now an expected historical replay boundary: the current
 V4 diagnostic fails only while trying to reconstruct the old V3 base after the
-CAP current-truth reissue. The next implementation order is fixed:
+CAP current-truth reissue. Current rebuild status is:
 
-1. independently recompute every V4 and long-form positive, negative and
-   metamorphic sentinel through the real lane owners; fixed caller claims are
-   not sufficient;
-2. issue new successor cohort identities from current CAP truth while retaining
-   the historical manifests and paid artifacts unchanged;
-3. bind the sentinel/readiness owner modules themselves as strict Git-HEAD
+1. **Complete:** independently recompute every V4 and long-form positive,
+   negative and metamorphic sentinel through the real lane owners;
+2. **Complete:** issue new successor cohort identities from current CAP truth
+   while retaining the historical manifests and paid artifacts unchanged;
+3. **In progress:** bind the sentinel/readiness owner modules themselves as strict Git-HEAD
    closure roots, then run a zero-inference full rescore and publish immutable
    status receipts;
 4. only after a clean no-spend receipt, request explicit authorization for one
