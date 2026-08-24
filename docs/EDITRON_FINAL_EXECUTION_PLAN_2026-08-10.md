@@ -4011,6 +4011,18 @@ authorization are all present.
   provider resume, live Atlas/QStash recovery, hosted ingress, canonical
   apply/reload or audiovisual acceptance exists. Paid resume remains
   unauthorized.
+- Commit `e0abe41b8` adds a zero-spend long-form evidence-fabric scale proxy
+  over seven synthetic sources totaling exactly 4.5 hours. It binds source PTS,
+  rational CFR/VFR cadence, reel/timecode identity and 28 transcript/shot/
+  audio/rights references, then retrieves exact priority-ordered windows under
+  explicit duration, reference and estimated-context budgets. Equivalent kind
+  or range-array permutations produce the same request/receipt identities;
+  omissions return `UNVERIFIABLE_CONTEXT_BUDGET`; stale source versions,
+  out-of-bounds ranges and self-rehashed inner-accounting forgeries fail
+  closed. Focused verification is 11/11 with full typecheck/lint passing. Its
+  ceiling remains `SCALE_PROXY_ONLY`: no media/evidence payload, real storage
+  or index owner, provider tokenizer, semantic retrieval quality, renderer,
+  ProjectService path or long-form product certification was exercised.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
