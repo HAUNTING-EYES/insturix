@@ -64,3 +64,46 @@ implement exact state/effect owners, execute every sentinel at zero spend and
 bind current-source closure. `HOLD-DEP-03` additionally requires a versioned
 public speed-ramp/source-time mapping contract. Only a new readiness receipt and
 an explicit capped authorization may permit a provider call.
+
+## Zero-spend owner-materialization successor
+
+This successor does not rewrite the frozen packets or authorize inference. It
+materializes only the shapes that the current public owners can execute without
+inventing hidden form, evidence or authority.
+
+- Owner materialization:
+  `f7ee9345be837a73d0135d9ce2d1484c7b0face37e83769e5eba6f7e100615d0`
+- Owner-derived sentinel receipt:
+  `3b1107dacabde47b843443024e0596240d405370b2c87fb76e7ae12fcfc2f19f`
+- The receipt binds the original freeze `1901f375...` and original spec receipt
+  `40487156...`; it contains 24 deterministic owner outcomes.
+- `HOLD-DEP-01` and `HOLD-DEP-04` each execute all six frozen sentinels. Their
+  known-good and equivalent-good forms reach the same task-specific final
+  semantic state. Unsafe attempts fail, zero-write safe stops remain distinct,
+  and tampered evidence or transforms earn no proof.
+- The `HOLD-DEP-04` observing owner validates the complete materialized
+  evidence-fact set and the exact ordered evidence-ID list before delegating to
+  the cut owner. Missing IDs, forged IDs and stale-hash evidence facts stop
+  before any isolated mutation.
+- `HOLD-DEP-02` remains `NOT_READY_PUBLIC_FORM_OWNER_GAP`. The current public
+  replacement resolver emits `use_matching_footage`, outside the frozen
+  eligible set, and exposes neither the rights binding nor source-handle
+  binding required for an honest add-before-delete owner. This conclusion is
+  derived from explicit replacement-handoff fields; descriptive text that
+  mentions rights or handles cannot create a binding.
+- `HOLD-DEP-03` remains `NOT_READY_PUBLIC_SOURCE_TIME_MAP_GAP`; the speed-ramp
+  output still lacks the public downstream source-time transform needed to
+  rebind the semantic event.
+
+The `HOLD-DEP-01` and `HOLD-DEP-04` projects, media descriptions and evidence
+facts are deterministic synthetic fixtures. They establish structural owner
+mechanics only. They do not establish real colour-evidence quality,
+motion-evidence quality, audio-evidence quality or editorial quality.
+
+The focused suite passes 19/19. Provider inference calls, render calls and
+canonical ProjectService mutations are all zero. Execution occurs only on
+fresh in-memory ProjectService clones through existing owner-issued revision
+and cut/filter authorities. The receipt binds bounded runtime identities, not
+a transitive current-source closure, rendered proof, canonical apply/reload or
+model competence. Its inference disposition is therefore still
+`NOT_READY_FOR_INFERENCE`.
