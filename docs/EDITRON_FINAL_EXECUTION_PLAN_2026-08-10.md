@@ -3981,6 +3981,18 @@ authorization are all present.
   `STRUCTURAL_SENTINEL` evidence: media/fonts and generalized route owners are
   not materialized, nothing rendered, no ProjectService path ran, and dispatch
   remains disabled.
+- Commit `70dd1bf2a` materializes owner-derived safe-stop evidence for all 16
+  route arms without promoting any arm to executable. The native probe invokes
+  the existing isolated proposal-clone and sole dispatcher through an
+  in-memory read-only project snapshot; `add_overlay` is unsupported and both
+  isolated/canonical state remain unchanged. The generated probe validates the
+  DEV-02-only capability and current program verifier; no RHC program,
+  evidence, media or font bundle exists, so the sandbox is explicitly
+  `NOT_CALLED`. Hybrid and free-choice arms preserve those component gaps.
+  Focused freeze/owner verification is 21/21 with full typecheck/lint passing.
+  The ceiling is `SAFE_STOP_OWNER_PROOF_ONLY`: no live datastore, sandbox
+  execution, render, route-quality result, correction-time result or product
+  mutation was exercised.
 - Commit `75860a1ea` closes the concrete stale whole-project overwrite in the
   live chat `cut_section` path. The tool now carries the revision returned by
   `ProjectService.loadProjectForMutation` into
