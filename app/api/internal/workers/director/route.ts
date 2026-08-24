@@ -49,6 +49,26 @@ interface DirectorWorkerPayload {
   editorialPreferences?: EditorialPreferences;
 }
 
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as UnknownRecord
+    : null;
+}
+
+function validProjectStartMs(value: unknown): number | null {
+  const date = value instanceof Date
+    ? value
+    : typeof value === 'string'
+      ? new Date(value)
+      : null;
+  const milliseconds = date?.getTime();
+  return milliseconds !== undefined && Number.isFinite(milliseconds)
+    ? milliseconds
+    : null;
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[DirectorWorker] Started');
@@ -94,11 +114,16 @@ async function handler(request: NextRequest) {
       return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
     }
 
-    const projectDoc = runClaim.project;
+    const projectDoc = asRecord(runClaim.project);
+    if (!projectDoc) {
+      throw new Error(`ProjectService returned an invalid claimed Director project for ${projectId}.`);
+    }
     trackedDirectorRun = { projectId, userId, runToken: runClaim.runToken };
 
-    const rawFootageAnalysis = projectDoc.rawFootageAnalysis;
-    const syntheticStoryboard = projectDoc.syntheticStoryboard;
+    const rawFootageAnalysis = asRecord(projectDoc.rawFootageAnalysis);
+    const contentTypeDetection = rawFootageAnalysis
+      ? asRecord(rawFootageAnalysis.contentTypeDetection)
+      : null;
 
     if (!rawFootageAnalysis) {
       console.warn(`[DirectorWorker] rawFootageAnalysis is null for ${projectId} — Stage 1 data may not have replicated. Director will run with degraded profile detection.`);
@@ -106,15 +131,23 @@ async function handler(request: NextRequest) {
 
     // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
     const profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection) {
-      console.log(`[DirectorWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
+    if (
+      typeof contentTypeDetection?.contentType === 'string'
+      && typeof contentTypeDetection.confidence === 'number'
+      && Number.isFinite(contentTypeDetection.confidence)
+    ) {
+      console.log(`[DirectorWorker] Content type: ${contentTypeDetection.contentType} (confidence=${contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
     }
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────
-    const editDNA = projectDoc.referenceEditDNA;
+    const editDNA = asRecord(projectDoc.referenceEditDNA);
+    const editDnaPacing = editDNA ? asRecord(editDNA.pacing) : null;
+    const editDnaCutRhythm = editDNA ? asRecord(editDNA.cutRhythm) : null;
+    const editDnaTransitions = editDNA ? asRecord(editDNA.transitions) : null;
+    const productionBrief = asRecord(projectDoc.productionBrief);
     const editorialPreferences = normalizeEditorialPreferences(payloadEditorialPreferences)
       ?? normalizeEditorialPreferences(projectDoc.editorialPreferences)
-      ?? normalizeEditorialPreferences(projectDoc.productionBrief?.editorialPreferences);
+      ?? normalizeEditorialPreferences(productionBrief?.editorialPreferences);
     const userPrefs = {
       ...(captionStyle && { captionStyle }),
       ...(transitionPreference && { transitionPreference }),
@@ -132,10 +165,10 @@ async function handler(request: NextRequest) {
       brief = {
         ...userPrefs,
         overrides: {
-          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
-          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
-          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
-          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
+          ...(editDnaPacing?.overall ? { pacing: editDnaPacing.overall } : {}),
+          ...(editDnaCutRhythm?.avgCutsPerMinute ? { cutsPerMinute: editDnaCutRhythm.avgCutsPerMinute } : {}),
+          ...(editDnaTransitions?.dominant ? { defaultTransition: editDnaTransitions.dominant } : {}),
+          ...(editDNA.graphicsDensity ? { graphicsDensity: editDNA.graphicsDensity } : {}),
         },
       };
     } else if (Object.keys(userPrefs).length > 0) {
@@ -163,10 +196,10 @@ async function handler(request: NextRequest) {
 
     // ─── Mark complete ────────────────────────────────────────────
     const directorMs = Date.now() - startMs;
-    const pipelineStartedAt = projectDoc.autoEditStartedAt;
-    const totalPipelineMs = pipelineStartedAt
-      ? Date.now() - new Date(pipelineStartedAt).getTime()
-      : directorMs;
+    const pipelineStartedAtMs = validProjectStartMs(projectDoc.autoEditStartedAt);
+    const totalPipelineMs = pipelineStartedAtMs === null
+      ? directorMs
+      : Math.max(directorMs, Date.now() - pipelineStartedAtMs);
     const directorDecisionAuthority = directorResult.decisionAuthority;
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();

@@ -196,6 +196,31 @@ describe('director completion ownership guard', () => {
     expect(mocks.recordProjectOutcome).toHaveBeenCalled();
   });
 
+  it('treats malformed legacy claim metadata as absent without bypassing ProjectService completion', async () => {
+    mocks.claimDirectorRunV1.mockResolvedValue({
+      disposition: 'CLAIMED',
+      project: {
+        ...autoProject,
+        rawFootageAnalysis: { contentTypeDetection: { contentType: 42, confidence: 'high' } },
+        referenceEditDNA: 'not-an-object',
+        editorialPreferences: [],
+        productionBrief: 'not-an-object',
+        autoEditStartedAt: 'not-a-date',
+      },
+      runToken: 'director_run_12345678901234567890',
+      receipt: terminalReceipt,
+    });
+
+    const res = await POST(request({ projectId: 'p1', userId: 'u1', profileId: 'A-01' }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.executeDirectorPlan).toHaveBeenCalledWith('p1', 'u1', 'A-01', undefined, expect.any(Object));
+    expect(mocks.completeDirectorRunV1).toHaveBeenCalledWith('u1', 'p1', expect.objectContaining({
+      directorRunToken: 'director_run_12345678901234567890',
+      totalPipelineMs: expect.any(Number),
+    }));
+  });
+
   it('treats a non-terminal Director result as a run failure instead of a successful completion', async () => {
     mocks.executeDirectorPlan.mockResolvedValue({ success: false, actionsExecuted: 0 });
 
