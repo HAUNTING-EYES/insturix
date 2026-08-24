@@ -29,6 +29,20 @@ rerun, provider call or reordered implementation. The latest canonical queue
 must be updated in the same bounded phase whenever its evidence or next action
 changes.
 
+### Safety / project-authority implementation record - 2026-08-25
+
+- Commit `f0e12d438` moves the live chat `cut_section` call through the single
+  `ProjectService.cutTimelineRangeV1` owner. Its result now carries the complete
+  pre-cut ripple-effect range and distinct post-cut preview range rather than a
+  one-frame seam hint. This is one migrated writer, not range collaboration,
+  safe rebase, generic invalidation, or migration of all writers.
+- Commit `e159c9b6a` makes the asset transcription, asset analysis and asset
+  deep-analysis workers fail closed when either QStash rotation key is absent.
+  It does not certify every internal worker or authenticate unrelated ingress.
+- The immediate next foundation work remains the audited legacy-writer and
+  remaining worker-auth inventory, followed by the highest-risk bounded owner
+  migration. No Stage 2.5 paid dispatch is authorized by these commits.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
