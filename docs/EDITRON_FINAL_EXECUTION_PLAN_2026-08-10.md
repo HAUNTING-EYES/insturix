@@ -3598,6 +3598,18 @@ relabelled as model behaviour.
   project effects are zero. Historical H02/H04 V3 suites still stop at the
   already-recorded `HOLDOUT_V3_BASE_COHORT_IDENTITY_DRIFT`; they were not
   patched and remain a successor-identity task.
+- Commit `707e300cf` independently recomputes the five long-form sentinels
+  through the real V2 context/proposal contract, compiler, scripted zero-
+  inference protocol and provider evaluator. An omitted range-owned semantic
+  scope and its explicit equivalent compile to the same PlanService revision;
+  an unknown range selector and `LOCAL_READY` with missing transcript evidence
+  fail with exact owner diagnostics; and a structurally valid provider episode
+  remains `PASS_STRUCTURAL_ONLY` with editorial taste, range-semantic accuracy
+  and rendered audiovisual quality explicitly `UNVERIFIABLE`. The runner takes
+  no caller axes, binds all fixtures/results and the frozen expectations, and
+  records one scripted invocation but zero inference, network, canonical-
+  project reads/mutations or state effects. The focused surrounding long-form
+  cluster passes 25/25, with full typecheck and quiet ESLint passing.
 
 The corrected audit disposition is therefore:
 
