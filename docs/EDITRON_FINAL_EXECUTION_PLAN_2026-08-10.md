@@ -3535,6 +3535,82 @@ then blind quality, correction-time, latency and cost receipts before a frozen
 `GO`, `MODIFY` or `NO-GO`. The old twelve P2/P3 rows and the phrase “seven unseen
 holdouts” remain closed historical work and must not be scheduled again.
 
+**Stage 2.5 benchmark-integrity correction and no-spend rebuild
+(2026-08-24):** this checkpoint supersedes any interpretation above that treats
+the nine-row long-form result or the current-context V4R result as a trustworthy
+provider failure rate. The provider calls and their raw artifacts are real and
+remain immutable, but post-run audit found scoring defects that must not be
+relabelled as model behaviour.
+
+- Commit `5dfa957fc` adds attempt-aware HOLD-07 scoring. A model that attempts
+  a write after unresolved, unknown or stale project-revision evidence now
+  fails the model-decision axis even when the owner correctly blocks the write.
+  Owner safety and model quality remain separate; an owner-blocked unsafe
+  attempt cannot earn safe-stop credit.
+- Commit `157fea764` removes topology-shaped H02/H04 success rules. H02 accepts
+  semantically equivalent variable-duration/repeated-process sequences when
+  they satisfy the evidence contract and writer-issued revision chain. H04
+  compares the final source-state result, so one-cut and multi-cut forms can be
+  equivalent while a stale final-state read still fails.
+- Commit `d02553536` replaces the ambiguous long-form range/readiness semantics
+  with a V2 contract. Omitted range-owned semantic scope is derived by the
+  compiler; unknown scope is rejected. Required evidence is derived from the
+  selected scope/range/direction requirements, and `LOCAL_READY` is rejected
+  when any derived evidence remains `UNVERIFIED` or `MISSING`. Structural pass
+  remains structural-only evidence, never product or editorial-quality proof.
+- Commit `afd098f23` makes accepted PlanService prerequisite revisions a hard
+  dispatch condition for durable editorial-plan jobs. A job cannot start from
+  an obsolete accepted plan/node/definition revision.
+- Commits `e47e52f57` and `ba053a95f` replace curated source-file lists with an
+  exact Git-HEAD executable import closure and bind the declared package-manager
+  dependency authority. This repository declares `pnpm@10.17.1`, therefore
+  `pnpm-lock.yaml` is authoritative; the ignored local `package-lock.json` is
+  excluded residue and cannot influence the closure hash. Paid execution must
+  use the declared launcher; a known local launcher mismatch is permitted only
+  for zero-inference validation and is recorded.
+- Commit `875134973` adds the no-spend fairness ledger, bidirectional and
+  metamorphic sentinel requirements, attempt-aware result axes, one-row-per-
+  route pilot policy and a short-lived readiness draft. The draft deliberately
+  ends at `PENDING_LANE_SENTINEL_RECOMPUTATION`; caller-supplied sentinel JSON
+  cannot issue `READY` and no dispatch/spend/project authority exists.
+
+The corrected audit disposition is therefore:
+
+- the historical nine paid calls are authentic raw executions, but only two
+  rows are currently clean structural passes, one is a clean structural
+  failure, and six are harness-confounded pending a fair successor rescore;
+- the V4R raw receipt's thirteen passes contain eleven currently defensible
+  fixture successes and two HOLD-07 false positives; fifteen provider-
+  infrastructure non-evaluations remain non-evaluations and the other seventeen
+  rows remain unresolved until the successor zero-inference rescore;
+- neither cohort supports a provider leaderboard, a model-failure percentage,
+  production routing, or Stage 2.5 `GO`.
+
+The frozen V3/V3R2/V4 contracts must not be patched to accept current hashes.
+Their identity drift is now an expected historical replay boundary: the current
+V4 diagnostic fails only while trying to reconstruct the old V3 base after the
+CAP current-truth reissue. The next implementation order is fixed:
+
+1. independently recompute every V4 and long-form positive, negative and
+   metamorphic sentinel through the real lane owners; fixed caller claims are
+   not sufficient;
+2. issue new successor cohort identities from current CAP truth while retaining
+   the historical manifests and paid artifacts unchanged;
+3. bind the sentinel/readiness owner modules themselves as strict Git-HEAD
+   closure roots, then run a zero-inference full rescore and publish immutable
+   status receipts;
+4. only after a clean no-spend receipt, request explicit authorization for one
+   non-scored row per provider route, audit those pilots, and separately request
+   any full-cohort spend authorization;
+5. continue the existing Stage 2.5 generalisation gates only from valid
+   successor evidence: genuinely new dependency/invalidation shapes, forced
+   native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
+   resume, realistic long-form limits and blind editor quality/correction-time
+   receipts.
+
+No new inference, provider dispatch, project read/mutation, media write or
+production promotion has occurred in this rebuild checkpoint.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
