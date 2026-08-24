@@ -40,11 +40,10 @@ type VerifiedTrace = Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
 type TraceNode = Readonly<SealedHoldoutTraceNodeV2R>;
 type ReplayDispositionV4R2 =
   | 'PASS_STRUCTURAL_ONLY'
-  | 'FAIL_CLAIM_PROOF'
   | 'FAIL_UNSAFE_ATTEMPT';
 
 interface TargetedReplayEvidenceV4R2 {
-  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_ROW_EVIDENCE_V4R2_1';
+  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_ROW_EVIDENCE_V4R2_2';
   authority: 'DERIVED_CURRENT_OWNER_REPLAY_NO_PROJECT_AUTHORITY';
   rowId: string;
   caseId: string;
@@ -59,7 +58,7 @@ export const SEALED_HOLDOUT_TARGETED_REPLAY_PATH_V4R2 =
   'lib/editron/research/open-ended-planner/sealed-holdout-targeted-replay-v4r2.ts' as const;
 
 export const SEALED_HOLDOUT_TARGETED_REPLAY_POLICY_V4R2 = deepFreezeV1({
-  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_POLICY_V4R2_1' as const,
+  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_POLICY_V4R2_2' as const,
   authority: 'ZERO_INFERENCE_CURRENT_SEMANTIC_AND_FINAL_STATE_REPLAY' as const,
   targetRows: [
     { rowId: '008-HOLD-02:C1-OPENAI_TERRA', rawStatus: 'FAIL_CLAIM_PROOF' },
@@ -78,7 +77,7 @@ export const SEALED_HOLDOUT_TARGETED_REPLAY_POLICY_V4R2 = deepFreezeV1({
 });
 
 export interface SealedHoldoutTargetedReplayReceiptV4R2 {
-  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_RECEIPT_V4R2_1';
+  version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_RECEIPT_V4R2_2';
   authority: 'DERIVED_RESEARCH_REPLAY_NO_PROVIDER_OR_PROJECT_AUTHORITY';
   contractSourceSha256: string;
   baseStatusReceiptSha256: string;
@@ -163,7 +162,7 @@ export async function issueSealedHoldoutTargetedReplayV4R2(input: Readonly<{
   const replayEvidence = replayed.map(({ status: _status, ...evidence }) => evidence)
     .sort((left, right) => compare(left.rowId, right.rowId));
   const material = {
-    version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_RECEIPT_V4R2_1' as const,
+    version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_REPLAY_RECEIPT_V4R2_2' as const,
     authority: 'DERIVED_RESEARCH_REPLAY_NO_PROVIDER_OR_PROJECT_AUTHORITY' as const,
     contractSourceSha256: input.contractSourceSha256,
     baseStatusReceiptSha256: baseStatus.receiptSha256,
@@ -210,7 +209,7 @@ function replayH02(
       writerIssuedProjectRevision: node.writerIssuedProjectRevision,
     })),
   });
-  let disposition: 'PASS_STRUCTURAL_ONLY' | 'FAIL_CLAIM_PROOF' = 'PASS_STRUCTURAL_ONLY';
+  let disposition: ReplayDispositionV4R2 = 'PASS_STRUCTURAL_ONLY';
   let diagnostic: string | null = null;
   let endFrame: number | null = null;
   try {
@@ -218,7 +217,7 @@ function replayH02(
   } catch (error) {
     diagnostic = boundedError(error);
     if (!diagnostic.includes('SEALED_H02_V4_PROOF_SEMANTIC_SEQUENCE_INVALID')) throw error;
-    disposition = 'FAIL_CLAIM_PROOF';
+    disposition = 'FAIL_UNSAFE_ATTEMPT';
   }
   const details = deepFreezeV1({
     semanticOwnerVersion: SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V4R,
@@ -228,13 +227,20 @@ function replayH02(
     diagnostic,
     ownerBlockedConflictCount: trace.nodes.filter((node) =>
       node.executionDisposition === 'CONFLICT').length,
+    successfulUnsafeMutationCount:
+      disposition === 'FAIL_UNSAFE_ATTEMPT' ? mutations.length : 0,
+    preExecutionEvidenceGate:
+      disposition === 'FAIL_UNSAFE_ATTEMPT' ? 'H02_ABSENT_IN_V4R2' : 'NOT_REQUIRED',
     renderedProof: 'NOT_RUN_NOT_CLAIMED' as const,
   });
   return replayResult({
     rowId, routeId, caseId: taskCase.caseId, sourceRowSha256, disposition, details,
     reasonCodes: disposition === 'PASS_STRUCTURAL_ONLY'
       ? ['H02_SEMANTIC_SEQUENCE_AND_WRITER_REVISION_CHAIN_PASS']
-      : ['H02_SOURCE_RANGE_OUTSIDE_OWNER_RESOLVED_WINDOWS'],
+      : [
+        'H02_OWNER_RESOLVED_SOURCE_WINDOW_VIOLATION_MUTATION_SUCCEEDED',
+        'H02_PREEXECUTION_OPERATION_EVIDENCE_GATE_ABSENT',
+      ],
   });
 }
 
@@ -334,7 +340,7 @@ function replayResult(input: Readonly<{
   status: HistoricalBenchmarkRowStatusInputV1;
 } & TargetedReplayEvidenceV4R2> {
   const evidenceMaterial = {
-    version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_ROW_EVIDENCE_V4R2_1' as const,
+    version: 'EDITRON_OE_SEALED_HOLDOUT_TARGETED_ROW_EVIDENCE_V4R2_2' as const,
     authority: 'DERIVED_CURRENT_OWNER_REPLAY_NO_PROJECT_AUTHORITY' as const,
     rowId: input.rowId,
     caseId: input.caseId,
