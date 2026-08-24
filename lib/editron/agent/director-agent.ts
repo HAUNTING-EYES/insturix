@@ -27,6 +27,7 @@ import type { ExecutionResult } from '@/lib/editron/services/edl-executor';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import {
   projectService,
+  type ProjectMutationReceiptV1,
   type ProjectPhase0ProofFactsV1,
   type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
@@ -426,6 +427,12 @@ type DirectorProgressObserverV1 = (
 interface DirectorProgressReporterV1 {
   persistProjectProgress?: boolean;
   onProgress?: DirectorProgressObserverV1;
+  /**
+   * The automatic QStash worker owns terminal lifecycle state through
+   * ProjectService. It opts in so this reusable executor does not perform a
+   * legacy raw status transition after emitting its final writer receipt.
+   */
+  deferProjectStatusTransitions?: boolean;
 }
 
 
@@ -448,6 +455,9 @@ export async function executeDirectorPlan(
 ): Promise<DirectorResult> {
   const startTime = Date.now();
   const profile = getProfileById(profileId);
+  const deferProjectStatusTransitions =
+    typeof progress !== 'function'
+    && progress?.deferProjectStatusTransitions === true;
 
   // C6 FIX: Validate profile exists before proceeding
   if (!profile) {
@@ -527,7 +537,8 @@ export async function executeDirectorPlan(
       step: number,
       total: number,
       description: string,
-    ): Promise<void> => {
+    ): Promise<ProjectMutationReceiptV1 | undefined> => {
+      let persistedReceipt: ProjectMutationReceiptV1 | undefined;
       const stagePercent = total > 0
         ? Math.min(99, Math.max(0, Math.round((step / total) * 100)))
         : 3;
@@ -553,9 +564,11 @@ export async function executeDirectorPlan(
         });
         lastPersistedStagePct = stagePercent;
         lastPersistedStageDesc = description;
+        persistedReceipt = receipt;
       }
 
       await progressObserver?.(step, total, description);
+      return persistedReceipt;
     };
 
     const directorProjectRecord = project as any;
@@ -2962,6 +2975,7 @@ export async function executeDirectorPlan(
     );
     directorCurrentRevision = finalReceipt.revision;
     directorLeaseId = null;
+    result.terminalProjectReceipt = finalReceipt;
     if (postBundleProfileActionPolicy) {
       await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
     }
@@ -2985,6 +2999,7 @@ export async function executeDirectorPlan(
         },
       );
       directorCurrentRevision = phase0ProofReceipt.revision;
+      result.terminalProjectReceipt = phase0ProofReceipt;
       const phase0Truth = phase0Proof.snapshot;
       (result as any).phase0LiveTruth = {
         version: phase0Truth.version,
@@ -3031,14 +3046,22 @@ export async function executeDirectorPlan(
       console.warn('[Director] non-fatal Phase0 live truth persistence:', message);
     }
     result.success = true;
-    await reportDirectorProgress(totalSteps, totalSteps, 'Director Agent execution complete');
+    const terminalProgressReceipt = await reportDirectorProgress(
+      totalSteps,
+      totalSteps,
+      'Director Agent execution complete',
+    );
+    if (terminalProgressReceipt) {
+      result.terminalProjectReceipt = terminalProgressReceipt;
+    }
 
-    // ─── Brand Intelligence: emit director_completed + transition status ───
+    // ─── Brand Intelligence: emit director_completed + optional status transition ───
     try {
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
-      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-
-      await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
+      if (!deferProjectStatusTransitions) {
+        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+        await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
+      }
 
       // Read actual quality score from project doc (persisted by quality_review step above)
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
@@ -3171,13 +3194,15 @@ export async function executeDirectorPlan(
     result.warnings.push(`Director Agent failed: ${fatalDirectorError.message}`);
     console.error('[Director] Execution failed:', fatalDirectorError.message);
 
-    try {
-      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-      await transitionProjectStatus(
-        projectId, userId, 'failed', 'director_error',
-        { message: fatalDirectorError.message, service: 'editron' },
-      );
-    } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
+    if (!deferProjectStatusTransitions) {
+      try {
+        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+        await transitionProjectStatus(
+          projectId, userId, 'failed', 'director_error',
+          { message: fatalDirectorError.message, service: 'editron' },
+        );
+      } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
+    }
   }
 
   if (directorLeaseId) {

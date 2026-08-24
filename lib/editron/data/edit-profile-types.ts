@@ -11,6 +11,7 @@ import type {
   EditorialFamily,
   EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
 // ─── Profile Categories ─────────────────────────────────────────
 
 export type ProfileCategory =
@@ -174,6 +175,12 @@ export interface ProjectBrief {
 export interface DirectorResult {
   success: boolean;
   profileId: ProfileId;
+  /**
+   * The last ProjectService receipt issued by a successful Director run.
+   * The automatic worker must bind lifecycle completion to this exact receipt
+   * instead of reconstructing a revision from stale route-local state.
+   */
+  terminalProjectReceipt?: ProjectMutationReceiptV1;
   decisionAuthority?: {
     version: 'decision-authority-v1';
     source: 'unified-decision-bundle' | 'fallback-reactive' | 'profile-driven';

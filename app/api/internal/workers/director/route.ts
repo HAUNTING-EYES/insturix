@@ -25,6 +25,7 @@ import {
   normalizeEditorialPreferences,
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import { projectService } from '@/lib/editron/services/project-service';
 
 export const runtime = 'nodejs';
 // 800 (not 300): a 20-min+ video's Director (load + Creative Brief + Path D + EDL execute + save) runs right
@@ -51,7 +52,8 @@ interface DirectorWorkerPayload {
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[DirectorWorker] Started');
-  let trackedProjectId: string | undefined;
+  let trackedDirectorRun: { projectId: string; userId: string; runToken: string } | undefined;
+  let trackedAssistProject: { projectId: string; userId: string } | undefined;
 
   try {
     const payload: DirectorWorkerPayload = await request.json();
@@ -61,44 +63,39 @@ async function handler(request: NextRequest) {
       captionStyle, transitionPreference, zoomBehavior,
       motionGraphics, pacingFeel, musicPreference, editorialPreferences: payloadEditorialPreferences,
     } = payload;
-    trackedProjectId = projectId;
-
     if (!projectId || !userId) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    const { getDatabase } = await import('@/lib/editron/db/mongodb');
-    const db = await getDatabase();
-
-    const lockResult = await db.collection('projects').findOneAndUpdate(
-      { projectId, autoEditStatus: { $in: ['analysis_complete', 'directing_queued'] } },
-      { $set: { autoEditStatus: 'directing', updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-    if (!lockResult) {
-      const current = await db.collection('projects').findOne({ projectId }, { projection: { autoEditStatus: 1 } });
-      console.log(`[DirectorWorker] Skipping ${projectId}: status is '${current?.autoEditStatus}' (not directing_queued/analysis_complete). Already processed or in progress.`);
+    const runClaim = await projectService.claimDirectorRunV1(userId, projectId);
+    if (runClaim.disposition === 'PROJECT_NOT_FOUND' || runClaim.disposition === 'NOT_ELIGIBLE') {
+      console.log(`[DirectorWorker] Skipping ${projectId}: Director run claim is ${runClaim.disposition}.`);
       return NextResponse.json({ success: true, skipped: true, reason: 'already_processed' });
-    }
-
-    const projectDoc = lockResult;
-    if (!projectDoc) {
-      throw new Error(`Project ${projectId} not found`);
     }
 
     // Director Mode (assist lane): scans are complete — hand the pen to the user.
     // The Director never runs, and post-director bookkeeping (quality review,
     // learning gate, bandit) evaluates Director output, so it is skipped with it.
     const { isAssistProject, ASSIST_STATUS_READY } = await import('@/lib/editron/services/assist-lane');
-    if (isAssistProject(projectDoc)) {
+    if (runClaim.disposition === 'ASSIST_PROJECT') {
+      const projectDoc = runClaim.project;
+      if (!isAssistProject(projectDoc)) {
+        throw new Error(`ProjectService returned an invalid assist Director claim for ${projectId}.`);
+      }
+      trackedAssistProject = { projectId, userId };
+      const { getDatabase } = await import('@/lib/editron/db/mongodb');
+      const db = await getDatabase();
       await db.collection('projects').updateOne(
         // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
+        { projectId, userId, autoEditStatus: { $ne: 'scan_failed' } },
         { $set: { autoEditStatus: ASSIST_STATUS_READY, autoEditCompletedAt: new Date() } },
       );
       console.log(`[DirectorMode] Assist scan complete — director skipped (project ${projectId}).`);
       return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
     }
+
+    const projectDoc = runClaim.project;
+    trackedDirectorRun = { projectId, userId, runToken: runClaim.runToken };
 
     const rawFootageAnalysis = projectDoc.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc.syntheticStoryboard;
@@ -156,9 +153,13 @@ async function handler(request: NextRequest) {
     const directorResult = await executeDirectorPlan(
       projectId, userId, profileId, brief, {
         persistProjectProgress: true,
+        deferProjectStatusTransitions: true,
         onProgress: emitProgress,
       },
     );
+    if (!directorResult.success || !directorResult.terminalProjectReceipt) {
+      throw new Error('Director completed without a terminal ProjectService receipt.');
+    }
 
     // ─── Mark complete ────────────────────────────────────────────
     const directorMs = Date.now() - startMs;
@@ -167,8 +168,10 @@ async function handler(request: NextRequest) {
       ? Date.now() - new Date(pipelineStartedAt).getTime()
       : directorMs;
     const directorDecisionAuthority = directorResult.decisionAuthority;
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const db = await getDatabase();
     const projectAfterDirector = await db.collection('projects').findOne(
-      { projectId },
+      { projectId, userId },
       { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
     const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
@@ -176,40 +179,23 @@ async function handler(request: NextRequest) {
       projectAfterDirector?.qualityReview,
       renderedQualityEvidence,
     );
-    const completionSet: Record<string, unknown> = {
+    const completion = await projectService.completeDirectorRunV1(userId, projectId, {
+      directorRunToken: trackedDirectorRun.runToken,
+      expectedRevision: directorResult.terminalProjectReceipt.revision,
+      terminalReceipt: directorResult.terminalProjectReceipt,
+      totalPipelineMs,
+      directorMs,
+      profileId,
       autoEditStatus: completionHealth.autoEditStatus,
-      autoEditCompletedAt: new Date(),
-      autoEditDurationMs: totalPipelineMs,
-      directorDurationMs: directorMs,
-      directorProfileUsed: profileId,
-      ...(directorDecisionAuthority ? { 'intelligence.decisionAuthority': directorDecisionAuthority } : {}),
-    };
-    const completionUpdate: Record<string, unknown> = { $set: completionSet };
-    if (completionHealth.needsQualityAttention) {
-      completionSet.projectStatus = 'needs-attention';
-      completionSet.autoEditHealth = 'needs_review';
-      completionSet.autoEditWarning = completionHealth.warning;
-    } else {
-      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
-    }
-
-    // Ownership guard (Director Mode rescue seam): the director owns this project
-    // ONLY while autoEditStatus === 'directing' — the lock it claimed at the top,
-    // which executeDirectorPlan never moves off 'directing'. If the stuck-recovery
-    // cron declared this (still-running) worker failed and the user RESCUED the
-    // project into Director Mode (editMode=assist, ready_for_chat) before we
-    // finished, resurrecting it to 'complete' would apply a full auto-edit to a
-    // project the user chose to hand-direct — violating the assist lane's zero-edit
-    // invariant AND giving away a free edit. Commit only while still 'directing';
-    // if we lost ownership, skip the completion AND the post-director bookkeeping.
-    const completionWrite = await db.collection('projects').updateOne(
-      { projectId, autoEditStatus: 'directing' },
-      completionUpdate,
-    );
-    if (completionWrite.matchedCount !== 1) {
-      console.warn(`[DirectorWorker] ${projectId}: completion skipped — no longer 'directing' (recovered/rescued/cancelled mid-run). Not resurrecting.`);
+      needsQualityAttention: completionHealth.needsQualityAttention,
+      ...(completionHealth.warning ? { autoEditWarning: completionHealth.warning } : {}),
+      ...(directorDecisionAuthority ? { decisionAuthority: directorDecisionAuthority } : {}),
+    });
+    if (completion.disposition !== 'RECORDED') {
+      console.warn(`[DirectorWorker] ${projectId}: completion skipped — Director run ownership is ${completion.disposition}.`);
       return NextResponse.json({ success: true, projectId, skipped: true, reason: 'ownership_lost' });
     }
+    trackedDirectorRun = undefined;
 
     if (directorDecisionAuthority) {
       const signalAuditTotal = directorDecisionAuthority.signalAudit?.totalCount ?? 0;
@@ -261,20 +247,27 @@ async function handler(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[DirectorWorker] Failed: ${msg}`);
 
-    if (trackedProjectId) {
+    if (trackedDirectorRun) {
+      try {
+        const failure = await projectService.failDirectorRunV1(
+          trackedDirectorRun.userId,
+          trackedDirectorRun.projectId,
+          {
+            directorRunToken: trackedDirectorRun.runToken,
+            errorMessage: `Director: ${msg}`,
+          },
+        );
+        if (failure.disposition !== 'RECORDED') {
+          console.warn(`[DirectorWorker] ${trackedDirectorRun.projectId}: failure terminalization skipped — ${failure.disposition}.`);
+        }
+      } catch (err: unknown) { console.warn('[DirectorWorker] ProjectService failure terminalization failed:', err instanceof Error ? err.message : err); }
+    } else if (trackedAssistProject) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
-        // Assist lane: scan_failed + refund-where-deducted; auto → plain 'failed'.
-        const settlement = await settleAssistScanFailure(db, trackedProjectId, `Director: ${msg}`);
-        if (settlement === 'not-assist') {
-          await db.collection('projects').updateOne(
-            { projectId: trackedProjectId },
-            { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
-          );
-        }
-      } catch (err: unknown) { console.warn('[DirectorWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
+        await settleAssistScanFailure(db, trackedAssistProject.projectId, `Director: ${msg}`);
+      } catch (err: unknown) { console.warn('[DirectorWorker] Assist failure settlement failed:', err instanceof Error ? err.message : err); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
