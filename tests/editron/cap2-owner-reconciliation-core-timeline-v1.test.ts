@@ -14,6 +14,10 @@ import {
   assertCap2CurrentTruthSourcesMatchV7,
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v7';
+import {
+  assertCap2CurrentTruthSourcesMatchV8,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v8';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -63,14 +67,21 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves the historical core binding while the latest reissue owns current source verification', () => {
+  it('preserves historical bindings while V8 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
     expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
     expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7.priorAuditBinding.artifactType)
       .toBe('EditronCapabilityCurrentTruthReissueAuditV6');
-    expect(() => assertCap2CurrentTruthSourcesMatchV7()).not.toThrow();
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV7',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V7.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV7()).toThrow(
+      'CAP-2 v7 current source coverage drift.',
+    );
+    expect(() => assertCap2CurrentTruthSourcesMatchV8()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -127,7 +138,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(checkpoints).toContain('requires a writer-issued rollback receipt');
   });
 
-  it('guards the current no-CAS and stale whole-state writer findings', () => {
+  it('keeps generic no-CAS findings while recognizing the repaired chat cut writer', () => {
     const projectService = readSource('lib/editron/services/project-service.ts');
     const updateStart = projectService.indexOf('async updateProject(');
     const updateEnd = projectService.indexOf('async deleteOverlay(', updateStart);
@@ -139,10 +150,20 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     const tools = readSource('lib/editron/agent/tools.ts');
     const cutStart = tools.indexOf('const cutSection = tool(');
     const cutEnd = tools.indexOf('// --- Auto-Edit from Script ---', cutStart);
-    expect(tools.slice(cutStart, cutEnd))
-      .toContain('projectService.saveProject(userId, projectId, project)');
+    const cutSource = tools.slice(cutStart, cutEnd);
+    expect(cutSource).toContain('projectService.loadProjectForMutation(userId, projectId)');
+    expect(cutSource).toContain('projectService.saveProjectWithReceipt(');
+    expect(cutSource).toContain('{ expectedRevision: beforeRevision }');
+    expect(cutSource).toContain('e instanceof ProjectMutationConflictError');
+    expect(cutSource).toContain("nextAction: 'stop'");
+    expect(cutSource).not.toContain('projectService.saveProject(userId, projectId, project)');
+    // The frozen V1 candidate remains historical; V8 records the current repair.
     expect(candidate('timeline.cut-range').revisionSafety.status)
       .toBe('WHOLE_STATE_STALE_SNAPSHOT_RISK');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta).toMatchObject({
+      deltaId: 'core.chat-cut-caller-pinned-project-cas',
+      catalogPromotion: false,
+    });
   });
 
   it('records receipt and coordinate-output improvements without false atomic promotion', () => {
@@ -169,6 +190,10 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       .toContain('The cut result does not expose its internal original-to-split-child mapping.');
     expect(cutResolution.remainingGaps)
       .toContain('Carry the caller-pinned expected revision through one canonical project mutation.');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta.resolvedGaps)
+      .toContain('The chat cut no longer discards the revision paired with its loaded project snapshot.');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta.remainingGaps)
+      .toContain('The operation still has no ProjectService-issued range-aware rebase or durable range-lock command.');
   });
 
   it('keeps overlay metadata receipts outside transaction authority', () => {
