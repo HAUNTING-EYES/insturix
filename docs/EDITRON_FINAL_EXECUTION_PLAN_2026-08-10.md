@@ -89,8 +89,8 @@ changes.
   ProjectService owner: atomically claimed non-Assist run identity, exact
   terminal-receipt completion, and active-run-only failure all advance the
   canonical revision and return receipts/no-write dispositions. Its focused
-  owner suites passed 26/26 with repository typecheck and quiet lint. This
-  wiring phase moves the QStash Director worker through that owner: the route
+  owner suites passed 26/26 with repository typecheck and quiet lint. Commit
+  `bbc74cd8e` moves the QStash Director worker through that owner: the route
   claims the durable run token, requires the executor's last writer-issued
   terminal receipt for completion, and sends runtime failure only through the
   matching active run. The executor now returns its final save, Phase-0 or
@@ -98,9 +98,9 @@ changes.
   `status` transition for this worker, so it cannot invalidate that receipt
   before completion. Assist handoff remains a deliberately separate legacy
   route write. Focused owner/route suites pass 28/28 with repository typecheck
-  and quiet lint. This is a completed lifecycle migration, not a migration of
-  legacy Director fact writes, stuck recovery, Assist rescue, range
-  collaboration or generic reconciliation.
+  and quiet lint. This is a completed **automatic QStash Director lifecycle**
+  migration, not a migration of legacy Director fact writes, stuck recovery,
+  Assist rescue, range collaboration or generic reconciliation.
   No Stage 2.5 paid dispatch is authorized by this audit.
 
 ## The desired experience, in plain words

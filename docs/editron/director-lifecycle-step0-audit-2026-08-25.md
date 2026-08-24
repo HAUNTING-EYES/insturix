@@ -84,10 +84,27 @@ Commit `f233ec379` implements the ProjectService half of this design:
 4. The focused lifecycle, progress, delivery-failure and existing worker suites
    pass 26/26; repository typecheck and quiet ESLint pass.
 
-This is owner evidence, not live migration. The QStash Director route still
-performs raw claim, completion and runtime-failure writes because the agent has
-not yet returned a typed terminal receipt and the route has not yet consumed
-these methods. The required next phase is that bounded wiring only.
+## Live automatic-worker wiring outcome
+
+Commit `bbc74cd8e` completes the bounded automatic QStash Director lifecycle
+migration:
+
+1. The route calls `claimDirectorRunV1` rather than raw-claiming `directing`.
+2. `executeDirectorPlan` returns its exact last writer receipt: the final save,
+   Phase-0 receipt when persisted, or the later durable progress receipt.
+3. The route completes only through `completeDirectorRunV1` with that receipt
+   and the exact durable run token. Ownership loss returns no write and skips
+   learning bookkeeping.
+4. The route calls `failDirectorRunV1` for an automatic run failure; it no
+   longer falls back to a raw `failed` write.
+5. For only this route, the executor defers legacy raw `status` transitions so
+   they cannot alter `updatedAt` after the final receipt and make completion
+   falsely stale. Other direct/manual callers retain their existing behavior.
+
+Focused lifecycle, progress, delivery-failure, route, decision-bundle and
+reference-wiring suites pass 44/44, followed by repository typecheck and quiet
+ESLint. This completes the automatic lifecycle only; the exclusions below
+remain current.
 
 ## Required proof
 

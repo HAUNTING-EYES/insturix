@@ -52,7 +52,7 @@ ProjectService-issued command/receipt boundary:
 
 | Path | Current write role | Current gap |
 | --- | --- | --- |
-| `app/api/internal/workers/director/route.ts` | Claims `analysis_complete`/`directing_queued` into `directing`, completes the auto-edit status, and records non-assist failure. Director stage progress now enters only through `ProjectService.recordDirectorProgressV1`. | `ProjectService` now has typed lifecycle owner methods, but this route still uses raw claim/completion/runtime-failure writes until the next bounded wiring phase. |
+| `app/api/internal/workers/director/route.ts` | The automatic QStash route now claims, completes and fails only through `ProjectService`'s durable-run commands. It binds completion to the executor's last writer receipt and skips bookkeeping after ownership loss. | Assist handoff remains a legacy direct write by design; recovery/rescue and non-QStash Director callers are separate migrations. |
 | `lib/editron/agent/director-agent.ts` | Carries lease-bound progress receipts and ProjectService action receipts into the final editor save; it still writes intelligence summaries, decision logs, status/audit facts and quality-review data directly. | The progress/final-save revision race is closed, but the intervening legacy facts remain direct Mongo writes without revision advancement or receipts. |
 | `app/api/internal/workers/video-analysis/route.ts` and `tribe-analysis/route.ts` | Advance analysis/directing status and persist analysis facts; development fallbacks can run the Director inline. | Many state transitions/evidence writes remain raw and must be migrated by lifecycle, not bulk-wrapped. |
 | `app/api/internal/workers/pipeline/audio/route.ts` | Pushes BGM/SFX overlays, beat-aligned overlay state and audio-plan facts. | Direct overlay mutation can bypass writer-issued revision/receipt semantics. |
@@ -62,10 +62,10 @@ ProjectService-issued command/receipt boundary:
 This table is a migration ledger, not an assertion that all listed paths have
 the same risk or can safely share a generic replacement.
 
-## Why the Director lifecycle is next
+## Completed automatic Director lifecycle migration
 
-The Director route is the highest-risk bounded next owner migration because it
-currently splits one lifecycle across two authorities:
+Commit `bbc74cd8e` closes the highest-risk bounded automatic lifecycle seam.
+The old split was:
 
 ```text
 route raw claim/status/completion/failure
@@ -73,15 +73,20 @@ route raw claim/status/completion/failure
 Director agent lease -> ProjectService progress/action receipts -> final editor save -> Phase-0 proof
 ```
 
-The raw route claim does not carry a ProjectService revision or receipt. The
-raw completion write only checks `autoEditStatus: 'directing'`, so it does not
-bind the status transition to the final writer/proof revision. The non-assist
-failure update is also a direct terminal project update.
+It is now:
 
-The Director agent already has the useful canonical pieces: a token-bound
-lease, a final editor-state CAS, and a Phase-0 proof CAS. The migration must
-extend those existing owners; it must not add a parallel Director journal,
-checkpoint store, timeline, or generic project-metadata authority.
+```text
+ProjectService claim(run token + receipt)
+        -> Director lease/progress/action/final writer receipts
+        -> ProjectService complete(exact run token + terminal receipt)
+           | fail(exact active run token)
+```
+
+The executor returns the real latest receipt, including a final durable-progress
+receipt when one follows Phase-0. The QStash caller defers the executor's legacy
+raw `status` transition, preventing its `updatedAt` write from invalidating that
+receipt before lifecycle completion. No parallel Director journal, checkpoint
+store, timeline, or generic project-metadata authority was added.
 
 ## Completed progress/revision repair
 
@@ -100,22 +105,16 @@ so they do not accidentally persist a stage on a non-`directing` project.
 This is intentionally not a generic worker-status port and creates no second
 project, timeline, journal, checkpoint or proof owner.
 
-## Lifecycle Step-0 and next bounded implementation slice
+## Lifecycle Step-0 and completed bounded implementation
 
 The required lifecycle Step-0 audit is recorded in
 [director-lifecycle-step0-audit-2026-08-25.md](./director-lifecycle-step0-audit-2026-08-25.md).
 Commit `a0cb07556` separately removes the one dead Director progress type
 export found during that audit. Commit `f233ec379` implements the explicit
 ProjectService claim/completion/failure owner methods and adversarial owner
-tests. It is not production wiring: this route still has the raw lifecycle
-writes shown above. The next lifecycle implementation must remain scoped to
-the Director route and agent result boundary, using the existing owner methods
-rather than a generic worker-status port, for:
-
-1. claiming a run from the allowed analysis states;
-2. recognizing an ownership loss without resurrection;
-3. completing only against the final writer/proof state; and
-4. failing only an active owned run.
+tests. Commit `bbc74cd8e` wires the QStash route and executor result boundary
+to those methods. Focused owner/route/decision-wiring verification passes
+44/44 with repository typecheck and quiet ESLint.
 
 The durable run identity is distinct from the short-lived Director writer
 lease. The final ProjectService save intentionally clears the lease token;
@@ -135,8 +134,8 @@ and transition keyframe tracks from the fresh project read. It is not yet a
 general field-level three-way reconciliation for every legacy action/tool
 mutation. The new receipt chain prevents a stale final CAS from pretending to
 be current; it does not certify that every legacy in-memory/direct-write merge
-is lossless. That requires a separate owner-level audit before the Director
-can be called fully migrated.
+is lossless. That requires a separate owner-level audit before the broader
+Director execution path can be called fully reconciled.
 
 ## Non-claims
 
