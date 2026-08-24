@@ -3969,6 +3969,18 @@ authorization are all present.
   but no public downstream source-time transform. No inference may begin until
   fresh exact owners execute the sentinels and a successor readiness receipt
   binds current-source closure.
+- Commit `034b16fd6` freezes four new route-neutral targets (`RHC-01` through
+  `RHC-04`) across free-choice, forced-native, forced-generated-composition and
+  forced-hybrid arms. All 16 arms bind identical per-task target material;
+  public packets omit evaluator policy and acceptable-route answers. The
+  symbolic evaluator permits multiple qualified routes, accepts only untouched
+  capability gaps for unavailable forced owners, and rejects substitution,
+  unavailable-owner attempts, flattened state, incomplete target/preservation
+  predicates and incomplete hybrid handoffs. Freeze `6ce29e85...` passes 14/14
+  focused tests plus full typecheck and quiet ESLint. This remains
+  `STRUCTURAL_SENTINEL` evidence: media/fonts and generalized route owners are
+  not materialized, nothing rendered, no ProjectService path ran, and dispatch
+  remains disabled.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
