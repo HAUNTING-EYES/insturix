@@ -43,9 +43,19 @@ changes.
   Clickatron invalid-signature terminalization path remains intact. This does
   not certify every internal worker, development-only route policy, or
   unrelated ingress.
-- The immediate next foundation work is the legacy-project-writer Step-0 audit
-  and its highest-risk bounded owner migration. No Stage 2.5 paid dispatch is
-  authorized by these commits.
+- Commit `5684aca17` moves the authenticated Director-delivery-failure callback
+  through `ProjectService.recordDirectorDeliveryFailureV1`. The owner validates
+  the bounded callback audit, source message, active Director state and
+  snapshot revision in one CAS update; it increments `projectRevision` and
+  issues a writer receipt. Stale, terminal, changed and missing-project cases
+  produce explicit no-write dispositions. The route no longer reads or writes
+  `projects` directly. Its upload-batch status write remains a separate,
+  non-atomic aggregate update by design: reconciliation after a post-project
+  batch-write failure is still an open owner-design gap. Focused owner/ingress
+  verification was 33/33, with repository typecheck and quiet ESLint passing.
+- The immediate next foundation work is the remaining legacy-project-writer
+  audit and the next highest-risk bounded owner migration. No Stage 2.5 paid
+  dispatch is authorized by these commits.
 
 ## The desired experience, in plain words
 
