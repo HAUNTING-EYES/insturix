@@ -75,6 +75,47 @@ export function createProviderNativeLiveTransportV2R(input: {
 }
 
 /**
+ * Creates the receipted, single-attempt transport for one already-authorized
+ * route. Unlike the cohort transport, this boundary does not require a
+ * credential for an unrelated provider and can never hide a transient retry.
+ */
+export function createProviderNativeRouteLiveTransportV2R(input: {
+  route: Readonly<ProviderNativeRouteV2R>;
+  environment: Readonly<Record<string, string | undefined>>;
+  fetchImpl?: FetchV2R;
+  timeoutMs?: number;
+}): Readonly<{
+  invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
+    => Promise<ProviderNativeInvokeResponseV2R>;
+  snapshot: () => Readonly<ProviderNativeLiveTransportReceiptV2R>;
+}> {
+  assertProviderNativeDurableRouteV2R(input.route);
+  const credential = resolveProviderNativeRouteCredentialV2R(
+    input.route.provider,
+    input.environment,
+  );
+  const transport = createLiveTransport({
+    ...input,
+    maxTransientAttempts: 1,
+    credentialFor: (provider) => {
+      if (provider !== input.route.provider) {
+        throw new Error('PROVIDER_NATIVE_ROUTE_PROVIDER_SUBSTITUTION');
+      }
+      return credential;
+    },
+  });
+  return {
+    invoke: async (request) => {
+      validateDurableRequest(input.route, request);
+      const response = await transport.invoke(request);
+      validateDurableResponse(input.route, response);
+      return response;
+    },
+    snapshot: transport.snapshot,
+  };
+}
+
+/**
  * Resolves one exact durable route with only that provider's credential. The
  * wrapper binds the serialized request and successful response model to the
  * route frozen in the durable checkpoint before the worker can consume it.

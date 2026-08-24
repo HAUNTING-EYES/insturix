@@ -5,6 +5,7 @@ import { hashCanonicalJsonV1 }
 import {
   createProviderNativeDurableLiveTransportOwnerV2R,
   createProviderNativeLiveTransportV2R,
+  createProviderNativeRouteLiveTransportV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-live-transport-v2r';
 import type {
   ProviderNativeRouteV2R,
@@ -156,6 +157,63 @@ describe('provider-native live transport V2R', () => {
     await expect(invoke(boundRequest(LUNA_ROUTE)))
       .resolves.toMatchObject({ status: 429 });
     expect(calls).toBe(1);
+  });
+
+  it.each([
+    {
+      route: LUNA_ROUTE,
+      environment: { OPENAI_API_KEY: 'openai-route-only' },
+      expectedHeader: ['authorization', 'Bearer openai-route-only'],
+    },
+    {
+      route: GOOGLE_ROUTE,
+      environment: { GEMINI_API_KEY: 'google-route-only' },
+      expectedHeader: ['x-goog-api-key', 'google-route-only'],
+    },
+  ] as const)('receipts one attempt for independently healthy $route.routeId', async ({
+    route, environment, expectedHeader,
+  }) => {
+    let calls = 0;
+    const transport = createProviderNativeRouteLiveTransportV2R({
+      route,
+      environment,
+      fetchImpl: (async (_url, init) => {
+        calls += 1;
+        expect(new Headers(init?.headers).get(expectedHeader[0])).toBe(expectedHeader[1]);
+        return new Response(JSON.stringify({
+          id: 'route-receipt', model: route.model,
+          usage: { input_tokens: 10, output_tokens: 2 },
+        }), { status: 200 });
+      }) as typeof fetch,
+    });
+    await expect(transport.invoke(boundRequest(route))).resolves.toMatchObject({ status: 200 });
+    const receipt = transport.snapshot();
+    expect(calls).toBe(1);
+    expect(receipt.calls).toHaveLength(1);
+    expect(receipt.calls[0]).toMatchObject({
+      attempt: 1, provider: route.provider, returnedModelIdentity: route.model,
+    });
+    expect(receipt.secretsPersisted).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain(Object.values(environment)[0]);
+  });
+
+  it('does not retry a transient response on the route-scoped transport', async () => {
+    let calls = 0;
+    const transport = createProviderNativeRouteLiveTransportV2R({
+      route: LUNA_ROUTE,
+      environment: { OPENAI_API_KEY: 'openai-route-only' },
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ error: { message: 'retry in 0s' } }), {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        });
+      }) as typeof fetch,
+    });
+    await expect(transport.invoke(boundRequest(LUNA_ROUTE)))
+      .resolves.toMatchObject({ status: 429 });
+    expect(calls).toBe(1);
+    expect(transport.snapshot().calls).toHaveLength(1);
   });
 });
 
