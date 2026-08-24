@@ -61,7 +61,8 @@ export async function auditSealedHoldoutPilotLiveArtifactsV4R3(input: Readonly<{
   const authorization = values['authorization.json'];
   const runReceipt = values['pilot-run-receipt.json'];
   const operatorReceipt = values['operator-receipt.json'];
-  [authorization, runReceipt, operatorReceipt].forEach((value) => assertOwnHash(value));
+  assertOwnHash(authorization, 'authorizationSha256');
+  [runReceipt, operatorReceipt].forEach((value) => assertOwnHash(value));
   const rows = records(authorization.authorizedRows);
   const results = records(runReceipt.results);
   assertAuthorizationRows(manifest, routeHealth, authorization, rows);
