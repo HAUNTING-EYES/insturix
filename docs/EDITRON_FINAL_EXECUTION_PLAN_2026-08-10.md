@@ -3573,6 +3573,17 @@ relabelled as model behaviour.
   route pilot policy and a short-lived readiness draft. The draft deliberately
   ends at `PENDING_LANE_SENTINEL_RECOMPUTATION`; caller-supplied sentinel JSON
   cannot issue `READY` and no dispatch/spend/project authority exists.
+- Commit `c4b351c98` adds the successor V4R2 public pre-execution evidence
+  policy to the sole isolated holdout owner without altering frozen V3/V4
+  identities. It rejects ambiguous transcript-derived destructive ranges,
+  generated-composition execution without reference-layout/protected-subject/
+  return-timeline evidence, subject-aware reframing without spatial-track and
+  authored-layout evidence, and forged evidence bindings. The positive owner
+  controls still execute when all required evidence resolves. Focused successor,
+  owner and attempt-aware evaluator tests pass 15/15; repository typecheck,
+  quiet ESLint and diff checks pass. This is research-only pre-execution safety:
+  it makes no provider call, project mutation, media write or production
+  certification, and it permits no weaker fallback edit.
 
 The corrected audit disposition is therefore:
 
