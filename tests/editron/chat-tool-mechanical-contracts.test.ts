@@ -18,7 +18,10 @@ import { buildChatEditRenderVerificationRequest } from '@/lib/editron/agent/chat
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import { EDITRON_TEXT_SHADOW_FLOOR } from '@/lib/editron/agent/chat-overlay-safe-placement';
 import { createChatVisualTools } from '@/lib/editron/agent/chat-visual-tools';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  ProjectMutationConflictError,
+} from '@/lib/editron/services/project-service';
 
 type FixtureProject = {
   projectId: string;
@@ -31,6 +34,7 @@ type FixtureProject = {
   overlays: Array<Record<string, any>>;
   createdAt: Date;
   updatedAt: Date;
+  projectRevision?: number;
   visibility: string;
 };
 
@@ -46,12 +50,23 @@ function makeProject(overlays: Array<Record<string, any>>, durationInFrames = 30
     overlays: structuredClone(overlays),
     createdAt: new Date('2026-07-18T00:00:00.000Z'),
     updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+    projectRevision: 1,
     visibility: 'private',
   };
 }
 
 function installProjectStore(project: FixtureProject) {
   vi.spyOn(projectService, 'loadProject').mockImplementation(async () => structuredClone(project) as any);
+  const beforeRevision = {
+    schemaVersion: 1 as const,
+    value: project.projectRevision ?? 1,
+    compatibilityUpdatedAt: project.updatedAt.toISOString(),
+  };
+  const loadProjectForMutation = vi.spyOn(projectService, 'loadProjectForMutation')
+    .mockImplementation(async () => ({
+      project: structuredClone(project) as any,
+      revision: structuredClone(beforeRevision),
+    }));
   const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockImplementation(
     async (_userId, _projectId, overlayId, patch) => {
       const overlay = project.overlays.find((candidate) => candidate.id === overlayId);
@@ -79,7 +94,33 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(nextProject));
     },
   );
-  return { updateOverlay, addOverlay, deleteOverlay, updateProject, saveProject };
+  const saveProjectWithReceipt = vi.spyOn(projectService, 'saveProjectWithReceipt')
+    .mockImplementation(async (_userId, projectId, nextProject, options) => {
+      expect(options?.expectedRevision).toEqual(beforeRevision);
+      Object.assign(project, structuredClone(nextProject));
+      const revision = {
+        schemaVersion: 1 as const,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: '2026-07-18T00:00:01.000Z',
+      };
+      project.projectRevision = revision.value;
+      project.updatedAt = new Date(revision.compatibilityUpdatedAt);
+      return {
+        schemaVersion: 1 as const,
+        projectId,
+        revision,
+        committedAt: revision.compatibilityUpdatedAt,
+      };
+    });
+  return {
+    updateOverlay,
+    addOverlay,
+    deleteOverlay,
+    updateProject,
+    saveProject,
+    loadProjectForMutation,
+    saveProjectWithReceipt,
+  };
 }
 
 function toolNamed(name: string) {
@@ -771,6 +812,78 @@ describe('chat mechanical tool contracts', () => {
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
     expect(store.updateProject).not.toHaveBeenCalled();
-    expect(store.saveProject).toHaveBeenCalledTimes(1);
+    expect(store.saveProject).not.toHaveBeenCalled();
+    expect(store.loadProjectForMutation).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+    );
+    expect(store.saveProjectWithReceipt).toHaveBeenCalledTimes(1);
+    expect(result.data?.mutationReceipt).toMatchObject({
+      projectId: 'proj_mechanical_tools',
+      revision: { schemaVersion: 1, value: 2 },
+    });
+  });
+
+  it('rejects a stale chat cut without overwriting the newer project state', async () => {
+    const project = makeProject([{
+      id: 7,
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+      content: 'original-source',
+      row: 0,
+    }], 180);
+    const store = installProjectStore(project);
+    const staleRevision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-07-18T00:00:07.000Z',
+    };
+    const currentRevision = {
+      schemaVersion: 1 as const,
+      value: 8,
+      compatibilityUpdatedAt: '2026-07-18T00:00:08.000Z',
+    };
+    store.loadProjectForMutation.mockResolvedValueOnce({
+      project: structuredClone(project) as any,
+      revision: staleRevision,
+    });
+    store.saveProjectWithReceipt.mockImplementationOnce(async () => {
+      project.overlays[0].content = 'newer-user-source';
+      project.projectRevision = currentRevision.value;
+      project.updatedAt = new Date(currentRevision.compatibilityUpdatedAt);
+      throw new ProjectMutationConflictError(currentRevision);
+    });
+
+    const result = parseEnvelope(await toolNamed('cut_section').invoke({
+      startFrame: 30,
+      endFrame: 60,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      data: null,
+      error: {
+        code: 'PROJECT_REVISION_CONFLICT',
+        details: { currentRevision },
+      },
+    });
+    expect(project).toMatchObject({
+      durationInFrames: 180,
+      projectRevision: 8,
+      overlays: [{
+        id: 7,
+        content: 'newer-user-source',
+        from: 0,
+        durationInFrames: 180,
+      }],
+    });
+    expect(store.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+      expect.objectContaining({ durationInFrames: 150 }),
+      { expectedRevision: staleRevision },
+    );
+    expect(store.saveProject).not.toHaveBeenCalled();
   });
 });

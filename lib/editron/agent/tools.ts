@@ -2,7 +2,10 @@ import { tool } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { projectService } from "../services/project-service";
+import {
+  projectService,
+  ProjectMutationConflictError,
+} from "../services/project-service";
 import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
@@ -4584,7 +4587,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return JSON.stringify({ status: 'error', message: 'endFrame must be greater than startFrame' });
         }
 
-        const project = await loadProject();
+        const { project, revision: beforeRevision } =
+          await projectService.loadProjectForMutation(userId, projectId);
         const fps = project.fps || 30;
         const cut = cutTimelineRange({
           overlays: project.overlays || [],
@@ -4595,7 +4599,12 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         });
         project.overlays = cut.overlays as Overlay[];
         project.durationInFrames = cut.newDurationInFrames;
-        await projectService.saveProject(userId, projectId, project);
+        const mutationReceipt = await projectService.saveProjectWithReceipt(
+          userId,
+          projectId,
+          project,
+          { expectedRevision: beforeRevision },
+        );
 
         const summary: string[] = [];
 
@@ -4615,14 +4624,30 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           created: cut.created,
           framesCut: cut.framesCut,
           secondsCut,
+          mutationReceipt,
           affectedFrameRange: {
             startFrame,
             endFrame: Math.min(cut.newDurationInFrames, startFrame + 1),
           },
           message: summary.join(', '),
         });
-      } catch (e: any) {
-        return JSON.stringify({ status: 'error', message: e.message });
+      } catch (e: unknown) {
+        if (e instanceof ProjectMutationConflictError) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: e.code,
+              message: e.message,
+              details: { currentRevision: e.currentRevision },
+            },
+            nextAction: 'stop',
+          } satisfies ToolEnvelope);
+        }
+        return JSON.stringify({
+          status: 'error',
+          message: e instanceof Error ? e.message : 'Timeline cut failed.',
+        });
       }
     },
     {
