@@ -13,6 +13,22 @@ export const SEALED_HOLDOUT_OWNER_SESSION_VERSION_V2R =
 export interface SealedHoldoutOwnerSemanticPolicyV2R {
   version: string;
   operatorCatalog: Readonly<JsonRecord>;
+  assertOperationEvidence?: (input: Readonly<{
+    caseId: string;
+    operatorId: string;
+    operatorKind: string;
+    arguments: Readonly<JsonRecord>;
+    observations: readonly Readonly<JsonRecord>[];
+    evidenceRefs: readonly string[];
+  }>) => void;
+  resolveTranscriptEdit?: (input: Readonly<{
+    caseId: string;
+    arguments: Readonly<JsonRecord>;
+    observations: readonly Readonly<JsonRecord>[];
+    evidenceRefs: readonly string[];
+    project: Readonly<JsonRecord>;
+    currentProjectRevision: string;
+  }>) => Readonly<JsonRecord> | null;
   resolveVisualEdit?: (input: Readonly<{
     arguments: Readonly<JsonRecord>;
     observations: readonly Readonly<JsonRecord>[];
@@ -207,9 +223,16 @@ export class SealedHoldoutOwnerSessionV2R {
     };
     let proposedOperation: JsonRecord;
     if (operatorId === 'resolve_transcript_edit') {
-      proposedOperation = { targetOperatorId: 'cut_section', arguments: {
-        ...common, targetRange: requireResolvedRange(observations),
-      } };
+      proposedOperation = this.semanticPolicy?.resolveTranscriptEdit?.({
+        caseId: this.caseId,
+        arguments: args,
+        observations,
+        evidenceRefs,
+        project: this.project,
+        currentProjectRevision: this.currentRevision,
+      }) ?? { targetOperatorId: 'cut_section', arguments: {
+          ...common, targetRange: requireResolvedRange(observations),
+        } };
     } else if (operatorId === 'resolve_user_asset_overlay') {
       if (!this.resolvedEvidenceRefs.size) fail('SEALED_OWNER_EVIDENCE_UNRESOLVED');
       proposedOperation = { targetOperatorId: 'add_overlay', arguments: {
@@ -241,7 +264,9 @@ export class SealedHoldoutOwnerSessionV2R {
   }
 
   private executeGenerated(operatorId: string, args: Readonly<JsonRecord>): ProviderNativeToolExecutionV2R {
-    this.assertResolvedEvidence(strings(args.evidenceIds));
+    const evidenceRefs = strings(args.evidenceIds);
+    this.assertResolvedEvidence(evidenceRefs);
+    this.assertSemanticOperationEvidence(operatorId, 'GENERATED_COMPOSITION', args, evidenceRefs);
     this.assertKnownAssets(strings(args.assetIds));
     this.assertRange(args.targetRange);
     return ok({
@@ -257,7 +282,9 @@ export class SealedHoldoutOwnerSessionV2R {
   ): ProviderNativeToolExecutionV2R {
     if (!this.revisionKnown) fail(`SEALED_OWNER_REVISION_UNVERIFIABLE:${operatorId}`);
     if (!this.resolvedEvidenceRefs.size) fail(`SEALED_OWNER_EVIDENCE_UNRESOLVED:${operatorId}`);
-    this.assertResolvedEvidence(strings(args.evidenceIds));
+    const evidenceRefs = strings(args.evidenceIds);
+    this.assertResolvedEvidence(evidenceRefs);
+    this.assertSemanticOperationEvidence(operatorId, 'MUTATION', args, evidenceRefs);
     if (typeof args.assetId === 'string') this.assertKnownAssets([args.assetId]);
     this.assertRange(args.targetRange);
     const beforeRevision = this.currentRevision;
@@ -353,6 +380,26 @@ export class SealedHoldoutOwnerSessionV2R {
     if (refs.some((ref) => !this.resolvedEvidenceRefs.has(ref))) {
       fail('SEALED_OWNER_EVIDENCE_UNRESOLVED');
     }
+  }
+
+  private assertSemanticOperationEvidence(
+    operatorId: string,
+    operatorKind: string,
+    args: Readonly<JsonRecord>,
+    evidenceRefs: readonly string[],
+  ): void {
+    if (!this.semanticPolicy?.assertOperationEvidence) return;
+    const observations = this.evidence
+      .filter((entry) => evidenceRefs.includes(text(entry.evidenceRef)))
+      .map(publicEvidence);
+    this.semanticPolicy.assertOperationEvidence({
+      caseId: this.caseId,
+      operatorId,
+      operatorKind,
+      arguments: args,
+      observations,
+      evidenceRefs,
+    });
   }
 
   private assertKnownAssets(assetIds: readonly string[]): void {
