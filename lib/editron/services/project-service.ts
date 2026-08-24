@@ -246,6 +246,31 @@ export interface ProjectDirectorMutationLeaseV1 {
 }
 
 /**
+ * The bounded worker-owned fact that a queued Director delivery failed. The
+ * callback supplies the failure observation; ProjectService alone decides
+ * whether it is still current enough to mutate the project.
+ */
+export interface ProjectDirectorDeliveryFailureCommandV1 {
+  sourceMessageId: string;
+  errorMessage: string;
+  audit: Record<string, unknown>;
+}
+
+export type ProjectDirectorDeliveryFailureDispositionV1 =
+  | "RECORDED"
+  | "PROJECT_NOT_FOUND"
+  | "STALE_SOURCE_MESSAGE"
+  | "PROJECT_ALREADY_TERMINAL"
+  | "PROJECT_STATE_CHANGED";
+
+export interface ProjectDirectorDeliveryFailureResultV1 {
+  disposition: ProjectDirectorDeliveryFailureDispositionV1;
+  sourceUploadBatchId: string | null;
+  beforeRevision?: ProjectRevisionV1;
+  receipt?: ProjectMutationReceiptV1;
+}
+
+/**
  * Director's deterministic, pre-render proof facts. They are persisted only
  * against the writer receipt for the edit they describe.
  */
@@ -1384,6 +1409,119 @@ export class ProjectService {
       },
     );
     return result.modifiedCount === 1;
+  }
+
+  /**
+   * Records a QStash Director delivery failure through the canonical project
+   * writer. A callback never owns a raw project update: it must still match
+   * the current Director message, an active Director state, and the exact
+   * revision observed by this method before terminal state can advance.
+   *
+   * The related upload-batch status is intentionally not changed here. It is
+   * a separate aggregate with its own future owner and transaction boundary.
+   */
+  async recordDirectorDeliveryFailureV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorDeliveryFailureCommandV1,
+  ): Promise<ProjectDirectorDeliveryFailureResultV1> {
+    assertProjectDirectorDeliveryFailureCommandV1(input);
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) {
+      return {
+        disposition: "PROJECT_NOT_FOUND",
+        sourceUploadBatchId: null,
+      };
+    }
+
+    const beforeRevision = projectRevisionFor(project);
+    const noOpDisposition = directorDeliveryFailureNoopDispositionV1(
+      project,
+      input.sourceMessageId,
+    );
+    if (noOpDisposition) {
+      return {
+        disposition: noOpDisposition,
+        sourceUploadBatchId: null,
+      };
+    }
+
+    const directorMessageId = projectOptionalNonEmptyStringFieldV1(
+      project,
+      "directorMessageId",
+    );
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(beforeRevision),
+        autoEditStatus: {
+          $in: ["directing_queued", "directing", "analysis_complete"],
+        },
+        ...(directorMessageId
+          ? { directorMessageId: input.sourceMessageId }
+          : {}),
+      },
+      {
+        $set: {
+          autoEditStatus: "failed",
+          autoEditError: input.errorMessage,
+          autoEditFailedAt: committedAt,
+          autoEditStageDesc: "Director delivery failed",
+          "intelligence.directorDeliveryFailure": structuredClone(input.audit),
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) {
+        return {
+          disposition: "PROJECT_NOT_FOUND",
+          sourceUploadBatchId: null,
+        };
+      }
+      return {
+        disposition: directorDeliveryFailureNoopDispositionV1(
+          latest,
+          input.sourceMessageId,
+        ) ?? "PROJECT_STATE_CHANGED",
+        sourceUploadBatchId: null,
+      };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return {
+      disposition: "RECORDED",
+      sourceUploadBatchId: projectOptionalNonEmptyStringFieldV1(
+        project,
+        "sourceUploadBatchId",
+      ),
+      beforeRevision,
+      receipt,
+    };
   }
 
   /**
@@ -2720,6 +2858,74 @@ function sameProjectRevisionV1(
   return left.schemaVersion === right.schemaVersion
     && left.value === right.value
     && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+function assertProjectDirectorDeliveryFailureCommandV1(
+  input: ProjectDirectorDeliveryFailureCommandV1,
+): void {
+  if (
+    !isBoundedNonEmptyStringV1(input.sourceMessageId, 200)
+    || !isBoundedNonEmptyStringV1(input.errorMessage, 500)
+    || !isPlainRecord(input.audit)
+    || input.audit.source !== "qstash-failure-callback"
+    || input.audit.sourceMessageId !== input.sourceMessageId
+    || input.audit.error !== input.errorMessage
+    || !isValidDateValueV1(input.audit.failedAt)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Director delivery failure input must be a bounded callback audit for its source message.",
+    );
+  }
+}
+
+function directorDeliveryFailureNoopDispositionV1(
+  project: Project,
+  sourceMessageId: string,
+): Exclude<ProjectDirectorDeliveryFailureDispositionV1, "RECORDED" | "PROJECT_NOT_FOUND"> | null {
+  const directorMessageId = projectRecordValueV1(project, "directorMessageId");
+  if (
+    directorMessageId !== undefined
+    && (typeof directorMessageId !== "string" || !directorMessageId.trim())
+  ) {
+    return "PROJECT_STATE_CHANGED";
+  }
+  if (
+    typeof directorMessageId === "string"
+    && directorMessageId !== sourceMessageId
+  ) {
+    return "STALE_SOURCE_MESSAGE";
+  }
+  return isDirectorDeliveryFailureActiveStatusV1(
+    projectRecordValueV1(project, "autoEditStatus"),
+  )
+    ? null
+    : "PROJECT_ALREADY_TERMINAL";
+}
+
+function isDirectorDeliveryFailureActiveStatusV1(value: unknown): boolean {
+  return value === "directing_queued"
+    || value === "directing"
+    || value === "analysis_complete";
+}
+
+function projectRecordValueV1(project: Project, field: string): unknown {
+  return (project as unknown as Record<string, unknown>)[field];
+}
+
+function projectOptionalNonEmptyStringFieldV1(
+  project: Project,
+  field: string,
+): string | null {
+  const value = projectRecordValueV1(project, field);
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isBoundedNonEmptyStringV1(value: unknown, maxLength: number): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function isValidDateValueV1(value: unknown): boolean {
+  return !Number.isNaN(new Date(value as Date | string | number).getTime());
 }
 
 function parseProjectGeneratedCompositionEntriesForProjectV1(

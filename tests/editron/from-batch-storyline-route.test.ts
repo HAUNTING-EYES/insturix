@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   resolveAssetUrl: vi.fn(),
   resolveProductionBrief: vi.fn(),
   resolveEffectiveBrandWithProfile: vi.fn(),
+  recordDirectorDeliveryFailureV1: vi.fn(),
   saveProject: vi.fn(),
   updateBatch: vi.fn(),
   updateProject: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCr
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
+    recordDirectorDeliveryFailureV1: mocks.recordDirectorDeliveryFailureV1,
     saveProject: mocks.saveProject,
   },
 }));
@@ -1616,12 +1618,27 @@ describe('from-batch storyline route handoff', () => {
 
   it('persists a signed Director delivery failure without overwriting another run', async () => {
     const { POST } = await import('@/app/api/internal/workers/director/failure/route');
-    mocks.findProject.mockResolvedValue({
-      autoEditStatus: 'directing',
-      directorMessageId: 'msg_director_1',
+    const beforeProjectRevision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-07-13T00:00:00.000Z',
+    };
+    const mutationReceipt = {
+      schemaVersion: 1 as const,
+      projectId: 'proj_batch_1',
+      revision: {
+        schemaVersion: 1 as const,
+        value: 8,
+        compatibilityUpdatedAt: '2026-07-13T00:00:01.000Z',
+      },
+      committedAt: '2026-07-13T00:00:01.000Z',
+    };
+    mocks.recordDirectorDeliveryFailureV1.mockResolvedValue({
+      disposition: 'RECORDED',
       sourceUploadBatchId: 'batch_1',
+      beforeRevision: beforeProjectRevision,
+      receipt: mutationReceipt,
     });
-    mocks.updateProject.mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
 
     const response = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
       method: 'POST',
@@ -1639,22 +1656,26 @@ describe('from-batch storyline route handoff', () => {
     }) as never);
 
     expect(response.status).toBe(200);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
+    expect(await response.json()).toEqual({
+      success: true,
+      projectId: 'proj_batch_1',
+      beforeProjectRevision,
+      mutationReceipt,
+    });
+    expect(mocks.recordDirectorDeliveryFailureV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
       expect.objectContaining({
-        projectId: 'proj_batch_1',
-        userId: 'user_1',
-        directorMessageId: 'msg_director_1',
-      }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          autoEditStatus: 'failed',
-          autoEditStageDesc: 'Director delivery failed',
-          'intelligence.directorDeliveryFailure': expect.objectContaining({
-            sourceMessageId: 'msg_director_1',
-          }),
+        sourceMessageId: 'msg_director_1',
+        errorMessage: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
+        audit: expect.objectContaining({
+          source: 'qstash-failure-callback',
+          sourceMessageId: 'msg_director_1',
+          error: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
         }),
       }),
     );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         uploadBatchId: 'batch_1',
@@ -1666,12 +1687,11 @@ describe('from-batch storyline route handoff', () => {
       }),
     );
 
-    mocks.updateProject.mockClear();
+    mocks.recordDirectorDeliveryFailureV1.mockClear();
     mocks.updateBatch.mockClear();
-    mocks.findProject.mockResolvedValue({
-      autoEditStatus: 'directing',
-      directorMessageId: 'msg_newer',
-      sourceUploadBatchId: 'batch_1',
+    mocks.recordDirectorDeliveryFailureV1.mockResolvedValue({
+      disposition: 'STALE_SOURCE_MESSAGE',
+      sourceUploadBatchId: null,
     });
     const staleResponse = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
       method: 'POST',
@@ -1686,6 +1706,7 @@ describe('from-batch storyline route handoff', () => {
     }) as never);
 
     expect(await staleResponse.json()).toEqual({ success: true, skipped: 'stale_message' });
+    expect(mocks.recordDirectorDeliveryFailureV1).toHaveBeenCalledOnce();
     expect(mocks.updateProject).not.toHaveBeenCalled();
     expect(mocks.updateBatch).not.toHaveBeenCalled();
   });
