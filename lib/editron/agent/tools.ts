@@ -306,8 +306,7 @@ export const createTools = (userId: string, projectId: string) => {
         }
 
         return successEnvelope(parsed, "continue");
-      } catch (err: unknown) {
-        console.warn('[Tools] JSON parse fallback:', err instanceof Error ? err.message : err);
+      } catch {
         return successEnvelope({ text: trimmed }, "continue");
       }
     }
@@ -1972,7 +1971,6 @@ CAPABILITIES:
         });
 
       } catch (e: any) {
-         console.error("HTML Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -2094,7 +2092,6 @@ CAPABILITIES:
           message: `Revised HTML scene ${input.id} in place.`,
         });
       } catch (error: any) {
-        console.error('HTML Scene Revision Error:', error);
         return errorEnvelope(error?.message || 'HTML scene revision failed.', 'HTML_SCENE_REVISION_FAILED');
       }
     },
@@ -2251,9 +2248,6 @@ FORBIDDEN:
           autoFit: true,
         });
 
-        console.log('[HTML-STICKER] Generated HTML length:', cleanHtml.length);
-
-        
         // Extract metadata for style consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
         const metadata: HtmlGenerationMetadata = {
@@ -2294,12 +2288,7 @@ FORBIDDEN:
           }
         };
 
-        console.log('[HTML-STICKER] Creating overlay:', JSON.stringify(newOverlay, null, 2));
-        
         await projectService.addOverlay(userId, projectId, newOverlay as any);
-        
-        console.log('[HTML-STICKER] Overlay added successfully, ID:', id);
-        
         return JSON.stringify({ 
           status: 'success', 
           id,
@@ -2311,7 +2300,6 @@ FORBIDDEN:
         });
 
       } catch (e: any) {
-        console.error("HTML Sticker Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -3008,27 +2996,6 @@ Linked captions are automatically moved with their videos.`,
           });
         }
         
-        // ===== DEBUG LOGGING START =====
-        // PERF FIX: Guarded behind DEBUG_FANCY_CAPTIONS env flag.
-        // Previously these console.log calls (including a per-word forEach loop) fired
-        // unconditionally on EVERY add_fancy_captions invocation, adding synchronous
-        // I/O overhead and cluttering production logs.
-        // Set DEBUG_FANCY_CAPTIONS=true in .env.local to re-enable during development.
-        const DEBUG_FANCY = process.env.DEBUG_FANCY_CAPTIONS === 'true';
-        if (DEBUG_FANCY) {
-          console.log('\n========== [FANCY-CAPTIONS DEBUG] ==========');
-          console.log('Segment range (frames):', segmentStartFrame, '->', segmentEndFrame);
-          console.log('Segment range (ms):', segmentStartMs.toFixed(0), '->', segmentEndMs.toFixed(0));
-          console.log('Video overlay from:', overlay.from, 'videoStartTime:', overlay.videoStartTime || 0);
-          console.log('Total transcription words:', transcription.words.length);
-          console.log('Words in range count:', wordsInRange.length);
-          console.log('\n--- Word Timings (0-based, relative to segment start) ---');
-          wordsInRange.forEach((w: any, i: number) => {
-            console.log(`  [${i}] "${w.word}" | start: ${w.startMs}ms | end: ${w.endMs}ms | duration: ${w.endMs - w.startMs}ms`);
-          });
-        }
-        // ===== DEBUG LOGGING END =====
-        
         // Classify word importance
         const classifiedWords = classifyWordTimings(wordsInRange);
         
@@ -3096,27 +3063,6 @@ Linked captions are automatically moved with their videos.`,
           typographyProfile,
         });
         
-        // ===== DEBUG: Log the prompt being sent to LLM =====
-        // PERF FIX: Guarded — same DEBUG_FANCY_CAPTIONS flag as above.
-        if (DEBUG_FANCY) {
-          console.log('\n--- Classified Words with Importance ---');
-          classifiedWords.forEach((w, i) => {
-            const delaySeconds = (w.startMs / 1000).toFixed(2);
-            console.log(`  [${i}] "${w.word}" | delay: ${delaySeconds}s | importance: ${w.importance}`);
-          });
-          console.log('\n--- Prompt Word Table Section ---');
-          const wordTableLog = classifiedWords.map((w, i) => {
-            const delaySeconds = (w.startMs / 1000).toFixed(2);
-            return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
-          }).join('\n');
-          console.log(wordTableLog);
-          console.log('\nTotal duration:', totalDurationMs, 'ms');
-          console.log('Exit animation delay:', ((Math.max(...classifiedWords.map(w => w.endMs)) - 300) / 1000).toFixed(2), 's');
-          console.log('========== [END FANCY-CAPTIONS DEBUG] ==========\n');
-        }
-        
-        console.log('[FANCY-CAPTIONS] Generating for', classifiedWords.length, 'words, duration:', totalDurationMs, 'ms');
-        
         // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
         // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
         const model = getLLMModel(0.8);
@@ -3127,29 +3073,6 @@ Linked captions are automatically moved with their videos.`,
         ]);
         
         const generatedHtml = result.content as string;
-        
-        // ===== DEBUG: Log generated HTML =====
-        // PERF FIX: Guarded — runs regex scans over potentially large HTML strings.
-        // These regex operations (match animation-delay, match animation properties)
-        // were running on every production invocation with no benefit.
-        if (DEBUG_FANCY) {
-          console.log('\n========== [FANCY-CAPTIONS GENERATED HTML] ==========');
-          console.log('Raw HTML length:', generatedHtml.length);
-          
-          // Extract animation-delay values from the generated HTML to verify timing
-          const delayMatches = generatedHtml.match(/animation-delay\s*:\s*[\d.]+s/gi) || [];
-          console.log('\n--- Animation delays found in generated HTML ---');
-          delayMatches.forEach((d, i) => console.log(`  [${i}] ${d}`));
-          
-          // Also check for inline animation properties
-          const animationMatches = generatedHtml.match(/animation\s*:\s*[^;"}]+/gi) || [];
-          console.log('\n--- Animation properties found ---');
-          animationMatches.slice(0, 20).forEach((a, i) => console.log(`  [${i}] ${a.substring(0, 100)}`));
-          
-          console.log('\n--- First 2000 chars of generated HTML ---');
-          console.log(generatedHtml.substring(0, 2000));
-          console.log('========== [END GENERATED HTML] ==========\n');
-        }
         
         // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
         let cleanHtml = generatedHtml
@@ -3169,7 +3092,6 @@ Linked captions are automatically moved with their videos.`,
         // ===== INJECT TIMING CSS PROGRAMMATICALLY =====
         // This handles the reliable timing work so LLM only does creative layout
         cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
-        console.log('[FANCY-CAPTIONS] Injected programmatic timing CSS for', classifiedWords.length, 'words');
         
         // Wrap in sandbox using the video's box dimensions
         const wrappedHtml = createSandboxedWrapper({
@@ -3230,14 +3152,6 @@ Linked captions are automatically moved with their videos.`,
 
         await projectService.addOverlay(userId, projectId, newOverlay as any);
 
-        console.log('[FANCY-CAPTIONS] Created overlay:', {
-          id,
-          wordCount: classifiedWords.length,
-          style: input.style,
-          fonts: metadata.fonts,
-          colors: metadata.colors,
-        });
-
         return JSON.stringify({
           status: 'success',
           id,
@@ -3259,7 +3173,6 @@ Linked captions are automatically moved with their videos.`,
         });
         
       } catch (e: any) {
-        console.error('[FANCY-CAPTIONS] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -3488,7 +3401,6 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           message: `Refreshed fancy captions with ${classifiedWords.length} words and re-synced to linked video timing`,
         });
       } catch (e: any) {
-        console.error('[FANCY-CAPTIONS][REFRESH] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -3549,15 +3461,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
       rawInput: z.infer<typeof analyzeClipAudioSchema> & { prompt?: string },
     ) => {
       try {
-        console.log("[AUDIO-TOOL] ========== START ==========");
-        
         const input = rawInput;
         const project = await loadProject();
         const projectFps = input.fps || project?.fps || 30;
 
         // Combine target and prompt for search
         const prompt = (input.prompt || input.target || "").trim();
-        console.log("[AUDIO-TOOL] Search prompt:", prompt);
 
         // Tool requests and receipts use edited-timeline frames. Asset samplers use
         // source-media frames; resolve both spaces only after choosing the clip.
@@ -3570,7 +3479,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           fps: projectFps,
           maxDurationSeconds: 120,
         });
-        console.log("[AUDIO-TOOL] Requested timeline range:", requestedTimelineRange);
 
         // 2) Pick audio-capable overlays
         const overlays = (project.overlays || []).filter(
@@ -3579,16 +3487,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             (o.assetId || o.src),
         );
 
-        console.log("[AUDIO-TOOL] Total overlays found:", overlays.length);
-        console.log("[AUDIO-TOOL] Overlays:", overlays.map((o: any) => ({
-          id: o.id,
-          name: o.name,
-          assetId: o.assetId,
-          type: o.type,
-          from: o.from,
-          duration: o.durationInFrames
-        })));
-        
         if (overlays.length === 0) {
           return JSON.stringify({
             status: "error",
@@ -3641,12 +3539,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           requestedTimelineRange,
           selectedOverlayId: (project as any).selectedOverlayId,
         });
-        console.log("[AUDIO-TOOL] Chosen overlay:", {
-          id: chosen?.id,
-          name: chosen?.name,
-          assetId: chosen?.assetId,
-          type: chosen?.type
-        });
         
         if (!chosen?.assetId) {
           return JSON.stringify({
@@ -3663,17 +3555,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           preferredWindowFrames,
           maxWindowFrames: maxFrames,
         });
-        
-        console.log("[AUDIO-TOOL] Final analysis range:", { 
-          timeline: window.timeline,
-          source: window.source,
-          durationSec: (window.timeline.endFrame - window.timeline.startFrame) / projectFps,
-        });
 
         // 5) Call audio analysis service
         const { analyzeClipAudioService } = await import("../services/media");
-
-        console.log("[AUDIO-TOOL] Calling analyzeClipAudioService...");
         const result = await analyzeClipAudioService({
           projectId,
           userId,
@@ -3683,12 +3567,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           endFrame: window.source.endFrame,
           timelineStartFrame: window.timeline.startFrame,
           fps: projectFps,
-        });
-
-        console.log("[AUDIO-TOOL] Analysis complete:", {
-          silences: result.silenceGapsFrames.length,
-          fillers: result.fillers.length,
-          problematic: result.problematicFrames.length,
         });
 
         // 6) Build response
@@ -3717,13 +3595,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           problematicFrames: result.problematicFrames,
           message: `Detected ${result.problematicFrames.length} removable audio segments`,
         };
-        
-        console.log("[AUDIO-TOOL] ========== SUCCESS ==========");
         return JSON.stringify(response);
       } catch (err: any) {
-        console.error("[AUDIO-TOOL] ========== ERROR ==========");
-        console.error("[AUDIO-TOOL] Error:", err);
-        console.error("[AUDIO-TOOL] Stack:", err.stack);
         return JSON.stringify({
           status: "error",
           message: err.message || String(err),
@@ -3975,7 +3848,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           vision,
         });
       } catch (err: any) {
-        console.error("[analyze_clip_video] error", err);
         return JSON.stringify({
           status: "error",
           message: err.message || String(err),
@@ -4080,8 +3952,7 @@ ${sceneContext}
         let placements: any[];
         try {
           placements = JSON.parse(jsonStr);
-        } catch (err: unknown) {
-          console.warn('[Tools] failed to parse Gemini motion graphic suggestions:', err instanceof Error ? err.message : err);
+        } catch {
           return JSON.stringify({ status: 'error', message: 'Failed to parse Gemini motion graphic suggestions' });
         }
 
@@ -4444,7 +4315,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Regenerate video clip
         if (input.target === 'video' || input.target === 'all') {
-          console.log(`[regenerate_scene] Video regen: storyboardId=${storyboardId}, sceneIndex=${input.sceneIndex}, userId=${userId?.substring(0, 15)}..., url=${baseApiUrl.substring(0, 50)}`);
           const vidRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -5011,11 +4881,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
                   }
                 : brandInputsFromUnifiedBrandAtomic(resolution.brand);
               graphicBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
-              if (graphicBrandInputs.accentColor) {
-                console.log(
-                  `[Tools:addMotionGraphic] Brand accent ${graphicBrandInputs.accentColor} applied from ${resolution.source} for project ${project.projectId}`,
-                );
-              }
             }
           } catch (err: unknown) {
             console.warn(
@@ -5067,10 +4932,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           };
 
           await projectService.addOverlay(userId, projectId, newOverlay as any);
-          console.log(
-            `[MOTION-GRAPHIC] Composition engine: '${graphicType}' at frame ${input.start}, ` +
-            `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
-          );
           return successEnvelope({
             id,
             templateUsed: 'composition-engine',
@@ -5080,7 +4941,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
       } catch (e: any) {
-        console.error('[MOTION-GRAPHIC] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
@@ -5837,7 +5697,6 @@ Examples:
               sfxTitle = librarySfx.originalTitle || input.query;
               sfxDuration = librarySfx.durationMs / 1000;
               sfxSource = librarySfx.source;
-              console.log(`[add_sfx] Library success: ${assetId} - "${sfxTitle}"`);
             }
           } catch (libraryErr: any) {
             console.warn(`[add_sfx] Rights-cleared library search failed for "${input.query}": ${libraryErr.message}`);
@@ -5856,7 +5715,6 @@ Examples:
             let mireloOutputProduced = false;
             let mireloOutputCount = 0;
             try {
-              console.log(`[add_sfx] P1: mirelo video-to-audio for scene ${input.sceneIndex}, prompt="${input.query}" (${mireloDuration}s)`);
               const mireloResult: any = await fal.subscribe(mireloModel, {
                 input: {
                   video_url: videoSrc,
@@ -5923,7 +5781,6 @@ Examples:
                 bytesOut: buffer.length,
                 functionMs: Date.now() - mireloStartedAt,
               });
-              console.log(`[add_sfx] mirelo success: ${assetId}`);
             } catch (mireloErr: any) {
               await recordChatSfxProviderCost({
                 status: 'failed',
@@ -5957,7 +5814,6 @@ Examples:
             );
             cassetteDuration = cassetteRequest.input.duration;
             cassetteModel = cassetteRequest.model;
-            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassetteDuration}s)`);
             const cassResult: any = await fal.subscribe(cassetteRequest.model, {
               input: cassetteRequest.input,
               logs: true,
@@ -6012,7 +5868,6 @@ Examples:
               bytesOut: buffer.length,
               functionMs: Date.now() - cassetteStartedAt,
             });
-            console.log(`[add_sfx] CassetteAI success: ${assetId}`);
           } catch (cassErr: any) {
             await recordChatSfxProviderCost({
               status: 'failed',
@@ -6283,7 +6138,6 @@ Examples:
           });
         }
       } catch (e: any) {
-        console.error('[search_stock_footage] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
