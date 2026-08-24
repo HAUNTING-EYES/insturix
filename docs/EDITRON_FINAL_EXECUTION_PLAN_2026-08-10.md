@@ -3776,10 +3776,25 @@ relabelled as model behaviour.
   effect drift. Mocked transport verification passes 16/16; combined
   sentinel, freshness and strict-readiness verification passes 13/13; full
   repository typecheck and quiet ESLint pass. No provider inference occurred.
-  The injected live transport adapter is deliberately not implemented or
-  inferred: a separately approved slice must bind the existing provider-native
-  episode runner to this port and prove truthful request, response, model,
-  attempt and billing receipts before the authorization can be exercised.
+  Commit `c8fbf2f1c` then adds a route-scoped receipted transport which resolves
+  only the selected route's credential and fixes transient attempts at one.
+  Commit `98e1352e2` binds that transport to the existing provider-native
+  episode runner, V4R3 catalog/policy and isolated holdout owner. It writes an
+  intent before network access, preserves the raw response/episode/usage and
+  cost receipts, validates the exact inference-returned model and exposes no
+  project or media authority. Commit `018070ab0` adds the exclusive-artifact
+  live operator and CLI and binds both into the runner's strict Git-HEAD
+  closure. Its mocked operator integration initially caught a genuine Google
+  identity-boundary defect: metadata returns `models/gemini-3.7-flash`, while
+  inference returns `gemini-3.7-flash`. Commit `641944654` fixes that at the
+  authorization owner without loosening either identity check; focused
+  authorization passes 3/3 and the complete mocked operator passes 2/2,
+  including one write-ahead intent and no retry after a simulated 429. At this
+  checkpoint the live adapter/operator are source-bound and ready, but **no
+  real pilot inference has yet occurred**. The user's exact USD 3.000000,
+  one-row-per-healthy-route, no-retry approval is the next execution authority;
+  the resulting artifacts still require a separate post-run audit and cannot
+  be scored as model quality.
 
 The corrected audit disposition is therefore:
 
@@ -3812,13 +3827,15 @@ CAP current-truth reissue. Current rebuild status is:
    source-window gate plus H04 whole-plan partitioned-cut authorization; V4R3
    now has its own manifest that rejects V4R2 as dispatch authority;
 5. **Complete, no spend:** V4R3 sentinel/readiness closure, expiring route
-   health, explicit capped authorization and the one-row-per-healthy-route
-   runner are bound and adversarially verified with injected transport doubles;
-6. **Next, explicit approval required:** implement/bind the live
-   provider-native transport adapter, refresh route health, issue the exact
-   short-lived authorization, execute only the available routes' one
-   non-scored pilot row, audit those pilots, and separately request any
-   full-cohort spend authorization;
+   health, explicit capped authorization, one-row-per-healthy-route runner,
+   receipted live adapter and exclusive-artifact operator are source-bound and
+   adversarially verified; the Google metadata/inference identity boundary is
+   explicitly tested;
+6. **In progress under the exact approved pilot authority:** refresh route
+   health, issue the short-lived authorization, execute only each available
+   route's one non-scored row with no retry, then independently audit every
+   intent, response, usage, cost and terminal receipt. This does not authorize
+   any scored/full-cohort spend;
 7. continue the existing Stage 2.5 generalisation gates only from valid
    successor evidence: genuinely new dependency/invalidation shapes, forced
    native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
