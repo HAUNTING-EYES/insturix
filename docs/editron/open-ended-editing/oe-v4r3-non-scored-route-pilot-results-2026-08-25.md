@@ -1,8 +1,11 @@
 # V4R3 one-row-per-healthy-route non-scored pilot
 
-**Status:** closed and independently audited  
-**Execution:** 2026-08-24T18:20:51Z  
-**Authority:** `CONFIRM V4R3 ONE NON-SCORED PILOT PER HEALTHY ROUTE MAX $3.000000 NO RETRY`  
+**Status:** closed and independently audited
+
+**Execution:** 2026-08-24T18:20:51Z
+
+**Authority:** `CONFIRM V4R3 ONE NON-SCORED PILOT PER HEALTHY ROUTE MAX $3.000000 NO RETRY`
+
 **Interpretation ceiling:** valid route/transport/safety evidence only; no model
 quality score, reliability estimate, production routing or scored-cohort
 authority
