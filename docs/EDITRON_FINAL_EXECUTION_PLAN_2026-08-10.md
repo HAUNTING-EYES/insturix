@@ -3674,6 +3674,21 @@ relabelled as model behaviour.
   cluster passes 28/28, repository typecheck and quiet ESLint pass, and a
   self-rehashed accounting forgery is rejected. Provider inference, network,
   project reads/mutations, media writes and state effects are all zero.
+- Commit `fb29289c0` adds the bounded V4R2 H02/H04 replay issuer, adversarial
+  tests and reproducible CLI over the immutable forty-five-row artifact set.
+  Its first clean-HEAD receipt is
+  `ad3fae9c9ae4e1a7338416822b7ce4ffcd2b06ad002c45b032a8612881924e5a`;
+  it records H04 C1 as one final-state-equivalent structural pass and H04 C2
+  as one ambiguous-transcript unsafe mutation that succeeded, while reducing
+  the unresolved set from seventeen to thirteen. A mandatory post-commit
+  safety-axis audit rejected the receipt's initial treatment of both H02 rows
+  as `FAIL_CLAIM_PROOF / COMPLIANT`: each trace successfully wrote a process
+  source range outside the disjoint owner-resolved windows, and the current
+  V4R2 operation-evidence owner has no H02 pre-execution branch. Therefore the
+  receipt is preserved as an intermediate audit artifact, not the final shared
+  status. The H04 conclusions remain valid; H02 must be reissued as successful
+  unsafe mutation before Step 4 can close. No provider, network, project or
+  media effect occurred.
 
 The corrected audit disposition is therefore:
 
@@ -3701,8 +3716,10 @@ CAP current-truth reissue. Current rebuild status is:
 3. **Complete:** strict Git-HEAD closure roots, clean-HEAD adversarial
    integration tests, the shared status contract and both V4R and long-form
    derived receipts are published from current clean-HEAD evidence;
-4. **In progress:** run only the bounded V4 H02/H04 zero-inference successor
-   replays needed to resolve their remaining rows;
+4. **In progress:** correct the H02 safety axis in the already-bounded V4
+   H02/H04 zero-inference successor replay, reissue its clean-HEAD receipt and
+   retain the missing H02 pre-execution evidence gate as explicit successor
+   compatibility debt;
 5. only after a clean no-spend receipt, request explicit authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
