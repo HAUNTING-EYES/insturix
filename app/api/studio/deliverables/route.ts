@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
 import { projectService } from "@/lib/editron/services/project-service";
 import { listUnifiedBrands } from "@/lib/shared/brand-registry";
+import { listAuthorizedBrandScopes } from "@/lib/shared/brand-scope";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 export const runtime = "nodejs";
@@ -120,7 +121,12 @@ export async function GET() {
 
   const brands: Record<string, string> = {};
   try {
-    for (const b of await listUnifiedBrands(userId)) brands[b.brandId] = b.name;
+    /* brand-vault brands (the authoritative scope list) first, then the
+     * unified registry fills any legacy editron/thinkforge-only brands */
+    for (const scope of await listAuthorizedBrandScopes({ userId, orgId: orgId ?? null })) {
+      brands[scope.brandId] = scope.brandName;
+    }
+    for (const b of await listUnifiedBrands(userId)) brands[b.brandId] ??= b.name;
   } catch {
     /* names resolve on the client as raw ids */
   }
