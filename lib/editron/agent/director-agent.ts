@@ -423,7 +423,7 @@ type DirectorProgressObserverV1 = (
  * retain their existing observer-only progress behaviour and cannot create a
  * surprise stage write on a manually invoked Director run.
  */
-export interface DirectorProgressReporterV1 {
+interface DirectorProgressReporterV1 {
   persistProjectProgress?: boolean;
   onProgress?: DirectorProgressObserverV1;
 }
