@@ -3933,6 +3933,31 @@ Provider inference remains blocked until the shared frozen task packet,
 scorecard, zero-spend sentinels, current-source closure and explicit capped
 authorization are all present.
 
+### Live Stage 2.5 integration checkpoint - 2026-08-25
+
+- Commit `8b5dab481` adds the dedicated HREF-01 qualified-review finalizer and
+  adversarial tests without modifying the existing review-pack builder. It
+  verifies the canonical public-pack and form-template hashes, exact full-video
+  and dense-window media hashes, complete full-reference/dense playback, all
+  nine rubric decisions, reviewer qualification and the receipt hash. Forged
+  pack/template/media bindings, incomplete playback, missing or unexplained
+  decisions and an inflated overall `PASS` fail closed. Focused verification is
+  12/12, with full repository typecheck and quiet ESLint passing.
+- This is review infrastructure, not the HREF-01 judgment. The real form remains
+  incomplete until the sole project owner watches the 64.75-second reference,
+  the `[20s,23s)` dense 60/1 motion window and its audio, then supplies the nine
+  decisions. Any resulting receipt must retain
+  `UNVERIFIABLE_SINGLE_REVIEWER`; it cannot promote independent agreement or
+  authorize product execution.
+- Concurrent read-only audits found that existing forced-route evidence covers
+  only one moving-panel family, not broad native/generated/hybrid
+  generalisation. They also found a real active-product risk: chat
+  `cut_section` loads one project revision but saves a whole stale-derived state
+  without carrying that revision, so it can overwrite an intervening user edit.
+  ProjectService conflict/rebase/lock work must therefore begin with a bounded
+  writer-issued-revision cut trial and then replace that unsafe chat path; it
+  must not wire the research reconciler directly into production.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
