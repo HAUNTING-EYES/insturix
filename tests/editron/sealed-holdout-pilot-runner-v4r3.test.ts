@@ -90,6 +90,21 @@ describe('sealed holdout V4R3 one-row-per-route pilot runner', () => {
     })).rejects.toThrow('PORT_FAILURE');
     expect(calls).toBe(1);
   });
+
+  it('revalidates freshness before every provider dispatch', async () => {
+    const context = await fixture();
+    const authorization = await authorize(context);
+    const calls: string[] = [];
+    let clockReads = 0;
+    await expect(runSealedHoldoutPilotV4R3({
+      ...context, authorization, now: NOW, executionPort: port(calls),
+      currentTime: () => {
+        clockReads += 1;
+        return clockReads === 1 ? NOW : '2026-08-24T12:04:00.000Z';
+      },
+    })).rejects.toThrow('SEALED_V4R3_PILOT_AUTH_AUTHORIZATION_EXPIRED');
+    expect(calls).toHaveLength(1);
+  });
 });
 
 async function fixture(googleStatus = 200) {
@@ -136,10 +151,25 @@ SealedHoldoutPilotExecutionPortV4R3 {
         requestSha256: hashCanonicalJsonV1({ row: row.rowId, kind: 'request' }),
         responseSha256: hashCanonicalJsonV1({ row: row.rowId, kind: 'response' }),
         transportReceiptSha256: hashCanonicalJsonV1({ row: row.rowId, kind: 'transport' }),
+        providerUsageSha256: hashCanonicalJsonV1({ inputTokens: 10, outputTokens: 2 }),
+        accountedCostNanoUsd: 1_000,
+        accountingBasis: 'PROVIDER_REPORTED_USAGE_X_FROZEN_ROUTE_PRICE' as const,
+        episodeReceiptSha256: hashCanonicalJsonV1({ row: row.rowId, kind: 'episode' }),
+        transcriptSha256: hashCanonicalJsonV1({ row: row.rowId, kind: 'transcript' }),
+        terminalDisposition: 'UNVERIFIABLE', selectedOperatorIds: [] as const,
         providerAttemptCount: 1 as const, inferenceCalls: 1 as const, networkCalls: 1 as const,
-        billedMicroUsd: Math.min(1_000, Number(row.absoluteMaxRowSpendMicroUsd)),
+        billedMicroUsd: 1,
         projectReads: 0 as const, projectMutations: drift.projectMutation ? 1 : 0,
         mediaWrites: 0 as const, secretsPersisted: false as const, stateEffects: [] as const };
+      const accountingMaterial = {
+        requestSha256: result.requestSha256, responseSha256: result.responseSha256,
+        providerUsageSha256: result.providerUsageSha256,
+        accountedCostNanoUsd: result.accountedCostNanoUsd,
+        accountingBasis: result.accountingBasis,
+      };
+      Object.assign(result, {
+        accountingReceiptSha256: hashCanonicalJsonV1(accountingMaterial),
+      });
       return result as unknown as SealedHoldoutPilotPortResultV4R3;
     } };
 }
