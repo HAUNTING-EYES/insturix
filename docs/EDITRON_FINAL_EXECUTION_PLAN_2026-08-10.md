@@ -3790,11 +3790,28 @@ relabelled as model behaviour.
   authorization owner without loosening either identity check; focused
   authorization passes 3/3 and the complete mocked operator passes 2/2,
   including one write-ahead intent and no retry after a simulated 429. At this
-  checkpoint the live adapter/operator are source-bound and ready, but **no
-  real pilot inference has yet occurred**. The user's exact USD 3.000000,
-  one-row-per-healthy-route, no-retry approval is the next execution authority;
-  the resulting artifacts still require a separate post-run audit and cannot
-  be scored as model quality.
+  checkpoint the live adapter/operator are source-bound and ready.
+- **V4R3 live non-scored pilot closeout (2026-08-25):** under the user's exact
+  USD 3.000000, one-row-per-healthy-route, no-retry authority, execution Git
+  HEAD `3b4c682ac3bce2be978982de7afe864c4f1c0dcd` refreshed all three route-health
+  records. Luna and Terra were identity-confirmed and each received exactly one
+  inference call; both selected zero operations and stopped at
+  `CAPABILITY_GAP` for the missing temporally tracked subject matte/rotoscoping
+  capability. Gemini 3.7 Flash's metadata request returned HTTP 400, so it was
+  unavailable and received zero inference calls. Total receipt-accounted cost
+  was USD 0.165689650, with no retry, project read/mutation, media write, secret
+  persistence or state effect. Operator receipt
+  `18ff8bc39972e6a7f858a17a57feceb5eef3343bb9c5d31a6d6ffda9ece1fc76`
+  remains non-scored. Commits `a0fdefd82` and `e061e2d16` add and correct the
+  independent zero-network auditor; audit receipt
+  `31809762a146e6bfd92028137b01dfcb84ab3fe2987c04883c607f7e21aaed80`
+  validates two raw attempts, one provider-infrastructure non-evaluation and
+  artifact set
+  `602aa71f064d0c4f6c733bb8424056ddfd93c65e7d9e3d61b41897e9e8f2b1c8`.
+  This closes the pilot and authorizes no retry, model ranking, reliability
+  estimate, production route or scored/full-cohort spend. The detailed result
+  is in
+  `docs/editron/open-ended-editing/oe-v4r3-non-scored-route-pilot-results-2026-08-25.md`.
 
 The corrected audit disposition is therefore:
 
@@ -3831,19 +3848,19 @@ CAP current-truth reissue. Current rebuild status is:
    receipted live adapter and exclusive-artifact operator are source-bound and
    adversarially verified; the Google metadata/inference identity boundary is
    explicitly tested;
-6. **In progress under the exact approved pilot authority:** refresh route
-   health, issue the short-lived authorization, execute only each available
-   route's one non-scored row with no retry, then independently audit every
-   intent, response, usage, cost and terminal receipt. This does not authorize
-   any scored/full-cohort spend;
-7. continue the existing Stage 2.5 generalisation gates only from valid
+6. **Complete, audited and non-scored:** two healthy-route calls ran once with
+   no retry; Gemini was unavailable before inference; the independent audit
+   validates all receipt/cost/effect bindings and explicitly denies ranking,
+   production promotion and scored/full-cohort authority;
+7. **Next:** continue the existing Stage 2.5 generalisation gates only from valid
    successor evidence: genuinely new dependency/invalidation shapes, forced
    native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
    resume, realistic long-form limits and blind editor quality/correction-time
    receipts.
 
-No new inference, provider dispatch, project read/mutation, media write or
-production promotion has occurred in this rebuild checkpoint.
+Exactly two non-scored provider inference calls occurred in the closed pilot.
+No project read/mutation, media write, scored-row execution or production
+promotion occurred.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
