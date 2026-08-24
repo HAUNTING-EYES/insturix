@@ -19,18 +19,24 @@ describe('Stage 1.5 range and concurrency current truth', () => {
     );
   });
 
-  it('records the one durable ripple-cut owner without overstating range collaboration', () => {
+  it('records the cut-specific rebase and lock substrate without overstating range collaboration', () => {
     const projectService = source('lib/editron/services/project-service.ts');
 
     expect(projectService).toContain('private async persistEditorState(input:');
     expect(projectService).toContain('overlays: mergedOverlays');
     expect(projectService).toContain('async cutTimelineRangeV1(');
     expect(projectService).toContain('timelineRangeChangeReceipts');
+    expect(projectService).toContain('UPDATE_OVERLAY');
     expect(projectService).toContain('writeFrameRangesBefore');
     expect(projectService).toContain('UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN');
     expect(projectService).toContain('$inc: { projectRevision: 1 }');
     expect(projectService).toContain('...projectRevisionPredicate(expectedRevision)');
     expect(projectService).toContain('directorLock');
+    expect(projectService).toContain('acquireTimelineRangeCutLockV1(');
+    expect(projectService).toContain('releaseTimelineRangeCutLockV1(');
+    expect(projectService).toContain('reconcileSafeTimelineRangeCutRebaseV1(');
+    expect(projectService).toContain('PROJECT_TIMELINE_REBASE_BLOCKED');
+    expect(projectService).toContain('PROJECT_TIMELINE_RANGE_LOCKED');
 
     for (const absentRangeConcurrencyCapability of [
       'timelineRangeLocks',
