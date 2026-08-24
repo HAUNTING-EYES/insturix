@@ -3620,6 +3620,14 @@ relabelled as model behaviour.
   immutable zero-inference rescore inputs; neither inherits their verdicts,
   authorizes dispatch, or exceeds structural/provenance proof. Focused tests
   pass 6/6, with repository typecheck and quiet ESLint passing.
+- Commit `9b45ed813` adds the zero-authority readiness issuers that will close
+  Step 3. Each lane reruns its independent sentinels and computes a strict
+  Git-HEAD transitive import closure rooted in the issuer, sentinel runner and
+  successor manifest; the shared receipt permits only a zero-inference
+  historical rescore. The implementation typechecks and passes focused quiet
+  lint, but this checkpoint intentionally does **not** yet claim a current
+  readiness receipt: the real clean-HEAD closure and adversarial integration
+  tests follow in the next commit.
 
 The corrected audit disposition is therefore:
 
