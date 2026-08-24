@@ -11,8 +11,8 @@ import {
 } from '@/lib/clickatron-jobs';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
-import { NextResponse } from 'next/server';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
+import { NextRequest, NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import {
@@ -1215,13 +1215,9 @@ async function handler(req: Request) {
   }
 }
 
-// Add error handling for signature verification
-// Only enable signature verification in production (not in development)
-const protectedHandler = (process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.APP_ENV !== 'development' && process.env.NODE_ENV !== 'development')
-  ? verifySignatureAppRouter(handler)
-  : handler;
+const protectedHandler = withInternalQStashWorkerAuth(handler, 'clickatron-variation');
 
-export const POST = async (req: Request) => {
+export const POST = async (req: NextRequest) => {
   try {
     return await protectedHandler(req);
   } catch (error) {
