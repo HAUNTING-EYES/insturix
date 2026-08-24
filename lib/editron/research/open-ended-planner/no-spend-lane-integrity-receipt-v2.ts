@@ -14,6 +14,7 @@ export const NO_SPEND_LANE_INTEGRITY_AUTHORITY_V2 =
 
 export type NoSpendLaneIntegrityIdV2 =
   | 'SEALED_HOLDOUT_GENERALISATION_V4R2'
+  | 'SEALED_HOLDOUT_GENERALISATION_V4R3'
   | 'STAGE25_LONG_FORM_PROVIDER_V3';
 
 export interface NoSpendLaneIntegrityReceiptV2 {
