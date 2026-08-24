@@ -3745,6 +3745,22 @@ relabelled as model behaviour.
   ESLint passing. Provider inference, network, project and media effects remain
   zero. The next no-spend work is to bind V4R3 sentinel/readiness closure and
   a route-health-gated one-row pilot runner before any provider generation.
+- **V4R3 route-health checkpoint (2026-08-24):** the successor now has a
+  hash-bound, zero-inference `sealed-holdout-route-health-v4r3` receipt that
+  accepts only the V4R3 manifest plus its exact V4R2 provenance, and rejects
+  V4R2 substitution, forged dispatch authority and altered route-health
+  dispositions even when the altered receipt is rehashed. It uses the existing
+  V2R route roster, credential resolver and one shared metadata-observation
+  helper; it creates no second provider registry or credential owner. A route
+  can be `AVAILABLE_MODEL_IDENTITY_CONFIRMED` only when its exact returned model
+  identity matches. 429, credential/access, model/identity, transient,
+  transport and other provider failures are recorded as typed unavailable
+  no-dispatch results, never as an editorial-model score or an automatic model
+  substitution. The local suite uses mocked metadata only: 12 focused tests,
+  repository typecheck and quiet ESLint pass; no live provider metadata call,
+  inference, project/media operation or state effect occurred. This is not a
+  pilot authorization. The remaining no-spend closeout is V4R3
+  sentinel/readiness binding and a route-health-gated one-row-per-route runner.
 
 The corrected audit disposition is therefore:
 
@@ -3776,8 +3792,8 @@ CAP current-truth reissue. Current rebuild status is:
    corrected safety axes, and V4R3 now supplies the research-only H02 pre-write
    source-window gate plus H04 whole-plan partitioned-cut authorization; V4R3
    now has its own manifest that rejects V4R2 as dispatch authority;
-5. **In progress, no spend:** issue V4R3 sentinel/readiness closure, add
-   route-health preflight and bind a one-row-per-route pilot runner to V4R3;
+5. **In progress, no spend:** issue V4R3 sentinel/readiness closure and bind a
+   one-row-per-route pilot runner to the implemented V4R3 route-health receipt;
 6. **Then, explicit approval required:** authorize only available provider
    routes for their one non-scored pilot row, audit those pilots, and separately
    request any full-cohort spend authorization;
