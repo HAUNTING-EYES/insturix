@@ -3636,6 +3636,16 @@ relabelled as model behaviour.
   with repository typecheck and quiet ESLint passing. This proves readiness
   only for a zero-inference historical rescore; it does not publish the rescore
   status, authorize provider dispatch or certify either cohort.
+- Commit `2936bb200` defines the shared immutable historical-status receipt
+  contract used by both successor lanes. It keeps benchmark validity, model
+  decision, task outcome, safety disposition and proof level as independent
+  axes; binds the successor manifest, readiness receipt, historical manifest,
+  cohort receipt, ordered source-row hashes, interpretations and recomputed
+  counts; and rejects duplicate rows, inconsistent axes, proof-ceiling
+  inflation and self-rehashed forgeries. Its focused tests pass 3/3, with
+  repository typecheck and quiet ESLint passing. This is the common receipt
+  contract only: the V4R and long-form lane-specific zero-inference issuers and
+  their actual status receipts remain outstanding.
 
 The corrected audit disposition is therefore:
 
@@ -3658,9 +3668,10 @@ CAP current-truth reissue. Current rebuild status is:
    negative and metamorphic sentinel through the real lane owners;
 2. **Complete:** issue new successor cohort identities from current CAP truth
    while retaining the historical manifests and paid artifacts unchanged;
-3. **In progress:** strict Git-HEAD closure roots and clean-HEAD adversarial
-   integration tests are complete; run the zero-inference full rescore and
-   publish immutable status receipts;
+3. **In progress:** strict Git-HEAD closure roots, clean-HEAD adversarial
+   integration tests and the shared historical-status receipt contract are
+   complete; implement each lane's zero-inference rescore owner and publish its
+   immutable status receipt;
 4. only after a clean no-spend receipt, request explicit authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
