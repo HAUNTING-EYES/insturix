@@ -147,32 +147,17 @@ async function handler(request: NextRequest) {
 
     // ─── Execute Director ─────────────────────────────────────────
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    // Persist live per-step progress so the auto-edit screen can show the REAL
-    // stage during `directing` (which otherwise collapses cut/punch/caption/
-    // music/transition/graphics into one status). Fire-and-forget + throttled
-    // to percent/description changes — progress writes must NEVER break the edit.
-    // Read on the client via GET /api/services/editron/projects/[id].
-    let lastStagePct = -1;
-    let lastStageDesc = '';
+    // ProjectService owns durable stage state. This route only observes progress;
+    // the Director carries the writer-issued revision/lease through every stage.
+    // The client reads it through GET /api/services/editron/projects/[id].
     const emitProgress = (step: number, total: number, desc: string) => {
       console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`);
-      const pct = total > 0 ? Math.min(99, Math.round((step / total) * 100)) : 3;
-      if (pct === lastStagePct && desc === lastStageDesc) return;
-      lastStagePct = pct;
-      lastStageDesc = desc;
-      // Ownership-guarded (see the completion write below): only touch the project
-      // while we still hold the 'directing' lock. If it was recovered/rescued
-      // mid-run, this progress write no-ops instead of writing stale stage fields
-      // onto a project we no longer own.
-      void db.collection('projects')
-        .updateOne(
-          { projectId, autoEditStatus: 'directing' },
-          { $set: { autoEditStagePercent: pct, autoEditStageDesc: desc, updatedAt: new Date() } },
-        )
-        .catch(() => {});
     };
     const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief, emitProgress,
+      projectId, userId, profileId, brief, {
+        persistProjectProgress: true,
+        onProgress: emitProgress,
+      },
     );
 
     // ─── Mark complete ────────────────────────────────────────────

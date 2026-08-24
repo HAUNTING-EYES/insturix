@@ -28,7 +28,9 @@ import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import {
   projectService,
   type ProjectPhase0ProofFactsV1,
+  type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
+import { advanceDirectorRevisionFromReceiptsV1 } from '@/lib/editron/agent/director-revision-chain-v1';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -410,6 +412,22 @@ function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }
 
+type DirectorProgressObserverV1 = (
+  step: number,
+  total: number,
+  description: string,
+) => void | Promise<void>;
+
+/**
+ * Only the QStash Director worker opts into durable progress. Other callers
+ * retain their existing observer-only progress behaviour and cannot create a
+ * surprise stage write on a manually invoked Director run.
+ */
+export interface DirectorProgressReporterV1 {
+  persistProjectProgress?: boolean;
+  onProgress?: DirectorProgressObserverV1;
+}
+
 
 /**
  * Execute a Director Agent plan on a project.
@@ -418,14 +436,15 @@ function isCanonicalDecisionTimelineError(error: unknown): boolean {
  * @param userId - Owner
  * @param profileId - Edit profile to execute
  * @param brief - Optional project brief with overrides
- * @param onProgress - Progress callback for SSE streaming
+ * @param progress - Optional observer; the QStash Director worker may opt into
+ * lease-bound durable progress through `persistProjectProgress`.
  */
 export async function executeDirectorPlan(
   projectId: string,
   userId: string,
   profileId: string,
   brief?: ProjectBrief,
-  onProgress?: (step: number, total: number, description: string) => void,
+  progress?: DirectorProgressObserverV1 | DirectorProgressReporterV1,
 ): Promise<DirectorResult> {
   const startTime = Date.now();
   const profile = getProfileById(profileId);
@@ -496,7 +515,48 @@ export async function executeDirectorPlan(
     directorLeaseId = directorLease.leaseId;
 
     // ─── Step 1: Load project state ──────────────────────────
-    const { project, revision: directorStartRevision } = directorLease;
+    const { project } = directorLease;
+    let directorCurrentRevision: ProjectRevisionV1 = directorLease.revision;
+    const progressReporter = typeof progress === 'function' ? undefined : progress;
+    const progressObserver = typeof progress === 'function'
+      ? progress
+      : progressReporter?.onProgress;
+    let lastPersistedStagePct = -1;
+    let lastPersistedStageDesc = '';
+    const reportDirectorProgress = async (
+      step: number,
+      total: number,
+      description: string,
+    ): Promise<void> => {
+      const stagePercent = total > 0
+        ? Math.min(99, Math.max(0, Math.round((step / total) * 100)))
+        : 3;
+      if (
+        progressReporter?.persistProjectProgress === true
+        && directorLeaseId !== null
+        && (stagePercent !== lastPersistedStagePct || description !== lastPersistedStageDesc)
+      ) {
+        const receipt = await projectService.recordDirectorProgressV1(
+          userId,
+          projectId,
+          {
+            expectedRevision: directorCurrentRevision,
+            directorLeaseId,
+            stagePercent,
+            stageDescription: description,
+          },
+        );
+        directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+          projectId,
+          currentRevision: directorCurrentRevision,
+          receipts: [receipt],
+        });
+        lastPersistedStagePct = stagePercent;
+        lastPersistedStageDesc = description;
+      }
+
+      await progressObserver?.(step, total, description);
+    };
 
     const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
@@ -663,7 +723,7 @@ export async function executeDirectorPlan(
         edlSummary.skipReason = 'creative-brief-per-asset-analysis-bypassed';
         console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, raw-footage mode, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
       } else {
-        onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
+        await reportDirectorProgress(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
       }
 
       for (let i = 0; i < videoOverlays.length && !skipPerAssetAnalysis; i++) {
@@ -746,7 +806,7 @@ export async function executeDirectorPlan(
             }
           }
 
-          onProgress?.(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
+          await reportDirectorProgress(0, 0, `Analyzing scene ${i + 1}/${videoOverlays.length}...`);
 
           analysis = await runFullAnalysis(assetId, userId, {
             videoUrl,
@@ -825,7 +885,7 @@ export async function executeDirectorPlan(
       const creativeBriefRawFootageActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
       if (creativeBriefRawFootageActive) {
         try {
-          onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
+          await reportDirectorProgress(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
 
           const { generateCreativeBrief, routeContentType, DEFAULT_ROUTING_THRESHOLDS } = await import('@/lib/editron/services/creative-brief');
@@ -1255,7 +1315,7 @@ export async function executeDirectorPlan(
           const graphIndex = loadGraph();
 
           if (graphIndex) {
-            onProgress?.(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
+            await reportDirectorProgress(0, 0, 'Signal-driven editing (v3 knowledge graph)...');
             console.log(`[Director] Path D: Signal-driven execution (${graphIndex.mappings.size} mappings, ${graphIndex.constraints.size} constraints)`);
 
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
@@ -2013,7 +2073,7 @@ export async function executeDirectorPlan(
       }
       if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
-          onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
+          await reportDirectorProgress(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
           // Build analyses map BEFORE the intelligence call — needed by both
           // the creative intent translator and the EDL executor.
@@ -2596,7 +2656,7 @@ export async function executeDirectorPlan(
     }
 
     const totalSteps = filteredActions.length;
-    onProgress?.(0, totalSteps, 'Starting Director Agent execution...');
+    await reportDirectorProgress(0, totalSteps, 'Starting Director Agent execution...');
 
     // ─── QualityGate: per-action measurement (TRIBE Phase 1) ──
     const { takeSnapshot, compareSnapshots, summarizeGateSession } = await import('@/lib/editron/services/quality-gate');
@@ -2608,11 +2668,19 @@ export async function executeDirectorPlan(
     // ─── Step 3: Execute actions sequentially ────────────────
     for (let i = 0; i < filteredActions.length; i++) {
       const action = filteredActions[i];
-      onProgress?.(i + 1, totalSteps, action.description);
+      await reportDirectorProgress(i + 1, totalSteps, action.description);
 
       try {
         const beforeSnapshot = takeSnapshot(overlays as any[], fps);
-        const modified = await executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams, briefCaptionStyle, graphitiGroupId);
+        const capturedAction = await projectService.captureMutationReceipts(() => (
+          executeAction(action, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, pathDConstraintViolations, pathDGenreParams, briefCaptionStyle, graphitiGroupId)
+        ));
+        const modified = capturedAction.value;
+        directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+          projectId,
+          currentRevision: directorCurrentRevision,
+          receipts: capturedAction.receipts,
+        });
         const afterSnapshot = takeSnapshot(overlays as any[], fps);
         const gateResult = compareSnapshots(beforeSnapshot, afterSnapshot, action.description);
         gateResults.push(gateResult);
@@ -2827,7 +2895,15 @@ export async function executeDirectorPlan(
       const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
       if (duckAction) {
         try {
-          const modified = await executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, undefined, undefined, briefCaptionStyle, graphitiGroupId);
+          const capturedDuckAction = await projectService.captureMutationReceipts(() => (
+            executeAction(duckAction, overlays, userId, projectId, effectiveProfile, storyboardScenes, scenePairAnalysis, undefined, undefined, briefCaptionStyle, graphitiGroupId)
+          ));
+          const modified = capturedDuckAction.value;
+          directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+            projectId,
+            currentRevision: directorCurrentRevision,
+            receipts: capturedDuckAction.receipts,
+          });
           result.overlaysModified += modified;
           console.log(`[Director] Step 4.5: audio ducking applied post-merge (BGM arrived async) — ${modified} modified`);
         } catch (duckErr: any) {
@@ -2880,10 +2956,11 @@ export async function executeDirectorPlan(
         durationInFrames: project.durationInFrames,
       },
       {
-        expectedRevision: directorStartRevision,
+        expectedRevision: directorCurrentRevision,
         directorLeaseId,
       },
     );
+    directorCurrentRevision = finalReceipt.revision;
     directorLeaseId = null;
     if (postBundleProfileActionPolicy) {
       await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
@@ -2907,6 +2984,7 @@ export async function executeDirectorPlan(
           facts: phase0Proof.facts,
         },
       );
+      directorCurrentRevision = phase0ProofReceipt.revision;
       const phase0Truth = phase0Proof.snapshot;
       (result as any).phase0LiveTruth = {
         version: phase0Truth.version,
@@ -2953,7 +3031,7 @@ export async function executeDirectorPlan(
       console.warn('[Director] non-fatal Phase0 live truth persistence:', message);
     }
     result.success = true;
-    onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
+    await reportDirectorProgress(totalSteps, totalSteps, 'Director Agent execution complete');
 
     // ─── Brand Intelligence: emit director_completed + transition status ───
     try {

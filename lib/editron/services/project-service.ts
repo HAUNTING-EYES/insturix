@@ -246,6 +246,18 @@ export interface ProjectDirectorMutationLeaseV1 {
 }
 
 /**
+ * A bounded, lease-owned progress update for one active Director execution.
+ * Progress is project state, so worker callbacks must submit it through the
+ * same compare-and-swap and receipt protocol as every other project write.
+ */
+export interface ProjectDirectorProgressCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  directorLeaseId: string;
+  stagePercent: number;
+  stageDescription: string;
+}
+
+/**
  * The bounded worker-owned fact that a queued Director delivery failed. The
  * callback supplies the failure observation; ProjectService alone decides
  * whether it is still current enough to mutate the project.
@@ -1385,6 +1397,66 @@ export class ProjectService {
       revision,
       acquiredAt: acquiredAt.toISOString(),
     };
+  }
+
+  /**
+   * Records one visible Director stage only while the original Director still
+   * owns the project. The returned receipt is the only revision that the
+   * running Director may carry into its following action or final save.
+   */
+  async recordDirectorProgressV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorProgressCommandV1,
+  ): Promise<ProjectMutationReceiptV1> {
+    assertProjectDirectorProgressCommandV1(input);
+
+    const db = await getDatabase();
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        directorLock: true,
+        directorLockToken: input.directorLeaseId,
+        autoEditStatus: "directing",
+      },
+      {
+        $set: {
+          autoEditStagePercent: input.stagePercent,
+          autoEditStageDesc: input.stageDescription,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(
+        projectRevisionFor(latest),
+        "Director progress is stale or no longer owns this project.",
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
   }
 
   /**
@@ -2876,6 +2948,25 @@ function assertProjectDirectorDeliveryFailureCommandV1(
       "Director delivery failure input must be a bounded callback audit for its source message.",
     );
   }
+}
+
+function assertProjectDirectorProgressCommandV1(
+  input: ProjectDirectorProgressCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.directorLeaseId, 200)
+    || !Number.isSafeInteger(input.stagePercent)
+    || input.stagePercent < 0
+    || input.stagePercent > 99
+    || !isBoundedNonEmptyStringV1(input.stageDescription, 1000)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Director progress must carry one bounded stage and an active lease-bound revision.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
 }
 
 function directorDeliveryFailureNoopDispositionV1(
