@@ -5,6 +5,7 @@ import { StudioSession } from "@/components/studio/session";
  * route exists and is wired; per-deliverable data arrives with the Phase 2
  * adapter. Phase 6 adds notFound() for unknown ids.
  */
-export default function StudioDeliverablePage() {
-  return <StudioSession />;
+export default async function StudioDeliverablePage({ params }: { params: Promise<{ deliverableId: string }> }) {
+  const { deliverableId } = await params;
+  return <StudioSession deliverableId={deliverableId} />;
 }

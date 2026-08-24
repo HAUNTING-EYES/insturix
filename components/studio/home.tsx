@@ -24,13 +24,17 @@ export function StudioHome() {
   const [brand, setBrand] = useState<string>(MOCK_BRANDS[0].id);
   const [prompt, setPrompt] = useState("");
   const [realDeliverables, setRealDeliverables] = useState<StudioDeliverable[] | null>(null);
+  const [realBrands, setRealBrands] = useState<Record<string, string>>({});
   const [realError, setRealError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!REAL) return;
     fetch("/api/studio/deliverables")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { deliverables: StudioDeliverable[] }) => setRealDeliverables(d.deliverables ?? []))
+      .then((d: { deliverables: StudioDeliverable[]; brands?: Record<string, string> }) => {
+        setRealDeliverables(d.deliverables ?? []);
+        setRealBrands(d.brands ?? {});
+      })
       .catch((e: Error) => setRealError(e.message));
   }, [REAL]);
 
@@ -103,9 +107,17 @@ export function StudioHome() {
           <section className="stu-hsec">
             <div className="st"><span className="t">Your work</span><span className="n">{MOCK_BRANDS.length} brands · {deliverables.length} deliverables</span></div>
             {[
-              { id: MOCK_BRANDS[0].id, name: REAL ? "Nike" : MOCK_BRANDS[0].name, list: nike },
-              { id: MOCK_BRANDS[1].id, name: REAL ? "Alo Yoga" : MOCK_BRANDS[1].name, list: alo },
-              { id: "rest", name: "Other brands", list: rest },
+              { id: MOCK_BRANDS[0].id, name: MOCK_BRANDS[0].name, list: nike },
+              { id: MOCK_BRANDS[1].id, name: MOCK_BRANDS[1].name, list: alo },
+              ...(REAL
+                ? Object.entries(
+                    deliverables.reduce<Record<string, StudioDeliverable[]>>((acc, d) => {
+                      const key = realBrands[d.brandId] ?? d.brandId;
+                      (acc[key] ??= []).push(d);
+                      return acc;
+                    }, {}),
+                  ).map(([name, list]) => ({ id: name, name, list }))
+                : [{ id: "rest", name: "Other brands", list: rest }]),
             ]
               .filter((g) => g.list.length > 0)
               .map((g) => (

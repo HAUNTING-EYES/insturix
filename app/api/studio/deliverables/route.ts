@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
 import { projectService } from "@/lib/editron/services/project-service";
+import { listUnifiedBrands } from "@/lib/shared/brand-registry";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 export const runtime = "nodejs";
@@ -116,5 +117,12 @@ export async function GET() {
   }
 
   rows.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-  return NextResponse.json({ deliverables: rows });
+
+  const brands: Record<string, string> = {};
+  try {
+    for (const b of await listUnifiedBrands(userId)) brands[b.brandId] = b.name;
+  } catch {
+    /* names resolve on the client as raw ids */
+  }
+  return NextResponse.json({ deliverables: rows, brands });
 }

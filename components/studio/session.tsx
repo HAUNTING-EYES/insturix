@@ -29,8 +29,8 @@ interface PendingConfirm {
   originalText: string;
 }
 
-export function StudioSession() {
-  const [deliverable] = useState<StudioDeliverable>(MOCK_DELIVERABLE);
+export function StudioSession({ deliverableId }: { deliverableId?: string }) {
+  const [deliverable, setDeliverable] = useState<StudioDeliverable>(MOCK_DELIVERABLE);
   const [items, setItems] = useState<StudioThreadItem[]>(REAL ? [] : MOCK_THREAD);
   const [artifacts, setArtifacts] = useState<StudioArtifact[]>(REAL ? [] : MOCK_DELIVERABLE.artifacts);
   const [focus, setFocus] = useState<StudioStageFocus | null>(REAL ? null : MOCK_DELIVERABLE.stageFocus ?? null);
@@ -48,6 +48,26 @@ export function StudioSession() {
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [items, pendingConfirm, busy]);
+
+  /* real mode: hydrate an existing deliverable (Home row → its artifacts) */
+  useEffect(() => {
+    if (!REAL || !deliverableId) return;
+    let cancelled = false;
+    fetch(`/api/studio/deliverables/${deliverableId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { deliverable: StudioDeliverable }) => {
+        if (cancelled || !d.deliverable) return;
+        setDeliverable(d.deliverable);
+        setArtifacts(d.deliverable.artifacts);
+        setFocus(d.deliverable.stageFocus ?? null);
+      })
+      .catch(() => {
+        /* new deliverable — empty session is the honest state */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [REAL, deliverableId]);
 
   useArtifactPolling(artifacts, setArtifacts, REAL);
 
