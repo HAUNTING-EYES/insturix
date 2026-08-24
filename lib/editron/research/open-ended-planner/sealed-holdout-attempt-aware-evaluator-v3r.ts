@@ -73,7 +73,11 @@ export function evaluateBudgetedSealedHoldoutTraceAttemptAwareV3R(input: {
     || base.assessment === 'NOT_EVALUATED_RESOURCE_GUARD';
   const attemptDiagnostics = evaluationUnavailable
     ? []
-    : hold07AttemptEligibilityDiagnostics(taskCase.publicCase, taskCase.ownerOnly, input.trace);
+    : sealedHoldoutH07AttemptEligibilityDiagnosticsV3R(
+      taskCase.publicCase,
+      taskCase.ownerOnly,
+      input.trace,
+    );
   const diagnostics = [...new Set([...base.diagnostics, ...attemptDiagnostics])]
     .sort(compareUtf16);
   const assessment = attemptDiagnostics.length > 0
@@ -97,10 +101,10 @@ export function evaluateBudgetedSealedHoldoutTraceAttemptAwareV3R(input: {
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
-function hold07AttemptEligibilityDiagnostics(
+export function sealedHoldoutH07AttemptEligibilityDiagnosticsV3R(
   publicCaseValue: Readonly<JsonRecord>,
   ownerOnlyValue: Readonly<JsonRecord>,
-  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>,
+  trace: Readonly<{ nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[] }>,
 ): string[] {
   const publicCase = record(publicCaseValue);
   if (text(publicCase.taskId) !== 'HOLD-07') return [];
