@@ -9,7 +9,6 @@ import {
 import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
-  Overlay,
   OverlayType as EditorOverlayType,
   HtmlGenerationMetadata,
   CaptionOverlay,
@@ -67,7 +66,6 @@ import {
   selectAnalysisOverlay,
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
-import { cutTimelineRange } from '../services/timeline-range-cut';
 import { buildKeyframeMutationPatch } from '../services/keyframe-mutation';
 import {
   constrainChatOverlayPlacement,
@@ -4457,24 +4455,16 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return JSON.stringify({ status: 'error', message: 'endFrame must be greater than startFrame' });
         }
 
-        const { project, revision: beforeRevision } =
-          await projectService.loadProjectForMutation(userId, projectId);
-        const fps = project.fps || 30;
-        const cut = cutTimelineRange({
-          overlays: project.overlays || [],
+        const {
+          cut,
+          mutationReceipt,
+          timelineChangeReceipt,
+        } = await projectService.cutTimelineRangeV1(userId, projectId, {
+          actorKind: 'AGENT',
           startFrame,
           endFrame,
-          fps,
-          durationInFrames: project.durationInFrames,
         });
-        project.overlays = cut.overlays as Overlay[];
-        project.durationInFrames = cut.newDurationInFrames;
-        const mutationReceipt = await projectService.saveProjectWithReceipt(
-          userId,
-          projectId,
-          project,
-          { expectedRevision: beforeRevision },
-        );
+        const fps = timelineChangeReceipt.fps;
 
         const summary: string[] = [];
 
@@ -4495,10 +4485,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           framesCut: cut.framesCut,
           secondsCut,
           mutationReceipt,
-          affectedFrameRange: {
-            startFrame,
-            endFrame: Math.min(cut.newDurationInFrames, startFrame + 1),
-          },
+          timelineChangeReceipt,
+          affectedFrameRangesBefore: timelineChangeReceipt.writeFrameRangesBefore,
+          affectedFrameRanges: timelineChangeReceipt.affectedFrameRangesAfter,
           message: summary.join(', '),
         });
       } catch (e: unknown) {

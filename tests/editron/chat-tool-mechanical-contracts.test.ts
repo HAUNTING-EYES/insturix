@@ -22,6 +22,7 @@ import {
   projectService,
   ProjectMutationConflictError,
 } from '@/lib/editron/services/project-service';
+import { cutTimelineRange } from '@/lib/editron/services/timeline-range-cut';
 
 type FixtureProject = {
   projectId: string;
@@ -57,16 +58,62 @@ function makeProject(overlays: Array<Record<string, any>>, durationInFrames = 30
 
 function installProjectStore(project: FixtureProject) {
   vi.spyOn(projectService, 'loadProject').mockImplementation(async () => structuredClone(project) as any);
-  const beforeRevision = {
-    schemaVersion: 1 as const,
-    value: project.projectRevision ?? 1,
-    compatibilityUpdatedAt: project.updatedAt.toISOString(),
-  };
-  const loadProjectForMutation = vi.spyOn(projectService, 'loadProjectForMutation')
-    .mockImplementation(async () => ({
-      project: structuredClone(project) as any,
-      revision: structuredClone(beforeRevision),
-    }));
+  const cutTimelineRangeV1 = vi.spyOn(projectService, 'cutTimelineRangeV1')
+    .mockImplementation(async (_userId, projectId, command) => {
+      const beforeDurationInFrames = project.durationInFrames;
+      const beforeRevision = {
+        schemaVersion: 1 as const,
+        value: project.projectRevision ?? 1,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      };
+      const cut = cutTimelineRange({
+        overlays: project.overlays,
+        startFrame: command.startFrame,
+        endFrame: command.endFrame,
+        fps: project.fps,
+        durationInFrames: beforeDurationInFrames,
+      });
+      const committedAt = '2026-07-18T00:00:01.000Z';
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      const removedRange = cut.timelineCoordinateTransform.removedRange;
+      const affectedFrameRangesAfter = removedRange.endFrame < beforeDurationInFrames
+        ? [{ startFrame: removedRange.startFrame, endFrame: cut.newDurationInFrames }]
+        : [];
+      Object.assign(project, {
+        overlays: structuredClone(cut.overlays),
+        durationInFrames: cut.newDurationInFrames,
+        projectRevision: afterRevision.value,
+        updatedAt: new Date(committedAt),
+      });
+      return {
+        cut,
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {
+          schemaVersion: 1 as const,
+          receiptId: 'timeline-cut_chat-tool-test',
+          projectId,
+          operation: 'CUT_TIMELINE_RANGE',
+          actorKind: command.actorKind,
+          coordinateDomain: 'PROJECT_TIMELINE_FRAME_V1',
+          fps: project.fps,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+          committedAt,
+          readFrameRangesBefore: [{ startFrame: 0, endFrame: beforeDurationInFrames }],
+          writeFrameRangesBefore: [{ startFrame: removedRange.startFrame, endFrame: beforeDurationInFrames }],
+          affectedFrameRangesAfter,
+        },
+      } as any;
+    });
   const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockImplementation(
     async (_userId, _projectId, overlayId, patch) => {
       const overlay = project.overlays.find((candidate) => candidate.id === overlayId);
@@ -94,32 +141,13 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(nextProject));
     },
   );
-  const saveProjectWithReceipt = vi.spyOn(projectService, 'saveProjectWithReceipt')
-    .mockImplementation(async (_userId, projectId, nextProject, options) => {
-      expect(options?.expectedRevision).toEqual(beforeRevision);
-      Object.assign(project, structuredClone(nextProject));
-      const revision = {
-        schemaVersion: 1 as const,
-        value: beforeRevision.value + 1,
-        compatibilityUpdatedAt: '2026-07-18T00:00:01.000Z',
-      };
-      project.projectRevision = revision.value;
-      project.updatedAt = new Date(revision.compatibilityUpdatedAt);
-      return {
-        schemaVersion: 1 as const,
-        projectId,
-        revision,
-        committedAt: revision.compatibilityUpdatedAt,
-      };
-    });
   return {
     updateOverlay,
     addOverlay,
     deleteOverlay,
     updateProject,
     saveProject,
-    loadProjectForMutation,
-    saveProjectWithReceipt,
+    cutTimelineRangeV1,
   };
 }
 
@@ -762,7 +790,14 @@ describe('chat mechanical tool contracts', () => {
         split: 2,
         created: 2,
         framesCut: 30,
-        affectedFrameRange: { startFrame: 30, endFrame: 31 },
+        affectedFrameRangesBefore: [{ startFrame: 30, endFrame: 240 }],
+        affectedFrameRanges: [{ startFrame: 30, endFrame: 210 }],
+        timelineChangeReceipt: {
+          operation: 'CUT_TIMELINE_RANGE',
+          actorKind: 'AGENT',
+          writeFrameRangesBefore: [{ startFrame: 30, endFrame: 240 }],
+          affectedFrameRangesAfter: [{ startFrame: 30, endFrame: 210 }],
+        },
       },
     });
     expect(project.durationInFrames).toBe(210);
@@ -813,11 +848,11 @@ describe('chat mechanical tool contracts', () => {
     expect(store.addOverlay).not.toHaveBeenCalled();
     expect(store.updateProject).not.toHaveBeenCalled();
     expect(store.saveProject).not.toHaveBeenCalled();
-    expect(store.loadProjectForMutation).toHaveBeenCalledWith(
+    expect(store.cutTimelineRangeV1).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
+      { actorKind: 'AGENT', startFrame: 30, endFrame: 60 },
     );
-    expect(store.saveProjectWithReceipt).toHaveBeenCalledTimes(1);
     expect(result.data?.mutationReceipt).toMatchObject({
       projectId: 'proj_mechanical_tools',
       revision: { schemaVersion: 1, value: 2 },
@@ -834,21 +869,12 @@ describe('chat mechanical tool contracts', () => {
       row: 0,
     }], 180);
     const store = installProjectStore(project);
-    const staleRevision = {
-      schemaVersion: 1 as const,
-      value: 7,
-      compatibilityUpdatedAt: '2026-07-18T00:00:07.000Z',
-    };
     const currentRevision = {
       schemaVersion: 1 as const,
       value: 8,
       compatibilityUpdatedAt: '2026-07-18T00:00:08.000Z',
     };
-    store.loadProjectForMutation.mockResolvedValueOnce({
-      project: structuredClone(project) as any,
-      revision: staleRevision,
-    });
-    store.saveProjectWithReceipt.mockImplementationOnce(async () => {
+    store.cutTimelineRangeV1.mockImplementationOnce(async () => {
       project.overlays[0].content = 'newer-user-source';
       project.projectRevision = currentRevision.value;
       project.updatedAt = new Date(currentRevision.compatibilityUpdatedAt);
@@ -878,11 +904,10 @@ describe('chat mechanical tool contracts', () => {
         durationInFrames: 180,
       }],
     });
-    expect(store.saveProjectWithReceipt).toHaveBeenCalledWith(
+    expect(store.cutTimelineRangeV1).toHaveBeenCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      expect.objectContaining({ durationInFrames: 150 }),
-      { expectedRevision: staleRevision },
+      { actorKind: 'AGENT', startFrame: 30, endFrame: 60 },
     );
     expect(store.saveProject).not.toHaveBeenCalled();
   });
