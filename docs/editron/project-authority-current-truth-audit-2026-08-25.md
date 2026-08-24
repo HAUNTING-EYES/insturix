@@ -100,16 +100,25 @@ so they do not accidentally persist a stage on a non-`directing` project.
 This is intentionally not a generic worker-status port and creates no second
 project, timeline, journal, checkpoint or proof owner.
 
-## Next bounded implementation slice
+## Lifecycle Step-0 and next bounded implementation slice
 
-The required Step-0 audit is complete. The next lifecycle implementation must
-remain scoped to the Director route and ProjectService, with explicit methods
-not a generic worker-status port, for:
+The required lifecycle Step-0 audit is recorded in
+[director-lifecycle-step0-audit-2026-08-25.md](./director-lifecycle-step0-audit-2026-08-25.md).
+Commit `a0cb07556` separately removes the one dead Director progress type
+export found during that audit. The next lifecycle implementation must remain
+scoped to the Director route and ProjectService, with explicit methods rather
+than a generic worker-status port, for:
 
 1. claiming a run from the allowed analysis states;
 2. recognizing an ownership loss without resurrection;
 3. completing only against the final writer/proof state; and
 4. failing only an active owned run.
+
+The durable run identity must be distinct from the short-lived Director writer
+lease. The final ProjectService save intentionally clears the lease token;
+completion instead needs the exact final writer/proof receipt plus a durable
+run token. A lost run must return a no-write ownership-loss disposition, never
+fall back to a raw terminal update.
 
 Assist refund/settlement, upload-batch aggregation, inline-development
 Director execution, raw analysis facts, generic range locks/rebase, and the

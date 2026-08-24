@@ -79,8 +79,14 @@ changes.
   receipt revision, including receipts emitted by Director action tools. The
   required Director-agent Step-0 audit and completed first repair are recorded
   in [director-agent-progress-step0-audit-2026-08-25.md](./editron/director-agent-progress-step0-audit-2026-08-25.md).
-  The next slice must give claim, ownership-loss completion and active-run
-  failure one typed lifecycle design; it must not use a generic metadata port.
+  Commit `a0cb07556` then removed the one dead Director progress type export
+  before the next structural change. The separate
+  [director-lifecycle-step0-audit-2026-08-25.md](./editron/director-lifecycle-step0-audit-2026-08-25.md)
+  records the verified next design: a durable run token is distinct from the
+  short-lived writer lease, and typed claim, ownership-loss completion and
+  active-run failure must be ProjectService commands rather than a generic
+  metadata port. This is a prerequisite only; it does not migrate the
+  lifecycle yet.
   No Stage 2.5 paid dispatch is authorized by this audit.
 
 ## The desired experience, in plain words
