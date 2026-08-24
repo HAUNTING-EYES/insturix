@@ -1,7 +1,7 @@
 # HREF-01 native-video review pack
 
 Date: 2026-08-22
-Status: `READY_FOR_SINGLE_PROJECT_OWNER_REVIEW`
+Status: `QUALIFIED_SINGLE_PROJECT_OWNER_REVIEW_COMPLETE`
 Formal promotion status: `BLOCKED_PENDING_SECOND_INDEPENDENT_QUALIFIED_REVIEWER`
 
 ## What executed
@@ -48,22 +48,30 @@ the model-requested dense window at 60/1 fps with embedded audio and a separate
 The reviewer manifest withholds provider/model identity. The operator key is
 separate and must remain closed until the review form is final.
 
-## What the human must decide
+## Qualified sole-review completion
 
-The project owner must watch the complete reference with sound, inspect the
-dense video and WAV, and judge the supplied observation against all nine
-requirements and six hard-failure classes in `reviewer/manifest.json`.
-The earlier approval of the twelve sparse-control rubric statements approved
-the protocol only; it did not approve this model output.
+The project owner watched the complete reference with sound, inspected the
+dense video and WAV, and completed every required decision in the frozen form.
+All nine requirements were marked `PASS`; no hard failure was observed and the
+correction estimate was zero minutes.
 
-One project-owner review is useful product evidence, but it is not two-reviewer
-agreement. Formal model promotion remains blocked until a second independent,
-qualified reviewer completes the same blinded pack or the governance contract
-is explicitly revised before identities are revealed.
+- Completed-form SHA-bound receipt:
+  `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`
+- Reviewer disposition: `QUALIFIED_SINGLE_PROJECT_OWNER_REVIEW`
+- Independent agreement: `UNVERIFIABLE_SINGLE_REVIEWER`
+- State effects: none
+
+This is useful qualified evidence for the observed reference-analysis result.
+It is not two-reviewer agreement, model promotion, paid-dispatch authority or
+product-execution authority. Formal promotion remains blocked until a second
+independent qualified reviewer completes the same blinded pack, or the
+governance contract is explicitly revised before identities are revealed.
 
 ## Verification
 
 - HREF-01 focused suite: 20/20 tests passed.
+- The dedicated qualified-review finalizer independently verifies the form,
+  media, pack and receipt bindings; its focused suite passed 12/12.
 - The pack builder rejects forged receipts, invalid/over-budget dense windows
   and overwrite attempts.
 - The copied reference hash matches the frozen source.
