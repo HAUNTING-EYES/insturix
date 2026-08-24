@@ -47,7 +47,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Musitron/DAW audio stage | OPEN |
 | Avatar render flow | OPEN |
 | Socialize link-in-bio updates | OPEN |
-| Home real data (deliverable adapters) | OPEN (Phase 6) |
+| Home real data (TF sessions + Editron projects adapters) | DONE (read-side; CalOS/Clickatron rows OPEN) — /api/studio/deliverables |
 | Account shell (org/billing/vaults) | OPEN (Phase 6) |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |
 

@@ -7,8 +7,10 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MOCK_BRANDS, MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL, MOCK_WALLET } from "@/lib/studio/mock/data";
+import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 const STATUS_COLOR: Record<string, string> = {
   done: "var(--green)",
@@ -18,12 +20,25 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function StudioHome() {
   const router = useRouter();
+  const REAL = studioRealTurnsEnabled;
   const [brand, setBrand] = useState<string>(MOCK_BRANDS[0].id);
   const [prompt, setPrompt] = useState("");
+  const [realDeliverables, setRealDeliverables] = useState<StudioDeliverable[] | null>(null);
+  const [realError, setRealError] = useState<string | null>(null);
 
-  const deliverables = [MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL];
+  useEffect(() => {
+    if (!REAL) return;
+    fetch("/api/studio/deliverables")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { deliverables: StudioDeliverable[] }) => setRealDeliverables(d.deliverables ?? []))
+      .catch((e: Error) => setRealError(e.message));
+  }, [REAL]);
+
+  const deliverables = REAL ? (realDeliverables ?? []) : [MOCK_DELIVERABLE, MOCK_DELIVERABLE_EMAIL];
+  const producing = deliverables.filter((d) => d.artifacts.some((a) => a.status === "running"));
   const nike = deliverables.filter((d) => d.brandId === "br_nike");
   const alo = deliverables.filter((d) => d.brandId === "br_alo");
+  const rest = deliverables.filter((d) => d.brandId !== "br_nike" && d.brandId !== "br_alo");
 
   const go = (id: string) => router.push(`/studio/d/${id}`);
 
@@ -66,7 +81,7 @@ export function StudioHome() {
 
         <div className="stu-homesections">
           <section className="stu-hsec">
-            <div className="st"><span className="t">Producing now</span><span className="n">1 deliverable · live</span></div>
+            <div className="st"><span className="t">Producing now</span><span className="n">{REAL ? `${producing.length} live` : "1 deliverable · live"}</span></div>
             <button className="stu-pnow" onClick={() => go(MOCK_DELIVERABLE.id)}>
               <span className="live" />
               <div>
@@ -87,7 +102,13 @@ export function StudioHome() {
 
           <section className="stu-hsec">
             <div className="st"><span className="t">Your work</span><span className="n">{MOCK_BRANDS.length} brands · {deliverables.length} deliverables</span></div>
-            {[{ id: MOCK_BRANDS[0].id, name: MOCK_BRANDS[0].name, list: nike }, { id: MOCK_BRANDS[1].id, name: MOCK_BRANDS[1].name, list: alo }].map((g) => (
+            {[
+              { id: MOCK_BRANDS[0].id, name: REAL ? "Nike" : MOCK_BRANDS[0].name, list: nike },
+              { id: MOCK_BRANDS[1].id, name: REAL ? "Alo Yoga" : MOCK_BRANDS[1].name, list: alo },
+              { id: "rest", name: "Other brands", list: rest },
+            ]
+              .filter((g) => g.list.length > 0)
+              .map((g) => (
               <div className="stu-bgroup" key={g.id}>
                 <div className="stu-bhead">
                   <span className={`bd ${brand === g.id ? "on" : ""}`} />
