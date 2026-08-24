@@ -258,6 +258,60 @@ export interface ProjectDirectorProgressCommandV1 {
 }
 
 /**
+ * A Director run token identifies the automatic-worker lifecycle across the
+ * Director's shorter-lived writer lease. It is issued, consumed and cleared
+ * only by ProjectService; it is not a second job or project authority.
+ */
+export type ProjectDirectorRunClaimDispositionV1 =
+  | "CLAIMED"
+  | "ASSIST_PROJECT"
+  | "PROJECT_NOT_FOUND"
+  | "NOT_ELIGIBLE";
+
+export type ProjectDirectorRunClaimResultV1 =
+  | {
+      disposition: "CLAIMED";
+      project: Project;
+      runToken: string;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ASSIST_PROJECT";
+      project: Project;
+    }
+  | {
+      disposition: "PROJECT_NOT_FOUND" | "NOT_ELIGIBLE";
+    };
+
+export interface ProjectDirectorRunCompletionCommandV1 {
+  directorRunToken: string;
+  expectedRevision: ProjectRevisionV1;
+  terminalReceipt: ProjectMutationReceiptV1;
+  totalPipelineMs: number;
+  directorMs: number;
+  profileId: string;
+  autoEditStatus: "complete" | "needs_review";
+  needsQualityAttention: boolean;
+  autoEditWarning?: string;
+  decisionAuthority?: Record<string, unknown>;
+}
+
+export interface ProjectDirectorRunFailureCommandV1 {
+  directorRunToken: string;
+  errorMessage: string;
+}
+
+export type ProjectDirectorRunTerminalDispositionV1 =
+  | "RECORDED"
+  | "PROJECT_NOT_FOUND"
+  | "OWNERSHIP_LOST";
+
+export interface ProjectDirectorRunTerminalResultV1 {
+  disposition: ProjectDirectorRunTerminalDispositionV1;
+  receipt?: ProjectMutationReceiptV1;
+}
+
+/**
  * The bounded worker-owned fact that a queued Director delivery failed. The
  * callback supplies the failure observation; ProjectService alone decides
  * whether it is still current enough to mutate the project.
@@ -452,6 +506,9 @@ export interface Project {
   directorLock?: boolean;
   directorLockAt?: Date | string;
   directorLockToken?: string;
+  /** Durable automatic-Director lifecycle identity. Distinct from the short
+      writer lease, which is intentionally cleared by the final editor save. */
+  directorRunToken?: string;
 }
 
 export interface ProjectListItem {
@@ -1457,6 +1514,233 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return receipt;
+  }
+
+  /**
+   * Claims one automatic Director lifecycle through the canonical project
+   * writer. The durable run token remains after the Director's short writer
+   * lease is cleared by its final save, so later completion/failure can prove
+   * it still owns this particular run.
+   */
+  async claimDirectorRunV1(
+    userId: string,
+    projectId: string,
+  ): Promise<ProjectDirectorRunClaimResultV1> {
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    if (isAssistProjectRecordV1(current)) {
+      return { disposition: "ASSIST_PROJECT", project: structuredClone(current) };
+    }
+    if (
+      !isDirectorRunClaimableStatusV1(projectRecordValueV1(current, "autoEditStatus"))
+      || projectRecordValueV1(current, "directorRunToken") !== undefined
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const beforeRevision = projectRevisionFor(current);
+    const claimedAt = new Date();
+    const runToken = `director_run_${nanoid(20)}`;
+    const claimedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(beforeRevision),
+        editMode: { $ne: "assist" },
+        autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
+        directorRunToken: { $exists: false },
+      },
+      {
+        $set: {
+          autoEditStatus: "directing",
+          directorRunToken: runToken,
+          updatedAt: claimedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+
+    if (!claimedProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+      if (isAssistProjectRecordV1(latest)) {
+        return { disposition: "ASSIST_PROJECT", project: structuredClone(latest) };
+      }
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const revision = projectRevisionFor(claimedProject);
+    if (
+      revision.value !== beforeRevision.value + 1
+      || revision.compatibilityUpdatedAt !== claimedAt.toISOString()
+      || claimedProject.directorRunToken !== runToken
+    ) {
+      throw new ProjectMutationWriteError(
+        "Director run claim did not return the writer-issued run identity and revision.",
+      );
+    }
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision,
+      committedAt: claimedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return {
+      disposition: "CLAIMED",
+      project: structuredClone(claimedProject),
+      runToken,
+      receipt,
+    };
+  }
+
+  /**
+   * Completes an owned automatic Director run only against its exact terminal
+   * writer receipt. If a rescue, cancellation or newer mutation won first,
+   * this returns a no-write disposition instead of resurrecting the project.
+   */
+  async completeDirectorRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorRunCompletionCommandV1,
+  ): Promise<ProjectDirectorRunTerminalResultV1> {
+    assertProjectDirectorRunCompletionCommandV1(projectId, input);
+
+    const db = await getDatabase();
+    const committedAt = new Date();
+    const setFields: Record<string, unknown> = {
+      autoEditStatus: input.autoEditStatus,
+      autoEditCompletedAt: committedAt,
+      autoEditDurationMs: input.totalPipelineMs,
+      directorDurationMs: input.directorMs,
+      directorProfileUsed: input.profileId,
+      updatedAt: committedAt,
+    };
+    if (input.decisionAuthority) {
+      setFields["intelligence.decisionAuthority"] = structuredClone(input.decisionAuthority);
+    }
+    if (input.needsQualityAttention) {
+      setFields.projectStatus = "needs-attention";
+      setFields.autoEditHealth = "needs_review";
+      setFields.autoEditWarning = input.autoEditWarning!;
+    }
+
+    const update: Record<string, unknown> = {
+      $set: setFields,
+      $unset: {
+        directorRunToken: "",
+        ...(input.needsQualityAttention
+          ? {}
+          : { autoEditHealth: "", autoEditWarning: "" }),
+      },
+      $inc: { projectRevision: 1 },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "directing",
+        directorRunToken: input.directorRunToken,
+      },
+      update,
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "RECORDED", receipt };
+  }
+
+  /**
+   * Fails only the automatic Director run that still owns the project. The
+   * read supplies the exact revision for the CAS; an old worker can therefore
+   * never terminalize a rescue or newer run with a different token.
+   */
+  async failDirectorRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorRunFailureCommandV1,
+  ): Promise<ProjectDirectorRunTerminalResultV1> {
+    assertProjectDirectorRunFailureCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    if (!isActiveDirectorRunV1(current, input.directorRunToken)) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+
+    const beforeRevision = projectRevisionFor(current);
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(beforeRevision),
+        autoEditStatus: "directing",
+        directorRunToken: input.directorRunToken,
+      },
+      {
+        $set: {
+          autoEditStatus: "failed",
+          autoEditError: input.errorMessage,
+          autoEditFailedAt: committedAt,
+          updatedAt: committedAt,
+        },
+        $unset: { directorRunToken: "" },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "RECORDED", receipt };
   }
 
   /**
@@ -2967,6 +3251,79 @@ function assertProjectDirectorProgressCommandV1(
     );
   }
   assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectDirectorRunCompletionCommandV1(
+  projectId: string,
+  input: ProjectDirectorRunCompletionCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !isProjectDirectorRunTokenV1(input.directorRunToken)
+    || !input.expectedRevision
+    || !isPlainRecord(input.terminalReceipt)
+    || !isPlainRecord(input.terminalReceipt.revision)
+    || !Number.isSafeInteger(input.totalPipelineMs)
+    || input.totalPipelineMs < 0
+    || !Number.isSafeInteger(input.directorMs)
+    || input.directorMs < 0
+    || !isBoundedNonEmptyStringV1(input.profileId, 200)
+    || (input.autoEditStatus !== "complete" && input.autoEditStatus !== "needs_review")
+    || input.needsQualityAttention !== (input.autoEditStatus === "needs_review")
+    || (
+      input.needsQualityAttention
+      && !isBoundedNonEmptyStringV1(input.autoEditWarning, 1000)
+    )
+    || (!input.needsQualityAttention && input.autoEditWarning !== undefined)
+    || (
+      input.decisionAuthority !== undefined
+      && !isPlainRecord(input.decisionAuthority)
+    )
+  ) {
+    throw new ProjectMutationWriteError(
+      "Director completion must carry bounded facts, one active run token, and one terminal receipt.",
+    );
+  }
+
+  try {
+    assertProjectRevision(input.expectedRevision);
+    assertReceiptForProjectRevision(projectId, input.terminalReceipt, input.expectedRevision);
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Director completion must bind the exact terminal writer receipt.",
+    );
+  }
+}
+
+function assertProjectDirectorRunFailureCommandV1(
+  input: ProjectDirectorRunFailureCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !isProjectDirectorRunTokenV1(input.directorRunToken)
+    || !isBoundedNonEmptyStringV1(input.errorMessage, 1000)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Director failure must carry one active run token and a bounded error message.",
+    );
+  }
+}
+
+function isProjectDirectorRunTokenV1(value: unknown): value is string {
+  return typeof value === "string" && /^director_run_[A-Za-z0-9_-]{20}$/.test(value);
+}
+
+function isDirectorRunClaimableStatusV1(value: unknown): boolean {
+  return value === "analysis_complete" || value === "directing_queued";
+}
+
+function isAssistProjectRecordV1(project: Project): boolean {
+  return projectRecordValueV1(project, "editMode") === "assist";
+}
+
+function isActiveDirectorRunV1(project: Project, runToken: string): boolean {
+  return projectRecordValueV1(project, "autoEditStatus") === "directing"
+    && project.directorRunToken === runToken;
 }
 
 function directorDeliveryFailureNoopDispositionV1(
