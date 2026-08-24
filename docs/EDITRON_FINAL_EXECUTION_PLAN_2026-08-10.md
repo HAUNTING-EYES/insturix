@@ -3660,12 +3660,27 @@ relabelled as model behaviour.
   writes; forbids provider ranking, reliability estimates and production
   promotion; and does not resolve the seventeen rows that still need bounded
   successor replay.
+- Commit `d5740c22b` adds the long-form lane-specific zero-inference issuer,
+  reproducible CLI and real-artifact adversarial tests. Clean-HEAD receipt
+  `01aae15dc641e42b7a33da8ec20896835361285a8061ea982c5d7d48da041fe6`
+  contains shared status receipt
+  `f06b09d9d1838ea30cd6fa73308fb1ed96c08d3d404782e0611d7781ea53ba32`
+  and binds immutable source artifact set
+  `32389b77fa8e789d91137350cca26f100e9e2f9004b3f5d4584a43ad5f00000b`.
+  It records two original-contract structural-only passes, one visible-rule
+  structural failure and six confounded rows. A separate version-only V2
+  compatibility check fails all nine proposals; this is current-contract
+  compatibility debt and is not a retroactive model-failure score. The focused
+  cluster passes 28/28, repository typecheck and quiet ESLint pass, and a
+  self-rehashed accounting forgery is rejected. Provider inference, network,
+  project reads/mutations, media writes and state effects are all zero.
 
 The corrected audit disposition is therefore:
 
 - the historical nine paid calls are authentic raw executions, but only two
   rows are currently clean structural passes, one is a clean structural
-  failure, and six are harness-confounded pending a fair successor rescore;
+  failure, and six are harness-confounded; the clean derived receipt does not
+  turn those six rows into a provider score;
 - the V4R derived status receipt now records eleven defensible fixture
   successes and two HOLD-07 unsafe attempts rather than inheriting the raw
   thirteen-pass claim; fifteen provider-infrastructure non-evaluations remain
@@ -3683,14 +3698,15 @@ CAP current-truth reissue. Current rebuild status is:
    negative and metamorphic sentinel through the real lane owners;
 2. **Complete:** issue new successor cohort identities from current CAP truth
    while retaining the historical manifests and paid artifacts unchanged;
-3. **In progress:** strict Git-HEAD closure roots, clean-HEAD adversarial
-   integration tests, the shared status contract and the V4R derived receipt
-   are complete; publish the long-form derived receipt and run only the bounded
-   V4 H02/H04 successor replays needed to resolve remaining rows;
-4. only after a clean no-spend receipt, request explicit authorization for one
+3. **Complete:** strict Git-HEAD closure roots, clean-HEAD adversarial
+   integration tests, the shared status contract and both V4R and long-form
+   derived receipts are published from current clean-HEAD evidence;
+4. **In progress:** run only the bounded V4 H02/H04 zero-inference successor
+   replays needed to resolve their remaining rows;
+5. only after a clean no-spend receipt, request explicit authorization for one
    non-scored row per provider route, audit those pilots, and separately request
    any full-cohort spend authorization;
-5. continue the existing Stage 2.5 generalisation gates only from valid
+6. continue the existing Stage 2.5 generalisation gates only from valid
    successor evidence: genuinely new dependency/invalidation shapes, forced
    native/generated/hybrid alternatives, conflict/rebase/lock, compaction/
    resume, realistic long-form limits and blind editor quality/correction-time
