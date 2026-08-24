@@ -52,7 +52,7 @@ ProjectService-issued command/receipt boundary:
 
 | Path | Current write role | Current gap |
 | --- | --- | --- |
-| `app/api/internal/workers/director/route.ts` | Claims `analysis_complete`/`directing_queued` into `directing`, completes the auto-edit status, and records non-assist failure. Director stage progress now enters only through `ProjectService.recordDirectorProgressV1`. | Claim, completion and runtime failure still do not share one typed ProjectService lifecycle. |
+| `app/api/internal/workers/director/route.ts` | Claims `analysis_complete`/`directing_queued` into `directing`, completes the auto-edit status, and records non-assist failure. Director stage progress now enters only through `ProjectService.recordDirectorProgressV1`. | `ProjectService` now has typed lifecycle owner methods, but this route still uses raw claim/completion/runtime-failure writes until the next bounded wiring phase. |
 | `lib/editron/agent/director-agent.ts` | Carries lease-bound progress receipts and ProjectService action receipts into the final editor save; it still writes intelligence summaries, decision logs, status/audit facts and quality-review data directly. | The progress/final-save revision race is closed, but the intervening legacy facts remain direct Mongo writes without revision advancement or receipts. |
 | `app/api/internal/workers/video-analysis/route.ts` and `tribe-analysis/route.ts` | Advance analysis/directing status and persist analysis facts; development fallbacks can run the Director inline. | Many state transitions/evidence writes remain raw and must be migrated by lifecycle, not bulk-wrapped. |
 | `app/api/internal/workers/pipeline/audio/route.ts` | Pushes BGM/SFX overlays, beat-aligned overlay state and audio-plan facts. | Direct overlay mutation can bypass writer-issued revision/receipt semantics. |
@@ -105,16 +105,19 @@ project, timeline, journal, checkpoint or proof owner.
 The required lifecycle Step-0 audit is recorded in
 [director-lifecycle-step0-audit-2026-08-25.md](./director-lifecycle-step0-audit-2026-08-25.md).
 Commit `a0cb07556` separately removes the one dead Director progress type
-export found during that audit. The next lifecycle implementation must remain
-scoped to the Director route and ProjectService, with explicit methods rather
-than a generic worker-status port, for:
+export found during that audit. Commit `f233ec379` implements the explicit
+ProjectService claim/completion/failure owner methods and adversarial owner
+tests. It is not production wiring: this route still has the raw lifecycle
+writes shown above. The next lifecycle implementation must remain scoped to
+the Director route and agent result boundary, using the existing owner methods
+rather than a generic worker-status port, for:
 
 1. claiming a run from the allowed analysis states;
 2. recognizing an ownership loss without resurrection;
 3. completing only against the final writer/proof state; and
 4. failing only an active owned run.
 
-The durable run identity must be distinct from the short-lived Director writer
+The durable run identity is distinct from the short-lived Director writer
 lease. The final ProjectService save intentionally clears the lease token;
 completion instead needs the exact final writer/proof receipt plus a durable
 run token. A lost run must return a no-write ownership-loss disposition, never

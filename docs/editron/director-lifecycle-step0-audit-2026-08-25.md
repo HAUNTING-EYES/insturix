@@ -69,6 +69,26 @@ The run token is lifecycle identity; the Director lease remains only a
 short-lived writer coordination token. Neither is a second ProjectService,
 checkpoint, journal, proof store or timeline authority.
 
+## Owner implementation outcome
+
+Commit `f233ec379` implements the ProjectService half of this design:
+
+1. `claimDirectorRunV1` atomically claims only user-owned, non-Assist projects
+   from the allowed analysis states, creates `directorRunToken`, increments the
+   revision and returns a writer receipt.
+2. `completeDirectorRunV1` requires the exact active run token plus an exact
+   final writer receipt/revision; it cannot resurrect a project after a rescue
+   or newer write.
+3. `failDirectorRunV1` reads the current owner-scoped project and CAS-fails
+   only that matching active run; a delayed worker receives `OWNERSHIP_LOST`.
+4. The focused lifecycle, progress, delivery-failure and existing worker suites
+   pass 26/26; repository typecheck and quiet ESLint pass.
+
+This is owner evidence, not live migration. The QStash Director route still
+performs raw claim, completion and runtime-failure writes because the agent has
+not yet returned a typed terminal receipt and the route has not yet consumed
+these methods. The required next phase is that bounded wiring only.
+
 ## Required proof
 
 The implementation must prove at least:

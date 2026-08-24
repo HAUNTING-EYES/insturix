@@ -85,8 +85,14 @@ changes.
   records the verified next design: a durable run token is distinct from the
   short-lived writer lease, and typed claim, ownership-loss completion and
   active-run failure must be ProjectService commands rather than a generic
-  metadata port. This is a prerequisite only; it does not migrate the
-  lifecycle yet.
+  metadata port. Commit `f233ec379` now implements and tests that narrow
+  ProjectService owner: atomically claimed non-Assist run identity, exact
+  terminal-receipt completion, and active-run-only failure all advance the
+  canonical revision and return receipts/no-write dispositions. Its focused
+  owner suites passed 26/26 with repository typecheck and quiet lint. The
+  Director route has not consumed those methods yet, so raw route
+  claim/completion/runtime-failure behavior remains live until the next bounded
+  wiring phase.
   No Stage 2.5 paid dispatch is authorized by this audit.
 
 ## The desired experience, in plain words
