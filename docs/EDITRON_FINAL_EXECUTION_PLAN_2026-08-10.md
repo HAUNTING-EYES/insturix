@@ -20,6 +20,15 @@ This document supersedes the implementation ordering in the earlier
 reconciliation document.  It retains IF1 and all valuable Phase 2C work; it
 does not approve a new parallel runtime.
 
+## Live execution pointer - 2026-08-25
+
+The authoritative current Stage 2.5 queue is the section titled **Canonical
+current Stage 2.5 execution queue - 2026-08-25** below. Earlier Stage 2.5
+"next" instructions are retained as dated history and do not authorize a
+rerun, provider call or reordered implementation. The latest canonical queue
+must be updated in the same bounded phase whenever its evidence or next action
+changes.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
@@ -3861,6 +3870,68 @@ CAP current-truth reissue. Current rebuild status is:
 Exactly two non-scored provider inference calls occurred in the closed pilot.
 No project read/mutation, media write, scored-row execution or production
 promotion occurred.
+
+## Canonical current Stage 2.5 execution queue - 2026-08-25
+
+This section supersedes every earlier Stage 2.5 "next" instruction in this
+document, including the stale table-row instruction to authorize or rerun the
+completed nine-row cohort. The benchmark-integrity detour is closed. Stage 2.5
+itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
+`GO`.
+
+### Closed work that must not be repeated
+
+1. The historical nine-row long-form cohort and V4R cohort remain immutable
+   evidence. Their corrected derived statuses, sentinels and no-spend gates are
+   complete; neither result supports provider ranking or a model-failure rate.
+2. V4R3's one-row-per-healthy-route pilot is complete under its no-retry
+   authority. It authorizes no scored rerun, retry or production promotion.
+3. HOLD-01 through HOLD-08, the old P2/P3 tool-order rows and the phrase "seven
+   unseen holdouts" are closed historical work. New evidence must use genuinely
+   new tasks and identities.
+
+### Active exit evidence, in order
+
+1. Package the sole project owner's actual HREF-01 full-video, dense-motion and
+   audio judgment as one qualified receipt. Keep independent agreement
+   `UNVERIFIABLE`; never invent a second reviewer.
+2. Freeze genuinely new dependency and invalidation holdouts with public
+   model-visible rules, equivalent-good/known-bad/safe-stop sentinels and exact
+   proof ceilings before any inference.
+3. Force native, generated-composition and hybrid alternatives on broader
+   held-out targets. Keep the filmstrip island generated and the complete reel
+   hybrid; do not route by operation count.
+4. Exercise stale user edits, overlap conflicts, safe rebases and locked ranges
+   through the real ProjectService product authority rather than only an
+   isolated fixture owner.
+5. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
+   preserving plan, opaque result, revision and cumulative budget identities.
+6. Run realistic long-form evidence/context-limit trials against bounded media
+   retrieval and range plans; the corrected historical nine-row cohort is not
+   a substitute.
+7. Collect blind rendered quality, correction-time, latency and cost receipts.
+8. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
+   production model-driven mutation may begin only after that gate permits it.
+
+### Parallel execution contract
+
+Parallel work begins now, but parallelism does not create parallel authorities.
+The following read-only or isolated-spec lanes may proceed concurrently:
+
+- HREF-01 artifact/review packaging;
+- new dependency/invalidation task discovery;
+- native/generated/hybrid held-out task and scorecard design;
+- ProjectService conflict/rebase/lock current-truth audit;
+- compaction/resume and long-form current-truth audit;
+- blind-quality receipt and review-flow design.
+
+The Integration Owner serializes shared catalog, evaluator, receipt, PlanService
+and ProjectService changes. Parallel sessions may return audits, frozen inputs,
+isolated fixtures and proposed patches, but they may not become a second
+project, timeline, plan, capability, resolver, proof or benchmark authority.
+Provider inference remains blocked until the shared frozen task packet,
+scorecard, zero-spend sentinels, current-source closure and explicit capped
+authorization are all present.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
