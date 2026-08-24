@@ -36,12 +36,16 @@ changes.
   pre-cut ripple-effect range and distinct post-cut preview range rather than a
   one-frame seam hint. This is one migrated writer, not range collaboration,
   safe rebase, generic invalidation, or migration of all writers.
-- Commit `e159c9b6a` makes the asset transcription, asset analysis and asset
-  deep-analysis workers fail closed when either QStash rotation key is absent.
-  It does not certify every internal worker or authenticate unrelated ingress.
-- The immediate next foundation work remains the audited legacy-writer and
-  remaining worker-auth inventory, followed by the highest-risk bounded owner
-  migration. No Stage 2.5 paid dispatch is authorized by these commits.
+- Commits `e159c9b6a`, `93df2b682`, `dea556299` and `17c04bc8e` make the
+  eight audited raw-fallback workers fail closed when either QStash rotation
+  key is absent: asset transcription/analysis/deep-analysis, Director failure,
+  Graph Sync, Chapter Concat, Brand Learning and Clickatron variation. The
+  Clickatron invalid-signature terminalization path remains intact. This does
+  not certify every internal worker, development-only route policy, or
+  unrelated ingress.
+- The immediate next foundation work is the legacy-project-writer Step-0 audit
+  and its highest-risk bounded owner migration. No Stage 2.5 paid dispatch is
+  authorized by these commits.
 
 ## The desired experience, in plain words
 
