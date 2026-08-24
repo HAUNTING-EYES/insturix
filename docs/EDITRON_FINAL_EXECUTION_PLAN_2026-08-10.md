@@ -3981,6 +3981,36 @@ authorization are all present.
   `STRUCTURAL_SENTINEL` evidence: media/fonts and generalized route owners are
   not materialized, nothing rendered, no ProjectService path ran, and dispatch
   remains disabled.
+- Commit `75860a1ea` closes the concrete stale whole-project overwrite in the
+  live chat `cut_section` path. The tool now carries the revision returned by
+  `ProjectService.loadProjectForMutation` into
+  `saveProjectWithReceipt`; an intervening user save returns structured
+  `PROJECT_REVISION_CONFLICT` and leaves the newer project unchanged. Focused
+  mechanical verification is 14/14 and the combined ProjectService/CAP-2A
+  cluster is 61/61. This repairs one writer only: range-aware rebase, locks,
+  full ripple-range accounting, changed paths and reload/render proof remain
+  open.
+- Commit `0a1cd4100` reissues the bounded CAP-2A current-truth audit as V8 after
+  that writer change. It records caller-pinned Project CAS as repaired while
+  retaining `cut_section`'s research-catalog exclusion and the remaining
+  range/rebase/lock/proof gaps. V1, V2 and V7 remain historical identities;
+  V8 is the current dossier, not production certification.
+- Commit `5dd9c27f9` adds a generic blind-quality receipt contract with exact
+  pack/rubric/candidate/result/proof bindings, required per-dimension coverage,
+  explicit `UNVERIFIABLE`, single-reviewer non-consensus, and measured versus
+  estimated/not-performed correction dispositions. Twenty-nine adversarial
+  tests plus full typecheck/lint pass. This is receipt infrastructure only:
+  no HREF or route candidate has thereby received a human judgment, correction
+  time, independent agreement or product-quality promotion.
+- Commit `e7c68efbc` freezes the eight resume requirements only as
+  `SPECIFICATION_FIXTURE_ONLY`. Caller-supplied examples can never establish
+  readiness; the artifact explicitly records
+  `resumeReadinessDisposition: NOT_ESTABLISHED`, no executable-owner evidence,
+  no dispatch and no project effects. The specification/existing-owner test
+  cluster passes 37/37, but no hash-bound executable test-run receipt, paid
+  provider resume, live Atlas/QStash recovery, hosted ingress, canonical
+  apply/reload or audiovisual acceptance exists. Paid resume remains
+  unauthorized.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
