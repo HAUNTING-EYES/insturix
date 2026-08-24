@@ -62,7 +62,6 @@ interface AudioWorkerPayload {
   type: 'bgm' | 'sfx';
   projectId: string;
   userId: string;
-  storyboardId: string;
   // BGM fields
   musicPrompt?: string;
   totalDurationSec?: number;
@@ -96,7 +95,7 @@ async function handler(request: NextRequest) {
   let projectIdForWarnings: string | null = null;
   try {
     const payload: AudioWorkerPayload = await request.json();
-    const { type, projectId, userId, storyboardId } = payload;
+    const { type, projectId, userId } = payload;
     projectIdForWarnings = projectId;
 
     console.log(`[AudioWorker] Processing ${type} for project ${projectId}`);

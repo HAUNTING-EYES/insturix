@@ -102,6 +102,13 @@ changes.
   migration, not a migration of legacy Director fact writes, stuck recovery,
   Assist rescue, range collaboration or generic reconciliation.
   No Stage 2.5 paid dispatch is authorized by this audit.
+- The next legacy writer is the pipeline-audio worker. Commit `6382641ce`
+  already makes its production dispatch fail closed when QStash publisher or
+  signing configuration is absent; it does **not** migrate the worker's raw
+  BGM/SFX project writes. The required Step-0 audit is recorded in
+  [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md): its BGM full-array beat-alignment write can lose an intervening
+  SFX append. The next bounded phase is a specific ProjectService audio-delivery
+  owner and adversarial concurrency proof, not a generic worker wrapper.
 
 ## The desired experience, in plain words
 
