@@ -182,6 +182,14 @@ version-bound claim/checkpoint/terminal work, not a ProjectService,
 generated-composition, overlay, caption, transition, renderer, user-data or
 research-proxy change.
 
+The measured execution constraint is recorded in
+[media-source-pts-cadence-mapper-feasibility-2026-08-25.md](./media-source-pts-cadence-mapper-feasibility-2026-08-25.md).
+`ffprobe -read_intervals` seeks to a keyframe and therefore cannot provide
+independent exact time chunks for a global ordinal map. The only candidate
+production mode is a continuous presentation-order scan with durable exact
+checkpoints. The current V1 contiguous PTS rule is intentionally fail-closed
+for discontinuities or epochs; it is not universal professional-source support.
+
 ## Verification boundary
 
 This audit was initially grounded against `d4d3a9c7b` and rechecked through

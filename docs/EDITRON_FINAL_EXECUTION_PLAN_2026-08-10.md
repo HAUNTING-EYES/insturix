@@ -369,6 +369,14 @@ changes.
   They do not prove legacy raw storage-key writers cannot change an already
   qualified asset: that separate inventory and migration rule remains
   `MEDIA-15` evidence debt.
+  A local `ffprobe -read_intervals` measurement is now recorded in
+  [media-source-pts-cadence-mapper-feasibility-2026-08-25.md](./editron/media-source-pts-cadence-mapper-feasibility-2026-08-25.md):
+  a request at 30 seconds began 2.166… seconds early at a keyframe. Therefore
+  independently sought time chunks cannot assign exact global frame ordinals.
+  The only candidate production mapper is a continuous presentation-order scan
+  with durable exact checkpoints; seek/overlap partitioning stays experimental
+  until it proves coverage against that mode. The V1 contiguous-shard contract
+  also does not represent valid source discontinuities or epochs (`MEDIA-17`).
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 
