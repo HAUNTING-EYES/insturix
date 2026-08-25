@@ -67,7 +67,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves historical bindings while V8 owns current source verification', () => {
+  it('preserves historical bindings and detects source drift after a new writer repair', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
@@ -81,7 +81,9 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(() => assertCap2CurrentTruthSourcesMatchV7()).toThrow(
       'CAP-2 v7 current source coverage drift.',
     );
-    expect(() => assertCap2CurrentTruthSourcesMatchV8()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV8()).toThrow(
+      'CAP-2 v8 current source coverage drift.',
+    );
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -138,25 +140,26 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(checkpoints).toContain('requires a writer-issued rollback receipt');
   });
 
-  it('keeps generic no-CAS findings while recognizing the repaired chat cut writer', () => {
+  it('keeps the generic bridge duration-only while recognizing the repaired chat cut writer', () => {
     const projectService = readSource('lib/editron/services/project-service.ts');
     const updateStart = projectService.indexOf('async updateProject(');
     const updateEnd = projectService.indexOf('async deleteOverlay(', updateStart);
     const updateProjectBody = projectService.slice(updateStart, updateEnd);
-    expect(updateProjectBody).not.toContain('projectRevisionPredicate');
-    expect(updateProjectBody).not.toContain('$inc');
-    expect(updateProjectBody).not.toContain('publishMutationReceipt');
+    expect(updateProjectBody).toContain('reconcileProjectDurationFromOverlaysV1');
+    expect(updateProjectBody).toContain('assertedDurationInFrames');
+    expect(updateProjectBody).not.toContain('getDatabase');
+    expect(updateProjectBody).not.toContain('updateOne');
 
     const tools = readSource('lib/editron/agent/tools.ts');
     const cutStart = tools.indexOf('const cutSection = tool(');
     const cutEnd = tools.indexOf('// --- Auto-Edit from Script ---', cutStart);
     const cutSource = tools.slice(cutStart, cutEnd);
-    expect(cutSource).toContain('projectService.loadProjectForMutation(userId, projectId)');
-    expect(cutSource).toContain('projectService.saveProjectWithReceipt(');
-    expect(cutSource).toContain('{ expectedRevision: beforeRevision }');
+    expect(cutSource).toContain('projectService.cutTimelineRangeV1(userId, projectId, {');
+    expect(cutSource).toContain("actorKind: 'AGENT'");
+    expect(cutSource).toContain('timelineChangeReceipt');
     expect(cutSource).toContain('e instanceof ProjectMutationConflictError');
     expect(cutSource).toContain("nextAction: 'stop'");
-    expect(cutSource).not.toContain('projectService.saveProject(userId, projectId, project)');
+    expect(cutSource).not.toContain('projectService.saveProjectWithReceipt(');
     // The frozen V1 candidate remains historical; V8 records the current repair.
     expect(candidate('timeline.cut-range').revisionSafety.status)
       .toBe('WHOLE_STATE_STALE_SNAPSHOT_RISK');

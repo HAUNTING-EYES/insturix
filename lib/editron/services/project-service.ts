@@ -122,7 +122,8 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "UPDATE_OVERLAY"
   | "REPLACE_PIPELINE_VIDEO_DELIVERY"
-  | "CORRECT_VIDEO_ANALYSIS_DURATION";
+  | "CORRECT_VIDEO_ANALYSIS_DURATION"
+  | "RECONCILE_PROJECT_DURATION";
 
 export interface ProjectTimelineRippleEffectV1 {
   kind: "REMOVE_AND_SHIFT_LEFT";
@@ -201,6 +202,39 @@ export interface ProjectTimelineRangeCutResultV1 {
   timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
   rebase: ProjectTimelineRangeCutRebaseV1;
 }
+
+/**
+ * A derived-duration reconciliation reads the current canonical overlay
+ * timings itself. `assertedDurationInFrames` exists only for the temporary
+ * legacy bridge and must exactly match the owner-derived result.
+ */
+export interface ProjectDurationReconciliationCommandV1 {
+  actorKind: ProjectTimelineChangeActorKindV1;
+  assertedDurationInFrames?: number;
+}
+
+export type ProjectDurationReconciliationNotEligibleReasonV1 =
+  | "PROJECT_FPS_INVALID"
+  | "PROJECT_DURATION_INVALID"
+  | "OVERLAY_TIMING_UNREPRESENTABLE";
+
+export type ProjectDurationReconciliationResultV1 =
+  | {
+      disposition: "APPLIED";
+      durationInFrames: number;
+      mutationReceipt: ProjectMutationReceiptV1;
+      timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_CURRENT";
+      durationInFrames: number;
+      currentRevision: ProjectRevisionV1;
+    }
+  | {
+      disposition: "NOT_ELIGIBLE";
+      reason: ProjectDurationReconciliationNotEligibleReasonV1;
+      currentRevision: ProjectRevisionV1;
+    };
 
 /**
  * A short-lived ProjectService-owned lease for a ripple cut's complete
@@ -4952,24 +4986,217 @@ export class ProjectService {
   }
 
   /**
-   * Update project-level fields atomically (e.g., durationInFrames)
+   * Recompute the project duration from the current canonical overlay state.
+   * It deliberately carries no caller-supplied project snapshot: this is a
+   * derived correction, not a generic timeline mutation or a safe rebase of
+   * another caller's intent.
+   */
+  async reconcileProjectDurationFromOverlaysV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDurationReconciliationCommandV1,
+  ): Promise<ProjectDurationReconciliationResultV1> {
+    if (
+      !isPlainRecord(input)
+      || Object.keys(input).some((key) => (
+        key !== "actorKind" && key !== "assertedDurationInFrames"
+      ))
+      || typeof input.actorKind !== "string"
+      || (
+        input.assertedDurationInFrames !== undefined
+        && (
+          !Number.isSafeInteger(input.assertedDurationInFrames)
+          || input.assertedDurationInFrames < 0
+        )
+      )
+    ) {
+      throw new ProjectMutationWriteError(
+        "Project duration reconciliation input is invalid.",
+      );
+    }
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+
+    const beforeRevision = projectRevisionFor(project);
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        beforeRevision,
+        "The project is locked by an active Director mutation. Reload before reconciling duration.",
+      );
+    }
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      return {
+        disposition: "NOT_ELIGIBLE",
+        reason: "PROJECT_FPS_INVALID",
+        currentRevision: beforeRevision,
+      };
+    }
+    if (
+      !Number.isSafeInteger(project.durationInFrames)
+      || project.durationInFrames < 0
+    ) {
+      return {
+        disposition: "NOT_ELIGIBLE",
+        reason: "PROJECT_DURATION_INVALID",
+        currentRevision: beforeRevision,
+      };
+    }
+    if (!Array.isArray(project.overlays)) {
+      return {
+        disposition: "NOT_ELIGIBLE",
+        reason: "OVERLAY_TIMING_UNREPRESENTABLE",
+        currentRevision: beforeRevision,
+      };
+    }
+
+    const overlayRanges = project.overlays.map(overlayTimelineFrameRangeV1);
+    if (overlayRanges.some((range) => range === null)) {
+      return {
+        disposition: "NOT_ELIGIBLE",
+        reason: "OVERLAY_TIMING_UNREPRESENTABLE",
+        currentRevision: beforeRevision,
+      };
+    }
+    const reconciledDurationInFrames = overlayRanges.reduce(
+      (maximum, range) => Math.max(maximum, range!.endFrame),
+      0,
+    );
+    if (input.assertedDurationInFrames !== undefined
+      && input.assertedDurationInFrames !== reconciledDurationInFrames) {
+      throw new ProjectMutationWriteError(
+        "The caller-supplied duration does not match the ProjectService-derived overlay duration.",
+      );
+    }
+    if (reconciledDurationInFrames === project.durationInFrames) {
+      return {
+        disposition: "ALREADY_CURRENT",
+        durationInFrames: reconciledDurationInFrames,
+        currentRevision: beforeRevision,
+      };
+    }
+
+    const readEndFrame = Math.max(
+      project.durationInFrames,
+      reconciledDurationInFrames,
+    );
+    const boundaryChangeRange = assertTimelineFrameRangeV1(
+      Math.min(project.durationInFrames, reconciledDurationInFrames),
+      readEndFrame,
+      "Project duration reconciliation could not derive its changed timeline boundary.",
+    );
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: beforeRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-duration-reconcile_${nanoid(18)}`,
+      projectId,
+      operation: "RECONCILE_PROJECT_DURATION",
+      actorKind: input.actorKind,
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps: project.fps,
+      beforeProjectRevision: beforeRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: readEndFrame > 0
+        ? [{ startFrame: 0, endFrame: readEndFrame }]
+        : [],
+      writeFrameRangesBefore: [boundaryChangeRange],
+      affectedFrameRangesAfter: reconciledDurationInFrames > 0
+        ? [{ startFrame: 0, endFrame: reconciledDurationInFrames }]
+        : [],
+      affectedOverlayRefs: [],
+      changedPaths: ["durationInFrames", "timelineRangeChangeReceipts"],
+      rangeObservation: "EXACT",
+      overlayTemporalChange: null,
+      timelineCoordinateTransform: null,
+      splitChildren: [],
+      ripple: null,
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [boundaryChangeRange],
+      },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(beforeRevision),
+      },
+      {
+        $set: {
+          durationInFrames: reconciledDurationInFrames,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      durationInFrames: reconciledDurationInFrames,
+      mutationReceipt,
+      timelineChangeReceipt,
+    };
+  }
+
+  /**
+   * Compatibility bridge for the two remaining legacy duration callers. It
+   * rejects every generic field update and refuses a duration assertion that
+   * differs from the owner-derived value. New callers must use
+   * `reconcileProjectDurationFromOverlaysV1` directly.
    */
   async updateProject(
     userId: string,
     projectId: string,
-    updates: Record<string, any>,
+    updates: Record<string, unknown>,
   ): Promise<void> {
-    assertGenericProjectUpdateFields(updates, []);
-    const db = await getDatabase();
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId },
-      {
-        $set: {
-          ...updates,
-          updatedAt: new Date(),
-        },
-      },
-    );
+    if (
+      !isPlainRecord(updates)
+      || Object.keys(updates).length !== 1
+      || !Object.prototype.hasOwnProperty.call(updates, "durationInFrames")
+      || !Number.isSafeInteger(updates.durationInFrames)
+      || (updates.durationInFrames as number) < 0
+    ) {
+      throw new ProjectMutationWriteError(
+        "Generic project updates are disabled; use a ProjectService command boundary.",
+      );
+    }
+    await this.reconcileProjectDurationFromOverlaysV1(userId, projectId, {
+      actorKind: "UNKNOWN_LEGACY_CALLER",
+      assertedDurationInFrames: updates.durationInFrames as number,
+    });
   }
 
   /**
