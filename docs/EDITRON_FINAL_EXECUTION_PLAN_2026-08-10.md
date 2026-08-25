@@ -319,6 +319,19 @@ changes.
   next media design must issue a separate cadence/source-PTS mapping artifact
   only where its measured evidence can support one.
 
+- **2026-08-25 PTS/cadence mapping Step-0.** The next canonical-media work is
+  now explicitly bounded by
+  [canonical-media-pts-cadence-step0-audit-2026-08-25.md](./editron/canonical-media-pts-cadence-step0-audit-2026-08-25.md).
+  It confirms that neither matching stream-rate labels nor the current PTS
+  anchors establish CFR, VFR or a source/proxy map. The required future owner
+  is a source-version-bound, resumable, private sidecar artifact lifecycle
+  whose status and manifest reference live on the existing `MEDIA_ASSETS`
+  record. It must preserve ordered lossless PTS/duration evidence, fail closed
+  for incomplete or invalid coverage, and clear on source replacement. This is
+  Step-0 architecture only: no map worker, persistence field, deployment,
+  ProjectService source binding, operation eligibility or long-form claim has
+  been added.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render

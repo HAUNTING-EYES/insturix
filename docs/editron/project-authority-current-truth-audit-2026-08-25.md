@@ -180,8 +180,10 @@ Director execution path can be called fully reconciled.
 ## Non-claims
 
 - `cut_section` now reports a full pre-cut ripple range and a distinct
-  post-cut preview range, but range locks, safe rebase and generalized
-  invalidation are still absent.
+  post-cut preview range. Its cut-specific half-open locks and narrow safe
+  rebase across one exact disjoint overlay receipt are present; generalized
+  locks, rebase, invalidation and browser-visible selective recovery remain
+  absent.
 - The current numeric FPS timeline is not a rational/mixed-rate/VFR/timecode
   media spine.
 - Pipeline-audio no longer uses a direct project write or stale full-overlay
