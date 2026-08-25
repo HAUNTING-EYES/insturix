@@ -263,7 +263,12 @@ changes.
   lifecycle/analysis fact writes, Director observer facts, legacy status
   tracking and generic `updateProject` calls. No generic metadata owner is
   authorized; the next P0 owner design is the source-bound Video Analysis
-  duration command.
+  duration command. Its required Step-0 audit is
+  [video-analysis-duration-command-step0-audit-2026-08-25.md](./editron/video-analysis-duration-command-step0-audit-2026-08-25.md):
+  no local dead-code cleanup is justified, and the frozen next scope is one
+  exact initial-source overlay, project numeric FPS, exact CAS, replay receipt
+  and local timeline effect—never the current raw update of every video overlay
+  or a generic `updateProject` call.
 
 ## The desired experience, in plain words
 
