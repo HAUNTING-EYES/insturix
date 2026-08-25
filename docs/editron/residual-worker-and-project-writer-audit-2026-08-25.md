@@ -1,7 +1,8 @@
 # Residual worker and project-writer current-truth audit
 
 Date: 2026-08-25  
-Status: `CURRENT_SOURCE_AUDIT_COMPLETE` — no owner migration is implied by this
+Status: `CURRENT_SOURCE_AUDIT_COMPLETE`; immediate publisher-config closeout is
+commit `0a12c798d`. No project-writer owner migration is implied by this
 document.
 
 ## Scope and method
@@ -30,20 +31,22 @@ keys at request time and returns a structured `503
 INTERNAL_WORKER_AUTH_NOT_CONFIGURED` before invoking the handler when either is
 missing. There is no raw inbound-handler fallback in these three routes.
 
-There is nevertheless a separate production fail-open branch:
+The audit found a separate production fail-open branch:
 
 | Producer | Current production behavior when `QSTASH_TOKEN` is absent | Why it is unsafe |
 | --- | --- | --- |
 | Video Analysis | At `video-analysis/route.ts:959-1069`, lack of the publisher token skips the signed Stage-2/Director publication path and enters the branch labelled "Dev fallback", which performs TRIBE and Director work inline. | A deployment configuration error changes execution topology, bypasses the intended signed worker boundary, and continues through raw lifecycle writers. |
 | TRIBE | At `tribe-analysis/route.ts:447-493`, lack of the publisher token skips signed Director publication and runs Director inline. | The route can report successful inline completion instead of a configuration failure. |
 
-The issue is not that either route accepts an unsigned inbound request. It is
-that a signed upstream worker can silently use an inline downstream fallback in
-production. The immediate repair is therefore deliberately narrow: allow that
-fallback only in explicit development, and return a structured `503` before
-database/work-provider side effects when production cannot publish the
-dependent signed worker. Both the publisher token and signing-key pair must be
-present for production dispatch.
+The issue was not that either route accepted an unsigned inbound request. It
+was that a signed upstream worker could silently use an inline downstream
+fallback in production. Commit `0a12c798d` closes that branch: the shared
+predicate requires a nonblank publisher token and signing-key pair for
+production dispatch, both handlers return structured `503
+INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED` before `getDatabase`, and only
+explicit development retains the inline path. Focused auth/wiring, financial
+source and Director completion coverage passes 28/28; repository typecheck and
+quiet ESLint pass. This does not migrate any raw lifecycle/analysis writer.
 
 ## Residual project writer inventory
 
@@ -64,11 +67,10 @@ command merely to reduce the table count.
 
 ## Ordered repair plan
 
-1. **Close the publisher-config fail-open** in Video Analysis and TRIBE. This
-   is a bounded four-file implementation plus one plan update: no production
-   inline fallback, no database/provider work before the configuration check,
-   and regressions for development versus production policy.
-2. **Design and migrate Video Analysis duration correction as its own command.**
+1. **Completed — close the publisher-config fail-open** in Video Analysis and
+   TRIBE (`0a12c798d`). Production has no inline fallback and no
+   database/provider work before the configuration check.
+2. **Next — design and migrate Video Analysis duration correction as its own command.**
    It must load an authenticated ProjectService mutation snapshot; bind the
    analyzed source asset/version and measured duration; use the current
    project numeric FPS rather than a literal 30; enumerate exact affected

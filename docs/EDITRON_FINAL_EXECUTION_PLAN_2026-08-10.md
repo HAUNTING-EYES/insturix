@@ -254,16 +254,16 @@ changes.
   audit [residual-worker-and-project-writer-audit-2026-08-25.md](./editron/residual-worker-and-project-writer-audit-2026-08-25.md)
   confirms a distinction that the earlier worker-auth record did not cover:
   Video Analysis and TRIBE reject missing inbound QStash signing keys through
-  the shared request-time guard, but both still treat a missing *publisher*
-  token as permission to run downstream work inline. That is a production
-  fail-open orchestration branch, not an unsigned ingress. The next bounded
-  safety repair is to allow inline work only in explicit development and return
-  a configuration failure before database/provider side effects in production.
-  The audit separately ranks the raw Video Analysis 30-fps duration overwrite,
-  finalizer synchronous BGM overlay append, lifecycle/analysis fact writes,
-  Director observer facts, legacy status tracking and generic `updateProject`
-  calls. No generic metadata owner is authorized; the ordered next owner after
-  the configuration repair is the source-bound Video Analysis duration command.
+  the shared request-time guard, while `0a12c798d` closes the separate missing
+  *publisher* token fail-open: production now returns a structured `503` before
+  database/provider side effects, and the inline downstream path is explicit
+  development-only. Focused coverage passes 28/28 with repository typecheck
+  and quiet lint. The audit separately ranks the raw Video Analysis 30-fps
+  duration overwrite, finalizer synchronous BGM overlay append,
+  lifecycle/analysis fact writes, Director observer facts, legacy status
+  tracking and generic `updateProject` calls. No generic metadata owner is
+  authorized; the next P0 owner design is the source-bound Video Analysis
+  duration command.
 
 ## The desired experience, in plain words
 
