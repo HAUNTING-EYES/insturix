@@ -75,6 +75,8 @@ export type MediaSourceQualificationWorkerPortsV1 = {
     expected: MediaSourceQualificationRecordV1;
     next: MediaSourceQualificationRecordV1;
     sourceVersionV1: Readonly<MediaSourceVersionV1> | null;
+    sourcePtsCadenceMapV1: null;
+    sourcePtsCadenceMapStateSha256V1: null;
     proxyMasterRelationV1: Readonly<MediaProxyMasterRelationV1> | null;
     sourceInvalidationPlanV1: Readonly<MediaSourceInvalidationPlanV1> | null;
   }): Promise<boolean>;
@@ -172,6 +174,8 @@ export async function runMediaSourceQualificationWorkerV1(
       expected,
       next,
       sourceVersionV1,
+      sourcePtsCadenceMapV1,
+      sourcePtsCadenceMapStateSha256V1,
       proxyMasterRelationV1,
       sourceInvalidationPlanV1,
     }) => {
@@ -181,6 +185,8 @@ export async function runMediaSourceQualificationWorkerV1(
           $set: {
             sourceQualificationV1: next,
             sourceVersionV1,
+            sourcePtsCadenceMapV1,
+            sourcePtsCadenceMapStateSha256V1,
             proxyMasterRelationV1,
             sourceInvalidationPlanV1,
           },
@@ -220,6 +226,8 @@ export async function executeMediaSourceQualificationWorkerV1(
     expected: record,
     next: claim.record,
     sourceVersionV1: null,
+    sourcePtsCadenceMapV1: null,
+    sourcePtsCadenceMapStateSha256V1: null,
     proxyMasterRelationV1: null,
     sourceInvalidationPlanV1: null,
   })) {
@@ -324,6 +332,8 @@ export async function executeMediaSourceQualificationWorkerV1(
     expected: claim.record,
     next: completion.record,
     sourceVersionV1,
+    sourcePtsCadenceMapV1: null,
+    sourcePtsCadenceMapStateSha256V1: null,
     proxyMasterRelationV1: proxyMasterArtifacts?.relation ?? null,
     sourceInvalidationPlanV1: proxyMasterArtifacts?.invalidationPlan ?? null,
   })) {

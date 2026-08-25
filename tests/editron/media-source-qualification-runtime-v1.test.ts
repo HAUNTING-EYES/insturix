@@ -97,6 +97,10 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     });
     expect(memory.proxyMasterRelation()).toBeNull();
     expect(memory.sourceInvalidationPlan()).toBeNull();
+    expect(memory.cadenceMapWrites()).toEqual([
+      { sourcePtsCadenceMapV1: null, sourcePtsCadenceMapStateSha256V1: null },
+      { sourcePtsCadenceMapV1: null, sourcePtsCadenceMapStateSha256V1: null },
+    ]);
   });
 
   it('materializes proxy/master relation and invalidation intent only after the exact master qualifies', async () => {
@@ -295,10 +299,18 @@ function inMemoryPorts(
   inspectStorageVersion: unknown;
   probe: unknown;
   sourceVersion(): Readonly<MediaSourceVersionV1> | null;
+  cadenceMapWrites(): Array<{
+    sourcePtsCadenceMapV1: null;
+    sourcePtsCadenceMapStateSha256V1: null;
+  }>;
   proxyMasterRelation(): Readonly<MediaProxyMasterRelationV1> | null;
   sourceInvalidationPlan(): Readonly<MediaSourceInvalidationPlanV1> | null;
 } {
   let storedSourceVersion: Readonly<MediaSourceVersionV1> | null = null;
+  const cadenceMapWrites: Array<{
+    sourcePtsCadenceMapV1: null;
+    sourcePtsCadenceMapStateSha256V1: null;
+  }> = [];
   let storedProxyMasterRelation: Readonly<MediaProxyMasterRelationV1> | null = null;
   let storedSourceInvalidationPlan: Readonly<MediaSourceInvalidationPlanV1> | null = null;
   const resolveVerifiedSourceUrl = vi.fn(async () => source);
@@ -320,12 +332,15 @@ function inMemoryPorts(
     replace: vi.fn(async ({
       next,
       sourceVersionV1,
+      sourcePtsCadenceMapV1,
+      sourcePtsCadenceMapStateSha256V1,
       proxyMasterRelationV1,
       sourceInvalidationPlanV1,
     }) => {
       if (!compareAndSet) return false;
       persist(next);
       storedSourceVersion = sourceVersionV1;
+      cadenceMapWrites.push({ sourcePtsCadenceMapV1, sourcePtsCadenceMapStateSha256V1 });
       storedProxyMasterRelation = proxyMasterRelationV1;
       storedSourceInvalidationPlan = sourceInvalidationPlanV1;
       return true;
@@ -342,6 +357,7 @@ function inMemoryPorts(
     inspectStorageVersion,
     probe,
     sourceVersion: () => storedSourceVersion,
+    cadenceMapWrites: () => cadenceMapWrites,
     proxyMasterRelation: () => storedProxyMasterRelation,
     sourceInvalidationPlan: () => storedSourceInvalidationPlan,
   };
