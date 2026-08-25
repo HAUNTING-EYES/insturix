@@ -13,7 +13,21 @@ durable generation, cost, or failure boundaries.
 The required next slice is therefore a narrow security correction, not a
 general worker refactor.
 
-## Verified current control flow
+## Closeout
+
+Commit `dd13ff4db` removes the outer authentication-error catch and exports the
+shared verified handler directly. A failed verifier response now returns before
+the generation handler; an exceptional verifier failure likewise cannot invoke
+the handler. The route no longer imports or calls `failQueuedJob` in its
+authentication boundary, so it cannot inspect an untrusted `jobId`, mutate a
+variation, or refund credits after a failed signature check.
+
+Focused verification passed: four shared-auth tests and eleven Clickatron
+terminal-state tests, followed by repository typecheck and quiet ESLint. This
+closes this one Clickatron worker-auth side effect. It does not certify every
+internal worker or legacy writer.
+
+## Verified pre-fix control flow
 
 ```text
 POST(req)
@@ -34,7 +48,7 @@ verification can reject an invalid signature before the generation handler
 runs.  The outer `POST` catch then performs the side effects above from the
 unverified request body.
 
-## Concrete risk
+## Pre-fix concrete risk
 
 An attacker able to reach the internal route with an invalid signature and a
 known **queued** Clickatron job ID can make the failed-auth catch attempt to
@@ -46,7 +60,7 @@ This is a genuine worker-auth fail-open side effect.  It is unrelated to
 ProjectService and must not be solved by creating a parallel job, financial, or
 project authority.
 
-## Required correction and proof
+## Implemented correction and proof
 
 The route must export the verified wrapper directly:
 

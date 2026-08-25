@@ -7,12 +7,12 @@ master plan: canonical media identity, timebase and durable evidence.  It does
 not promote the current upload, proxy, research-reference, or chapter-render
 paths to a unified media architecture.
 
-The immediate bounded code slice is intentionally smaller: make the existing
-chapter renderer derive its 15-minute split, 2.5-minute target and 30-second
-minimum from its supplied numeric render FPS.  That removes one concrete
-non-30-fps duration error.  It does **not** introduce rational rates, source
-PTS, VFR, timecode, conform, proxy/master identity, or production long-form
-certification.
+The completed bounded code slice in `800f2f543` makes the existing chapter
+renderer derive its 15-minute split, 2.5-minute target and 30-second minimum
+from its supplied numeric render FPS; the admission route and UI use the same
+duration policy.  That removes one concrete non-30-fps duration error.  It
+does **not** introduce rational rates, source PTS, VFR, timecode, conform,
+proxy/master identity, or production long-form certification.
 
 ## Existing authority and ingress map
 
@@ -23,7 +23,7 @@ certification.
 | Multipart upload | `mediaUploads` tracks parts/completion and quota; the main registration route creates the later `MEDIA_ASSETS` record. | Retryable object assembly and storage accounting. | Completion itself does not issue a media identity/probe receipt or register a canonical source version. |
 | Proxy then original | The project dashboard first registers the compressed proxy as `isProxy`; the original later reaches `media/upload/swap`, which rewrites that same asset's `cachedUrl`, clears `isProxy`, and optionally stores `originalR2Key`. | A UI convenience for replacing a temporary preview with a full-quality URL. | No immutable master/proxy pair, no source/proxy transform, no version increment, no analyzer invalidation or project receipt. Existing edits can therefore change byte source without a durable media-version handoff. |
 | Provider-native reference materialization | `ProviderNativeCanonicalMedia*V2R` has identity/policy/byte-binding records and product ports. Its root is explicitly `PRODUCT_COMPOSITION_NO_CANONICAL_PROJECT_MUTATION`. | Exact, route-authorized reference bytes for bounded provider episodes, stored separately from the bytes selected by `mediaAssets`. | It is reference/episode scoped and has no live upload, project sequence, source PTS, proxy/relink or render consumer. Reusing it as generic ingest would create a second media authority, so it is not the migration target. |
-| Chapter rendering | `chapter-renderer.ts` stores a separate transient render-job/chapter record and sends `Overlay[]`, `totalFrames`, and numeric `fps` to Lambda. | Bounded concurrent chapter rendering and fail-loud concat handling. | Project/source/timebase revision binding, source identity, rational cadence, format/QC proof and durable render provenance. Its current frame-count thresholds are incorrectly fixed to 30 fps. |
+| Chapter rendering | `chapter-renderer.ts` stores a separate transient render-job/chapter record and sends `Overlay[]`, `totalFrames`, and numeric `fps` to Lambda. | Bounded concurrent chapter rendering and fail-loud concat handling; duration thresholds now derive from numeric render FPS. | Project/source/timebase revision binding, source identity, rational cadence, format/QC proof and durable render provenance. |
 
 ## Verified source facts
 
@@ -41,11 +41,12 @@ certification.
 4. `lib/editron/contracts/editorial-media-identity-contract-v1.ts` and its
    documentation deliberately state `UNWIRED_CONTRACT_ONLY`; repository use is
    contract/research-oriented, not a product upload or ProjectService consumer.
-5. `lib/editron/services/chapter-renderer.ts` defines `27000`, `4500`, and
-   `900` frame thresholds while accepting but ignoring `_fps` in boundary
-   detection. `cloudrun/render/route.ts` independently calculates a numeric
-   render FPS before calling the chapter path.  At non-30 rates the existing
-   threshold represents the wrong duration.
+5. Before `800f2f543`, `lib/editron/services/chapter-renderer.ts` defined
+   `27000`, `4500`, and `900` frame thresholds while accepting but ignoring
+   `_fps` in boundary detection. The completed slice replaces those with
+   duration constants converted only from the supplied numeric render FPS and
+   passes that FPS through the render route. It remains intentionally unable to
+   represent rational, VFR, source-PTS, reel, or timecode identity.
 
 ## Existing owner boundaries to preserve
 
@@ -82,7 +83,8 @@ certification.
 
 ## Verification boundary
 
-This audit is documentation only.  It does not claim a working production
-media spine, a raised upload cap, VFR support, or long-form readiness.  The
-next code commit must name the exact duration-policy tests it adds and retain
-the honest numeric-FPS limitation until the rational-timebase consumer exists.
+This audit does not claim a working production media spine, a raised upload
+cap, VFR support, or long-form readiness. Commit `800f2f543` adds numeric-FPS
+duration-policy coverage at 24, 29.97 and 60 FPS and rejects invalid FPS; it
+retains the honest numeric-only limitation until a rational-timebase consumer
+exists.

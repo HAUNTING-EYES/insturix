@@ -130,9 +130,21 @@ changes.
   contract-only; the provider-native canonical-media records are bounded
   reference/episode adapters and must not become a second ingest authority.
   The exact audit is [canonical-media-timebase-step0-audit-2026-08-25.md](./editron/canonical-media-timebase-step0-audit-2026-08-25.md).
-  The first bounded implementation corrects the existing chapter renderer's
-  fixed-30-fps duration policy only; it does not claim rational/VFR/timecode or
-  long-form-media completion.
+  The completed first bounded implementation corrects the former chapter
+  renderer fixed-30-fps duration policy only; it does not claim rational/VFR/
+  timecode or long-form-media completion.
+
+- **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
+  live chapter renderer derive its 15-minute admission threshold, 2.5-minute
+  target and 30-second minimum from the supplied numeric render FPS; the render
+  route and UI now use the same duration policy. It is still a numeric-FPS
+  wrapper, not a rational timebase, VFR, reel/timecode, proxy/master or
+  long-form-media implementation. Commit `dd13ff4db` removes Clickatron's
+  unauthenticated signature-failure fallback: a failed QStash verification no
+  longer reads a `jobId` from an untrusted body or terminalizes/refunds a queued
+  job. This closes that one worker-auth side effect only; the remaining
+  fail-open/legacy-writer inventory and ProjectService range-effect migration
+  are still required before the safety foundation is complete.
 
 ## The desired experience, in plain words
 
