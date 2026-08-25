@@ -547,6 +547,27 @@ export type ProjectPipelineDirectorDispatchPrepareResultV1 =
   | { disposition: "PROJECT_NOT_FOUND" }
   | { disposition: "NOT_ELIGIBLE" };
 
+/**
+ * Pipeline finalize records an intent only. A later pipeline-video completion
+ * still owns the batch-bound signed-worker dispatch preparation.
+ */
+export interface ProjectPipelineDirectorIntentCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  profileId: string;
+}
+
+export type ProjectPipelineDirectorIntentResultV1 =
+  | {
+      disposition: "RECORDED";
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_RECORDED";
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "NOT_ELIGIBLE" };
+
 export interface ProjectDirectorRunClaimOptionsV1 {
   /** Required only when ProjectService prepared a pipeline-video dispatch. */
   pipelineDirectorDispatchToken?: string;
@@ -2084,6 +2105,126 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return receipt;
+  }
+
+  /**
+   * Records the pipeline-finalize Director intent under the sole project
+   * revision owner. This is intentionally not a queue publication or a
+   * Director-run claim: the later batch completion owns those transitions.
+   */
+  async recordPipelineDirectorIntentV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineDirectorIntentCommandV1,
+  ): Promise<ProjectPipelineDirectorIntentResultV1> {
+    assertProjectPipelineDirectorIntentCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const rawPendingProfileId = projectRecordValueV1(current, "pendingDirectorProfileId");
+    const rawPendingUserId = projectRecordValueV1(current, "pendingDirectorUserId");
+    const rawDispatch = projectRecordValueV1(current, "pipelineDirectorDispatch");
+    if (
+      isAssistProjectRecordV1(current)
+      || projectRecordValueV1(current, "directorRunToken") !== undefined
+      || rawDispatch !== undefined
+      || !isPipelineDirectorDispatchPreparationEligibleStatusV1(
+        projectRecordValueV1(current, "autoEditStatus"),
+      )
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+    if (rawPendingProfileId !== undefined || rawPendingUserId !== undefined) {
+      if (rawPendingProfileId === input.profileId && rawPendingUserId === userId) {
+        return { disposition: "ALREADY_RECORDED", currentRevision };
+      }
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const committedAt = new Date();
+    const recorded = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        pendingDirectorProfileId: { $exists: false },
+        pendingDirectorUserId: { $exists: false },
+        directorRunToken: { $exists: false },
+        pipelineDirectorDispatch: { $exists: false },
+        editMode: { $ne: "assist" },
+        $and: [
+          projectRevisionPredicate(input.expectedRevision),
+          {
+            $or: [
+              { autoEditStatus: { $exists: false } },
+              { autoEditStatus: "analysis_complete" },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          pendingDirectorProfileId: input.profileId,
+          pendingDirectorUserId: userId,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+
+    if (recorded) {
+      const revision = projectRevisionFor(recorded);
+      if (
+        revision.value !== input.expectedRevision.value + 1
+        || revision.compatibilityUpdatedAt !== committedAt.toISOString()
+        || projectRecordValueV1(recorded, "pendingDirectorProfileId") !== input.profileId
+        || projectRecordValueV1(recorded, "pendingDirectorUserId") !== userId
+      ) {
+        throw new ProjectMutationWriteError(
+          "Pipeline Director intent did not return its exact writer-issued state.",
+        );
+      }
+      const receipt: ProjectMutationReceiptV1 = {
+        schemaVersion: 1,
+        projectId,
+        revision,
+        committedAt: committedAt.toISOString(),
+      };
+      this.publishMutationReceipt(receipt);
+      return { disposition: "RECORDED", receipt };
+    }
+
+    const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+    if (
+      !isAssistProjectRecordV1(latest)
+      && projectRecordValueV1(latest, "directorRunToken") === undefined
+      && projectRecordValueV1(latest, "pipelineDirectorDispatch") === undefined
+      && isPipelineDirectorDispatchPreparationEligibleStatusV1(
+        projectRecordValueV1(latest, "autoEditStatus"),
+      )
+      && projectRecordValueV1(latest, "pendingDirectorProfileId") === input.profileId
+      && projectRecordValueV1(latest, "pendingDirectorUserId") === userId
+    ) {
+      return {
+        disposition: "ALREADY_RECORDED",
+        currentRevision: projectRevisionFor(latest),
+      };
+    }
+    throw new ProjectMutationConflictError(projectRevisionFor(latest));
   }
 
   /**
@@ -5083,6 +5224,21 @@ function assertProjectPipelineDirectorDispatchPrepareCommandV1(
   ) {
     throw new ProjectMutationWriteError(
       "Pipeline Director dispatch preparation must carry one exact project revision and batch identity.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectPipelineDirectorIntentCommandV1(
+  input: ProjectPipelineDirectorIntentCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.profileId, 200)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Pipeline Director intent must carry one exact project revision and bounded profile identity.",
     );
   }
   assertProjectRevision(input.expectedRevision);

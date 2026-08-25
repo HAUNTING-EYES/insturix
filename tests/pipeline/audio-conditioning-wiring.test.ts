@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     addOverlay: vi.fn(),
     deleteOverlay: vi.fn(),
     commitPipelineAudioDeliveryV1: vi.fn(),
+    recordPipelineDirectorIntentV1: vi.fn(),
     getDatabase: vi.fn(),
     dbFindOne: vi.fn(),
     dbUpdateOne: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('@/lib/editron/services/project-service', () => ({
     addOverlay: mocks.addOverlay,
     deleteOverlay: mocks.deleteOverlay,
     commitPipelineAudioDeliveryV1: mocks.commitPipelineAudioDeliveryV1,
+    recordPipelineDirectorIntentV1: mocks.recordPipelineDirectorIntentV1,
   },
 }));
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
@@ -522,6 +524,26 @@ describe('storyboard finalize audio conditioning', () => {
     mocks.createProject.mockResolvedValue({ projectId: 'proj_audio' });
     mocks.findProjectBySessionId.mockResolvedValue(null);
     mocks.saveProject.mockResolvedValue(undefined);
+    mocks.loadProjectForMutation.mockResolvedValue({
+      revision: {
+        schemaVersion: 1,
+        value: 1,
+        compatibilityUpdatedAt: '2026-08-25T00:00:00.000Z',
+      },
+    });
+    mocks.recordPipelineDirectorIntentV1.mockResolvedValue({
+      disposition: 'RECORDED',
+      receipt: {
+        schemaVersion: 1,
+        projectId: 'proj_audio',
+        revision: {
+          schemaVersion: 1,
+          value: 2,
+          compatibilityUpdatedAt: '2026-08-25T00:00:01.000Z',
+        },
+        committedAt: '2026-08-25T00:00:01.000Z',
+      },
+    });
     mocks.dbUpdateOne.mockResolvedValue({ acknowledged: true });
     mocks.dbInsertOne.mockResolvedValue({ acknowledged: true });
     mocks.addProjectToLink.mockResolvedValue(false);

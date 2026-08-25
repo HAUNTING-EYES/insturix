@@ -1478,19 +1478,6 @@ export async function POST(
       }
     }
 
-    // D-016: Profile detection removed — signal system + Utility AI drive all editing decisions.
-    // Store G-01 (universal default) for Director. Director uses standard actions + overlay scoring.
-    try {
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: project.projectId },
-        { $set: { pendingDirectorProfileId: 'G-01', pendingDirectorUserId: userId } },
-      );
-      console.log(`[Finalize] Director profile: G-01 (signal-driven, D-016)`);
-    } catch (dirErr: any) {
-      console.warn(`[Finalize] Failed to store Director profile: ${dirErr.message}`);
-      warnings.push(`Director profile storage failed: ${dirErr.message}`);
-    }
-
     // Log pipeline warning summary
     if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
       console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
@@ -1519,6 +1506,42 @@ export async function POST(
       console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
     }
 
+    // D-016: Profile detection removed — signal system + Utility AI drive all
+    // editing decisions. This records an intent only; the later signed
+    // pipeline-video completion prepares the batch-bound Director dispatch.
+    let directorIntentQueued = false;
+    let directorQueueState: 'PENDING_PIPELINE_VIDEO_COMPLETION' | 'NOT_RECORDED' = 'NOT_RECORDED';
+    try {
+      const directorIntentSnapshot = await projectService.loadProjectForMutation(
+        userId,
+        project.projectId,
+      );
+      const directorIntent = await projectService.recordPipelineDirectorIntentV1(
+        userId,
+        project.projectId,
+        {
+          expectedRevision: directorIntentSnapshot.revision,
+          profileId: 'G-01',
+        },
+      );
+      if (
+        directorIntent.disposition === 'RECORDED'
+        || directorIntent.disposition === 'ALREADY_RECORDED'
+      ) {
+        directorIntentQueued = true;
+        directorQueueState = 'PENDING_PIPELINE_VIDEO_COMPLETION';
+        console.log(`[Finalize] Director intent ${directorIntent.disposition}: G-01.`);
+      } else {
+        const message = `Director intent was not recorded: ${directorIntent.disposition}.`;
+        console.warn(`[Finalize] ${message}`);
+        warnings.push(message);
+      }
+    } catch (dirErr: unknown) {
+      const message = dirErr instanceof Error ? dirErr.message : String(dirErr);
+      console.warn(`[Finalize] Director intent persistence failed: ${message}`);
+      warnings.push(`Director intent persistence failed: ${message}`);
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
@@ -1526,7 +1549,8 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: audioGenerationQueued,
-      directorQueued: true,
+      directorQueued: directorIntentQueued,
+      directorQueueState,
       ...(warnings.length > 0 && { warnings }),
       pipelineHealth: pipelineWarnings.count(),
     });
