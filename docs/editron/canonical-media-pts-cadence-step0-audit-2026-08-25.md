@@ -190,6 +190,13 @@ production mode is a continuous presentation-order scan with durable exact
 checkpoints. The current V1 contiguous PTS rule is intentionally fail-closed
 for discontinuities or epochs; it is not universal professional-source support.
 
+The next required protocol correction is recorded in
+[canonical-media-pts-sidecar-content-audit-2026-08-25.md](./canonical-media-pts-sidecar-content-audit-2026-08-25.md).
+The current V1 shard sidecar omits the per-frame records and its manifest omits
+the full sidecar index, so neither can recover a source-time map. V1 remains a
+strict descriptor/lifecycle prerequisite; a versioned frame-payload and
+manifest-index successor must exist before the runtime mapper starts.
+
 ## Verification boundary
 
 This audit was initially grounded against `d4d3a9c7b` and rechecked through

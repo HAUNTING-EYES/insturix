@@ -377,6 +377,13 @@ changes.
   with durable exact checkpoints; seek/overlap partitioning stays experimental
   until it proves coverage against that mode. The V1 contiguous-shard contract
   also does not represent valid source discontinuities or epochs (`MEDIA-17`).
+  A second Step-0 audit,
+  [canonical-media-pts-sidecar-content-audit-2026-08-25.md](./editron/canonical-media-pts-sidecar-content-audit-2026-08-25.md),
+  proves the current V1 sidecar contains only aggregate shard descriptors and
+  the manifest only a rolling checkpoint. It cannot recover per-frame PTS or
+  enumerate every shard, so it cannot be promoted to a usable source map. A
+  versioned frame-payload/manifest-index successor is required before mapper
+  runtime work; V1 stays a strict prerequisite contract.
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 
