@@ -163,6 +163,18 @@ changes.
   a foreign, malformed, or HTTP endpoint is treated as unconfigured and never
   receives a secret. Custom domains require a separate reviewed trust policy.
 
+- **2026-08-25 Scene Detection source-auth correction.** Commit `eb7836dc9`
+  updates the repository source for the legacy ffmpeg cut detector: its Modal
+  declaration requires proxy authentication, its TypeScript caller uses only
+  the dedicated host-bound proxy credentials, generic `MODAL_TOKEN_*` values
+  cannot authorize it, and the source no longer logs/returns raw download
+  exceptions that could include a source URL. Its direct canonical consumer
+  already treats missing measured cuts as fatal rather than inventing model
+  timing. This is **source-only** evidence: no Modal deployment or environment
+  change was made or verified. The endpoint still receives a temporary URL
+  rather than a storage-owner-issued source handle, so it is not the finished
+  canonical-media ingress/provenance boundary.
+
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
   lifecycle as an optional field on the existing `MediaAsset` type. It accepts

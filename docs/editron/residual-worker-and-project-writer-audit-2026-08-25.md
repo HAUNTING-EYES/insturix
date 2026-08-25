@@ -50,6 +50,25 @@ explicit development retains the inline path. Focused auth/wiring, financial
 source and Director completion coverage passes 28/28; repository typecheck and
 quiet ESLint pass. This does not migrate any raw lifecycle/analysis writer.
 
+## Modal analyzer endpoint-auth boundary
+
+This is a separate request-boundary concern from signed inbound QStash work.
+The following is current **repository source** truth, not a deployment claim:
+
+| Pair | Current source state | Remaining boundary |
+| --- | --- | --- |
+| Media source probe | `025b4e73b`, `b96253b52` and `27dd95b83` declare Modal proxy auth, dedicated credentials and a host-bound `https://*.modal.run` client. | The endpoint is not deployed; canonical byte identity and storage-issued source qualification remain open. |
+| Scene detection | `eb7836dc9` declares `requires_proxy_auth=True`; its client uses the same dedicated, host-bound proxy credentials and has a source guard test. Missing evidence is rejected by the canonical reference extractor. | No deployment/environment update was made. The worker still receives a temporary URL rather than resolving a storage-owner-issued source handle. |
+| Music analysis, Wav2Vec and V-JEPA | Their source endpoint/client pairs still use the former generic `Authorization: Token <MODAL_TOKEN_ID>:<MODAL_TOKEN_SECRET>` pattern. | Each needs its own endpoint/caller/exposure audit and bounded fail-closed migration. |
+
+The scene extractor validates a canonical registration receipt but does not
+bind `source.videoUrl` itself to that receipt. Therefore proxy authentication
+removes public endpoint access; it does not establish an origin allowlist,
+redirect policy, byte bound, or storage-issued URL contract for the worker.
+That belongs to the canonical-media source owner, not a new scene registry or
+ProjectService writer. The source deployment test protects the repository
+declaration only; it cannot prove a deployed Modal revision.
+
 ## Closed since this audit began
 
 `13d02b5c0` replaces the raw Video Analysis 30-fps/all-video duration write
@@ -116,7 +135,11 @@ command merely to reduce the table count.
    unwired; it must bind existing media storage to qualified master/proxy
    source identity and measured technical metadata without adding a media
    registry.
-7. **Then — design lifecycle/analysis fact migration by named family after
+7. **Next in the safety queue — migrate the remaining legacy Modal analyzer
+   endpoint/client pairs one bounded pair at a time.** No generic-token
+   fallback, proxy-header host escape, endpoint deployment claim or source URL
+   provenance claim is permitted during those migrations.
+8. **Then — design lifecycle/analysis fact migration by named family after
    qualified media identity exists.** Status, analysis provenance,
    native-audio evidence, Director observer facts, workflow leases and batch
    orchestration have different lifecycle, proof and invalidation rules. The
