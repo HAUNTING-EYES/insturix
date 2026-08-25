@@ -114,8 +114,8 @@ function storageVersion(byteLength: number, eTag: string) {
   });
 }
 
-function observed(storageVersion: ReturnType<typeof storageVersion>) {
-  return { disposition: 'OBSERVED' as const, storageVersion };
+function observed(version: ReturnType<typeof storageVersion>) {
+  return { disposition: 'OBSERVED' as const, storageVersion: version };
 }
 
 function sha(bytes: Uint8Array): string {

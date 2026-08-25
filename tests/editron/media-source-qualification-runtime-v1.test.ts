@@ -125,7 +125,7 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     const probe = vi.fn(async (): Promise<MediaSourceProbeResultV1> => ({
       disposition: 'UNVERIFIABLE',
       observation: null,
-      diagnostics: ['MEDIA_SOURCE_PROBE_UNAVAILABLE'],
+      diagnostics: ['MEDIA_SOURCE_PROBE_REQUEST_FAILED'],
     }));
 
     await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), {
