@@ -135,6 +135,18 @@ changes.
   renderer fixed-30-fps duration policy only; it does not claim rational/VFR/
   timecode or long-form-media completion.
 
+- **2026-08-25 remote source-probe foundation.** The current bounded phase adds
+  a typed, read-only Modal `ffprobe` adapter and a deployment module. It
+  measures only technical stream/container observations through a
+  server-generated storage URL and returns `UNVERIFIABLE` for absent
+  configuration or malformed/empty evidence. It deliberately does not issue a
+  canonical source identity, byte digest, PTS map, CFR/VFR conclusion,
+  proxy/master mapping, ProjectService receipt, or product permission. The
+  next media slice is a `MEDIA_ASSETS`-embedded qualification job/worker after
+  actual storage verification; no direct upload route is changed by this
+  foundation phase. The exact boundary is
+  [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
