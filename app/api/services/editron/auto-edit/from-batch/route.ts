@@ -63,6 +63,10 @@ import {
 } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import {
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+} from '@/lib/editron/security/internal-worker-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -279,6 +283,9 @@ async function dispatchBatchOrchestration(params: {
   caller: BatchCaller;
   delaySeconds?: number;
 }): Promise<string | undefined> {
+  if (!isInternalQStashDispatchConfigured()) {
+    throw new Error('QStash publisher token and signing keys are required for durable batch orchestration');
+  }
   const token = process.env.QSTASH_TOKEN;
   if (!token) throw new Error('QSTASH_TOKEN is required for durable batch orchestration');
   const target = `${params.baseUrl}/api/services/editron/auto-edit/from-batch`;
@@ -947,7 +954,10 @@ async function dispatchDirector(params: {
     editorialPreferences: normalizeEditorialPreferences(params.intake.editorialPreferences),
   };
 
-  if (!qstashToken) {
+  if (!isInternalQStashDispatchConfigured()) {
+    if (!isInternalWorkerInlineFallbackAllowed()) {
+      throw new Error('QStash publisher token and signing keys are required to dispatch the Director outside development');
+    }
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
     await executeDirectorPlan(params.projectId, params.userId, 'A-01', buildDirectorBrief(params.intake));
     return { queued: false };
@@ -998,6 +1008,13 @@ export async function POST(request: NextRequest) {
     baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      return NextResponse.json({
+        success: false,
+        error: 'Durable batch orchestration is unavailable because its publisher token or signing keys are not configured.',
+      }, { status: 503 });
+    }
 
     const db = await getDatabase();
     let batch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId, userId }) as BatchDocument | null;
@@ -1173,13 +1190,6 @@ export async function POST(request: NextRequest) {
     };
 
     if (!caller.internal) {
-      if (!process.env.QSTASH_TOKEN) {
-        return NextResponse.json({
-          success: false,
-          error: 'Durable batch orchestration is unavailable. QSTASH_TOKEN is not configured.',
-        }, { status: 503 });
-      }
-
       creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
       if (!creditCheck.allowed) return creditCheck.errorResponse!;
 

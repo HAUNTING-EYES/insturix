@@ -504,6 +504,27 @@ describe('from-batch storyline route handoff', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rejects missing production queue configuration before reading a batch or charging credits', async () => {
+    process.env = { ...process.env, NODE_ENV: 'production' };
+    delete process.env.QSTASH_TOKEN;
+    delete process.env.QSTASH_CURRENT_SIGNING_KEY;
+    delete process.env.QSTASH_NEXT_SIGNING_KEY;
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+
+    const response = await POST(request({ uploadBatchId: 'batch_1' }) as never);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'Durable batch orchestration is unavailable because its publisher token or signing keys are not configured.',
+    });
+    expect(mocks.getDatabase).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
   it('derives video readiness from semantic capability evidence instead of aggregate completion', () => {
     const requirements = {
       semanticVisual: {
