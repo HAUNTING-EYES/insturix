@@ -73,6 +73,24 @@ canonical-media source owner, not a new analyzer registry or ProjectService
 writer. The source deployment tests protect repository declarations only; they
 cannot prove a deployed Modal revision.
 
+### Remaining endpoint census — source-only reconciliation
+
+The broader repository scan found no additional anonymous product-worker route
+that should be forced through this analyzer-specific proxy helper. The relevant
+remaining paths have distinct verified boundary shapes:
+
+| Path | Actual source boundary | Disposition |
+| --- | --- | --- |
+| `editorial-plan` | Its thin route delegates to `createEditorialPlanProductRouteV1`, whose returned handler wraps the request in `withInternalQStashWorkerAuth(...)`. | Signed worker; the route file itself is intentionally thin. |
+| `mg-render/storage-authorize` | A sandbox callback verifies a short-lived, scoped signed job-lease bearer capability before reserving storage. | Not a QStash worker and not a project/timeline writer. |
+| Render finalizer, chapter concat, Brand Vault browser renderer | Each Modal function performs its own required bearer-token check in the function body. | A separate manual-token boundary; endpoint host pinning/rotation policy is an outbound-service debt, not a reason to mislabel it as a proxy-auth worker. |
+| Standalone Gemma editorial classifier | Commit `436b37e19` changes its Modal declaration to `requires_proxy_auth=True`; its only repository probe now supplies `Modal-Key` and `Modal-Secret` from dedicated proxy credential names. No product caller was found. | Source-hardened research endpoint; no deployment or product wiring claim. |
+
+This census does **not** claim every remote-service trust policy is unified or
+deployed. In particular, the manual bearer clients must later receive their own
+reviewed endpoint-origin and rotation policy, and none of these entries closes
+the storage-owner-issued URL/handle gap above.
+
 ## Closed since this audit began
 
 `13d02b5c0` replaces the raw Video Analysis 30-fps/all-video duration write
@@ -139,10 +157,12 @@ command merely to reduce the table count.
    unwired; it must bind existing media storage to qualified master/proxy
    source identity and measured technical metadata without adding a media
    registry.
-7. **Next in the safety queue — migrate the remaining legacy Modal analyzer
-   endpoint/client pairs one bounded pair at a time.** No generic-token
-   fallback, proxy-header host escape, endpoint deployment claim or source URL
-   provenance claim is permitted during those migrations.
+7. **Completed for the known unauthenticated Modal source paths — migrate the
+   analyzer pairs and standalone Gemma classifier one bounded pair at a time.**
+   Source Probe, Scene, Music, Wav2Vec and V-JEPA now use the shared dedicated,
+   host-bound proxy boundary; `436b37e19` closes the separate Gemma research
+   endpoint. No generic-token fallback, proxy-header host escape, endpoint
+   deployment claim or source URL provenance claim is made.
 8. **Then — design lifecycle/analysis fact migration by named family after
    qualified media identity exists.** Status, analysis provenance,
    native-audio evidence, Director observer facts, workflow leases and batch

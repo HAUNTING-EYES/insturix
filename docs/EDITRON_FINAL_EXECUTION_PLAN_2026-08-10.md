@@ -202,6 +202,21 @@ changes.
   was made. The worker still receives a caller-provided temporary URL rather
   than a canonical-media source handle.
 
+- **2026-08-25 V-JEPA and standalone classifier endpoint reconciliation.**
+  Step-0 commit `e18ff1200` removes dead V-JEPA worker code and raw diagnostic
+  logging; `d8ff0fbc6` then requires proxy authentication, uses only the
+  shared dedicated host-bound credentials and rejects malformed worker data.
+  Commit `436b37e19` requires Modal proxy authentication for an otherwise
+  unreferenced Gemma editorial research endpoint and changes its sole
+  repository probe from obsolete generic tokens to `Modal-Key` /
+  `Modal-Secret`. The manual probe takes an explicit endpoint and is not a
+  host-bound product client. This is source-only endpoint hardening: neither path was
+  deployed, neither gives the classifier a product caller, and V-JEPA still
+  receives a temporary caller URL rather than a canonical-media source handle.
+  The separate manual bearer boundaries for render finalization, chapter
+  concat and Brand Vault remain non-unified service policies, not evidence that
+  any proxy-auth migration is product-complete.
+
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
   lifecycle as an optional field on the existing `MediaAsset` type. It accepts
