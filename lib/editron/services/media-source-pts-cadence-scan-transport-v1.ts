@@ -168,7 +168,7 @@ export async function pollMediaSourcePtsCadenceScanV1(
   const environment = dependencies.environment ?? process.env;
   const config = configuration(environment);
   if (!config) return unverifiable('SCAN_TRANSPORT_NOT_CONFIGURED');
-  const validatedJob = assertJob(job);
+  const validatedJob = assertMediaSourcePtsCadenceScanJobV1(job);
   const response = await post(config.pollEndpoint, validatedJob, config.headers, dependencies);
   if (!response) return unverifiable('SCAN_TRANSPORT_REQUEST_FAILED');
   if (response.status !== 200 && response.status !== 202) {
@@ -255,7 +255,9 @@ function assertMapBinding(value: unknown): MediaSourcePtsCadenceScanMapBindingV1
   });
 }
 
-function assertJob(value: unknown): MediaSourcePtsCadenceScanJobV1 {
+export function assertMediaSourcePtsCadenceScanJobV1(
+  value: unknown,
+): MediaSourcePtsCadenceScanJobV1 {
   const record = assertScanRecordV1(value, 'SCAN_JOB_INVALID');
   assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256', 'submissionId'], 'SCAN_JOB_INVALID');
   if (typeof record.functionCallId !== 'string' || !FUNCTION_CALL_ID.test(record.functionCallId)) {
