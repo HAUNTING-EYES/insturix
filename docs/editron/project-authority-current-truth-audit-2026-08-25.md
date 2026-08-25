@@ -81,7 +81,7 @@ ProjectService-issued command/receipt boundary:
 | `app/api/internal/workers/video-analysis/route.ts` and `tribe-analysis/route.ts` | Advance analysis/directing status and persist analysis facts; development fallbacks can run the Director inline. | Many state transitions/evidence writes remain raw and must be migrated by lifecycle, not bulk-wrapped. |
 | `app/api/internal/workers/pipeline/audio/route.ts` | Loads a ProjectService mutation snapshot and submits BGM/SFX `ATTACHED`, `SKIPPED`, or `FAILED` material through `commitPipelineAudioDeliveryV1`. BGM alignment is recomputed inside the owner's fresh CAS snapshot. | The canonical project write is migrated. Generated media assets remain a separate owner, attached audio remains `UNVERIFIABLE` until rendered mix proof, and split beat-analysis callers remain unreconciled. |
 | `lib/editron/agent/chat-visual-tools.ts` `reframe_project` | Commit `7b190ae90` reads one `loadProjectForMutation` snapshot and saves canvas/overlay changes plus `intelligence.lastSubjectReframe` through one `saveProjectWithReceipt` CAS carrying that exact revision. | This is a partial convergence only: it still writes full editor state and returns a plan rather than a surfaced receipt; it has no dedicated range effects, rebase, undo/replay or rendered proof. |
-| `ProjectService.updateProject` callers | Generic duration reconciliation in `agent/tools.ts` and `auto-edit-service.ts`. | The method still writes without a CAS predicate, revision increment or returned writer receipt. |
+| `ProjectService.updateProject` callers | Legacy duration reconciliation in `agent/tools.ts` and `auto-edit-service.ts`. | Commit `d8e61f060` limits this compatibility method to one exact `durationInFrames` assertion and delegates it to `reconcileProjectDurationFromOverlaysV1`, which performs the current revision/`updatedAt` CAS and emits writer receipts. The two callers still use `UNKNOWN_LEGACY_CALLER` and do not consume the returned receipt; this is not a generic metadata command. |
 
 This table is a migration ledger, not an assertion that all listed paths have
 the same risk or can safely share a generic replacement.
@@ -177,6 +177,26 @@ mutation. The new receipt chain prevents a stale final CAS from pretending to
 be current; it does not certify that every legacy in-memory/direct-write merge
 is lossless. That requires a separate owner-level audit before the broader
 Director execution path can be called fully reconciled.
+
+## Direct-overlay receipt boundary
+
+Commit `18cb23e6a` moves the four direct single-overlay ProjectService methods
+(`addOverlay`, idempotent `addOverlayIfAbsent`, `updateOverlay` and
+`deleteOverlay`) to the same limited effect-history boundary. A successful
+overlay CAS also appends exactly one writer-issued `ADD_OVERLAY`,
+`UPDATE_OVERLAY` or `DELETE_OVERLAY` receipt. The receipt contains the exact
+occupied project-frame range when the before/after overlay timing is valid
+integer frame data; otherwise it preserves the explicit
+`UNKNOWN_LEGACY_OVERLAY_TIMING` reason rather than pretending that a safe range
+is known.
+
+This does **not** make these commands range-collaborative. Cut rebase still
+permits only a contiguous history of exact, disjoint `UPDATE_OVERLAY` receipts.
+An add/delete receipt is durable truthful history but blocks a stale cut as
+`UNKNOWN_OPERATION` until a separately reviewed operation-specific policy,
+lock behavior and invalidation owner are implemented. No caller provenance,
+full-family replacement effect, renderer proof, artifact invalidation or
+browser conflict UX was added.
 
 ## Non-claims
 

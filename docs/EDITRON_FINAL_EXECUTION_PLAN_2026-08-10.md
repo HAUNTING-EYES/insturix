@@ -4610,6 +4610,20 @@ authorization are all present.
   source commit `a20f052a94438f22367dc8311dc77bd87264d380` plus source snapshot
   `2cfb53bb39458f3c18c1f4cd79d4ca78a16a2bf3901ec51bca7b5907534f7290`.
   It makes no catalog promotion, runtime authorization or production claim.
+- Commit `18cb23e6a` extends the direct single-overlay ProjectService boundary:
+  `addOverlay`, `addOverlayIfAbsent`, `updateOverlay` and `deleteOverlay` now
+  append a writer-issued `ADD_OVERLAY`, `UPDATE_OVERLAY` or `DELETE_OVERLAY`
+  effect receipt in the same successful CAS as the overlay mutation. An exact
+  half-open project-frame range is recorded only when the legacy overlay timing
+  is representable; otherwise the receipt says
+  `UNKNOWN_LEGACY_OVERLAY_TIMING` and carries no fabricated range. This is
+  truthful history, not generic collaboration: existing stale-cut rebase
+  accepts only exact disjoint `UPDATE_OVERLAY` receipts, so an intervening add
+  or delete fails closed as `UNKNOWN_OPERATION` until a separately reviewed
+  policy exists. Focused direct-overlay/cut verification is 51/51, with full
+  repository typecheck and quiet ESLint passing. No lock, generic rebase,
+  artifact invalidation, renderer proof, caller provenance or runtime catalog
+  promotion was added.
 - Commit `5dd9c27f9` adds a generic blind-quality receipt contract with exact
   pack/rubric/candidate/result/proof bindings, required per-dimension coverage,
   explicit `UNVERIFIABLE`, single-reviewer non-consensus, and measured versus
