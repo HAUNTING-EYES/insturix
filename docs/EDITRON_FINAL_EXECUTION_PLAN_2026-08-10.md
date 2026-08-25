@@ -462,8 +462,12 @@ changes.
   only at measured frame boundaries while preserving exact ordinals and PTS.
   Source, result, staging, progression or policy mismatch fails before a
   canonical artifact write. It still does not advance the lifecycle or mutate
-  an asset. Lifecycle checkpoint/finalization and the source-bound
-  `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms and the
+  an asset. Audit of the terminal verifier then found that its existing V2 R2
+  reader intentionally rejects the V1 lifecycle-manifest namespace. Commit
+  `4d7039c6c` supplies a separate manifest-only private reader with bounded
+  length/digest readback; it cannot read shard, V2 or staging keys and does not
+  weaken the V2 namespace policy. Lifecycle checkpoint/finalization and the
+  source-bound `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms and the
   ProjectService consumer also remain absent. Those owner-side steps are next;
   model evaluation, DEP-02/DEP-03 and project routing remain later in the
   frozen order.
