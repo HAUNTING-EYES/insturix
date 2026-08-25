@@ -632,6 +632,24 @@ changes.
   a DEP-03 closeout: ProjectService still needs an atomic duration/ripple write,
   exact effect receipt and adversarial owner reissue before inference.
 
+  Commit `e6ec03f10` adds that operation's pure bounded form without writing a
+  project. `retimeIsolatedVideoSourceRangeV1` accepts only one whole, isolated,
+  unit-speed video overlay whose owner-verified source span exactly matches its
+  current duration. It preserves every source frame, shortens composition time,
+  shifts later non-overlapping overlays, and emits exact before/after ranges,
+  duration delta and affected overlay identities. Existing retime state, any
+  local keyframes, overlapping captions/audio/effects, source mismatch and
+  non-integral output duration all produce zero-write `SAFE_STOP`. The source-
+  time transform now has a backward-compatible V2 renderer-mapping identity for
+  explicit source spans: the regression fixture maps a 120-source-frame 2x
+  retime into 60 project frames and rebinds source event 100 to project frame
+  50. Focused verification passes 21/21 and all four paths pass quiet ESLint;
+  repository typecheck has zero errors in these paths and remains blocked by 18
+  concurrent unstaged ThinkForge errors. This is not a general partial-ramp,
+  mixed-track reconform, slow-motion/interpolation, VFR or ProjectService-write
+  certificate. The next slice is one ProjectService CAS that derives the source
+  binding, persists this exact state/effect/transform and advances one revision.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
