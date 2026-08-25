@@ -144,8 +144,7 @@ changes.
   proxy/master mapping, ProjectService receipt, or product permission. The
   next media slice is a signed qualification worker after actual storage
   verification. The existing `MediaAsset` type now carries a source-bound
-  `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE` contract, but no
-  public upload route has been changed yet. The exact boundary is
+  `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE` contract. The exact boundary is
   [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
 
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
@@ -154,7 +153,14 @@ changes.
   only a server-owned R2 key or GCS path for a user upload and binds claims to
   `(assetId, provider, objectKey)`. It is not live ingress/worker wiring, a
   byte/source-version identity, a proxy mapping, a ProjectService command, or
-  a source-qualified production claim.
+  a source-qualified production claim. Commit `6a377060b` wires that record
+  through only the signed registration ingress and a signed QStash worker. The
+  worker independently checks the persisted R2/GCS object, obtains a
+  short-lived server URL, probes it, and compare-and-set completes the same
+  record. Duplicate/stale/raced work, unavailable storage and configuration
+  failure remain explicit non-success states; no unsigned/inline fallback,
+  ProjectService mutation, renderer consumer, deployment or source-qualified
+  product claim was introduced.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute

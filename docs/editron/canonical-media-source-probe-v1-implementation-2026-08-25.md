@@ -33,10 +33,17 @@ binding, media invalidation, or operation eligibility. A malformed, missing,
 unconfigured, failed, or stream-empty response is `UNVERIFIABLE`, never
 silently filled from client metadata.
 
-The Modal endpoint has not been deployed or wired into public ingress by this
-slice. Deployment requires the normal Modal token configuration plus an
-explicit allowlist for any non-R2/GCS storage host. Until that subsequent
-worker/ingress phase, no product path consumes this adapter.
+The Modal endpoint has not been deployed. Deployment still requires the normal
+Modal token configuration plus an explicit allowlist for any non-R2/GCS storage
+host. The signed registration route now persists the bounded job and dispatches
+only a signed QStash worker. That worker independently verifies the persisted
+R2/GCS object, creates a short-lived server URL, and compare-and-set writes the
+result to the existing asset record. Missing queue/probe configuration or a
+storage failure remains explicitly pending/unverifiable; no unsigned or inline
+fallback exists.
+
+No project/timeline, renderer, analysis, or UI consumer treats this observation
+as a qualified source yet.
 
 ## Source-bound lifecycle contract
 
@@ -55,9 +62,11 @@ successful result is named `MEASURED_TECHNICAL`, deliberately not
 
 ## Next ordered implementation
 
-1. Dispatch the signed internal worker only after actual storage verification.
-2. Have that worker resolve a server-generated direct storage URL, call this
-   probe, and persist the measured observation with a job/revision receipt.
+1. Deploy the bounded worker configuration only after environment review; no
+   deployment occurred in this code slice.
+2. Migrate the remaining direct-upload and proxy-swap ingress paths through
+   immutable source-version/invalidation work rather than pretending a URL swap
+   is the same source.
 3. Add a separate immutable byte/source-version and PTS/cadence phase before
    any ProjectService source/record command consumes it.
 
