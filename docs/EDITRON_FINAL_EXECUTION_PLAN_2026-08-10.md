@@ -162,6 +162,17 @@ changes.
   ProjectService mutation, renderer consumer, deployment or source-qualified
   product claim was introduced.
 
+- **2026-08-25 provider storage-version observation foundation.** Commit
+  `2234fbc18` adds one deterministic, URL-free observation of the exact
+  storage object: R2 `HeadObject` ETag plus byte length, or GCS generation plus
+  byte length. The observation is bound to the existing server-owned locator
+  and detects a simple replacement behind a stable key. It is intentionally
+  inert until the signed worker records and compares it around a probe. It is
+  **not** a byte digest, immutable canonical source version, proxy/master
+  mapping, invalidation chain, ProjectService source binding, deployment or
+  product permission. Provider metadata absence is `UNVERIFIABLE`; no client
+  URL, declared size, proxy flag or GCS mirror is substituted.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render

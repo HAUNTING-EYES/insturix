@@ -47,7 +47,7 @@ as a qualified source yet.
 
 ## Source-bound lifecycle contract
 
-The next bounded source-contract phase adds
+The current bounded source-contract phase adds
 `MediaSourceQualificationRecordV1` as an optional field on the *existing*
 `MediaAsset` type. Its storage locator can only be the server-owned R2 key or
 GCS path of a user upload; it never accepts a browser URL, raw `assetId`, a
@@ -60,14 +60,35 @@ different source. A stale `PROBING` lease can retry after 15 minutes. Even a
 successful result is named `MEASURED_TECHNICAL`, deliberately not
 `QUALIFIED`.
 
+## Provider storage-version observation foundation
+
+Commit `2234fbc18` adds a separate, deterministic observation of the concrete
+stored object behind that locator:
+
+- R2: authoritative `HeadObject` byte length plus opaque ETag;
+- GCS: authoritative metadata byte length plus immutable provider generation;
+- the observation hash binds the provider, object key, byte length and opaque
+  provider token, but no URL or observation timestamp.
+
+This closes neither byte identity nor source qualification. An R2 ETag is not
+treated as a SHA-256 digest, and no code currently persists this observation
+on `MediaAsset`, invalidates old analysis, changes proxy swap behavior or
+allows ProjectService to consume it. Its sole current purpose is to give the
+next worker phase an exact before/after storage identity to compare around a
+remote probe. Missing/malformed metadata becomes `UNVERIFIABLE`; it never
+falls back to browser metadata.
+
 ## Next ordered implementation
 
-1. Deploy the bounded worker configuration only after environment review; no
+1. Wire the signed qualification worker to persist this observation only after
+   a matching before/after storage read around the remote probe. A changed
+   object must end `UNVERIFIABLE`, not retain a technically measured result.
+2. Deploy the bounded worker configuration only after environment review; no
    deployment occurred in this code slice.
-2. Migrate the remaining direct-upload and proxy-swap ingress paths through
-   immutable source-version/invalidation work rather than pretending a URL swap
-   is the same source.
-3. Add a separate immutable byte/source-version and PTS/cadence phase before
-   any ProjectService source/record command consumes it.
+3. Migrate the remaining direct-upload and proxy-swap ingress paths through
+   immutable byte/source-version and invalidation work rather than pretending a
+   URL swap is the same source.
+4. Add PTS/cadence and then ProjectService source/record binding only after the
+   immutable source-version phase.
 
 No second media registry, project owner, or timeline authority is introduced.
