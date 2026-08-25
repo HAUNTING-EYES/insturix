@@ -7,6 +7,7 @@ import {
   expectedMediaSourcePtsCadenceManifestIndexObjectKeyV2,
   parseMediaSourcePtsCadenceManifestIndexV2,
 } from '@/lib/editron/services/media-source-pts-cadence-manifest-index-v2';
+import { verifyMediaSourcePtsCadenceManifestIndexV2 } from '@/lib/editron/services/media-source-pts-cadence-index-verifier-v2';
 import { serializeMediaSourcePtsCadenceFrameBatchV2 } from '@/lib/editron/services/media-source-pts-cadence-frame-batch-v2';
 import { mediaSourcePtsCadenceMapBindingSha256V1 } from '@/lib/editron/services/media-source-pts-cadence-map-lifecycle-v1';
 import { createMediaSourcePtsCadenceShardV1 } from '@/lib/editron/services/media-source-pts-cadence-shard-v1';
@@ -95,7 +96,82 @@ describe('MediaSourcePtsCadenceManifestIndexV2', () => {
   });
 });
 
-function batches() {
+describe('MediaSourcePtsCadenceManifestIndexVerifierV2', () => {
+  it('reads every indexed batch and reports only indexed-range integrity', async () => {
+    const fixture = batches();
+    const manifestIndex = createMediaSourcePtsCadenceManifestIndexV2({
+      mapBindingSha256: fixture.mapBindingSha256,
+      resourcePolicy: indexPolicy(),
+      batches: fixture.batches,
+    });
+    const result = await verifyMediaSourcePtsCadenceManifestIndexV2({
+      manifestIndex,
+      reader: readerFor(fixture.batches),
+    });
+
+    expect(result).toMatchObject({
+      disposition: 'INDEX_INTEGRITY_VERIFIED',
+      verifiedBatchCount: 2,
+      verifiedFrameCount: '4',
+      indexedRange: {
+        firstFrameOrdinal: '0',
+        endExclusiveFrameOrdinal: '4',
+        startPresentationTimestampTicks: '0',
+        endExclusivePresentationTimestampTicks: '12012',
+      },
+      observedCadence: { kind: 'UNIFORM_INDEXED_RANGE', durationTicks: '3003' },
+    });
+  });
+
+  it('fails closed when a private batch cannot be read or no longer matches its indexed bytes', async () => {
+    const fixture = batches();
+    const manifestIndex = createMediaSourcePtsCadenceManifestIndexV2({
+      mapBindingSha256: fixture.mapBindingSha256,
+      resourcePolicy: indexPolicy(),
+      batches: fixture.batches,
+    });
+    await expect(verifyMediaSourcePtsCadenceManifestIndexV2({
+      manifestIndex,
+      reader: { read: async () => { throw new Error('unavailable'); } },
+    })).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SIDECAR_READ_FAILED',
+      failedShardSequence: 0,
+    });
+    await expect(verifyMediaSourcePtsCadenceManifestIndexV2({
+      manifestIndex,
+      reader: {
+        read: async (sidecar) => ({
+          canonicalJson: '{}',
+          byteLength: 2,
+          contentSha256: sidecar.contentSha256,
+        }),
+      },
+    })).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SIDECAR_BYTE_LENGTH_MISMATCH',
+      failedShardSequence: 0,
+    });
+  });
+
+  it('reports variable timing only for the verified indexed range', async () => {
+    const fixture = batches({ variableSecondBatch: true });
+    const manifestIndex = createMediaSourcePtsCadenceManifestIndexV2({
+      mapBindingSha256: fixture.mapBindingSha256,
+      resourcePolicy: indexPolicy(),
+      batches: fixture.batches,
+    });
+    await expect(verifyMediaSourcePtsCadenceManifestIndexV2({
+      manifestIndex,
+      reader: readerFor(fixture.batches),
+    })).resolves.toMatchObject({
+      disposition: 'INDEX_INTEGRITY_VERIFIED',
+      observedCadence: { kind: 'VARIABLE_INDEXED_RANGE' },
+    });
+  });
+});
+
+function batches(input: { variableSecondBatch?: boolean } = {}) {
   const sourceVersion = createMediaSourceVersionV1({
     owner: { kind: 'USER', userId: 'user-1' },
     assetId: 'asset-1',
@@ -140,8 +216,8 @@ function batches() {
     { presentationTimestampTicks: '3003', durationTicks: '3003' },
   ]);
   const second = batch(1, '2', [
-    { presentationTimestampTicks: '6006', durationTicks: '3003' },
-    { presentationTimestampTicks: '9009', durationTicks: '3003' },
+    { presentationTimestampTicks: '6006', durationTicks: input.variableSecondBatch ? '3004' : '3003' },
+    { presentationTimestampTicks: input.variableSecondBatch ? '9010' : '9009', durationTicks: '3003' },
   ]);
   return { mapBindingSha256: first.serialization.payload.mapBindingSha256, batches: [first, second] as const };
 }
@@ -195,4 +271,14 @@ function qualification(storageVersion: ReturnType<typeof createMediaSourceStorag
 
 function indexPolicy() {
   return { policyVersion: 'policy-v2', maxCanonicalJsonBytes: 16_384, maxBatchEntries: 100 };
+}
+
+function readerFor(batches: readonly { serialization: { canonicalJson: string; byteLength: number; contentSha256: string }; sidecar: { contentSha256: string } }[]) {
+  return {
+    read: async (sidecar: { contentSha256: string }) => {
+      const batch = batches.find(({ sidecar: known }) => known.contentSha256 === sidecar.contentSha256);
+      if (!batch) throw new Error('missing batch');
+      return batch.serialization;
+    },
+  };
 }
