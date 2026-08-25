@@ -36,6 +36,29 @@ conflict remains a whole-project conflict from the browser's point of view.
 
 The existing coordinate transform remains the correct owner of its pure cut-coordinate calculation. It must not be bypassed or recast as a persistence layer merely to make these gaps appear closed.
 
+## Stateful owner proof - 2026-08-26
+
+Commit `0956d6ee7` exercises the product `ProjectService` owner across
+sequential reads and writes with bounded, stateful in-process test persistence.
+Unlike the earlier one-call Mongo mocks, the trial lets `updateOverlay` create
+revision 8 and its exact effect receipt, then submits a cut against stale
+revision 7 and reloads revision 9 from the same stored record. The disjoint
+user edit survives, the cut reports `SAFE_REBASED`, and the persisted receipt
+chain is contiguous.
+
+The same trial proves that an overlapping stale update changes nothing; an
+overlapping lock is refused; the exact full-tail lock is consumed by a
+successful cut; forged and expired locks change nothing; and a final CAS loss
+publishes no cut receipt or cut state. The focused current-truth/cut/stateful
+cluster passes 20/20 with repository typecheck and quiet ESLint passing.
+
+This is `IN_PROCESS_PRODUCT_OWNER_WITH_STATEFUL_TEST_PERSISTENCE`, not live
+Atlas evidence. The helper implements only the Mongo surface exercised by
+these cut-specific paths. It does not establish generic range locks, safe
+rebase for other operations, multi-user browser behavior, durable artifact
+invalidation, user-visible conflict resolution or canonical production-data
+execution.
+
 ## Required implementation gate
 
 The cut command now binds its base revision, numeric project-frame coordinate

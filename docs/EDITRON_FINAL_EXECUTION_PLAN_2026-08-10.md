@@ -5008,6 +5008,23 @@ authorization are all present.
   transitive executable closure remain unverified, the generated path is a
   trusted local process rather than the production sandbox, and provider,
   cloud, database, ProjectService and canonical-mutation counts remain zero.
+- Commit `0956d6ee7` closes the next cut-specific conflict-trial evidence gap
+  through the real product `ProjectService` owner with stateful in-process test
+  persistence. A real `updateOverlay` write advances revision 7 to 8 and
+  persists its exact range receipt; a stale `cutTimelineRangeV1` then safely
+  traverses that receipt, advances to revision 9, and reloads with both the
+  user's disjoint edit and the ripple cut intact. Separate trials prove that an
+  overlapping stale update, overlapping lock, forged lock and expired lock
+  leave canonical test state unchanged; a valid full-tail lock is consumed by
+  its cut; and a final CAS loss publishes no cut receipt. The focused
+  current-truth/cut/stateful cluster passes 20/20, with repository typecheck
+  and quiet ESLint passing. Its ceiling is deliberately
+  `IN_PROCESS_PRODUCT_OWNER_WITH_STATEFUL_TEST_PERSISTENCE`: no live Atlas,
+  hosted multi-user browser, generic lock/rebase policy, remaining-writer
+  migration, durable artifact invalidation or production-data mutation was
+  exercised. Stage 2.5 may proceed to compaction/resume and realistic
+  long-form evidence plumbing, while broader ProjectService collaboration
+  remains a separate production-foundation programme.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
