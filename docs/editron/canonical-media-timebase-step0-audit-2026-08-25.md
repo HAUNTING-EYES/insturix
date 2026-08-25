@@ -150,6 +150,14 @@ ProjectService binding, analysis invalidation consumer, or operation eligibility
 exists yet. The next design step is a source-cadence and PTS-mapping receipt
 that must distinguish measured mapping evidence from unavailable evidence.
 
+Commit `923fd6fc6` fills only the recoverable-index prerequisite of that later
+receipt: V2 frame batches can now be listed in a canonical, contiguous,
+source-bound index with deterministic private object keys. The index is pure
+evidence plumbing; no storage object is written or read, no asset field is
+persisted, and no source is treated as measured or eligible. A V2 reader,
+full-coverage verifier, state transition and durable mapper worker remain
+required before this audit's source-PTS target can advance.
+
 ## Verification boundary
 
 This audit does not claim a working production media spine, a raised upload

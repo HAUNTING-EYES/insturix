@@ -384,12 +384,17 @@ changes.
   enumerate every shard, so it cannot be promoted to a usable source map. A
   versioned frame-payload/manifest-index successor is required before mapper
   runtime work; V1 stays a strict prerequisite contract. Commit `785c296d7`
-  supplies only the first pure successor piece: a canonical V2 frame-batch
-  codec retains every PTS/duration record, binds its explicit resource policy
-  to the mapper command-policy version, and rechecks descriptor/hash/range
-  agreement on decode. It has no V2 object-key/state owner, manifest index,
-  reader, verifier, worker or consumer, so it remains non-executable evidence
-  plumbing rather than a map.
+  supplies the first pure successor piece: a canonical V2 frame-batch codec
+  retains every PTS/duration record, binds its explicit resource policy to the
+  mapper command-policy version, and rechecks descriptor/hash/range agreement
+  on decode. Commit `923fd6fc6` supplies the second: a canonical V2 manifest
+  index enumerates exactly those private batch sidecars with source-bound
+  deterministic keys, digests and contiguous frame/PTS summaries. It rejects
+  cross-binding, policy mismatch, forged keys, reordered/gapped batches and
+  noncanonical stored JSON. Neither artifact writes or reads private storage,
+  persists V2 state, proves sidecar availability or complete coverage, issues
+  CFR/VFR, runs a mapper or authorizes a consumer. A V2 reader/full verifier,
+  state path and worker remain required before a terminal map claim.
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 

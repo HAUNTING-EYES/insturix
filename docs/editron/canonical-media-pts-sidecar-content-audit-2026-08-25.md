@@ -27,9 +27,19 @@ Commit `785c296d7` begins the successor at the narrowest safe seam:
 `MediaSourcePtsCadenceFrameBatchPayloadV2` retains the ordered frame records,
 canonicalizes them, and on decode recomputes the V1 descriptor's evidence hash,
 range, count and cadence. Its explicit resource policy must equal the mapper
-command-policy version. It has no object-key/state owner, manifest index,
-reader, verifier, job or product consumer; it does not change this finding for
-the live V1 lifecycle.
+command-policy version.
+
+Commit `923fd6fc6` supplies the second pure successor piece:
+`MediaSourcePtsCadenceManifestIndexV2` lists the exact ordered V2 batch
+sidecars, their digests, bounded byte sizes, source ranges, frame ordinals and
+descriptor digests. Its constructor rejects cross-source or cross-policy
+batches, forged deterministic keys, reordered/gapped ordinals and PTS ranges;
+its parser accepts only canonical index JSON. The deterministic private key
+shape is a pure contract, not an object write or storage policy. The index does
+not fetch an object, prove a listed sidecar exists or matches its digest, prove
+complete coverage, persist on `MEDIA_ASSETS`, issue CFR/VFR, resume a job, or
+authorize a project operation. Those still require a V2 reader, full verifier,
+state path and worker.
 
 ## Consequence
 
@@ -53,10 +63,11 @@ separate, versioned successor sidecar protocol before mapper runtime work:
    lossless encoding with an independently tested decoder). The decoder must
    recompute the descriptor's frame-evidence hash, count, start/end, local
    cadence and source binding.
-2. **Recoverable manifest index.** The terminal manifest must carry the exact,
-   ordered shard sidecar references and their immutable digests, not merely a
-   rolling checkpoint. A resume must obtain that index from a durable verified
-   reference, never from an assumed object-prefix listing.
+2. **Recoverable manifest index.** Commit `923fd6fc6` supplies the pure V2
+   index shape and deterministic object-key derivation. A later terminal
+   receipt must bind its content digest and a later reader must verify every
+   listed object; neither can infer content from a prefix listing or a rolling
+   checkpoint.
 3. **Bounded resource policy.** Batch byte/count and manifest fan-out limits
    must be named in the mapper policy and treated as provisional infrastructure
    policy until calibrated. Exceeding a bound ends `UNVERIFIABLE`; it must not
@@ -80,8 +91,8 @@ This audit inspected the current implementations of:
 - `media-source-pts-cadence-private-sidecar-codec-v1.ts`;
 - `media-source-pts-cadence-map-lifecycle-v1.ts`; and
 - the corresponding lifecycle and private-sidecar tests; plus the pure V2
-  frame-batch codec and its adversarial test.
+  frame-batch codec, pure V2 manifest index and their adversarial tests.
 
-The new batch codec does not change runtime mapping behavior. No claim is made
-that a V2 manifest/index protocol, mapper worker, private deployment, live
-Atlas write, renderer consumer or ProjectService source binding exists.
+The V2 payload/index pair does not change runtime mapping behavior. No claim is
+made that a V2 reader/verifier/state path, mapper worker, private deployment,
+live Atlas write, renderer consumer or ProjectService source binding exists.

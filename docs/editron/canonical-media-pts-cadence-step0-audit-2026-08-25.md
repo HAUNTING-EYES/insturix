@@ -175,6 +175,15 @@ source-bound-observation invalidation, not a mapper result. The broader raw
 `r2Key` writer inventory remains open because old migration or generator paths
 may not participate in source-version ownership; it is recorded as `MEDIA-15`.
 
+Commit `923fd6fc6` adds a pure V2 recoverable manifest index after the V2
+frame-batch codec. It can enumerate exact deterministic private sidecar
+references, their content digests and contiguous source/frame coordinate
+summaries, and it rejects a cross-bound source/policy batch or a forged key.
+It does not write or read private storage, persist a V2 state, prove a listed
+sidecar exists, prove full presentation coverage or issue a cadence result.
+The next runtime design must add a V2 read/verify/state path before a mapper
+can claim terminal completion.
+
 There is still no mapper worker, complete-manifest verifier or terminal map
 persistence. It intentionally cannot call a large map "measured" until a real
 qualified source passes the full verifier. The next runtime phase is source-
