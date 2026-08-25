@@ -11,7 +11,7 @@ Analyzes audio segments using Wav2Vec 2.0 + emotion classifier to extract:
   - filler_confidence: probability segment contains filler-like hesitation
 
 Endpoint: POST https://insturix--wav2vec-vocal.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/wav2vec-service.ts → moment-weight-service.ts (20% Phase 2)
 
 Deploy:   modal deploy modal/wav2vec_vocal.py
@@ -133,7 +133,7 @@ class Wav2VecAnalyzer:
                 "happy", "neutral", "sad", "surprised",
             ]
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def analyze(self, request: dict):
         import time
 
