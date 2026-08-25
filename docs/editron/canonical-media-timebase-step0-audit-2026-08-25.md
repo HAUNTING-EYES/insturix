@@ -18,7 +18,7 @@ proxy/master identity, or production long-form certification.
 
 | Path | Actual owner/state today | What it establishes | Missing before it can be canonical ingest |
 | --- | --- | --- | --- |
-| Signed upload registration: `media/upload/url` -> `media/upload` | The route directly inserts `MEDIA_ASSETS`; `MediaAsset` is the existing media-library persistence record. | URL/storage key, loose byte size, client type, optional duration/dimensions, thumbnail and some rights fields; it queues analysis separately. | Immutable source-version receipt; server-probed stream/cadence/PTS/CFR-VFR/reel/timecode/colour/audio identity; durable proxy mapping; invalidation links; range-addressable analysis receipt. |
+| Signed upload registration: `media/upload/url` -> `media/upload` | The route directly inserts `MEDIA_ASSETS`; `MediaAsset` is the existing media-library persistence record. | URL/storage key, loose byte size, client type, optional duration/dimensions, thumbnail and some rights fields; its signed qualification worker can now CAS-persist a complete-byte `sourceVersionV1` only after stable provider observations and a measured technical probe. | Rational source cadence/PTS/CFR-VFR/reel/timecode/colour/audio identity; durable proxy mapping; invalidation links; range-addressable analysis receipt; resumable large-object hashing. |
 | Server-side `media/upload/direct` | `uploadMedia` creates bytes and the route directly `upsert`s `MEDIA_ASSETS`. | A small-file R2 upload and basic metadata. | It bypasses the main registration path's duration verification and async analysis dispatch, and has the same missing source identity. |
 | Multipart upload | `mediaUploads` tracks parts/completion and quota; the main registration route creates the later `MEDIA_ASSETS` record. | Retryable object assembly and storage accounting. | Completion itself does not issue a media identity/probe receipt or register a canonical source version. |
 | Proxy then original | The project dashboard first registers the compressed proxy as `isProxy`; the original later reaches `media/upload/swap`, which rewrites that same asset's `cachedUrl`, clears `isProxy`, and optionally stores `originalR2Key`. | A UI convenience for replacing a temporary preview with a full-quality URL. | No immutable master/proxy pair, no source/proxy transform, no version increment, no analyzer invalidation or project receipt. Existing edits can therefore change byte source without a durable media-version handoff. |
@@ -91,6 +91,20 @@ not hash a real object, persist any record, alter upload ingress, clear an
 analysis record, or modify ProjectService. The next implementation must use a
 server-side streaming hash whose before/after storage observations match; only
 then may the existing `MEDIA_ASSETS` owner persist an issued version.
+
+Commit `278daa367` implements that precise next boundary for the existing
+signed-registration qualification worker only. It streams the server-minted
+R2/GCS object, rejects a malformed/partial stream, requires stable provider
+observations across the hash and technical probe, and CAS-writes
+`sourceVersionV1` beside the existing qualification record. The worker takes
+the asset's already persisted owner scope and supported media kind; it does
+not infer either from a URL or probe result. A failed technical probe, source
+read, provider observation, changed object, stale message, or CAS race leaves
+the version unset. The route's current `maxDuration = 180` makes this an
+explicitly bounded identity attempt: it is not resumable large-media hashing,
+proxy/master qualification, rational timebase/PTS extraction, a source-record
+sequence consumer, analysis invalidation, deployment proof, or long-form
+certification.
 
 ## Verification boundary
 

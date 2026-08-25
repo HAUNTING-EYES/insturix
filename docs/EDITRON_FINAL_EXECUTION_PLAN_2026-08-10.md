@@ -261,6 +261,22 @@ changes.
   server-side full-byte hash receipt bound to unchanged storage, persisted only
   through the existing `MEDIA_ASSETS` owner.
 
+- **2026-08-25 signed source-version worker binding.** Commit `278daa367`
+  wires that narrow byte-identity contract into the existing signed
+  registration qualification worker. The worker loads the persisted asset
+  owner scope and `video | audio | image` kind, streams the server-minted R2
+  or GCS object through SHA-256, verifies the provider object remained the
+  same before/after the byte read and technical probe, then compare-and-set
+  persists `sourceVersionV1` on the same `MEDIA_ASSETS` record. A malformed or
+  partial stream, invalid asset kind/owner, unavailable storage, changed
+  object, unsuccessful probe, stale binding, or CAS race leaves no issued
+  source version. This is one product-code ingress boundary—not a second media
+  registry, ProjectService write, proxy/master mapping, invalidation consumer,
+  timebase/PTS/VFR receipt, deployment verification, or long-form result. The
+  current signed route has `maxDuration = 180`; a hash that cannot finish in
+  that bounded delivery is explicitly unqualified, not evidence that large
+  media can yet resume or scale.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
