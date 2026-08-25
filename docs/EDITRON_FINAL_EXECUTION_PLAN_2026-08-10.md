@@ -158,7 +158,10 @@ changes.
   `modal-proxy-auth-v1.ts` owner, while preserving the source-probe public
   configuration constants. This is shared security plumbing only: it does not
   authenticate another endpoint, deploy anything, or close the remaining
-  worker-auth audit.
+  worker-auth audit. Commit `27dd95b83` additionally permits those proxy
+  headers only for an HTTPS `modal.run` endpoint with no embedded credentials;
+  a foreign, malformed, or HTTP endpoint is treated as unconfigured and never
+  receives a secret. Custom domains require a separate reviewed trust policy.
 
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`

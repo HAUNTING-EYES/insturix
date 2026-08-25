@@ -55,7 +55,11 @@ existing public environment-name constants, so this extraction does not change
 the endpoint, credential names, observation protocol, or source qualification
 scope. Other legacy Modal callers remain separately unremediated until each
 endpoint and caller have been audited and migrated in a bounded fail-closed
-slice.
+slice. Commit `27dd95b83` makes that shared boundary host-bound: it will send
+proxy credentials only to an HTTPS `modal.run` endpoint without embedded
+credentials. A malformed, HTTP, or foreign host is `UNVERIFIABLE` before any
+request is attempted; custom domains are intentionally unsupported until an
+explicit trust policy is reviewed.
 
 No project/timeline, renderer, analysis, or UI consumer treats this observation
 as a qualified source yet.
