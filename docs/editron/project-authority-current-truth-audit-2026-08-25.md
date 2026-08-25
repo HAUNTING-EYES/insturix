@@ -94,10 +94,13 @@ low-quality warning through `ProjectService.recordPipelineVideoQualityWarningV1`
 the warning is user-scoped, revision-CAS-protected, replay/material-bound and
 explicitly non-rendered proof. Commit `330ed5091` moved the worker's batch
 completion handoff to the ProjectService-issued Director dispatch token and
-signed worker claim. The raw finalize producer of the pending Director signal,
-transactional publication/recovery, generic status writers and score
-calibration/retention/UI remain separate open work; none is silently promoted
-by removing this worker from the inventory.
+signed worker claim. Commit `d2c5fb026` then moved the raw finalize producer of
+the pending Director signal to `ProjectService.recordPipelineDirectorIntentV1`.
+It records a revision-bound pending intent only; it neither publishes a worker
+nor duplicates the later batch-bound dispatch owner. Transactional
+publication/recovery, generic status writers and score calibration/retention/UI
+remain separate open work; none is silently promoted by removing this worker
+from the inventory.
 
 ## Completed automatic Director lifecycle migration
 
