@@ -476,13 +476,18 @@ changes.
   persists the terminal source-cadence receipt only after exact source-wide
   coverage. Replay of a completed binding performs no artifact or state write;
   resource-policy mismatch and CAS loss fail closed. The five-file owner
-  cluster passes 17/17 with repository typecheck and quiet lint. This is still
-  an unwired server boundary: no durable Editron worker invokes it, no runtime
-  R2/config factory or scan-dispatch trigger is connected, and no Modal/R2 or
-  Atlas deployment proof was created. Source/proxy transforms and the
-  ProjectService consumer also remain absent. Durable signed worker wiring is
-  next; DEP-02/DEP-03, project routing and model evaluation remain later in the
-  frozen order.
+  cluster passes 17/17 with repository typecheck and quiet lint. Commit
+  `26a34ae7f` adds the server runtime factory for all four existing private
+  adapters. It accepts only the dedicated media-PTS R2 account, credentials and
+  non-public bucket shared with Modal, gives every adapter one explicit
+  `NO_BROWSER_ROUTE` scope, and refuses generic R2/CDN fallback. Its focused
+  storage/transport cluster passes 20/20 with repository typecheck and quiet
+  lint. This remains unwired: no durable Editron job invokes the finalizer, no
+  scan-dispatch trigger is connected, and no Modal/R2 or Atlas deployment proof
+  was created. Source/proxy transforms and the ProjectService consumer also
+  remain absent. Durable job binding and signed worker wiring are next;
+  DEP-02/DEP-03, project routing and model evaluation remain later in the frozen
+  order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
