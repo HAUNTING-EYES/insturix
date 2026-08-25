@@ -293,6 +293,19 @@ changes.
   worker, or production media certification. The existing browser caller may
   still send obsolete URL/key fields, but the server ignores them for authority.
 
+- **2026-08-25 qualified proxy/master relation and invalidation intent.**
+  Commit `a049fa1fa` completes the next media-owner step only after the signed
+  worker both measures the master and issues its immutable source version. It
+  revalidates the retained proxy version against the exact owner, asset, media
+  kind and retained proxy R2 key; revalidates the master against the qualified
+  master key and terminal storage observation; then persists the existing
+  `MediaProxyMasterRelationV1` with
+  `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED` plus an
+  `INVALIDATE_DERIVATIVES/PROXY_MASTER_PROMOTED` intent. Starting another
+  promotion clears both records before qualification. The intent is not a
+  derivative-clear worker, PTS map, ProjectService source-binding/rebase,
+  preview/render refresh, long-form hash or production certification.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render

@@ -120,6 +120,18 @@ longer performs a raw swap. This does not yet persist the existing
 mapping, touch ProjectService, or make hashing resumable beyond the worker's
 180-second bound.
 
+Commit `a049fa1fa` materializes that relation only after the existing signed
+qualification worker has both issued a master source version and completed a
+matching technical observation. It validates the preserved proxy version's
+owner, asset, media kind and retained proxy R2 locator, validates the newly
+issued master against the master locator and terminal storage version, then
+stores `MediaProxyMasterRelationV1` and the existing
+`PROXY_MASTER_PROMOTED` invalidation intent on the same `MEDIA_ASSETS` record.
+The relation explicitly has no PTS mapping. The invalidation plan is not yet a
+consumer: it clears no analysis, preview, render or delivery artifact and does
+not change ProjectService bindings. A new promotion clears stale relation and
+intent fields before its master qualification starts.
+
 ## Verification boundary
 
 This audit does not claim a working production media spine, a raised upload
