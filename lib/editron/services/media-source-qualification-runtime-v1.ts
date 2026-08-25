@@ -11,6 +11,12 @@ import {
   type MediaSourceProbeResultV1,
   unverifiableMediaSourceProbeResultV1,
 } from './media-source-probe-v1';
+import {
+  inspectMediaSourceStorageVersionV1,
+  sameMediaSourceStorageVersionV1,
+  type MediaSourceStorageVersionInspectionV1,
+  type MediaSourceStorageVersionV1,
+} from './media-source-storage-version-v1';
 
 export const MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1 =
   'media-source-qualification' as const;
@@ -43,9 +49,10 @@ export type MediaSourceQualificationWorkerPortsV1 = {
     next: MediaSourceQualificationRecordV1;
   }): Promise<boolean>;
   resolveVerifiedSourceUrl(record: MediaSourceQualificationRecordV1): Promise<
-    | { disposition: 'AVAILABLE'; sourceUrl: string }
+    | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
     | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }
   >;
+  inspectStorageVersion(record: MediaSourceQualificationRecordV1): Promise<MediaSourceStorageVersionInspectionV1>;
   probe(sourceUrl: string): Promise<MediaSourceProbeResultV1>;
   now(): Date;
 };
@@ -118,6 +125,7 @@ export async function runMediaSourceQualificationWorkerV1(
       return result.matchedCount === 1;
     },
     resolveVerifiedSourceUrl: resolveVerifiedSourceUrlV1,
+    inspectStorageVersion: (record) => inspectMediaSourceStorageVersionV1(record.locator),
     probe: probeMediaSourceV1,
     now: () => new Date(),
   });
@@ -151,11 +159,39 @@ export async function executeMediaSourceQualificationWorkerV1(
   }
 
   let probeResult: MediaSourceProbeResultV1;
+  let storageVersion: MediaSourceStorageVersionV1 | null = null;
   try {
     const source = await ports.resolveVerifiedSourceUrl(claim.record);
-    probeResult = source.disposition === 'AVAILABLE'
-      ? await ports.probe(source.sourceUrl)
-      : source.result;
+    if (source.disposition !== 'AVAILABLE') {
+      probeResult = source.result;
+    } else {
+      probeResult = await ports.probe(source.sourceUrl);
+      if (probeResult.disposition === 'MEASURED') {
+        let observedAfterProbe: MediaSourceStorageVersionInspectionV1;
+        try {
+          observedAfterProbe = await ports.inspectStorageVersion(claim.record);
+        } catch {
+          observedAfterProbe = {
+            disposition: 'UNVERIFIABLE',
+            diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+          };
+        }
+        if (observedAfterProbe.disposition !== 'OBSERVED') {
+          probeResult = unverifiableMediaSourceProbeResultV1(
+            'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+          );
+        } else if (!sameMediaSourceStorageVersionV1(
+          source.storageVersion,
+          observedAfterProbe.storageVersion,
+        )) {
+          probeResult = unverifiableMediaSourceProbeResultV1(
+            'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
+          );
+        } else {
+          storageVersion = source.storageVersion;
+        }
+      }
+    }
   } catch {
     probeResult = unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE');
   }
@@ -164,6 +200,7 @@ export async function executeMediaSourceQualificationWorkerV1(
     record: claim.record,
     sourceBindingSha256: message.sourceBindingSha256,
     result: probeResult,
+    storageVersion,
     now: ports.now(),
   });
   if (completion.disposition !== 'COMPLETED') return { disposition: 'RACE_LOST' };
@@ -212,26 +249,44 @@ function qualificationCompareAndSetFilter(
 
 async function resolveVerifiedSourceUrlV1(
   record: MediaSourceQualificationRecordV1,
-): Promise<{ disposition: 'AVAILABLE'; sourceUrl: string } | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }> {
+): Promise<
+  | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
+  | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }
+> {
+  const storage = await inspectMediaSourceStorageVersionV1(record.locator);
+  if (storage.disposition !== 'OBSERVED') return unavailableStorageVersion();
   try {
     if (record.locator.provider === 'R2') {
-      const { getR2PresignedReadUrl, r2FileExists } = await import('./r2-service');
-      if (!await r2FileExists(record.locator.objectKey)) return unavailableStorage();
-      return { disposition: 'AVAILABLE', sourceUrl: await getR2PresignedReadUrl(record.locator.objectKey, 900) };
+      const { getR2PresignedReadUrl } = await import('./r2-service');
+      return {
+        disposition: 'AVAILABLE',
+        sourceUrl: await getR2PresignedReadUrl(record.locator.objectKey, 900),
+        storageVersion: storage.storageVersion,
+      };
     }
-    const { fileExists, refreshSignedUrl } = await import('./gcs-service');
-    if (!await fileExists(record.locator.objectKey)) return unavailableStorage();
+    const { refreshSignedUrl } = await import('./gcs-service');
     const signed = await refreshSignedUrl(record.locator.objectKey);
-    return { disposition: 'AVAILABLE', sourceUrl: signed.url };
+    return {
+      disposition: 'AVAILABLE',
+      sourceUrl: signed.url,
+      storageVersion: storage.storageVersion,
+    };
   } catch {
-    return unavailableStorage();
+    return unavailableSignedUrl();
   }
 }
 
-function unavailableStorage(): { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } {
+function unavailableStorageVersion(): { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } {
   return {
     disposition: 'UNVERIFIABLE',
-    result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_STORAGE_UNAVAILABLE'),
+    result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE'),
+  };
+}
+
+function unavailableSignedUrl(): { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } {
+  return {
+    disposition: 'UNVERIFIABLE',
+    result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE'),
   };
 }
 

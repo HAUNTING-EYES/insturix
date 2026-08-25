@@ -7,6 +7,8 @@ import {
   createMediaSourceQualificationV1,
   resolveMediaSourceStorageLocatorV1,
 } from '@/lib/editron/services/media-source-qualification-v1';
+import type { MediaSourceProbeResultV1 } from '@/lib/editron/services/media-source-probe-v1';
+import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
 
 const initialNow = new Date('2026-08-25T04:00:00.000Z');
 
@@ -85,10 +87,14 @@ describe('MediaSourceQualificationV1', () => {
           }], observationSha256: 'a'.repeat(64),
         },
       },
+      storageVersion: storageVersion(),
       now: new Date('2026-08-25T04:01:00.000Z'),
     });
     expect(measured).toMatchObject({
-      disposition: 'COMPLETED', record: { status: 'MEASURED_TECHNICAL', diagnostic: null },
+      disposition: 'COMPLETED', record: {
+        status: 'MEASURED_TECHNICAL', diagnostic: null,
+        storageVersion: { storageVersionSha256: storageVersion().storageVersionSha256 },
+      },
     });
     expect(JSON.stringify(measured)).not.toContain('QUALIFIED');
 
@@ -103,11 +109,44 @@ describe('MediaSourceQualificationV1', () => {
         disposition: 'UNVERIFIABLE', observation: null,
         diagnostics: ['MEDIA_SOURCE_PROBE_NOT_CONFIGURED'],
       },
+      storageVersion: null,
       now: new Date('2026-08-25T04:01:00.000Z'),
     })).toMatchObject({
       disposition: 'COMPLETED',
       record: { status: 'UNVERIFIABLE', diagnostic: 'MEDIA_SOURCE_PROBE_NOT_CONFIGURED', observation: null },
     });
+  });
+
+  it('rejects a measured result whose storage version is missing, forged, or for another locator', () => {
+    const claim = claimMediaSourceQualificationV1({
+      record: created(), sourceBindingSha256: created().sourceBindingSha256, now: initialNow,
+    });
+    if (claim.disposition !== 'CLAIMED') throw new Error('expected source-probe claim');
+    const measuredResult: MediaSourceProbeResultV1 = {
+      disposition: 'MEASURED', diagnostics: [], observation: {
+        schemaVersion: 1, kind: 'EDITRON_MEDIA_SOURCE_PROBE_V1', probeVersion: 'ffprobe-test',
+        formatName: 'mov', durationMilliseconds: 5_000, startTimeMilliseconds: 0,
+        videoStreams: [], audioStreams: [], observationSha256: 'a'.repeat(64),
+      },
+    };
+    const cases = [
+      null,
+      { ...storageVersion(), storageVersionSha256: 'f'.repeat(64) },
+      createMediaSourceStorageVersionV1({
+        locator: { provider: 'R2', objectKey: 'other-object' },
+        byteLength: 1_024,
+        providerVersion: { kind: 'R2_ETAG', value: 'etag-a' },
+      }),
+    ];
+    for (const storageVersionValue of cases) {
+      expect(() => completeMediaSourceQualificationV1({
+        record: claim.record,
+        sourceBindingSha256: claim.record.sourceBindingSha256,
+        result: measuredResult,
+        storageVersion: storageVersionValue,
+        now: new Date('2026-08-25T04:01:00.000Z'),
+      })).toThrow('MEDIA_SOURCE_QUALIFICATION_STORAGE_VERSION_INVALID');
+    }
   });
 });
 
@@ -118,4 +157,12 @@ function created(now = initialNow) {
   });
   if (result.disposition !== 'CREATED') throw new Error('expected source qualification record');
   return result.record;
+}
+
+function storageVersion() {
+  return createMediaSourceStorageVersionV1({
+    locator: { provider: 'R2', objectKey: 'r2-key-a' },
+    byteLength: 1_024,
+    providerVersion: { kind: 'R2_ETAG', value: 'etag-a' },
+  });
 }

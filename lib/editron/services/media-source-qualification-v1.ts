@@ -3,7 +3,12 @@ import type {
   MediaSourceProbeResultV1,
   MediaSourceTechnicalObservationV1,
 } from './media-source-probe-v1';
-import type { MediaSourceStorageLocatorV1 } from './media-source-storage-version-v1';
+import {
+  createMediaSourceStorageVersionV1,
+  MEDIA_SOURCE_STORAGE_VERSION_KIND_V1,
+  type MediaSourceStorageLocatorV1,
+  type MediaSourceStorageVersionV1,
+} from './media-source-storage-version-v1';
 
 export type { MediaSourceStorageLocatorV1 } from './media-source-storage-version-v1';
 
@@ -36,6 +41,8 @@ export type MediaSourceQualificationRecordV1 = {
   requestedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  /** Present only when the remote technical observation was bound to one stable provider object. */
+  storageVersion: MediaSourceStorageVersionV1 | null;
   observation: MediaSourceTechnicalObservationV1 | null;
   diagnostic: string | null;
 };
@@ -104,6 +111,7 @@ export function createMediaSourceQualificationV1(input: {
       requestedAt: now,
       startedAt: null,
       completedAt: null,
+      storageVersion: null,
       observation: null,
       diagnostic: null,
     },
@@ -143,6 +151,7 @@ export function claimMediaSourceQualificationV1(input: {
       attemptCount: record.attemptCount + 1,
       startedAt: input.now.toISOString(),
       completedAt: null,
+      storageVersion: null,
       observation: null,
       diagnostic: null,
     },
@@ -158,6 +167,7 @@ export function completeMediaSourceQualificationV1(input: {
   record: MediaSourceQualificationRecordV1;
   sourceBindingSha256: string;
   result: MediaSourceProbeResultV1;
+  storageVersion: MediaSourceStorageVersionV1 | null;
   now: Date;
 }): MediaSourceQualificationCompletionV1 {
   const { record } = input;
@@ -174,6 +184,7 @@ export function completeMediaSourceQualificationV1(input: {
         ...record,
         status: 'MEASURED_TECHNICAL',
         completedAt,
+        storageVersion: assertMatchingStorageVersion(record.locator, input.storageVersion),
         observation: input.result.observation,
         diagnostic: null,
       }
@@ -181,6 +192,7 @@ export function completeMediaSourceQualificationV1(input: {
         ...record,
         status: 'UNVERIFIABLE',
         completedAt,
+        storageVersion: null,
         observation: null,
         diagnostic: input.result.diagnostics[0],
       };
@@ -223,4 +235,29 @@ function isStale(startedAt: string | null, now: Date, staleAfterMs = MEDIA_SOURC
 function cleanIdentifier(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed.slice(0, 512) : null;
+}
+
+function assertMatchingStorageVersion(
+  locator: MediaSourceStorageLocatorV1,
+  storageVersion: MediaSourceStorageVersionV1 | null,
+): MediaSourceStorageVersionV1 {
+  if (!storageVersion || storageVersion.locator.provider !== locator.provider
+    || storageVersion.locator.objectKey !== locator.objectKey
+    || storageVersion.schemaVersion !== 1
+    || storageVersion.kind !== MEDIA_SOURCE_STORAGE_VERSION_KIND_V1) {
+    throw new Error('MEDIA_SOURCE_QUALIFICATION_STORAGE_VERSION_INVALID');
+  }
+  try {
+    const rebuilt = createMediaSourceStorageVersionV1({
+      locator: storageVersion.locator,
+      byteLength: storageVersion.byteLength,
+      providerVersion: storageVersion.providerVersion,
+    });
+    if (rebuilt.storageVersionSha256 !== storageVersion.storageVersionSha256) {
+      throw new Error('MEDIA_SOURCE_QUALIFICATION_STORAGE_VERSION_INVALID');
+    }
+    return rebuilt;
+  } catch {
+    throw new Error('MEDIA_SOURCE_QUALIFICATION_STORAGE_VERSION_INVALID');
+  }
 }

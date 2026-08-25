@@ -13,6 +13,11 @@ import {
 } from '@/lib/editron/services/media-source-qualification-runtime-v1';
 import { createMediaSourceQualificationV1, type MediaSourceQualificationRecordV1 } from '@/lib/editron/services/media-source-qualification-v1';
 import type { MediaSourceProbeResultV1 } from '@/lib/editron/services/media-source-probe-v1';
+import {
+  createMediaSourceStorageVersionV1,
+  type MediaSourceStorageVersionInspectionV1,
+  type MediaSourceStorageVersionV1,
+} from '@/lib/editron/services/media-source-storage-version-v1';
 
 const repoRoot = resolve(__dirname, '../..');
 const now = new Date('2026-08-25T08:00:00.000Z');
@@ -71,6 +76,29 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     expect(result).toEqual({ disposition: 'COMPLETED', status: 'MEASURED_TECHNICAL' });
     expect(stored.status).toBe('MEASURED_TECHNICAL');
     expect(stored.observation?.observationSha256).toBe('a'.repeat(64));
+    expect(stored.storageVersion?.storageVersionSha256).toBe(storageVersion().storageVersionSha256);
+  });
+
+  it('does not retain technical evidence when the storage object changes during probing', async () => {
+    let stored = record();
+    const before = storageVersion('before-etag');
+    const after = storageVersion('after-etag');
+    const memory = inMemoryPorts(
+      () => stored,
+      (next) => { stored = next; },
+      true,
+      { disposition: 'AVAILABLE', sourceUrl: 'https://storage.test/presigned-secret', storageVersion: before },
+      { disposition: 'OBSERVED', storageVersion: after },
+    );
+
+    await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports))
+      .resolves.toEqual({ disposition: 'COMPLETED', status: 'UNVERIFIABLE' });
+    expect(stored).toMatchObject({
+      status: 'UNVERIFIABLE',
+      diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
+      storageVersion: null,
+      observation: null,
+    });
   });
 
   it('never probes a mismatched, active, raced, or terminal record', async () => {
@@ -131,15 +159,22 @@ function inMemoryPorts(
   loadRecord: () => MediaSourceQualificationRecordV1,
   persist: (next: MediaSourceQualificationRecordV1) => void,
   compareAndSet = true,
-  source: { disposition: 'AVAILABLE'; sourceUrl: string } | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } = {
-    disposition: 'AVAILABLE', sourceUrl: 'https://storage.test/presigned-secret',
+  source: { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 } | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 } = {
+    disposition: 'AVAILABLE', sourceUrl: 'https://storage.test/presigned-secret', storageVersion: storageVersion(),
   },
+  afterProbeObservation?: MediaSourceStorageVersionInspectionV1,
 ): {
   ports: MediaSourceQualificationWorkerPortsV1;
   resolveVerifiedSourceUrl: unknown;
+  inspectStorageVersion: unknown;
   probe: unknown;
 } {
   const resolveVerifiedSourceUrl = vi.fn(async () => source);
+  const inspectStorageVersion = vi.fn(async (): Promise<MediaSourceStorageVersionInspectionV1> => (
+    afterProbeObservation ?? (source.disposition === 'AVAILABLE'
+      ? { disposition: 'OBSERVED', storageVersion: source.storageVersion }
+      : { disposition: 'UNVERIFIABLE', diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE' })
+  ));
   const probe = vi.fn(async (): Promise<MediaSourceProbeResultV1> => ({
     disposition: 'MEASURED', diagnostics: [], observation: {
       schemaVersion: 1, kind: 'EDITRON_MEDIA_SOURCE_PROBE_V1', probeVersion: 'test',
@@ -156,10 +191,20 @@ function inMemoryPorts(
       return true;
     }),
     resolveVerifiedSourceUrl,
+    inspectStorageVersion,
     probe,
     now: () => now,
     },
     resolveVerifiedSourceUrl,
+    inspectStorageVersion,
     probe,
   };
+}
+
+function storageVersion(eTag = 'r2-etag-a'): MediaSourceStorageVersionV1 {
+  return createMediaSourceStorageVersionV1({
+    locator: { provider: 'R2', objectKey: 'r2-key-a' },
+    byteLength: 1_024,
+    providerVersion: { kind: 'R2_ETAG', value: eTag },
+  });
 }
