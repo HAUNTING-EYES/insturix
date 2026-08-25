@@ -4733,9 +4733,12 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    exact ranges, identities and invalidation effects.
 5. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
    preserving plan, opaque result, revision and cumulative budget identities.
-6. Run realistic long-form evidence/context-limit trials against bounded media
-   retrieval and range plans; the corrected historical nine-row cohort is not
-   a substitute.
+6. The local actual-container portion of the long-form evidence/context-limit
+   gate is complete under the accepted V1.2 receipt recorded below. Continue
+   with real creative media, semantic retrieval, live storage/index owners,
+   mixed-rate ProjectService consumption and production playback/render; the
+   corrected historical nine-row cohort and the local synthetic trial are not
+   substitutes for those product proofs.
 7. Collect blind rendered quality, correction-time, latency and cost receipts.
 8. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
    production model-driven mutation may begin only after that gate permits it.
@@ -5042,6 +5045,30 @@ authorization are all present.
   authenticated hosted-ingress, canonical apply/reload or audiovisual
   acceptance proof was performed, and both provider dispatch and canonical
   project mutation counts remain zero.
+- Commits `36787a55a`, `66daa05cf`, `575e75a46` and `a9c93a084` close the
+  local actual-container mechanics portion of the realistic long-form gate.
+  Accepted execution `stage25-long-form-real-media-a9c93a084-v1` materializes
+  a nominal 4.5-hour, 73,548,746-byte H.264/AAC source, continuously scans and
+  verifies all 485,515 presentation-order frames through the existing media
+  source/version, qualification, durable PTS batch/index and coverage owners,
+  and extracts three exact 60-frame start/middle/end video, still and 48 kHz
+  stereo audio windows. Receipt
+  `59d943354a3a286b986b5b3df2d8cb2de2bb4038d0611b52681e511a34e03336`
+  binds source commit `a9c93a084a7fea604960391ab75e19c100ebf404`, ten PTS
+  batches, three distinct temporal still hashes, 83,163 ms materialization,
+  14,092 ms scan/verification, 1,141 ms hydration and 444,608,512-byte peak
+  process RSS. Full three-window hydration passes; a two-window context budget
+  returns `UNVERIFIABLE_CONTEXT_BUDGET` and names the omitted end window.
+  Provider, network and canonical-project mutation counts are zero. Two earlier
+  attempts correctly failed on missing product probe normalization; a V1.1
+  calibration receipt was rejected because its supposedly moving fixture had
+  identical stills. V1.2 now fails such static evidence by contract. The proof
+  ceiling remains
+  `LOCAL_SYNTHETIC_LONG_DURATION_CONTAINER_AND_BOUNDED_WINDOW_EVIDENCE`:
+  real creative/client media, semantic retrieval accuracy, live Mongo/R2/
+  Qdrant, provider-native token accounting, discontinuity/epoch support,
+  mixed-rate ProjectService consumers and production playback/render/delivery
+  remain unproved.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
