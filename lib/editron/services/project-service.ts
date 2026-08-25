@@ -30,7 +30,11 @@ import type {
   ChatEditRenderVerificationLifecycleState,
   ChatEditRenderVerificationRecord,
 } from "./chat-edit-render-verification-lifecycle";
-import type { AudioRightsContract } from "@/lib/editron/shared/render-request-payload";
+import {
+  getAudioRightsContractIssue,
+  getGeneratedNativeVideoReceiptIssue,
+  type AudioRightsContract,
+} from "@/lib/editron/shared/render-request-payload";
 import {
   createPendingProjectGeneratedCompositionStateV1,
   hasSamePreparedCompositionMaterialV1,
@@ -62,6 +66,11 @@ import {
   type PipelineAudioDeliveryKindV1,
   type PipelineAudioDeliveryOutcomeV1,
 } from "./pipeline-audio-project-delivery-v1";
+import {
+  clonePipelineVideoCanonicalValueV1,
+  pipelineVideoDeliveryMaterialHashV1,
+  type PipelineVideoDeliveryMaterialV1,
+} from "./pipeline-video-project-delivery-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -111,7 +120,8 @@ export type ProjectTimelineChangeActorKindV1 =
 
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
-  | "UPDATE_OVERLAY";
+  | "UPDATE_OVERLAY"
+  | "REPLACE_PIPELINE_VIDEO_DELIVERY";
 
 export interface ProjectTimelineRippleEffectV1 {
   kind: "REMOVE_AND_SHIFT_LEFT";
@@ -364,6 +374,58 @@ export interface ProjectPipelineAudioDeliveryResultV1 {
   deliveryReceipt: ProjectPipelineAudioDeliveryReceiptV1;
 }
 
+/**
+ * A generated-video worker may replace only the precise media asset it was
+ * asked to regenerate. Unlike audio attachment, this command deliberately
+ * has no revision-drift rebase in V1.
+ */
+export interface ProjectPipelineVideoDeliveryCommandV1 extends PipelineVideoDeliveryMaterialV1 {
+  expectedRevision: ProjectRevisionV1;
+}
+
+export interface ProjectPipelineVideoDeliveryReceiptV1 {
+  schemaVersion: 1;
+  deliveryId: string;
+  materialHash: string;
+  target: Readonly<PipelineVideoDeliveryMaterialV1["target"]>;
+  replacementAssetId: string;
+  beforeRevision: ProjectRevisionV1;
+  afterRevision: ProjectRevisionV1;
+  mutationReceipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
+  changedPaths: readonly string[];
+  proof: {
+    required: true;
+    status: "UNVERIFIABLE";
+    reason: "NO_RENDERED_VIDEO_PROOF";
+  };
+  committedAt: string;
+}
+
+export type ProjectPipelineVideoDeliveryConflictReasonV1 =
+  | "TARGET_NOT_FOUND"
+  | "TARGET_NOT_VIDEO"
+  | "TARGET_ASSET_CHANGED"
+  | "REVISION_CHANGED"
+  | "CAS_LOST";
+
+export class ProjectPipelineVideoDeliveryConflictError extends Error {
+  readonly code = "PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT";
+
+  constructor(
+    readonly currentRevision: ProjectRevisionV1,
+    readonly reason: ProjectPipelineVideoDeliveryConflictReasonV1,
+  ) {
+    super("Pipeline video delivery cannot replace its planned target: " + reason + ".");
+    this.name = "ProjectPipelineVideoDeliveryConflictError";
+  }
+}
+
+export interface ProjectPipelineVideoDeliveryResultV1 {
+  disposition: "APPLIED" | "ALREADY_APPLIED";
+  deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1;
+}
+
 export interface CapturedProjectMutationReceiptsV1<T> {
   value: T;
   receipts: ProjectMutationReceiptV1[];
@@ -558,6 +620,7 @@ const TIMELINE_RANGE_CUT_LOCK_MAX_TTL_MS = 5 * 60 * 1000;
 const MAX_TIMELINE_RANGE_CUT_LOCK_RECORDS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1 = 2;
+const MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1 = 200;
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -674,6 +737,8 @@ export interface Project {
   timelineRangeChangeReceipts?: ProjectTimelineRangeChangeReceiptV1[];
   /** Bounded idempotency/receipt history for signed BGM and SFX worker deliveries. */
   pipelineAudioDeliveryReceipts?: ProjectPipelineAudioDeliveryReceiptV1[];
+  /** Bounded idempotency/receipt history for signed generated-video deliveries. */
+  pipelineVideoDeliveryReceipts?: ProjectPipelineVideoDeliveryReceiptV1[];
   /** Bounded cut-specific coordination leases; no other command honors them yet. */
   timelineRangeCutLocks?: ProjectTimelineRangeCutLockV1[];
   lastAutosaveAt?: Date;
@@ -3406,6 +3471,228 @@ export class ProjectService {
   }
 
   /**
+   * Replace exactly one previously identified generated-video overlay through
+   * ProjectService. A delivery never rebinds by a broad asset query and never
+   * rebases over another project revision: an editor change wins explicitly.
+   */
+  async commitPipelineVideoDeliveryV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineVideoDeliveryCommandV1,
+  ): Promise<ProjectPipelineVideoDeliveryResultV1> {
+    assertProjectPipelineVideoDeliveryCommandV1(input);
+    const materialHash = pipelineVideoDeliveryMaterialHashV1(input);
+    const canonicalTarget = clonePipelineVideoCanonicalValueV1({
+      overlayId: input.target.overlayId,
+      expectedAssetId: input.target.expectedAssetId,
+    });
+    const canonicalReplacement = clonePipelineVideoCanonicalValueV1(input.replacement);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!current) throw new ProjectNotFoundOrForbiddenError();
+
+    const existing = findPipelineVideoDeliveryReceiptV1(current, input.deliveryId);
+    if (existing) {
+      if (existing.materialHash !== materialHash) {
+        throw new ProjectMutationWriteError(
+          "Pipeline video delivery identity was reused with different material.",
+        );
+      }
+      return {
+        disposition: "ALREADY_APPLIED",
+        deliveryReceipt: structuredClone(existing),
+      };
+    }
+
+    const beforeRevision = projectRevisionFor(current);
+    const targetOverlay = current.overlays?.find(
+      (overlay) => overlay.id === canonicalTarget.overlayId,
+    );
+    assertPipelineVideoDeliveryTargetV1(
+      targetOverlay,
+      canonicalTarget.expectedAssetId,
+      beforeRevision,
+    );
+    if (!sameProjectRevisionV1(input.expectedRevision, beforeRevision)) {
+      throw new ProjectPipelineVideoDeliveryConflictError(
+        beforeRevision,
+        "REVISION_CHANGED",
+      );
+    }
+
+    const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
+    if (!beforeFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video delivery requires an exactly representable target timeline range.",
+      );
+    }
+
+    const replacementOverlay = buildPipelineVideoReplacementOverlayV1(
+      targetOverlay,
+      canonicalReplacement,
+      input.deliveryId,
+      materialHash,
+    );
+    const afterFrameRange = overlayTimelineFrameRangeV1(replacementOverlay);
+    if (!afterFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video delivery produced an unrepresentable target timeline range.",
+      );
+    }
+    const unionFrameRange = unionTimelineFrameRangesV1(beforeFrameRange, afterFrameRange);
+    if (!unionFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video delivery could not derive its exact affected timeline range.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: beforeRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
+    const changedPaths = [
+      "overlays",
+      "pipelineVideoDeliveryReceipts",
+      "timelineRangeChangeReceipts",
+    ] as const;
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-pipeline-video_${nanoid(18)}`,
+      projectId,
+      operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+      actorKind: "SYSTEM",
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps: current.fps || 30,
+      beforeProjectRevision: beforeRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: [beforeFrameRange],
+      writeFrameRangesBefore: [unionFrameRange],
+      affectedFrameRangesAfter: [afterFrameRange],
+      affectedOverlayRefs: [overlayRef],
+      changedPaths,
+      rangeObservation: "EXACT",
+      overlayTemporalChange: {
+        overlayRef,
+        beforeFrameRange,
+        afterFrameRange,
+        unionFrameRange,
+      },
+      timelineCoordinateTransform: null,
+      splitChildren: [],
+      ripple: null,
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [unionFrameRange],
+      },
+    };
+    const deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1 = {
+      schemaVersion: 1,
+      deliveryId: input.deliveryId,
+      materialHash,
+      target: canonicalTarget,
+      replacementAssetId: canonicalReplacement.assetId,
+      beforeRevision,
+      afterRevision,
+      mutationReceipt,
+      timelineChangeReceipt,
+      changedPaths,
+      proof: {
+        required: true,
+        status: "UNVERIFIABLE",
+        reason: "NO_RENDERED_VIDEO_PROOF",
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        overlays: {
+          $elemMatch: {
+            id: canonicalTarget.overlayId,
+            type: "video",
+            assetId: canonicalTarget.expectedAssetId,
+          },
+        },
+        "pipelineVideoDeliveryReceipts.deliveryId": { $ne: input.deliveryId },
+        ...projectRevisionPredicate(beforeRevision),
+      },
+      {
+        $set: {
+          "overlays.$[target]": replacementOverlay,
+          updatedAt: committedAt,
+        },
+        $push: {
+          pipelineVideoDeliveryReceipts: {
+            $each: [deliveryReceipt],
+            $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+          },
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+          },
+        } as never,
+        $inc: { projectRevision: 1 },
+      },
+      {
+        arrayFilters: [{
+          "target.id": canonicalTarget.overlayId,
+          "target.type": "video",
+          "target.assetId": canonicalTarget.expectedAssetId,
+        }],
+      },
+    );
+    if (result.matchedCount === 1) {
+      if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+      this.publishMutationReceipt(mutationReceipt);
+      return { disposition: "APPLIED", deliveryReceipt };
+    }
+
+    const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
+    const replay = findPipelineVideoDeliveryReceiptV1(afterConflict, input.deliveryId);
+    if (replay) {
+      if (replay.materialHash !== materialHash) {
+        throw new ProjectMutationWriteError(
+          "Pipeline video delivery identity was reused with different material.",
+        );
+      }
+      return { disposition: "ALREADY_APPLIED", deliveryReceipt: structuredClone(replay) };
+    }
+    const conflictRevision = projectRevisionFor(afterConflict);
+    const conflictOverlay = afterConflict.overlays?.find(
+      (overlay) => overlay.id === canonicalTarget.overlayId,
+    );
+    if (!conflictOverlay) {
+      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_NOT_FOUND");
+    }
+    if (conflictOverlay.type !== "video") {
+      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_NOT_VIDEO");
+    }
+    if (conflictOverlay.assetId !== canonicalTarget.expectedAssetId) {
+      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_ASSET_CHANGED");
+    }
+    if (!sameProjectRevisionV1(beforeRevision, conflictRevision)) {
+      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "REVISION_CHANGED");
+    }
+    throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "CAS_LOST");
+  }
+
+  /**
    * Commit source-audio rights, any linked storyboard copies, and the project
    * timeline in one transaction. A stale project revision rolls back all
    * companion writes and returns no receipt.
@@ -3946,6 +4233,214 @@ function pipelineAudioDeliveryChangedPathsV1(
     paths.push("musicCoveragePlan", "intelligence.audio.musicCoveragePlan");
   }
   return paths;
+}
+
+function assertProjectPipelineVideoDeliveryCommandV1(
+  input: ProjectPipelineVideoDeliveryCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !isPlainRecord(input.target)
+    || !isPlainRecord(input.replacement)
+    || !input.expectedRevision
+    || !/^video-delivery_[A-Za-z0-9_-]{18,200}$/.test(input.deliveryId)
+    || Object.keys(input.target).some((key) => (
+      key !== "overlayId" && key !== "expectedAssetId"
+    ))
+    || Object.keys(input.replacement).some((key) => (
+      key !== "assetId"
+      && key !== "sourceUrl"
+      && key !== "durationMs"
+      && key !== "hasNativeAudio"
+      && key !== "audioRights"
+      && key !== "generatedVideoReceipt"
+    ))
+    || !Number.isSafeInteger(input.target.overlayId)
+    || input.target.overlayId < 0
+    || !isBoundedNonEmptyStringV1(input.target.expectedAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.replacement.assetId, 500)
+    || !isBoundedNonEmptyStringV1(input.replacement.sourceUrl, 16_384)
+    || !Number.isSafeInteger(input.replacement.durationMs)
+    || input.replacement.durationMs <= 0
+    || typeof input.replacement.hasNativeAudio !== "boolean"
+    || (input.replacement.audioRights !== null && !isPlainRecord(input.replacement.audioRights))
+    || (
+      input.replacement.generatedVideoReceipt !== null
+      && !isPlainRecord(input.replacement.generatedVideoReceipt)
+    )
+  ) {
+    throw new ProjectMutationWriteError("Pipeline video delivery input is invalid.");
+  }
+  assertProjectRevision(input.expectedRevision);
+
+  if (input.replacement.audioRights !== null) {
+    const rightsIssue = getAudioRightsContractIssue(input.replacement.audioRights);
+    if (rightsIssue) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video delivery audio rights are invalid: " + rightsIssue,
+      );
+    }
+  }
+  if (
+    input.replacement.generatedVideoReceipt !== null
+    && !isPipelineVideoReceiptForReplacementV1(
+      input.replacement.generatedVideoReceipt,
+      input.replacement.assetId,
+      input.replacement.hasNativeAudio,
+    )
+  ) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery generation receipt is invalid or mismatched.",
+    );
+  }
+  if (!input.replacement.hasNativeAudio) {
+    if (input.replacement.audioRights !== null) {
+      throw new ProjectMutationWriteError(
+        "A video without native audio cannot carry native-audio rights material.",
+      );
+    }
+  } else {
+    const audioRights = input.replacement.audioRights;
+    const generatedVideoReceipt = input.replacement.generatedVideoReceipt;
+    if (
+      !audioRights
+      || audioRights.mediaRole !== "native-video"
+      || audioRights.source !== "generated"
+      || !generatedVideoReceipt
+    ) {
+      throw new ProjectMutationWriteError(
+        "Generated native audio requires matching rights and a generation receipt.",
+      );
+    }
+    const receiptIssue = getGeneratedNativeVideoReceiptIssue(
+      generatedVideoReceipt,
+      {
+        assetId: input.replacement.assetId,
+        licenseId: audioRights.evidence?.licenseId,
+      },
+    );
+    if (receiptIssue) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video native-audio receipt is invalid: " + receiptIssue,
+      );
+    }
+  }
+
+  try {
+    clonePipelineVideoCanonicalValueV1(input.target);
+    clonePipelineVideoCanonicalValueV1(input.replacement);
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery material is not canonical JSON.",
+    );
+  }
+}
+
+function isPipelineVideoReceiptForReplacementV1(
+  receipt: unknown,
+  expectedAssetId: string,
+  nativeAudioExpected: boolean,
+): boolean {
+  if (!isPlainRecord(receipt) || !isPlainRecord(receipt.nativeAudio)) return false;
+  const nativeAudio = receipt.nativeAudio;
+  return receipt.version === "editron-generated-video-receipt-v1"
+    && (receipt.provider === "fal-ai" || receipt.provider === "kie-ai")
+    && isBoundedNonEmptyStringV1(receipt.model, 500)
+    && receipt.assetId === expectedAssetId
+    && isValidDateValueV1(receipt.generatedAt)
+    && (
+      receipt.providerJobId === undefined
+      || isBoundedNonEmptyStringV1(receipt.providerJobId, 500)
+    )
+    && (
+      nativeAudio.requestMode === "enabled"
+      || nativeAudio.requestMode === "disabled"
+      || nativeAudio.requestMode === "provider-fixed"
+      || nativeAudio.requestMode === "not-supported"
+    )
+    && nativeAudio.present === nativeAudioExpected
+    && nativeAudio.probe === "ffmpeg-audio-stream-decode"
+    && isValidDateValueV1(nativeAudio.probedAt)
+    && (
+      !nativeAudioExpected
+      || isBoundedNonEmptyStringV1(nativeAudio.licenseId, 500)
+    );
+}
+
+function assertPipelineVideoDeliveryTargetV1(
+  target: Overlay | undefined,
+  expectedAssetId: string,
+  currentRevision: ProjectRevisionV1,
+): asserts target is Overlay {
+  if (!target) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "TARGET_NOT_FOUND");
+  }
+  if (target.type !== "video") {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "TARGET_NOT_VIDEO");
+  }
+  if (target.assetId !== expectedAssetId) {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "TARGET_ASSET_CHANGED",
+    );
+  }
+}
+
+function buildPipelineVideoReplacementOverlayV1(
+  target: Overlay,
+  replacement: ProjectPipelineVideoDeliveryCommandV1["replacement"],
+  deliveryId: string,
+  materialHash: string,
+): Overlay {
+  const next = structuredClone(target) as Overlay & Record<string, unknown>;
+  const existingMetadata = isPlainRecord(next.metadata) ? next.metadata : {};
+  next.src = replacement.sourceUrl;
+  next.content = replacement.sourceUrl;
+  next.assetId = replacement.assetId;
+  next.videoDurationMs = replacement.durationMs;
+  next.hasNativeAudio = replacement.hasNativeAudio;
+  if (replacement.audioRights === null) {
+    delete next.audioRights;
+  } else {
+    next.audioRights = clonePipelineVideoCanonicalValueV1(replacement.audioRights);
+  }
+  if (replacement.generatedVideoReceipt === null) {
+    delete next.generatedVideoReceipt;
+  } else {
+    next.generatedVideoReceipt = clonePipelineVideoCanonicalValueV1(
+      replacement.generatedVideoReceipt,
+    );
+  }
+  next.metadata = {
+    ...existingMetadata,
+    pipelineVideoDeliveryV1: {
+      schemaVersion: 1,
+      deliveryId,
+      materialHash,
+      replacementAssetId: replacement.assetId,
+    },
+  };
+  return withAtomicOverlayUpdateReceipt(next, {}, {
+    source: "project-service-pipeline-video-delivery",
+    intent: "replace-generated-video",
+    reason: "signed pipeline video delivery replaced one exact overlay through ProjectService",
+  });
+}
+
+function findPipelineVideoDeliveryReceiptV1(
+  project: Pick<Project, "pipelineVideoDeliveryReceipts">,
+  deliveryId: string,
+): ProjectPipelineVideoDeliveryReceiptV1 | null {
+  const receipts = project.pipelineVideoDeliveryReceipts;
+  if (receipts === undefined) return null;
+  if (!Array.isArray(receipts)) {
+    throw new ProjectMutationWriteError("Pipeline video delivery receipt history is invalid.");
+  }
+  const matching = receipts.filter((receipt) => receipt?.deliveryId === deliveryId);
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError("Pipeline video delivery identity is not unique.");
+  }
+  return matching[0] ?? null;
 }
 
 function assertProjectDirectorDeliveryFailureCommandV1(
