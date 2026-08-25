@@ -109,7 +109,7 @@ export async function submitMediaSourcePtsCadenceScanV1(
   const environment = dependencies.environment ?? process.env;
   const config = configuration(environment);
   if (!config) return unverifiable('SCAN_TRANSPORT_NOT_CONFIGURED');
-  const validated = assertRequest(request);
+  const validated = assertMediaSourcePtsCadenceScanRequestV1(request);
   const response = await post(config.submitEndpoint, validated, config.headers, dependencies);
   if (!response) return unverifiable('SCAN_TRANSPORT_REQUEST_FAILED');
   if (!response.ok) return unverifiable('SCAN_TRANSPORT_HTTP_FAILURE');
@@ -174,7 +174,7 @@ export async function pollMediaSourcePtsCadenceScanV1(
   }
 }
 
-function assertRequest(value: unknown): MediaSourcePtsCadenceScanRequestV1 {
+export function assertMediaSourcePtsCadenceScanRequestV1(value: unknown): MediaSourcePtsCadenceScanRequestV1 {
   const record = assertScanRecordV1(value, 'SCAN_REQUEST_INVALID');
   assertScanExactKeysV1(record, ['kind', 'mapBinding', 'mapBindingSha256', 'resourcePolicy', 'schemaVersion', 'source_url'], 'SCAN_REQUEST_INVALID');
   if (record.schemaVersion !== 1 || record.kind !== MEDIA_SOURCE_PTS_CADENCE_SCAN_REQUEST_KIND_V1) {
