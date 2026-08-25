@@ -4720,27 +4720,37 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    zero-minute correction estimate. Independent agreement remains
    `UNVERIFIABLE_SINGLE_REVIEWER`; no second reviewer is invented and no
    production promotion follows from the receipt.
-2. Freeze genuinely new dependency and invalidation holdouts with public
-   model-visible rules, equivalent-good/known-bad/safe-stop sentinels and exact
-   proof ceilings before any inference.
-3. Force native, generated-composition and hybrid alternatives on broader
-   held-out targets. Keep the filmstrip island generated and the complete reel
-   hybrid; do not route by operation count.
-4. Exercise stale user edits, overlap conflicts, safe rebases and locked ranges
+2. The genuinely new dependency/invalidation and route-neutral task set is now
+   frozen as an exact 24-row cohort: four dependency tasks and four broader
+   native/generated/hybrid route tasks across Luna, Terra and Gemini 3.7
+   Flash. Public model-visible rules, equivalent-good/known-bad/safe-stop
+   sentinels, proof ceilings and source closure pass the zero-spend gate.
+3. Before inference, verify the exact current provider routes and pricing and
+   run Google official `countTokens` over the frozen Gemini requests. This
+   provider-access preflight may not alter task material, permit a retry or
+   dispatch inference.
+4. Run the exact 24 paid rows only under a separate capped authorization. Audit
+   every output and replay the evaluator at zero spend before drawing a model
+   conclusion. A structural planning result is not product execution proof.
+5. Turn successful route plans into bounded previews. RHC-01 already has three
+   rendered research candidates; RHC-02 through RHC-04 still require real
+   owner/fixture candidates. Keep the filmstrip island generated and the
+   complete reel hybrid; do not route by operation count.
+6. Exercise stale user edits, overlap conflicts, safe rebases and locked ranges
    through the real ProjectService product authority rather than only an
    isolated fixture owner. The first cut-specific receipt-chain/lock substrate
    is now implemented; broaden it only after each remaining writer declares
    exact ranges, identities and invalidation effects.
-5. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
+7. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
    preserving plan, opaque result, revision and cumulative budget identities.
-6. The local actual-container portion of the long-form evidence/context-limit
+8. The local actual-container portion of the long-form evidence/context-limit
    gate is complete under the accepted V1.2 receipt recorded below. Continue
    with real creative media, semantic retrieval, live storage/index owners,
    mixed-rate ProjectService consumption and production playback/render; the
    corrected historical nine-row cohort and the local synthetic trial are not
    substitutes for those product proofs.
-7. Collect blind rendered quality, correction-time, latency and cost receipts.
-8. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
+9. Collect blind rendered quality, correction-time, latency and cost receipts.
+10. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
    production model-driven mutation may begin only after that gate permits it.
 
 ### Parallel execution contract
@@ -5069,6 +5079,40 @@ authorization are all present.
   Qdrant, provider-native token accounting, discontinuity/epoch support,
   mixed-rate ProjectService consumers and production playback/render/delivery
   remain unproved.
+- Commit `713685408` freezes the final Stage 2.5 generalisation protocol as
+  exactly 24 genuinely new rows: four dependency/invalidation tasks
+  (`HOLD-DEP-01` through `HOLD-DEP-04`) and four route-neutral tasks
+  (`RHC-01` through `RHC-04`) across Luna, Terra and Gemini 3.7 Flash. The
+  dependency evaluator is generic over the selected operator records and
+  accepts equivalent valid DAGs; it does not require a hidden task-specific
+  topology. Route responses qualify native, generated-composition and hybrid
+  execution within one provider response. The model receives the complete
+  relevant CAP-2A records, while control-only submission prevents any editing
+  tool or project mutation. The protocol permits one initial response and at
+  most one schema/protocol correction, with no transport retry. Qwen is not in
+  this cohort, following the project-owner decision to remove it.
+- Commit `0802842cc` binds that protocol to the clean Editron source closure
+  and issues a scrubbed no-inference operator over the exact 52-assertion
+  cohort. Accepted execution
+  `stage25-final-generalisation-0802842cc-v1` passes 52/52 under readiness
+  receipt
+  `6c5c743081ec37b4d4d531103127feb3e1b19c9b5bed1ce566e7ede6050885d5`.
+  It captures all 24 serialized initial requests and replays the scorecard,
+  dependency-owner and route-owner sentinels while binding the HREF-01,
+  RHC-01, resume and long-form receipts. Provider inference, paid dispatch and
+  canonical project mutation are all zero. Its exact promotion is only
+  `READY_FOR_PROVIDER_ACCESS_METADATA_AND_OFFICIAL_TOKEN_PREFLIGHT_NOT_INFERENCE`.
+  It does not establish model competence, rendered RHC-02/RHC-03/RHC-04
+  candidates, broad product rebase/lock coverage, real creative long-form
+  quality, blind editor quality or Stage 2.5 `GO`.
+- The next executable action is therefore the no-inference provider-access
+  preflight: verify current provider model/route/pricing metadata and call
+  Google official `countTokens` for the exact frozen Gemini requests. Paid
+  inference remains a separate explicit capped authorization. If authorized,
+  the exact 24 rows run once, every success and failure is audited, existing
+  responses are replayed at zero spend, successful plans become bounded route
+  previews, and blind quality/correction-time/latency/cost evidence precedes
+  the final `GO`, `MODIFY` or `NO-GO` decision.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older

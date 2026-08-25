@@ -31,6 +31,41 @@ The executed current-context identity is
   `fe4a3420356675d040c62c4f77f6fa6e98321c99c29eb9e767736f248b186787`;
 - authority: research only, no real-project reads, writes or state effects.
 
+## Final generalisation zero-spend checkpoint
+
+The next cohort is no longer an unspecified future holdout set. Commit
+`713685408` freezes exactly eight genuinely new tasks across Luna, Terra and
+Gemini 3.7 Flash:
+
+- `HOLD-DEP-01` through `HOLD-DEP-04` test four public dependency and
+  invalidation contracts;
+- `RHC-01` through `RHC-04` test route qualification across native,
+  generated-composition and hybrid execution;
+- each provider receives the same task material and complete relevant CAP-2A
+  operation records;
+- provider submission is control-only, so the model cannot call an editing
+  tool or mutate a project;
+- the evaluator accepts equivalent valid DAGs and does not require a hidden
+  task-specific topology;
+- each row permits one initial response and at most one schema/protocol
+  correction, with no transport retry.
+
+Commit `0802842cc` binds that exact 24-row protocol to the clean Editron source
+closure. Accepted execution
+`stage25-final-generalisation-0802842cc-v1` passes its exact 52/52 zero-spend
+cohort under receipt
+`6c5c743081ec37b4d4d531103127feb3e1b19c9b5bed1ce566e7ede6050885d5`.
+The receipt captures all 24 initial requests, replays the scorecard and owner
+sentinels, and binds the accepted HREF-01, RHC-01, resume and long-form
+receipts. It records zero provider inference, zero paid dispatch and zero
+canonical project mutation.
+
+Its promotion is deliberately narrow:
+`READY_FOR_PROVIDER_ACCESS_METADATA_AND_OFFICIAL_TOKEN_PREFLIGHT_NOT_INFERENCE`.
+Current provider route/pricing metadata and Google official `countTokens` for
+the exact Gemini requests remain unchecked. No paid 24-row execution is yet
+authorized.
+
 ## Code-grounded evidence classification
 
 | Task | Historical 12-row truth | Current disposition |
@@ -90,8 +125,8 @@ authorise production mutation or establish a provider rank.
 
 | Gate | Verified current truth | What still blocks closure |
 | --- | --- | --- |
-| Forced route alternatives | DEV-02 has one real native alternative and one real generated-island/native-continuation hybrid at the same decoded scope. | No broader held-out set, full-route generated comparison, correction-time receipt or editor-quality conclusion. |
-| Dependency/invalidation diversity | Deterministic scheduler tests cover tracking fork/join, hazards, writer revision origins, stability and stale proof. V3R3 adds one provider six-operation fork/join chain. | Models have not been tested on another genuinely new dependency shape. |
+| Forced route alternatives | Four route-neutral targets (`RHC-01` through `RHC-04`) are frozen across free-choice and forced native/generated/hybrid arms. RHC-01 has three real blinded research previews. | The new 12 paid route rows have not executed. RHC-02 through RHC-04 lack materialized rendered candidates, and no correction-time or editor-quality conclusion exists. |
+| Dependency/invalidation diversity | Four genuinely new public tasks (`HOLD-DEP-01` through `HOLD-DEP-04`) now have exact owner/safe-stop sentinels and are part of the source-bound 24-row cohort. | The new 12 paid dependency rows have not executed; source-bound fixture/owner proof is not evidence that a model can plan them. |
 | User edits and locks | Commit `0956d6ee7` exercises the real `ProjectService` cut owner through stateful in-process persistence: a disjoint stale cut safely rebases across a writer-issued overlay receipt and survives reload, while overlap, invalid locks and final CAS loss leave state unchanged. | This covers one cut-specific owner in test persistence. Live Atlas, hosted multi-user editing, generic range effects/locks/rebase and remaining writers are not proved. |
 | Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. Commit `a1a09d481` adds the source-bound no-retry operator; execution `stage25-resume-zero-spend-a1a09d481-v1` passes its exact 36/36 cohort under receipt `38a05470...`, with provider credentials scrubbed and zero dispatch/project mutation. | The receipt authorizes only a separately approved paid-resume trial. Paid resumed inference, live Atlas/QStash recovery, authenticated hosted ingress, canonical ProjectService apply/reload and audiovisual acceptance remain open. |
 | Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Fresh manifest `975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds commit `5a38d08318aae445395c66cb432a94835f6db198`, ten source files and nine Luna/Terra/Gemini 3.7 rows. Clean credential-split preflight receipt `f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` bind the local OpenAI credential and Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY`. Paid authorization `86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and receipt `ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3` record nine unique dispatches and terminal rows, one observed HTTP 200 response per row, zero retries/unknown dispatches/provider-infrastructure failures, zero project effects and `$0.341221800` receipt-accounted spend under the `$1.505126400` ceiling. Structural result: Terra P1/P3 and all Gemini Flash rows are `PASS_STRUCTURAL_ONLY`; Luna P1/P2 and Terra P2 fail `STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`; Luna P3 fails `STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`. Five current focused suites pass 26/26 with repository typecheck and lint. | This is structural planning evidence only: every product outcome is `NOT_EVALUATED_ADAPTER_ONLY`, and editorial taste, range-semantic accuracy and rendered audiovisual quality remain unverified. The durable receipt emits no latency/elapsed-time field, and runtime-accounted spend is not a provider-billing invoice. Do not repeat this cohort. The next row closes only local synthetic actual-container/window mechanics; real semantic retrieval, live storage/index consumption and rendered editorial quality remain open before `GO`/`MODIFY`/`NO-GO`. |
@@ -105,17 +140,21 @@ source-bound long-form rows have completed under receipt `ad64ab8d...`; they
 must not be replayed. Their structural evaluation is complete, but must not be
 mistaken for editorial-quality validation.
 
-After that completed cohort, Stage 2.5 still requires, in order:
+Stage 2.5 now requires, in this order:
 
-1. test genuinely new dependency/invalidation shapes and broader forced native,
-   generated and hybrid alternatives;
-2. broaden the now-stateful cut-specific conflict/rebase/lock proof to other
-   product writers and live-store/multi-user conditions;
-3. if separately authorized, test paid episode compaction/resume without
-   losing plan, opaque-result, revision or cumulative-budget identity; the
-   zero-spend executable-owner gate is complete;
-4. extend the accepted local synthetic container/window result to real creative
-   media, semantic retrieval, live storage/index owners, mixed-rate product
-   consumers and production playback/render; and
-5. obtain blind quality, correction-time, latency and cost receipts before the
-   frozen `GO`, `MODIFY` or `NO-GO` decision.
+1. verify current provider model/route/pricing metadata and run Google official
+   `countTokens` for the exact frozen Gemini requests without inference;
+2. obtain a separate capped authorization before running the exact 24 paid
+   rows once, with no automatic transport retry;
+3. audit every returned success/failure and replay the evaluator at zero spend;
+4. turn successful route plans into bounded previews, including real
+   RHC-02/RHC-03/RHC-04 candidates, then collect blind quality,
+   correction-time, latency and cost receipts;
+5. broaden the cut-specific ProjectService conflict/rebase/lock proof to other
+   writers and live-store/multi-user conditions, and run separately authorized
+   paid resume evidence only if the final decision requires it;
+6. continue the production-foundation work for real creative long-form media,
+   semantic retrieval, live storage/index owners, mixed-rate consumers and
+   production playback/render; and
+7. publish the frozen `GO`, `MODIFY` or `NO-GO` decision. A structural cohort
+   pass cannot authorize canonical ProjectService mutation by itself.
