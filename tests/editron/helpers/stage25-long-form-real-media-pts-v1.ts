@@ -19,7 +19,7 @@ import { verifyMediaSourcePtsCadenceSourceCoverageV2 }
 import { createMediaSourcePtsCadenceShardV1,
   type MediaSourcePtsCadenceFrameInputV1 }
   from '@/lib/editron/services/media-source-pts-cadence-shard-v1';
-import { parseMediaSourceProbeResponseV1 }
+import { MEDIA_SOURCE_PROBE_VERSION_V1, parseMediaSourceProbeResponseV1 }
   from '@/lib/editron/services/media-source-probe-v1';
 import { claimMediaSourceQualificationV1, completeMediaSourceQualificationV1,
   createMediaSourceQualificationV1 }
@@ -42,7 +42,7 @@ export async function buildStage25LongFormPtsEvidenceV1(input: Readonly<{
 }>) {
   const observation = parseMediaSourceProbeResponseV1({
     ok: true,
-    probe_version: input.ffprobeIdentity,
+    probe_version: `${MEDIA_SOURCE_PROBE_VERSION_V1}; ${input.ffprobeIdentity}`,
     streams: input.rawProbe.streams,
     format: input.rawProbe.format,
   }) ?? fail('TECHNICAL_OBSERVATION_INVALID');
