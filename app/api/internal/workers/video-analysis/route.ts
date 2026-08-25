@@ -23,7 +23,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
+import {
+  INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+  withInternalQStashWorkerAuth,
+} from '@/lib/editron/security/internal-worker-auth';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
@@ -104,6 +109,20 @@ async function handler(request: NextRequest) {
 
     if (!projectId || !userId || !videoUrl) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      console.error('[VideoAnalysisWorker] Dependent worker dispatch is not configured outside development.');
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+            routeId: 'video-analysis',
+          },
+        },
+        { status: 503 },
+      );
     }
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -956,7 +975,7 @@ async function handler(request: NextRequest) {
 
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
 
-    if (process.env.QSTASH_TOKEN) {
+    if (isInternalQStashDispatchConfigured()) {
       const qstashBaseUrl = process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');

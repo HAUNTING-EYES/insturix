@@ -146,11 +146,11 @@ describe('director worker completion health', () => {
 
     expect(directorAgentSource).toContain('let fatalDirectorError: Error | null = null');
     expect(directorAgentSource).toContain('fatalDirectorError = err instanceof Error ? err : new Error(String(err));');
-    expect(directorAgentSource).toContain("await unlockDb.collection('projects').updateOne(");
+    expect(directorAgentSource).toContain('await projectService.releaseDirectorMutationLease(userId, projectId, directorLeaseId);');
     expect(directorAgentSource).toContain('if (fatalDirectorError) {');
     expect(directorAgentSource).toContain('throw fatalDirectorError;');
     expect(directorAgentSource.indexOf('throw fatalDirectorError;')).toBeGreaterThan(
-      directorAgentSource.indexOf("await unlockDb.collection('projects').updateOne(")
+      directorAgentSource.indexOf('await projectService.releaseDirectorMutationLease(userId, projectId, directorLeaseId);')
     );
   });
 });

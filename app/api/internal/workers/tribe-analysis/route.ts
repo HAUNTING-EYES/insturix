@@ -19,7 +19,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
+import {
+  INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+  withInternalQStashWorkerAuth,
+} from '@/lib/editron/security/internal-worker-auth';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
@@ -58,6 +63,20 @@ async function handler(request: NextRequest) {
 
     if (!projectId || !userId || !videoUrl) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      console.error('[TribeWorker] Dependent worker dispatch is not configured outside development.');
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+            routeId: 'tribe-analysis',
+          },
+        },
+        { status: 503 },
+      );
     }
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -444,7 +463,7 @@ async function handler(request: NextRequest) {
     }
 
     // ─── Step 5: Dispatch Director to separate worker ─────────────
-    if (process.env.QSTASH_TOKEN) {
+    if (isInternalQStashDispatchConfigured()) {
       await db.collection('projects').updateOne(
         { projectId },
         { $set: { autoEditStatus: 'directing_queued' } },

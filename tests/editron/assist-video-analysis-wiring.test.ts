@@ -11,6 +11,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED,
+  isInternalQStashDispatchConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+} from '../../lib/editron/security/internal-worker-auth';
 
 const source = readFileSync(
   join(process.cwd(), 'app/api/internal/workers/video-analysis/route.ts'),
@@ -48,5 +53,30 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).not.toContain('verifySignatureAppRouter(handler)');
     expect(tribeSource).toContain("withInternalQStashWorkerAuth(handler, 'tribe-analysis')");
     expect(tribeSource).not.toContain('verifySignatureAppRouter(handler)');
+  });
+
+  it('allows an inline downstream fallback only in explicit development', () => {
+    expect(isInternalWorkerInlineFallbackAllowed({ APP_ENV: 'development' })).toBe(true);
+    expect(isInternalWorkerInlineFallbackAllowed({ NODE_ENV: 'development' })).toBe(true);
+    expect(isInternalWorkerInlineFallbackAllowed({ NODE_ENV: 'production' })).toBe(false);
+    expect(isInternalQStashDispatchConfigured({
+      QSTASH_TOKEN: 'publisher-token',
+      QSTASH_CURRENT_SIGNING_KEY: 'current-key',
+      QSTASH_NEXT_SIGNING_KEY: 'next-key',
+    })).toBe(true);
+    expect(isInternalQStashDispatchConfigured({
+      QSTASH_TOKEN: 'publisher-token',
+      QSTASH_CURRENT_SIGNING_KEY: 'current-key',
+    })).toBe(false);
+  });
+
+  it('rejects missing production dispatch configuration before either worker opens Mongo', () => {
+    const guard = 'if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured())';
+    for (const workerSource of [source, tribeSource]) {
+      expect(workerSource).toContain('INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED');
+      expect(workerSource).toContain(guard);
+      expect(workerSource.indexOf(guard)).toBeLessThan(workerSource.indexOf("const { getDatabase } = await import('@/lib/editron/db/mongodb')"));
+    }
+    expect(INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED).toBe('INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED');
   });
 });
