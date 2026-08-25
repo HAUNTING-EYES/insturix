@@ -120,7 +120,9 @@ export type ProjectTimelineChangeActorKindV1 =
 
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
+  | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
+  | "DELETE_OVERLAY"
   | "REPLACE_PIPELINE_VIDEO_DELIVERY"
   | "CORRECT_VIDEO_ANALYSIS_DURATION"
   | "RECONCILE_PROJECT_DURATION";
@@ -134,9 +136,10 @@ export interface ProjectTimelineRippleEffectV1 {
 }
 
 /**
- * The local timeline footprint of a direct overlay mutation. It is null only
- * for legacy overlay data whose timing cannot be represented exactly as
- * project-frame integers. Such a receipt is deliberately unusable for rebase.
+ * The local timeline footprint of a direct overlay mutation. Its union is the
+ * occupied range across whichever exact before/after intervals exist; it is
+ * null only when legacy timing cannot be represented as project-frame
+ * integers. Such a receipt is deliberately unusable for rebase.
  */
 export interface ProjectTimelineOverlayTemporalChangeV1 {
   overlayRef: string;
@@ -3697,13 +3700,39 @@ export class ProjectService {
     overlay: Overlay,
   ): Promise<void> {
     const db = await getDatabase();
-    const expectedRevision = await this.getProjectRevision(userId, projectId);
+    const project = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOne(
+        { projectId, userId },
+        { projection: { fps: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as unknown as Pick<
+        Project,
+        "fps" | "projectRevision" | "updatedAt"
+      > | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const expectedRevision = projectRevisionFor(project);
     const overlayWithReceipt = ensureAtomicOverlayReceipt(overlay, {
       source: "project-service-add-overlay",
       intent: `persist-${overlay.type}`,
       reason: "overlay persisted through ProjectService.addOverlay",
     });
     const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay-add_${nanoid(18)}`,
+      projectId,
+      operation: "ADD_OVERLAY",
+      fps: project.fps || 30,
+      beforeProjectRevision: expectedRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: null,
+      afterOverlay: overlayWithReceipt,
+    });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -3711,7 +3740,13 @@ export class ProjectService {
         ...projectRevisionPredicate(expectedRevision),
       },
       {
-        $push: { overlays: overlayWithReceipt } as any,
+        $push: {
+          overlays: overlayWithReceipt,
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as any,
         $set: { updatedAt: committedAt },
         $inc: { projectRevision: 1 },
       },
@@ -3726,11 +3761,7 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
-      revision: {
-        schemaVersion: 1,
-        value: expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
@@ -3754,12 +3785,40 @@ export class ProjectService {
   }> {
     assertProjectRevision(input.expectedRevision);
     const db = await getDatabase();
+    const project = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOne(
+        { projectId, userId },
+        { projection: { fps: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as unknown as Pick<
+        Project,
+        "fps" | "projectRevision" | "updatedAt"
+      > | null;
+    if (!project || !sameProjectRevisionV1(input.expectedRevision, projectRevisionFor(project))) {
+      return { attached: false };
+    }
     const overlayWithReceipt = ensureAtomicOverlayReceipt(input.overlay, {
       source: "project-service-add-overlay-if-absent",
       intent: `persist-${input.overlay.type}`,
       reason: "overlay was attached through ProjectService at one project revision",
     });
     const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: input.expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay-add_${nanoid(18)}`,
+      projectId,
+      operation: "ADD_OVERLAY",
+      fps: project.fps || 30,
+      beforeProjectRevision: input.expectedRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: null,
+      afterOverlay: overlayWithReceipt,
+    });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -3768,7 +3827,13 @@ export class ProjectService {
         ...projectRevisionPredicate(input.expectedRevision),
       },
       {
-        $push: { overlays: overlayWithReceipt } as any,
+        $push: {
+          overlays: overlayWithReceipt,
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as any,
         $set: { updatedAt: committedAt },
         $inc: { projectRevision: 1 },
       },
@@ -3779,11 +3844,7 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
-      revision: {
-        schemaVersion: 1,
-        value: input.expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
@@ -4855,52 +4916,22 @@ export class ProjectService {
     );
 
     const committedAt = new Date();
-    const beforeFrameRange = overlayTimelineFrameRangeV1(currentOverlay);
-    const afterFrameRange = overlayTimelineFrameRangeV1(updatedOverlay);
-    const unionFrameRange = unionTimelineFrameRangesV1(
-      beforeFrameRange,
-      afterFrameRange,
-    );
-    const overlayRef = overlayReferenceForTimelineChangeV1(currentOverlay);
-    const rangeObservation = unionFrameRange
-      ? "EXACT" as const
-      : "UNKNOWN_LEGACY_OVERLAY_TIMING" as const;
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
       value: expectedRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
-    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
-      schemaVersion: 1,
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-overlay_${nanoid(18)}`,
       projectId,
       operation: "UPDATE_OVERLAY",
-      actorKind: "UNKNOWN_LEGACY_CALLER",
-      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
       fps: project.fps || 30,
       beforeProjectRevision: expectedRevision,
       afterProjectRevision: afterRevision,
       committedAt: committedAt.toISOString(),
-      readFrameRangesBefore: beforeFrameRange ? [beforeFrameRange] : [],
-      writeFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
-      affectedFrameRangesAfter: afterFrameRange ? [afterFrameRange] : [],
-      affectedOverlayRefs: [overlayRef],
-      changedPaths: ["overlays", "timelineRangeChangeReceipts"],
-      rangeObservation,
-      overlayTemporalChange: {
-        overlayRef,
-        beforeFrameRange,
-        afterFrameRange,
-        unionFrameRange,
-      },
-      timelineCoordinateTransform: null,
-      splitChildren: [],
-      ripple: null,
-      downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
-        affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
-      },
-    };
+      beforeOverlay: currentOverlay,
+      afterOverlay: updatedOverlay,
+    });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -5246,13 +5277,14 @@ export class ProjectService {
       .collection(COLLECTIONS.PROJECTS)
       .findOne(
         { projectId, userId },
-        { projection: { overlays: 1, projectRevision: 1, updatedAt: 1 } },
+        { projection: { overlays: 1, fps: 1, projectRevision: 1, updatedAt: 1 } },
       )) as unknown as Pick<
       Project,
-      "overlays" | "projectRevision" | "updatedAt"
+      "overlays" | "fps" | "projectRevision" | "updatedAt"
     > | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
-    if (!project.overlays?.some((overlay) => overlay.id === overlayId)) {
+    const currentOverlay = project.overlays?.find((overlay) => overlay.id === overlayId);
+    if (!currentOverlay) {
       throw new ProjectMutationWriteError(
         `Overlay ${overlayId} was not found in project ${projectId}.`,
       );
@@ -5260,6 +5292,22 @@ export class ProjectService {
 
     const expectedRevision = projectRevisionFor(project);
     const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay-delete_${nanoid(18)}`,
+      projectId,
+      operation: "DELETE_OVERLAY",
+      fps: project.fps || 30,
+      beforeProjectRevision: expectedRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: currentOverlay,
+      afterOverlay: null,
+    });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -5270,6 +5318,12 @@ export class ProjectService {
       {
         $pull: { overlays: { id: overlayId } } as any,
         $set: { updatedAt: committedAt },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as never,
         $inc: { projectRevision: 1 },
       },
     );
@@ -5283,11 +5337,7 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
-      revision: {
-        schemaVersion: 1,
-        value: expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
@@ -6745,10 +6795,76 @@ function unionTimelineFrameRangesV1(
   beforeFrameRange: TimelineFrameRangeV1 | null,
   afterFrameRange: TimelineFrameRangeV1 | null,
 ): TimelineFrameRangeV1 | null {
-  if (!beforeFrameRange || !afterFrameRange) return null;
+  if (!beforeFrameRange) return afterFrameRange;
+  if (!afterFrameRange) return beforeFrameRange;
   return {
     startFrame: Math.min(beforeFrameRange.startFrame, afterFrameRange.startFrame),
     endFrame: Math.max(beforeFrameRange.endFrame, afterFrameRange.endFrame),
+  };
+}
+
+function createDirectOverlayTimelineChangeReceiptV1(input: {
+  receiptId: string;
+  projectId: string;
+  operation: "ADD_OVERLAY" | "UPDATE_OVERLAY" | "DELETE_OVERLAY";
+  fps: number;
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  committedAt: string;
+  beforeOverlay: Overlay | null;
+  afterOverlay: Overlay | null;
+}): ProjectTimelineRangeChangeReceiptV1 {
+  const representativeOverlay = input.afterOverlay ?? input.beforeOverlay;
+  if (!representativeOverlay) {
+    throw new ProjectMutationWriteError(
+      "A direct overlay change must retain one affected overlay identity.",
+    );
+  }
+  const beforeFrameRange = input.beforeOverlay
+    ? overlayTimelineFrameRangeV1(input.beforeOverlay)
+    : null;
+  const afterFrameRange = input.afterOverlay
+    ? overlayTimelineFrameRangeV1(input.afterOverlay)
+    : null;
+  const unionFrameRange = unionTimelineFrameRangesV1(
+    beforeFrameRange,
+    afterFrameRange,
+  );
+  const overlayRef = overlayReferenceForTimelineChangeV1(representativeOverlay);
+  const rangeObservation = unionFrameRange
+    ? "EXACT" as const
+    : "UNKNOWN_LEGACY_OVERLAY_TIMING" as const;
+
+  return {
+    schemaVersion: 1,
+    receiptId: input.receiptId,
+    projectId: input.projectId,
+    operation: input.operation,
+    actorKind: "UNKNOWN_LEGACY_CALLER",
+    coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+    fps: input.fps,
+    beforeProjectRevision: input.beforeProjectRevision,
+    afterProjectRevision: input.afterProjectRevision,
+    committedAt: input.committedAt,
+    readFrameRangesBefore: beforeFrameRange ? [beforeFrameRange] : [],
+    writeFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
+    affectedFrameRangesAfter: afterFrameRange ? [afterFrameRange] : [],
+    affectedOverlayRefs: [overlayRef],
+    changedPaths: ["overlays", "timelineRangeChangeReceipts"],
+    rangeObservation,
+    overlayTemporalChange: {
+      overlayRef,
+      beforeFrameRange,
+      afterFrameRange,
+      unionFrameRange,
+    },
+    timelineCoordinateTransform: null,
+    splitChildren: [],
+    ripple: null,
+    downstreamInvalidation: {
+      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+      affectedFrameRangesBefore: unionFrameRange ? [unionFrameRange] : [],
+    },
   };
 }
 

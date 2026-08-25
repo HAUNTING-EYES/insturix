@@ -1009,20 +1009,23 @@ describe("Editron project save payload compaction", () => {
       .mockResolvedValueOnce({
         projectId: "proj_1",
         userId: "user_1",
+        fps: 30,
         updatedAt: new Date(addedAt),
         projectRevision: 7,
       })
       .mockResolvedValueOnce({
         projectId: "proj_1",
         userId: "user_1",
-        overlays: [{ id: 1, type: "text", content: "before" }],
+        fps: 30,
+        overlays: [{ id: 1, type: "text", content: "before", from: 0, durationInFrames: 30 }],
         updatedAt: new Date(updatedAt),
         projectRevision: 8,
       })
       .mockResolvedValueOnce({
         projectId: "proj_1",
         userId: "user_1",
-        overlays: [{ id: 1, type: "text", content: "after" }],
+        fps: 30,
+        overlays: [{ id: 1, type: "text", content: "after", from: 0, durationInFrames: 30 }],
         updatedAt: new Date(deletedAt),
         projectRevision: 9,
       });
@@ -1079,10 +1082,45 @@ describe("Editron project save payload compaction", () => {
         $inc: { projectRevision: 1 },
       }));
     }
+    const [addUpdate, directUpdate, deleteUpdate] = persistenceMocks.updateOne.mock.calls
+      .map(([, update]) => update as Record<string, any>);
+    expect(addUpdate.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: "ADD_OVERLAY",
+      rangeObservation: "EXACT",
+      writeFrameRangesBefore: [{ startFrame: 0, endFrame: 30 }],
+      affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 30 }],
+      overlayTemporalChange: {
+        beforeFrameRange: null,
+        afterFrameRange: { startFrame: 0, endFrame: 30 },
+        unionFrameRange: { startFrame: 0, endFrame: 30 },
+      },
+    });
+    expect(directUpdate.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: "UPDATE_OVERLAY",
+      rangeObservation: "EXACT",
+    });
+    expect(deleteUpdate.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: "DELETE_OVERLAY",
+      rangeObservation: "EXACT",
+      writeFrameRangesBefore: [{ startFrame: 0, endFrame: 30 }],
+      affectedFrameRangesAfter: [],
+      overlayTemporalChange: {
+        beforeFrameRange: { startFrame: 0, endFrame: 30 },
+        afterFrameRange: null,
+        unionFrameRange: { startFrame: 0, endFrame: 30 },
+      },
+    });
   });
 
   it("attaches a stable overlay once through the writer and emits one receipt", async () => {
     const updatedAt = "2026-08-11T06:00:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    });
     persistenceMocks.updateOne.mockResolvedValueOnce({
       matchedCount: 1,
       modifiedCount: 1,
@@ -1131,13 +1169,28 @@ describe("Editron project save payload compaction", () => {
         $inc: { projectRevision: 1 },
       }),
     );
+    const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
+    expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: "ADD_OVERLAY",
+      rangeObservation: "EXACT",
+      writeFrameRangesBefore: [{ startFrame: 45, endFrame: 75 }],
+      affectedFrameRangesAfter: [{ startFrame: 45, endFrame: 75 }],
+      overlayTemporalChange: {
+        beforeFrameRange: null,
+        afterFrameRange: { startFrame: 45, endFrame: 75 },
+        unionFrameRange: { startFrame: 45, endFrame: 75 },
+      },
+    });
   });
 
   it("does not manufacture a receipt when a stable overlay is already present or stale", async () => {
     const updatedAt = "2026-08-11T06:01:00.000Z";
-    persistenceMocks.updateOne.mockResolvedValueOnce({
-      matchedCount: 0,
-      modifiedCount: 0,
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      projectRevision: 8,
+      updatedAt: new Date("2026-08-11T06:01:01.000Z"),
     });
     const { projectService } = await import(
       "@/lib/editron/services/project-service",
@@ -1161,6 +1214,50 @@ describe("Editron project save payload compaction", () => {
     ));
 
     expect(captured).toEqual({ value: { attached: false }, receipts: [] });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("records unrepresentable direct attachment timing as unknown instead of fabricating a range", async () => {
+    const updatedAt = "2026-08-11T06:01:30.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await projectService.addOverlayIfAbsent("user_1", "proj_1", {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: updatedAt,
+      },
+      overlay: {
+        id: 3,
+        type: "sound",
+        from: 45,
+        row: 0,
+        durationInFrames: 0,
+      } as any,
+    });
+
+    const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
+    expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: "ADD_OVERLAY",
+      rangeObservation: "UNKNOWN_LEGACY_OVERLAY_TIMING",
+      writeFrameRangesBefore: [],
+      affectedFrameRangesAfter: [],
+      overlayTemporalChange: {
+        beforeFrameRange: null,
+        afterFrameRange: null,
+        unionFrameRange: null,
+      },
+    });
   });
 
   it("commits an MG delivery, its selected SFX, and its worker outcome at one revision", async () => {
