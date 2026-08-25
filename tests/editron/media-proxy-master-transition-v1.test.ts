@@ -36,6 +36,8 @@ describe('MediaProxyMasterTransitionV1', () => {
         proxySourceVersionV1: expect.objectContaining({
           sourceVersionSha256: memory.proxySourceVersion.sourceVersionSha256,
         }),
+        proxyMasterRelationV1: null,
+        sourceInvalidationPlanV1: null,
         sourceQualificationV1: expect.objectContaining({
           status: 'PENDING',
           locator: { provider: 'R2', objectKey: 'master-r2-key' },
@@ -82,7 +84,12 @@ describe('MediaProxyMasterTransitionV1', () => {
         proxySourceVersion: 'UNAVAILABLE',
       });
     expect(memory.replace).toHaveBeenCalledWith(expect.objectContaining({
-      next: expect.objectContaining({ sourceVersionV1: null, proxySourceVersionV1: null }),
+      next: expect.objectContaining({
+        sourceVersionV1: null,
+        proxySourceVersionV1: null,
+        proxyMasterRelationV1: null,
+        sourceInvalidationPlanV1: null,
+      }),
     }));
   });
 

@@ -19,7 +19,12 @@ import {
   type MediaSourceStorageVersionInspectionV1,
   type MediaSourceStorageVersionV1,
 } from '@/lib/editron/services/media-source-storage-version-v1';
-import type { MediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
+import {
+  createMediaSourceVersionV1,
+  type MediaProxyMasterRelationV1,
+  type MediaSourceInvalidationPlanV1,
+  type MediaSourceVersionV1,
+} from '@/lib/editron/services/media-source-version-v1';
 
 const repoRoot = resolve(__dirname, '../..');
 const now = new Date('2026-08-25T08:00:00.000Z');
@@ -90,6 +95,83 @@ describe('MediaSourceQualificationRuntimeV1', () => {
       contentSha256: createHash('sha256').update(Buffer.alloc(1_024, 1)).digest('hex'),
       storageVersion: storageVersion(),
     });
+    expect(memory.proxyMasterRelation()).toBeNull();
+    expect(memory.sourceInvalidationPlan()).toBeNull();
+  });
+
+  it('materializes proxy/master relation and invalidation intent only after the exact master qualifies', async () => {
+    let stored = record('master-r2-key');
+    const proxy = sourceVersionFor(storageVersion('proxy-r2-key', 'proxy-etag'));
+    const masterStorage = storageVersion('master-r2-key', 'master-etag');
+    const memory = inMemoryPorts(
+      () => stored,
+      (next) => { stored = next; },
+      true,
+      {
+        disposition: 'AVAILABLE',
+        sourceUrl: 'https://storage.test/presigned-secret',
+        storageVersion: masterStorage,
+      },
+      undefined,
+      {
+        r2Key: 'proxy-r2-key',
+        originalR2Key: 'master-r2-key',
+        isProxy: false,
+        proxySourceVersionV1: proxy,
+      },
+    );
+
+    await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports))
+      .resolves.toEqual({
+        disposition: 'COMPLETED',
+        status: 'MEASURED_TECHNICAL',
+        sourceIdentity: 'ISSUED',
+      });
+
+    expect(memory.proxyMasterRelation()).toMatchObject({
+      proxy: { sourceVersionSha256: proxy.sourceVersionSha256 },
+      master: { sourceVersionSha256: memory.sourceVersion()?.sourceVersionSha256 },
+      mapping: { disposition: 'UNQUALIFIED', diagnostic: 'SOURCE_PTS_MAPPING_REQUIRED' },
+    });
+    expect(memory.sourceInvalidationPlan()).toMatchObject({
+      disposition: 'INVALIDATE_DERIVATIVES',
+      reason: 'PROXY_MASTER_PROMOTED',
+      previousSourceVersionSha256: proxy.sourceVersionSha256,
+      nextSourceVersionSha256: memory.sourceVersion()?.sourceVersionSha256,
+      projectServiceReviewRequired: true,
+    });
+  });
+
+  it('withholds proxy/master artifacts when historical proxy identity is forged or points at another object', async () => {
+    let stored = record('master-r2-key');
+    const masterStorage = storageVersion('master-r2-key', 'master-etag');
+    const memory = inMemoryPorts(
+      () => stored,
+      (next) => { stored = next; },
+      true,
+      {
+        disposition: 'AVAILABLE',
+        sourceUrl: 'https://storage.test/presigned-secret',
+        storageVersion: masterStorage,
+      },
+      undefined,
+      {
+        r2Key: 'proxy-r2-key',
+        originalR2Key: 'master-r2-key',
+        isProxy: false,
+        proxySourceVersionV1: sourceVersionFor(storageVersion('other-r2-key', 'other-etag')),
+      },
+    );
+
+    await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports))
+      .resolves.toMatchObject({
+        disposition: 'COMPLETED',
+        status: 'MEASURED_TECHNICAL',
+        sourceIdentity: 'ISSUED',
+      });
+    expect(memory.sourceVersion()).not.toBeNull();
+    expect(memory.proxyMasterRelation()).toBeNull();
+    expect(memory.sourceInvalidationPlan()).toBeNull();
   });
 
   it('does not retain technical evidence when the storage object changes during probing', async () => {
@@ -185,9 +267,9 @@ describe('MediaSourceQualificationRuntimeV1', () => {
   });
 });
 
-function record(): MediaSourceQualificationRecordV1 {
+function record(r2Key = 'r2-key-a'): MediaSourceQualificationRecordV1 {
   const result = createMediaSourceQualificationV1({
-    asset: { assetId: 'asset_a', source: 'user-upload', r2Key: 'r2-key-a' },
+    asset: { assetId: 'asset_a', source: 'user-upload', r2Key },
     now,
   });
   if (result.disposition !== 'CREATED') throw new Error('expected qualification record');
@@ -206,14 +288,19 @@ function inMemoryPorts(
     disposition: 'AVAILABLE', sourceUrl: 'https://storage.test/presigned-secret', storageVersion: storageVersion(),
   },
   afterProbeObservation?: MediaSourceStorageVersionInspectionV1,
+  asset: Record<string, unknown> = {},
 ): {
   ports: MediaSourceQualificationWorkerPortsV1;
   resolveVerifiedSourceUrl: unknown;
   inspectStorageVersion: unknown;
   probe: unknown;
   sourceVersion(): Readonly<MediaSourceVersionV1> | null;
+  proxyMasterRelation(): Readonly<MediaProxyMasterRelationV1> | null;
+  sourceInvalidationPlan(): Readonly<MediaSourceInvalidationPlanV1> | null;
 } {
   let storedSourceVersion: Readonly<MediaSourceVersionV1> | null = null;
+  let storedProxyMasterRelation: Readonly<MediaProxyMasterRelationV1> | null = null;
+  let storedSourceInvalidationPlan: Readonly<MediaSourceInvalidationPlanV1> | null = null;
   const resolveVerifiedSourceUrl = vi.fn(async () => source);
   const inspectStorageVersion = vi.fn(async (): Promise<MediaSourceStorageVersionInspectionV1> => (
     afterProbeObservation ?? (source.disposition === 'AVAILABLE'
@@ -229,11 +316,18 @@ function inMemoryPorts(
   }));
   return {
     ports: {
-    load: vi.fn(async () => ({ sourceQualificationV1: loadRecord(), type: 'video' })),
-    replace: vi.fn(async ({ next, sourceVersionV1 }) => {
+    load: vi.fn(async () => ({ sourceQualificationV1: loadRecord(), type: 'video', ...asset })),
+    replace: vi.fn(async ({
+      next,
+      sourceVersionV1,
+      proxyMasterRelationV1,
+      sourceInvalidationPlanV1,
+    }) => {
       if (!compareAndSet) return false;
       persist(next);
       storedSourceVersion = sourceVersionV1;
+      storedProxyMasterRelation = proxyMasterRelationV1;
+      storedSourceInvalidationPlan = sourceInvalidationPlanV1;
       return true;
     }),
     resolveVerifiedSourceUrl,
@@ -248,12 +342,28 @@ function inMemoryPorts(
     inspectStorageVersion,
     probe,
     sourceVersion: () => storedSourceVersion,
+    proxyMasterRelation: () => storedProxyMasterRelation,
+    sourceInvalidationPlan: () => storedSourceInvalidationPlan,
   };
 }
 
-function storageVersion(eTag = 'r2-etag-a'): MediaSourceStorageVersionV1 {
+function sourceVersionFor(storage: MediaSourceStorageVersionV1): Readonly<MediaSourceVersionV1> {
+  return createMediaSourceVersionV1({
+    owner: { kind: 'USER', userId: 'user_a' },
+    assetId: 'asset_a',
+    mediaKind: 'video',
+    byteLength: 1_024,
+    contentSha256: 'b'.repeat(64),
+    storageVersion: storage,
+  });
+}
+
+function storageVersion(
+  objectKey = 'r2-key-a',
+  eTag = 'r2-etag-a',
+): MediaSourceStorageVersionV1 {
   return createMediaSourceStorageVersionV1({
-    locator: { provider: 'R2', objectKey: 'r2-key-a' },
+    locator: { provider: 'R2', objectKey },
     byteLength: 1_024,
     providerVersion: { kind: 'R2_ETAG', value: eTag },
   });

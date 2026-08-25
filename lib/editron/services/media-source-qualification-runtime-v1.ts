@@ -21,7 +21,15 @@ import {
   issueStoredMediaSourceContentIdentityV1,
   type MediaSourceContentIdentityResultV1,
 } from './media-source-content-identity-v1';
-import type { MediaSourceOwnerV1, MediaSourceVersionV1 } from './media-source-version-v1';
+import {
+  assertMediaSourceVersionV1,
+  createMediaProxyMasterRelationV1,
+  createMediaSourceInvalidationPlanV1,
+  type MediaProxyMasterRelationV1,
+  type MediaSourceInvalidationPlanV1,
+  type MediaSourceOwnerV1,
+  type MediaSourceVersionV1,
+} from './media-source-version-v1';
 
 export const MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1 =
   'media-source-qualification' as const;
@@ -49,18 +57,26 @@ export type MediaSourceQualificationWorkerResultV1 =
   | { disposition: 'SKIPPED'; reason: 'ASSET_NOT_FOUND' | 'QUALIFICATION_RECORD_INVALID' | 'SOURCE_BINDING_MISMATCH' | 'ACTIVE_CLAIM' | 'TERMINAL' }
   | { disposition: 'RACE_LOST' };
 
+export type MediaSourceQualificationWorkerAssetV1 = {
+  sourceQualificationV1?: unknown;
+  orgId?: unknown;
+  type?: unknown;
+  r2Key?: unknown;
+  originalR2Key?: unknown;
+  isProxy?: unknown;
+  proxySourceVersionV1?: unknown;
+};
+
 export type MediaSourceQualificationWorkerPortsV1 = {
-  load(assetId: string, userId: string): Promise<{
-    sourceQualificationV1?: unknown;
-    orgId?: unknown;
-    type?: unknown;
-  } | null>;
+  load(assetId: string, userId: string): Promise<MediaSourceQualificationWorkerAssetV1 | null>;
   replace(input: {
     assetId: string;
     userId: string;
     expected: MediaSourceQualificationRecordV1;
     next: MediaSourceQualificationRecordV1;
     sourceVersionV1: Readonly<MediaSourceVersionV1> | null;
+    proxyMasterRelationV1: Readonly<MediaProxyMasterRelationV1> | null;
+    sourceInvalidationPlanV1: Readonly<MediaSourceInvalidationPlanV1> | null;
   }): Promise<boolean>;
   resolveVerifiedSourceUrl(record: MediaSourceQualificationRecordV1): Promise<
     | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
@@ -126,20 +142,49 @@ export async function runMediaSourceQualificationWorkerV1(
     load: async (assetId, userId) => {
       const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
         { assetId, userId },
-        { projection: { sourceQualificationV1: 1, orgId: 1, type: 1 } },
+        {
+          projection: {
+            sourceQualificationV1: 1,
+            orgId: 1,
+            type: 1,
+            r2Key: 1,
+            originalR2Key: 1,
+            isProxy: 1,
+            proxySourceVersionV1: 1,
+          },
+        },
       );
       return asset
         ? {
             sourceQualificationV1: (asset as { sourceQualificationV1?: unknown }).sourceQualificationV1,
             orgId: (asset as { orgId?: unknown }).orgId,
             type: (asset as { type?: unknown }).type,
+            r2Key: (asset as { r2Key?: unknown }).r2Key,
+            originalR2Key: (asset as { originalR2Key?: unknown }).originalR2Key,
+            isProxy: (asset as { isProxy?: unknown }).isProxy,
+            proxySourceVersionV1: (asset as { proxySourceVersionV1?: unknown }).proxySourceVersionV1,
           }
         : null;
     },
-    replace: async ({ assetId, userId, expected, next, sourceVersionV1 }) => {
+    replace: async ({
+      assetId,
+      userId,
+      expected,
+      next,
+      sourceVersionV1,
+      proxyMasterRelationV1,
+      sourceInvalidationPlanV1,
+    }) => {
       const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         qualificationCompareAndSetFilter(assetId, userId, expected),
-        { $set: { sourceQualificationV1: next, sourceVersionV1 } },
+        {
+          $set: {
+            sourceQualificationV1: next,
+            sourceVersionV1,
+            proxyMasterRelationV1,
+            sourceInvalidationPlanV1,
+          },
+        },
       );
       return result.matchedCount === 1;
     },
@@ -175,6 +220,8 @@ export async function executeMediaSourceQualificationWorkerV1(
     expected: record,
     next: claim.record,
     sourceVersionV1: null,
+    proxyMasterRelationV1: null,
+    sourceInvalidationPlanV1: null,
   })) {
     return { disposition: 'RACE_LOST' };
   }
@@ -261,12 +308,24 @@ export async function executeMediaSourceQualificationWorkerV1(
     now: ports.now(),
   });
   if (completion.disposition !== 'COMPLETED') return { disposition: 'RACE_LOST' };
+  const proxyMasterArtifacts = sourceVersionV1
+    && completion.record.status === 'MEASURED_TECHNICAL'
+    ? createProxyMasterPromotionArtifactsV1({
+        asset,
+        userId: message.userId,
+        assetId: message.assetId,
+        master: sourceVersionV1,
+        completion: completion.record,
+      })
+    : null;
   if (!await ports.replace({
     assetId: message.assetId,
     userId: message.userId,
     expected: claim.record,
     next: completion.record,
     sourceVersionV1,
+    proxyMasterRelationV1: proxyMasterArtifacts?.relation ?? null,
+    sourceInvalidationPlanV1: proxyMasterArtifacts?.invalidationPlan ?? null,
   })) {
     return { disposition: 'RACE_LOST' };
   }
@@ -380,6 +439,91 @@ function mediaKindFromAssetV1(value: unknown): MediaSourceVersionV1['mediaKind']
   return value === 'video' || value === 'audio' || value === 'image'
     ? value
     : null;
+}
+
+type ProxyMasterPromotionArtifactsV1 = {
+  relation: Readonly<MediaProxyMasterRelationV1>;
+  invalidationPlan: Readonly<MediaSourceInvalidationPlanV1>;
+};
+
+/**
+ * Materializes only a validated historical proxy to newly measured master
+ * relationship. This records invalidation intent; it never clears derivatives
+ * or changes ProjectService state.
+ */
+function createProxyMasterPromotionArtifactsV1(input: {
+  asset: MediaSourceQualificationWorkerAssetV1;
+  userId: string;
+  assetId: string;
+  master: Readonly<MediaSourceVersionV1>;
+  completion: MediaSourceQualificationRecordV1;
+}): ProxyMasterPromotionArtifactsV1 | null {
+  if (input.asset.isProxy !== false || input.completion.status !== 'MEASURED_TECHNICAL') return null;
+
+  const owner = sourceOwnerForAssetV1(input.userId, input.asset.orgId);
+  const mediaKind = mediaKindFromAssetV1(input.asset.type);
+  const proxyObjectKey = storageObjectKeyV1(input.asset.r2Key);
+  const masterObjectKey = storageObjectKeyV1(input.asset.originalR2Key);
+  const measuredStorage = input.completion.storageVersion;
+  if (
+    !owner
+    || !mediaKind
+    || !proxyObjectKey
+    || !masterObjectKey
+    || proxyObjectKey === masterObjectKey
+    || !measuredStorage
+    || input.completion.locator.provider !== 'R2'
+    || input.completion.locator.objectKey !== masterObjectKey
+  ) return null;
+
+  try {
+    const proxy = assertMediaSourceVersionV1(input.asset.proxySourceVersionV1);
+    const master = assertMediaSourceVersionV1(input.master);
+    if (
+      !matchesAssetSourceScopeV1(proxy, owner, input.assetId, mediaKind)
+      || proxy.storageVersion.locator.provider !== 'R2'
+      || proxy.storageVersion.locator.objectKey !== proxyObjectKey
+      || !matchesAssetSourceScopeV1(master, owner, input.assetId, mediaKind)
+      || master.storageVersion.locator.provider !== 'R2'
+      || master.storageVersion.locator.objectKey !== masterObjectKey
+      || master.storageVersion.storageVersionSha256 !== measuredStorage.storageVersionSha256
+    ) return null;
+
+    const relation = createMediaProxyMasterRelationV1({ proxy, master });
+    const invalidationPlan = createMediaSourceInvalidationPlanV1({
+      previous: proxy,
+      next: master,
+      proxyMasterRelation: relation,
+    });
+    if (
+      invalidationPlan.disposition !== 'INVALIDATE_DERIVATIVES'
+      || invalidationPlan.reason !== 'PROXY_MASTER_PROMOTED'
+    ) return null;
+    return { relation, invalidationPlan };
+  } catch {
+    return null;
+  }
+}
+
+function matchesAssetSourceScopeV1(
+  source: Readonly<MediaSourceVersionV1>,
+  owner: MediaSourceOwnerV1,
+  assetId: string,
+  mediaKind: MediaSourceVersionV1['mediaKind'],
+): boolean {
+  return source.assetId === assetId
+    && source.mediaKind === mediaKind
+    && sameMediaSourceOwnerV1(source.owner, owner);
+}
+
+function sameMediaSourceOwnerV1(left: MediaSourceOwnerV1, right: MediaSourceOwnerV1): boolean {
+  return left.kind === right.kind && (left.kind === 'USER'
+    ? left.userId === (right as Extract<MediaSourceOwnerV1, { kind: 'USER' }>).userId
+    : left.orgId === (right as Extract<MediaSourceOwnerV1, { kind: 'ORG' }>).orgId);
+}
+
+function storageObjectKeyV1(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function asQualificationRecord(value: unknown): MediaSourceQualificationRecordV1 | null {

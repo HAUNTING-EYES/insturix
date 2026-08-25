@@ -56,6 +56,8 @@ export type MediaProxyMasterTransitionPortsV1 = {
       sourceQualificationV1: MediaSourceQualificationRecordV1;
       sourceVersionV1: null;
       proxySourceVersionV1: Readonly<MediaSourceVersionV1> | null;
+      proxyMasterRelationV1: null;
+      sourceInvalidationPlanV1: null;
     };
   }): Promise<boolean>;
   dispatch(message: MediaSourceQualificationDispatchMessageV1): Promise<{ dispatched: boolean }>;
@@ -179,6 +181,8 @@ export async function transitionMediaProxyMasterV1(
       sourceQualificationV1: qualification.record,
       sourceVersionV1: null,
       proxySourceVersionV1,
+      proxyMasterRelationV1: null,
+      sourceInvalidationPlanV1: null,
     },
   });
   if (!replaced) return { disposition: 'RACE_LOST' };
@@ -251,6 +255,8 @@ export async function runMediaProxyMasterTransitionV1(
             sourceQualificationV1: next.sourceQualificationV1,
             sourceVersionV1: null,
             proxySourceVersionV1: next.proxySourceVersionV1,
+            proxyMasterRelationV1: null,
+            sourceInvalidationPlanV1: null,
           },
         },
       );

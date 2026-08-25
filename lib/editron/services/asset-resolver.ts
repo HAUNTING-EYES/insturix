@@ -11,7 +11,11 @@ import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codeg
 import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
-import type { MediaSourceVersionV1 } from './media-source-version-v1';
+import type {
+  MediaProxyMasterRelationV1,
+  MediaSourceInvalidationPlanV1,
+  MediaSourceVersionV1,
+} from './media-source-version-v1';
 import { resolveActiveMediaR2StorageKeyV1 } from './media-proxy-master-transition-v1';
 
 export interface MediaAsset {
@@ -56,6 +60,10 @@ export interface MediaAsset {
   sourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
   /** Historical proxy identity retained only for a later qualified proxy/master relation. */
   proxySourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
+  /** Historical proxy and newly qualified master, with no implied source-time mapping. */
+  proxyMasterRelationV1?: Readonly<MediaProxyMasterRelationV1> | null;
+  /** Media-owner invalidation intent; ProjectService separately owns project effects. */
+  sourceInvalidationPlanV1?: Readonly<MediaSourceInvalidationPlanV1> | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */
