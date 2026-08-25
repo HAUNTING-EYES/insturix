@@ -144,7 +144,7 @@ export function createMediaSourcePtsCadenceMapRecordV1(input: {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_BOOTSTRAP_NOT_INITIAL');
   }
   const binding = bindingFromShard(shard);
-  const mapBindingSha256 = hashEditronCanonicalJsonV1(binding);
+  const mapBindingSha256 = mediaSourcePtsCadenceMapBindingSha256V1(shard);
   return frozen({
     ...binding,
     status: 'PENDING',
@@ -414,6 +414,28 @@ function bindingFromShard(shard: Readonly<MediaSourcePtsCadenceShardV1>): MapBin
     sourceTimebase: shard.sourceTimebase,
     mapper: shard.mapper,
   };
+}
+
+/** Normalizes one shard and returns the exact map identity it is eligible for. */
+export function mediaSourcePtsCadenceMapBindingSha256V1(
+  value: unknown,
+): string {
+  const shard = assertShard(value);
+  return hashEditronCanonicalJsonV1(bindingFromShard(shard));
+}
+
+/** Public boundary for sidecar codecs; it does not perform storage I/O. */
+export function assertMediaSourcePtsCadenceMapShardV1(
+  value: unknown,
+): Readonly<MediaSourcePtsCadenceShardV1> {
+  return assertShard(value);
+}
+
+/** Public boundary for sidecar codecs; it does not claim complete coverage. */
+export function assertMediaSourcePtsCadenceMapCheckpointV1(
+  value: unknown,
+): Readonly<MediaSourcePtsCadenceMapCheckpointV1> {
+  return frozen(assertCheckpoint(value));
 }
 
 function assertActiveClaim(
