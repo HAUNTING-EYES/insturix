@@ -62,9 +62,12 @@ or `fetch`. The local direct-fetch path remains development-only. Focused
 adversarial tests cover missing publisher token, incomplete signing keys,
 valid signed QStash dispatch and local development dispatch.
 
-This closes one false-success ingress claim. It does **not** make the legacy
-audio worker a ProjectService owner, serialize BGM and SFX, or establish audio
-render/proof correctness.
+This closed one false-success ingress claim. The later active-ingress migration
+now makes the pipeline-audio worker call
+`ProjectService.commitPipelineAudioDeliveryV1` for every canonical BGM/SFX
+terminal outcome. It does not establish audio render/mix proof, unify the
+separate beat-analysis callers, or make media-asset registration transactional
+with the project receipt.
 
 ## Direct project-writer inventory
 
@@ -76,7 +79,7 @@ ProjectService-issued command/receipt boundary:
 | `app/api/internal/workers/director/route.ts` | The automatic QStash route now claims, completes and fails only through `ProjectService`'s durable-run commands. It binds completion to the executor's last writer receipt and skips bookkeeping after ownership loss. | Assist handoff remains a legacy direct write by design; recovery/rescue and non-QStash Director callers are separate migrations. |
 | `lib/editron/agent/director-agent.ts` | Carries lease-bound progress receipts and ProjectService action receipts into the final editor save; it still writes intelligence summaries, decision logs, status/audit facts and quality-review data directly. | The progress/final-save revision race is closed, but the intervening legacy facts remain direct Mongo writes without revision advancement or receipts. |
 | `app/api/internal/workers/video-analysis/route.ts` and `tribe-analysis/route.ts` | Advance analysis/directing status and persist analysis facts; development fallbacks can run the Director inline. | Many state transitions/evidence writes remain raw and must be migrated by lifecycle, not bulk-wrapped. |
-| `app/api/internal/workers/pipeline/audio/route.ts` | Pushes BGM/SFX overlays, beat-aligned overlay state and audio-plan facts. | Direct overlay mutation bypasses writer-issued revision/receipt semantics. BGM can later read and replace the complete overlay array for beat alignment after SFX independently appends, so an intervening SFX append can be lost. |
+| `app/api/internal/workers/pipeline/audio/route.ts` | Loads a ProjectService mutation snapshot and submits BGM/SFX `ATTACHED`, `SKIPPED`, or `FAILED` material through `commitPipelineAudioDeliveryV1`. BGM alignment is recomputed inside the owner's fresh CAS snapshot. | The canonical project write is migrated. Generated media assets remain a separate owner, attached audio remains `UNVERIFIABLE` until rendered mix proof, and split beat-analysis callers remain unreconciled. |
 | `app/api/internal/workers/pipeline/video/route.ts` | Replaces generated-video overlay source/asset fields, adds quality warnings and clears pending Director flags. | Direct project mutation is not coupled to ProjectService revision/receipt semantics. |
 | `ProjectService.updateProject` callers | Generic duration and subject-reframe audit writes. | The method still writes without a CAS predicate, revision increment or returned writer receipt. |
 
@@ -165,6 +168,9 @@ Director execution path can be called fully reconciled.
   invalidation are still absent.
 - The current numeric FPS timeline is not a rational/mixed-rate/VFR/timecode
   media spine.
+- Pipeline-audio no longer uses a direct project write or stale full-overlay
+  replacement. Its owner migration does not certify media asset atomicity or
+  audio render/mix proof.
 - No direct writer listed above is certified merely because its behavior was
   located in source.
 - No Stage 2.5 paid run, historical cohort rerun, or production model-driven
