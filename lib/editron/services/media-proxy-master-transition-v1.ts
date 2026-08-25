@@ -35,6 +35,8 @@ export type MediaProxyMasterTransitionAssetV1 = {
   sourceVersionV1?: unknown;
   sourcePtsCadenceMapV1?: unknown;
   sourcePtsCadenceMapStateSha256V1?: unknown;
+  sourcePtsCadenceMapV2?: unknown;
+  sourcePtsCadenceMapStateSha256V2?: unknown;
 };
 
 export type CompletedMediaMultipartUploadV1 = {
@@ -51,6 +53,8 @@ export type MediaProxyMasterTransitionNextV1 = {
   sourceVersionV1: null;
   sourcePtsCadenceMapV1: null;
   sourcePtsCadenceMapStateSha256V1: null;
+  sourcePtsCadenceMapV2: null;
+  sourcePtsCadenceMapStateSha256V2: null;
   proxySourceVersionV1: Readonly<MediaSourceVersionV1> | null;
   proxyMasterRelationV1: null;
   sourceInvalidationPlanV1: null;
@@ -188,6 +192,8 @@ export async function transitionMediaProxyMasterV1(
       sourceVersionV1: null,
       sourcePtsCadenceMapV1: null,
       sourcePtsCadenceMapStateSha256V1: null,
+      sourcePtsCadenceMapV2: null,
+      sourcePtsCadenceMapStateSha256V2: null,
       proxySourceVersionV1,
       proxyMasterRelationV1: null,
       sourceInvalidationPlanV1: null,
@@ -281,6 +287,8 @@ export function mediaProxyMasterTransitionSetV1(
     sourceVersionV1: null,
     sourcePtsCadenceMapV1: null,
     sourcePtsCadenceMapStateSha256V1: null,
+    sourcePtsCadenceMapV2: null,
+    sourcePtsCadenceMapStateSha256V2: null,
     proxySourceVersionV1: next.proxySourceVersionV1,
     proxyMasterRelationV1: null,
     sourceInvalidationPlanV1: null,

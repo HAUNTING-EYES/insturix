@@ -77,6 +77,8 @@ export type MediaSourceQualificationWorkerPortsV1 = {
     sourceVersionV1: Readonly<MediaSourceVersionV1> | null;
     sourcePtsCadenceMapV1: null;
     sourcePtsCadenceMapStateSha256V1: null;
+    sourcePtsCadenceMapV2: null;
+    sourcePtsCadenceMapStateSha256V2: null;
     proxyMasterRelationV1: Readonly<MediaProxyMasterRelationV1> | null;
     sourceInvalidationPlanV1: Readonly<MediaSourceInvalidationPlanV1> | null;
   }): Promise<boolean>;
@@ -176,6 +178,8 @@ export async function runMediaSourceQualificationWorkerV1(
       sourceVersionV1,
       sourcePtsCadenceMapV1,
       sourcePtsCadenceMapStateSha256V1,
+      sourcePtsCadenceMapV2,
+      sourcePtsCadenceMapStateSha256V2,
       proxyMasterRelationV1,
       sourceInvalidationPlanV1,
     }) => {
@@ -187,6 +191,8 @@ export async function runMediaSourceQualificationWorkerV1(
             sourceVersionV1,
             sourcePtsCadenceMapV1,
             sourcePtsCadenceMapStateSha256V1,
+            sourcePtsCadenceMapV2,
+            sourcePtsCadenceMapStateSha256V2,
             proxyMasterRelationV1,
             sourceInvalidationPlanV1,
           },
@@ -228,6 +234,8 @@ export async function executeMediaSourceQualificationWorkerV1(
     sourceVersionV1: null,
     sourcePtsCadenceMapV1: null,
     sourcePtsCadenceMapStateSha256V1: null,
+    sourcePtsCadenceMapV2: null,
+    sourcePtsCadenceMapStateSha256V2: null,
     proxyMasterRelationV1: null,
     sourceInvalidationPlanV1: null,
   })) {
@@ -334,6 +342,8 @@ export async function executeMediaSourceQualificationWorkerV1(
     sourceVersionV1,
     sourcePtsCadenceMapV1: null,
     sourcePtsCadenceMapStateSha256V1: null,
+    sourcePtsCadenceMapV2: null,
+    sourcePtsCadenceMapStateSha256V2: null,
     proxyMasterRelationV1: proxyMasterArtifacts?.relation ?? null,
     sourceInvalidationPlanV1: proxyMasterArtifacts?.invalidationPlan ?? null,
   })) {

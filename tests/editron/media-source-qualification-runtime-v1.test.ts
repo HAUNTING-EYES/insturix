@@ -98,8 +98,18 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     expect(memory.proxyMasterRelation()).toBeNull();
     expect(memory.sourceInvalidationPlan()).toBeNull();
     expect(memory.cadenceMapWrites()).toEqual([
-      { sourcePtsCadenceMapV1: null, sourcePtsCadenceMapStateSha256V1: null },
-      { sourcePtsCadenceMapV1: null, sourcePtsCadenceMapStateSha256V1: null },
+      {
+        sourcePtsCadenceMapV1: null,
+        sourcePtsCadenceMapStateSha256V1: null,
+        sourcePtsCadenceMapV2: null,
+        sourcePtsCadenceMapStateSha256V2: null,
+      },
+      {
+        sourcePtsCadenceMapV1: null,
+        sourcePtsCadenceMapStateSha256V1: null,
+        sourcePtsCadenceMapV2: null,
+        sourcePtsCadenceMapStateSha256V2: null,
+      },
     ]);
   });
 
@@ -302,6 +312,8 @@ function inMemoryPorts(
   cadenceMapWrites(): Array<{
     sourcePtsCadenceMapV1: null;
     sourcePtsCadenceMapStateSha256V1: null;
+    sourcePtsCadenceMapV2: null;
+    sourcePtsCadenceMapStateSha256V2: null;
   }>;
   proxyMasterRelation(): Readonly<MediaProxyMasterRelationV1> | null;
   sourceInvalidationPlan(): Readonly<MediaSourceInvalidationPlanV1> | null;
@@ -310,6 +322,8 @@ function inMemoryPorts(
   const cadenceMapWrites: Array<{
     sourcePtsCadenceMapV1: null;
     sourcePtsCadenceMapStateSha256V1: null;
+    sourcePtsCadenceMapV2: null;
+    sourcePtsCadenceMapStateSha256V2: null;
   }> = [];
   let storedProxyMasterRelation: Readonly<MediaProxyMasterRelationV1> | null = null;
   let storedSourceInvalidationPlan: Readonly<MediaSourceInvalidationPlanV1> | null = null;
@@ -334,13 +348,20 @@ function inMemoryPorts(
       sourceVersionV1,
       sourcePtsCadenceMapV1,
       sourcePtsCadenceMapStateSha256V1,
+      sourcePtsCadenceMapV2,
+      sourcePtsCadenceMapStateSha256V2,
       proxyMasterRelationV1,
       sourceInvalidationPlanV1,
     }) => {
       if (!compareAndSet) return false;
       persist(next);
       storedSourceVersion = sourceVersionV1;
-      cadenceMapWrites.push({ sourcePtsCadenceMapV1, sourcePtsCadenceMapStateSha256V1 });
+      cadenceMapWrites.push({
+        sourcePtsCadenceMapV1,
+        sourcePtsCadenceMapStateSha256V1,
+        sourcePtsCadenceMapV2,
+        sourcePtsCadenceMapStateSha256V2,
+      });
       storedProxyMasterRelation = proxyMasterRelationV1;
       storedSourceInvalidationPlan = sourceInvalidationPlanV1;
       return true;
