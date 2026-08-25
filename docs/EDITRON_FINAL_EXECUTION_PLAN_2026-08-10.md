@@ -446,12 +446,19 @@ changes.
   one repository media sample with 3,885 measured frames in four batches.
   This is local implementation/command proof, not a Modal deployment, live
   private-bucket write, Atlas mutation or product certification. The existing
-  `MEDIA_ASSETS` owner remains unwired to it: a signed Editron transport,
-  staging reader/finalizer, V2 artifact conversion and source-bound asset CAS
-  call are still required. Source/proxy transforms and the ProjectService
-  consumer also remain absent. Those owner-side steps are next; model
-  evaluation, DEP-02/DEP-03 and project routing remain later in the frozen
-  order.
+  `MEDIA_ASSETS` owner remains unwired to it. Commit `c35e0295e` adds the
+  server-side transport and temporary-staging read boundary: both configured
+  endpoints must be trusted HTTPS Modal hosts with complete dedicated proxy
+  credentials; submit/poll responses are byte-bounded and exact-map-bound; and
+  the staging reader accepts only the private scan-key grammar, exact byte
+  count/digest and canonical batch payload. It returns no source URL and has no
+  public-bucket fallback. This is still an unwired adapter, not a scan dispatch,
+  deployed endpoint/bucket, durable Editron worker, asset write or cadence
+  result. V2 artifact conversion, lifecycle checkpoint/finalization and the
+  source-bound `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms
+  and the ProjectService consumer also remain absent. Those owner-side steps
+  are next; model evaluation, DEP-02/DEP-03 and project routing remain later in
+  the frozen order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
