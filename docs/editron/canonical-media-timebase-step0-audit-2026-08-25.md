@@ -158,6 +158,12 @@ persisted, and no source is treated as measured or eligible. A V2 reader,
 full-coverage verifier, state transition and durable mapper worker remain
 required before this audit's source-PTS target can advance.
 
+Commit `3cd22d54f` adds only an injected-reader index-integrity verifier. It
+checks every listed batch's bytes, digest, canonical frame payload and index
+binding, but labels its result as an indexed-range observation because it has
+no qualified-source coverage boundary. It is not storage I/O, a source-wide
+cadence conclusion, a state transition or mapper worker.
+
 ## Verification boundary
 
 This audit does not claim a working production media spine, a raised upload

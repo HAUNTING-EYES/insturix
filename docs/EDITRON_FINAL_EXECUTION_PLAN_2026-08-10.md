@@ -395,6 +395,14 @@ changes.
   persists V2 state, proves sidecar availability or complete coverage, issues
   CFR/VFR, runs a mapper or authorizes a consumer. A V2 reader/full verifier,
   state path and worker remain required before a terminal map claim.
+  Commit `3cd22d54f` adds the pure injected-reader half of that next boundary:
+  it verifies every indexed sidecar's recomputed byte size/digest, canonical
+  frame payload and exact map/policy/shard binding, returning only an
+  `INDEX_INTEGRITY_VERIFIED` or explicit `UNVERIFIABLE` result. Its uniform or
+  variable cadence observation is deliberately limited to the listed range;
+  it cannot prove that the index covers the qualified source and therefore
+  cannot issue source-wide CFR/VFR or terminalize a map. A source-coverage
+  verifier, V2 state path and worker remain required.
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 

@@ -184,7 +184,14 @@ sidecar exists, prove full presentation coverage or issue a cadence result.
 The next runtime design must add a V2 read/verify/state path before a mapper
 can claim terminal completion.
 
-There is still no mapper worker, complete-manifest verifier or terminal map
+Commit `3cd22d54f` fills the read/verify portion only through an injected
+reader. It verifies every listed object's measured bytes and canonical payload
+against the V2 index and reports an explicit indexed-range cadence observation.
+It cannot establish that the index starts/ends with the qualified source, so it
+is not the required source-complete verifier and cannot issue CFR/VFR or a
+terminal map record.
+
+There is still no mapper worker, source-complete verifier or terminal map
 persistence. It intentionally cannot call a large map "measured" until a real
 qualified source passes the full verifier. The next runtime phase is source-
 version-bound claim/checkpoint/terminal work, not a ProjectService,

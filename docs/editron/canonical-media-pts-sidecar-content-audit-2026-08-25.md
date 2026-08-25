@@ -41,6 +41,15 @@ complete coverage, persist on `MEDIA_ASSETS`, issue CFR/VFR, resume a job, or
 authorize a project operation. Those still require a V2 reader, full verifier,
 state path and worker.
 
+Commit `3cd22d54f` adds the pure injected-reader verifier for the next seam. It
+reads every batch named by an index, recomputes the returned byte length and
+digest, parses its canonical payload, and checks exact map/policy/shard/index
+agreement. It returns `INDEX_INTEGRITY_VERIFIED` only for the listed range, or
+an explicit `UNVERIFIABLE` reason; its cadence result is intentionally named
+`UNIFORM_INDEXED_RANGE` or `VARIABLE_INDEXED_RANGE`, never source-wide CFR/VFR.
+It neither selects a storage backend nor proves the index covers the qualified
+source's complete presentation range.
+
 ## Consequence
 
 Do not build a runtime mapper, source/proxy transform, ProjectService binding,
@@ -72,9 +81,11 @@ separate, versioned successor sidecar protocol before mapper runtime work:
    must be named in the mapper policy and treated as provisional infrastructure
    policy until calibrated. Exceeding a bound ends `UNVERIFIABLE`; it must not
    silently discard frames or infer cadence.
-4. **Independent full verifier.** It reads the indexed payloads, verifies every
-   byte/digest and exact binding, checks ordinal/PTS coverage, then issues the
-   only terminal receipt capable of supporting a source-wide cadence conclusion.
+4. **Independent full verifier.** Commit `3cd22d54f` verifies every object
+   listed by a supplied index. The remaining full verifier must additionally
+   bind expected start/end coverage from the qualified technical observation,
+   reject partial-source indexes, and only then issue a terminal source-wide
+   cadence receipt.
 5. **Explicit discontinuity model.** The successor must either represent
    declared presentation epochs/segments or honestly reject them. It may not
    relax V1 contiguity while still claiming one global ordinal map.
@@ -93,6 +104,7 @@ This audit inspected the current implementations of:
 - the corresponding lifecycle and private-sidecar tests; plus the pure V2
   frame-batch codec, pure V2 manifest index and their adversarial tests.
 
-The V2 payload/index pair does not change runtime mapping behavior. No claim is
-made that a V2 reader/verifier/state path, mapper worker, private deployment,
-live Atlas write, renderer consumer or ProjectService source binding exists.
+The V2 payload/index/reader-verifier chain does not change runtime mapping
+behavior. No claim is made that it has a storage backend, source-complete
+coverage verifier, V2 state path, mapper worker, private deployment, live
+Atlas write, renderer consumer or ProjectService source binding.
