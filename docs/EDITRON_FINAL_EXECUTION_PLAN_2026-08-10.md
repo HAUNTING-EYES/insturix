@@ -122,6 +122,18 @@ changes.
   writers. The next ordered foundation is the canonical media/timebase/evidence
   spine, followed by the remaining Stage 2.5 generalisation evidence.
 
+- **2026-08-25 media/timebase Step-0 current truth.** The live media library
+  still has multiple direct ingress paths: signed registration, server-side
+  upload, multipart tracking and a proxy-to-original URL swap. They persist
+  loose `MediaAsset` metadata, not one qualified immutable master/proxy source
+  identity. The richer `EditorialMediaIdentityContractV1` is explicitly
+  contract-only; the provider-native canonical-media records are bounded
+  reference/episode adapters and must not become a second ingest authority.
+  The exact audit is [canonical-media-timebase-step0-audit-2026-08-25.md](./editron/canonical-media-timebase-step0-audit-2026-08-25.md).
+  The first bounded implementation corrects the existing chapter renderer's
+  fixed-30-fps duration policy only; it does not claim rational/VFR/timecode or
+  long-form-media completion.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
