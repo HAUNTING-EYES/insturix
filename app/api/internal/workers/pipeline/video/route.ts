@@ -526,27 +526,33 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
             { _id: jobId } as any,
             { $set: { qualityFlag: 'low', qualityShouldRegenerate: true } },
           );
-          // H5 FIX: Add warning to project document so user can see quality issues in the editor
+          // Quality classification remains an analysis concern. ProjectService
+          // is the only owner allowed to persist the resulting project fact.
           try {
-            const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
-            const sbForQuality = await getSb(storyboardId, userId);
+            const sbForQuality = await getStoryboard(storyboardId, userId);
             const qualityProjectId = sbForQuality?.projectId;
             if (qualityProjectId) {
-              await db.collection('projects').updateOne(
-                { projectId: qualityProjectId },
+              const { projectService } = await import('@/lib/editron/services/project-service');
+              const snapshot = await projectService.loadProjectForMutation(userId, qualityProjectId);
+              const qualityWarning = await projectService.recordPipelineVideoQualityWarningV1(
+                userId,
+                qualityProjectId,
                 {
-                  $push: {
-                    'qualityWarnings': {
-                      sceneIndex,
-                      qualityScore,
-                      message: `Scene ${sceneIndex}: Low quality video (${qualityScore}/100). Consider regenerating this scene.`,
-                      createdAt: new Date(),
-                    } as any,
-                  },
+                  expectedRevision: snapshot.revision,
+                  batchId,
+                  jobId,
+                  storyboardId,
+                  sceneIndex,
+                  assetId: result.assetId,
+                  qualityScore,
+                  qualitySource,
                 },
               );
+              console.log(
+                `[VideoWorker] Project quality warning ${qualityWarning.disposition} for ${jobId}.`,
+              );
             }
-          } catch (err: unknown) { console.warn('[VideoWorker] quality warning push failed:', err instanceof Error ? err.message : err); }
+          } catch (err: unknown) { console.warn('[VideoWorker] quality warning persistence failed:', err instanceof Error ? err.message : err); }
         } else {
           console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
         }

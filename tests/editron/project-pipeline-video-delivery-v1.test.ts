@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
@@ -34,6 +36,7 @@ vi.mock("@/lib/shared/project-links", () => ({
 const PROJECT_ID = "proj_video_delivery";
 const USER_ID = "user_video_delivery";
 const DELIVERY_ID = "video-delivery_abcdefghijklmnopqr";
+const QUALITY_JOB_ID = "vb_quality_batch_s2";
 const BASE_UPDATED_AT = "2026-08-25T00:00:00.000Z";
 const PROVIDER_LICENSE_ID = "fal-ai:seedance-1.5:service-output-terms";
 
@@ -141,6 +144,23 @@ function videoCommand(
       audioRights: nativeAudioRights(replacementAssetId),
       generatedVideoReceipt: generatedVideoReceipt(replacementAssetId),
     },
+    ...overrides,
+  } as any;
+}
+
+function qualityWarningCommand(
+  project: ReturnType<typeof projectFixture>,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    expectedRevision: revisionFor(project),
+    batchId: "vb_quality_batch",
+    jobId: QUALITY_JOB_ID,
+    storyboardId: "sb_quality_warning",
+    sceneIndex: 2,
+    assetId: "video-low-quality",
+    qualityScore: 31,
+    qualitySource: "hybrid-vision" as const,
     ...overrides,
   } as any;
 }
@@ -443,5 +463,141 @@ describe("ProjectService pipeline video delivery V1", () => {
       }),
     )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("records a job-bound low-quality warning through the project revision owner", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T02:03:04.000Z"));
+    try {
+      const project = projectFixture();
+      persistenceMocks.findOne.mockResolvedValueOnce(project);
+      persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+      const { projectService } = await import("@/lib/editron/services/project-service");
+
+      const captured = await projectService.captureMutationReceipts(() => (
+        projectService.recordPipelineVideoQualityWarningV1(
+          USER_ID,
+          PROJECT_ID,
+          qualityWarningCommand(project),
+        )
+      ));
+
+      expect(captured.value).toMatchObject({
+        disposition: "APPLIED",
+        qualityWarning: {
+          schemaVersion: 1,
+          warningId: expect.stringMatching(/^pipeline-video-quality_[a-f0-9]{64}$/),
+          materialHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          jobId: QUALITY_JOB_ID,
+          sceneIndex: 2,
+          assetId: "video-low-quality",
+          qualityScore: 31,
+          qualitySource: "hybrid-vision",
+          message: "Scene 2: Low quality video (31/100). Consider regenerating this scene.",
+          requestedRevision: { value: 7 },
+          beforeRevision: { value: 7 },
+          afterRevision: { value: 8 },
+          rebase: "FRESH",
+          changedPaths: ["qualityWarnings"],
+          proof: {
+            required: false,
+            status: null,
+            reason: "DERIVED_ANALYSIS_WARNING_NOT_RENDERED_ACCEPTANCE_PROOF",
+          },
+        },
+      });
+      expect(captured.receipts).toEqual([captured.value.qualityWarning.mutationReceipt]);
+
+      const [filter, update] = persistenceMocks.updateOne.mock.calls[0] as [
+        Record<string, any>,
+        Record<string, any>,
+      ];
+      expect(filter).toMatchObject({
+        projectId: PROJECT_ID,
+        userId: USER_ID,
+        projectRevision: 7,
+        "qualityWarnings.warningId": {
+          $ne: captured.value.qualityWarning.warningId,
+        },
+      });
+      expect(update.$set).toEqual({ updatedAt: new Date("2026-08-25T02:03:04.000Z") });
+      expect(update.$inc).toEqual({ projectRevision: 1 });
+      expect(update.$push.qualityWarnings.$each).toEqual([captured.value.qualityWarning]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replays only the identical warning and safely rebases an additive warning", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+    const command = qualityWarningCommand(project);
+    const first = await projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    );
+    const persisted = {
+      ...project,
+      projectRevision: 8,
+      updatedAt: new Date(first.qualityWarning.committedAt),
+      qualityWarnings: [first.qualityWarning],
+    };
+
+    persistenceMocks.findOne.mockResolvedValueOnce(persisted);
+    await expect(projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).resolves.toMatchObject({ disposition: "ALREADY_APPLIED" });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+
+    persistenceMocks.findOne.mockResolvedValueOnce(persisted);
+    await expect(projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      qualityWarningCommand(project, { qualityScore: 32 }),
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+
+    const unrelatedCurrent = projectFixture(8, "2026-08-25T00:00:01.000Z");
+    persistenceMocks.findOne.mockResolvedValueOnce(unrelatedCurrent);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      command,
+    )).resolves.toMatchObject({
+      disposition: "APPLIED",
+      qualityWarning: {
+        requestedRevision: { value: 7 },
+        beforeRevision: { value: 8 },
+        afterRevision: { value: 9 },
+        rebase: "SAFE_REBASED_ADDITIVE_WARNING",
+      },
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1]?.[0]).toMatchObject({ projectRevision: 8 });
+  });
+
+  it("rejects malformed warning material before any project read", async () => {
+    const project = projectFixture();
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      qualityWarningCommand(project, { qualityScore: 101 }),
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+  });
+
+  it("wires low-quality warning persistence through ProjectService instead of a raw project write", () => {
+    const worker = readFileSync("app/api/internal/workers/pipeline/video/route.ts", "utf8");
+
+    expect(worker).toContain("recordPipelineVideoQualityWarningV1");
+    expect(worker).not.toContain("collection('projects')");
+    expect(worker).not.toContain("'qualityWarnings': {");
   });
 });

@@ -5,7 +5,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
@@ -431,6 +431,61 @@ export interface ProjectPipelineVideoDeliveryResultV1 {
   deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1;
 }
 
+/**
+ * A low-quality result is derived by the pipeline analysis owner. ProjectService
+ * records it as an additive fact but never decides whether a score is low.
+ */
+export interface ProjectPipelineVideoQualityWarningCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  batchId: string;
+  jobId: string;
+  storyboardId: string;
+  sceneIndex: number;
+  assetId: string;
+  qualityScore: number;
+  qualitySource: "hybrid-vision" | "deterministic-5track";
+}
+
+export type ProjectPipelineVideoQualityWarningRebaseV1 =
+  | "FRESH"
+  | "SAFE_REBASED_ADDITIVE_WARNING";
+
+/**
+ * This lives in the legacy-compatible `qualityWarnings` field so existing
+ * warnings are preserved, while V1 entries carry their own replay receipt.
+ */
+export interface ProjectPipelineVideoQualityWarningV1 {
+  schemaVersion: 1;
+  warningId: string;
+  materialHash: string;
+  batchId: string;
+  jobId: string;
+  storyboardId: string;
+  sceneIndex: number;
+  assetId: string;
+  qualityScore: number;
+  qualitySource: "hybrid-vision" | "deterministic-5track";
+  message: string;
+  createdAt: Date;
+  requestedRevision: ProjectRevisionV1;
+  beforeRevision: ProjectRevisionV1;
+  afterRevision: ProjectRevisionV1;
+  mutationReceipt: ProjectMutationReceiptV1;
+  rebase: ProjectPipelineVideoQualityWarningRebaseV1;
+  changedPaths: readonly ["qualityWarnings"];
+  proof: {
+    required: false;
+    status: null;
+    reason: "DERIVED_ANALYSIS_WARNING_NOT_RENDERED_ACCEPTANCE_PROOF";
+  };
+  committedAt: string;
+}
+
+export interface ProjectPipelineVideoQualityWarningResultV1 {
+  disposition: "APPLIED" | "ALREADY_APPLIED";
+  qualityWarning: ProjectPipelineVideoQualityWarningV1;
+}
+
 export interface CapturedProjectMutationReceiptsV1<T> {
   value: T;
   receipts: ProjectMutationReceiptV1[];
@@ -782,6 +837,8 @@ export interface Project {
   pipelineAudioDeliveryReceipts?: ProjectPipelineAudioDeliveryReceiptV1[];
   /** Bounded idempotency/receipt history for signed generated-video deliveries. */
   pipelineVideoDeliveryReceipts?: ProjectPipelineVideoDeliveryReceiptV1[];
+  /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
+  qualityWarnings?: unknown[];
   /** Bounded cut-specific coordination leases; no other command honors them yet. */
   timelineRangeCutLocks?: ProjectTimelineRangeCutLockV1[];
   lastAutosaveAt?: Date;
@@ -3962,6 +4019,130 @@ export class ProjectService {
   }
 
   /**
+   * Persist one signed worker's low-quality observation. The mutation is
+   * additive, so a stale worker snapshot can rebase only by preserving all
+   * newer project state and appending the same job-bound warning once.
+   */
+  async recordPipelineVideoQualityWarningV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineVideoQualityWarningCommandV1,
+  ): Promise<ProjectPipelineVideoQualityWarningResultV1> {
+    assertProjectPipelineVideoQualityWarningCommandV1(input);
+    const warningId = pipelineVideoQualityWarningIdV1(projectId, input.jobId);
+    const materialHash = pipelineVideoQualityWarningMaterialHashV1(input);
+    const db = await getDatabase();
+    let current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!current) throw new ProjectNotFoundOrForbiddenError();
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existing = findPipelineVideoQualityWarningV1(current, projectId, warningId);
+      if (existing) {
+        if (existing.materialHash !== materialHash) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video quality warning identity was reused with different material.",
+          );
+        }
+        return { disposition: "ALREADY_APPLIED", qualityWarning: structuredClone(existing) };
+      }
+
+      const beforeRevision = projectRevisionFor(current);
+      if (input.expectedRevision.value > beforeRevision.value) {
+        throw new ProjectMutationConflictError(
+          beforeRevision,
+          "Pipeline video quality warning cannot be based on a future project revision.",
+        );
+      }
+      const committedAt = new Date();
+      const afterRevision: ProjectRevisionV1 = {
+        schemaVersion: 1,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      };
+      const mutationReceipt: ProjectMutationReceiptV1 = {
+        schemaVersion: 1,
+        projectId,
+        revision: afterRevision,
+        committedAt: committedAt.toISOString(),
+      };
+      const qualityWarning: ProjectPipelineVideoQualityWarningV1 = {
+        schemaVersion: 1,
+        warningId,
+        materialHash,
+        batchId: input.batchId,
+        jobId: input.jobId,
+        storyboardId: input.storyboardId,
+        sceneIndex: input.sceneIndex,
+        assetId: input.assetId,
+        qualityScore: input.qualityScore,
+        qualitySource: input.qualitySource,
+        message: pipelineVideoQualityWarningMessageV1(input.sceneIndex, input.qualityScore),
+        createdAt: committedAt,
+        requestedRevision: structuredClone(input.expectedRevision),
+        beforeRevision,
+        afterRevision,
+        mutationReceipt,
+        rebase: sameProjectRevisionV1(input.expectedRevision, beforeRevision)
+          ? "FRESH"
+          : "SAFE_REBASED_ADDITIVE_WARNING",
+        changedPaths: ["qualityWarnings"],
+        proof: {
+          required: false,
+          status: null,
+          reason: "DERIVED_ANALYSIS_WARNING_NOT_RENDERED_ACCEPTANCE_PROOF",
+        },
+        committedAt: committedAt.toISOString(),
+      };
+      const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        {
+          projectId,
+          userId,
+          "qualityWarnings.warningId": { $ne: warningId },
+          ...projectRevisionPredicate(beforeRevision),
+        },
+        {
+          $set: { updatedAt: committedAt },
+          $push: { qualityWarnings: { $each: [qualityWarning] } } as never,
+          $inc: { projectRevision: 1 },
+        },
+      );
+      if (result.matchedCount === 1) {
+        if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+        this.publishMutationReceipt(mutationReceipt);
+        return { disposition: "APPLIED", qualityWarning };
+      }
+
+      const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+        { projectId, userId },
+      )) as Project | null;
+      if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
+      const replay = findPipelineVideoQualityWarningV1(afterConflict, projectId, warningId);
+      if (replay) {
+        if (replay.materialHash !== materialHash) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video quality warning identity was reused with different material.",
+          );
+        }
+        return { disposition: "ALREADY_APPLIED", qualityWarning: structuredClone(replay) };
+      }
+      if (attempt === 0) {
+        current = afterConflict;
+        continue;
+      }
+      throw new ProjectMutationConflictError(
+        projectRevisionFor(afterConflict),
+        "Pipeline video quality warning lost the final compare-and-swap race.",
+      );
+    }
+
+    throw new ProjectMutationWriteError(
+      "Pipeline video quality warning exhausted its bounded compare-and-swap attempts.",
+    );
+  }
+
+  /**
    * Commit source-audio rights, any linked storyboard copies, and the project
    * timeline in one transaction. A stale project revision rolls back all
    * companion writes and returns no receipt.
@@ -4710,6 +4891,148 @@ function findPipelineVideoDeliveryReceiptV1(
     throw new ProjectMutationWriteError("Pipeline video delivery identity is not unique.");
   }
   return matching[0] ?? null;
+}
+
+function assertProjectPipelineVideoQualityWarningCommandV1(
+  input: ProjectPipelineVideoQualityWarningCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || Object.keys(input).some((key) => ![
+      "expectedRevision",
+      "batchId",
+      "jobId",
+      "storyboardId",
+      "sceneIndex",
+      "assetId",
+      "qualityScore",
+      "qualitySource",
+    ].includes(key))
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.batchId, 200)
+    || !isBoundedNonEmptyStringV1(input.jobId, 300)
+    || !isBoundedNonEmptyStringV1(input.storyboardId, 200)
+    || !Number.isSafeInteger(input.sceneIndex)
+    || input.sceneIndex < 0
+    || !isBoundedNonEmptyStringV1(input.assetId, 500)
+    || !Number.isSafeInteger(input.qualityScore)
+    || input.qualityScore < 0
+    || input.qualityScore > 100
+    || (input.qualitySource !== "hybrid-vision"
+      && input.qualitySource !== "deterministic-5track")
+  ) {
+    throw new ProjectMutationWriteError("Pipeline video quality warning input is invalid.");
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function pipelineVideoQualityWarningIdV1(projectId: string, jobId: string): string {
+  return "pipeline-video-quality_" + createHash("sha256")
+    .update(JSON.stringify([projectId, jobId]))
+    .digest("hex");
+}
+
+function pipelineVideoQualityWarningMaterialHashV1(
+  input: ProjectPipelineVideoQualityWarningCommandV1,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      input.batchId,
+      input.jobId,
+      input.storyboardId,
+      input.sceneIndex,
+      input.assetId,
+      input.qualityScore,
+      input.qualitySource,
+    ]))
+    .digest("hex");
+}
+
+function pipelineVideoQualityWarningMessageV1(
+  sceneIndex: number,
+  qualityScore: number,
+): string {
+  return `Scene ${sceneIndex}: Low quality video (${qualityScore}/100). Consider regenerating this scene.`;
+}
+
+function findPipelineVideoQualityWarningV1(
+  project: Pick<Project, "qualityWarnings">,
+  projectId: string,
+  warningId: string,
+): ProjectPipelineVideoQualityWarningV1 | null {
+  const warnings = project.qualityWarnings;
+  if (warnings === undefined) return null;
+  if (!Array.isArray(warnings)) {
+    throw new ProjectMutationWriteError("Pipeline video quality warning history is invalid.");
+  }
+  const matching = warnings.filter((warning) => (
+    isPlainRecord(warning) && warning.warningId === warningId
+  ));
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError("Pipeline video quality warning identity is not unique.");
+  }
+  const existing = matching[0];
+  if (!existing) return null;
+  if (!isProjectPipelineVideoQualityWarningV1(existing, projectId, warningId)) {
+    throw new ProjectMutationWriteError("Pipeline video quality warning receipt is invalid.");
+  }
+  return existing;
+}
+
+function isProjectPipelineVideoQualityWarningV1(
+  value: Record<string, unknown>,
+  projectId: string,
+  warningId: string,
+): value is ProjectPipelineVideoQualityWarningV1 {
+  if (
+    value.schemaVersion !== 1
+    || value.warningId !== warningId
+    || !/^[a-f0-9]{64}$/.test(String(value.materialHash))
+    || !isBoundedNonEmptyStringV1(value.batchId, 200)
+    || !isBoundedNonEmptyStringV1(value.jobId, 300)
+    || !isBoundedNonEmptyStringV1(value.storyboardId, 200)
+    || !Number.isSafeInteger(value.sceneIndex)
+    || (value.sceneIndex as number) < 0
+    || !isBoundedNonEmptyStringV1(value.assetId, 500)
+    || !Number.isSafeInteger(value.qualityScore)
+    || (value.qualityScore as number) < 0
+    || (value.qualityScore as number) > 100
+    || (value.qualitySource !== "hybrid-vision"
+      && value.qualitySource !== "deterministic-5track")
+    || value.message !== pipelineVideoQualityWarningMessageV1(
+      value.sceneIndex as number,
+      value.qualityScore as number,
+    )
+    || !isValidDateValueV1(value.createdAt)
+    || !isPlainRecord(value.requestedRevision)
+    || !isPlainRecord(value.beforeRevision)
+    || !isPlainRecord(value.afterRevision)
+    || !isPlainRecord(value.mutationReceipt)
+    || (value.rebase !== "FRESH" && value.rebase !== "SAFE_REBASED_ADDITIVE_WARNING")
+    || !Array.isArray(value.changedPaths)
+    || value.changedPaths.length !== 1
+    || value.changedPaths[0] !== "qualityWarnings"
+    || !isPlainRecord(value.proof)
+    || value.proof.required !== false
+    || value.proof.status !== null
+    || value.proof.reason !== "DERIVED_ANALYSIS_WARNING_NOT_RENDERED_ACCEPTANCE_PROOF"
+    || !isValidDateValueV1(value.committedAt)
+  ) {
+    return false;
+  }
+  try {
+    assertProjectRevision(value.requestedRevision as ProjectRevisionV1);
+    assertProjectRevision(value.beforeRevision as ProjectRevisionV1);
+    assertProjectRevision(value.afterRevision as ProjectRevisionV1);
+    assertReceiptForProjectRevision(
+      projectId,
+      value.mutationReceipt as ProjectMutationReceiptV1,
+      value.afterRevision as ProjectRevisionV1,
+    );
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 function assertProjectDirectorDeliveryFailureCommandV1(
