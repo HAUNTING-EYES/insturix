@@ -1,4 +1,4 @@
-# Stage 2.5 generalisation current matrix — updated 2026-08-24
+# Stage 2.5 generalisation current matrix — updated 2026-08-26
 
 ## Authoritative resume point
 
@@ -92,8 +92,8 @@ authorise production mutation or establish a provider rank.
 | --- | --- | --- |
 | Forced route alternatives | DEV-02 has one real native alternative and one real generated-island/native-continuation hybrid at the same decoded scope. | No broader held-out set, full-route generated comparison, correction-time receipt or editor-quality conclusion. |
 | Dependency/invalidation diversity | Deterministic scheduler tests cover tracking fork/join, hazards, writer revision origins, stability and stale proof. V3R3 adds one provider six-operation fork/join chain. | Models have not been tested on another genuinely new dependency shape. |
-| User edits and locks | Commit `fd2eabcdb` passes nine deterministic stale/disjoint/transformed/conflict/lock/evidence cases. | Active ProjectService receipts do not emit those regions/transforms/locks; no provider episode or canonical apply/reload used them. |
-| Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. | No newly paid resumed inference and no canonical ProjectService apply/reload. |
+| User edits and locks | Commit `0956d6ee7` exercises the real `ProjectService` cut owner through stateful in-process persistence: a disjoint stale cut safely rebases across a writer-issued overlay receipt and survives reload, while overlap, invalid locks and final CAS loss leave state unchanged. | This covers one cut-specific owner in test persistence. Live Atlas, hosted multi-user editing, generic range effects/locks/rebase and remaining writers are not proved. |
+| Compaction/resume | Provider-loop, opaque-result, fresh-owner, separate-process and durable lifecycle recovery evidence exists, including exact captured-response replay. Commit `a1a09d481` adds the source-bound no-retry operator; execution `stage25-resume-zero-spend-a1a09d481-v1` passes its exact 36/36 cohort under receipt `38a05470...`, with provider credentials scrubbed and zero dispatch/project mutation. | The receipt authorizes only a separately approved paid-resume trial. Paid resumed inference, live Atlas/QStash recovery, authenticated hosted ingress, canonical ProjectService apply/reload and audiovisual acceptance remain open. |
 | Long-form Sequence/Range planning | Commit `7319da514` freezes one 4.5-hour bounded evidence directory and compiles a bounded proposal through existing PlanService. Commits `70da565b3`, `3ea22c861`, `0f7a566fb` and `b7e0fa26c` add durable opaque-result handoff, an exact paid gate, a no-repeat-on-unknown-dispatch runner and the reproducible operator. Fresh manifest `975010c997d5755efb9333241f89a4a6a5cc50e928f8d2ac6c623a724f09b357` binds commit `5a38d08318aae445395c66cb432a94835f6db198`, ten source files and nine Luna/Terra/Gemini 3.7 rows. Clean credential-split preflight receipt `f6ed13a529529433f481e39e1d4187ecb45d336dcf3103ee0c62fbc81a53d3ee` and capture set `8878d5666327bc50b39c6ddf2fb4e80e360ec71d42f1d69a55244ab4225bb3f0` bind the local OpenAI credential and Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY`. Paid authorization `86a548c1535e4735f0e59c41b66f93b6ab86972b6ed6a541d7fb0dc21893d783` and receipt `ad64ab8d261dc90ca39d5a94679de036f4067b967eedc595d73e1c3fa1b342c3` record nine unique dispatches and terminal rows, one observed HTTP 200 response per row, zero retries/unknown dispatches/provider-infrastructure failures, zero project effects and `$0.341221800` receipt-accounted spend under the `$1.505126400` ceiling. Structural result: Terra P1/P3 and all Gemini Flash rows are `PASS_STRUCTURAL_ONLY`; Luna P1/P2 and Terra P2 fail `STAGE25_LONG_FORM_PLAN_RANGE_SCOPE_UNBOUND`; Luna P3 fails `STAGE25_LONG_FORM_PLAN_FALSE_READY_WITH_UNRESOLVED_EVIDENCE`. Five current focused suites pass 26/26 with repository typecheck and lint. | This is structural planning evidence only: every product outcome is `NOT_EVALUATED_ADAPTER_ONLY`, and editorial taste, range-semantic accuracy and rendered audiovisual quality remain unverified. The durable receipt emits no latency/elapsed-time field, and runtime-accounted spend is not a provider-billing invoice. Do not repeat this cohort. Next: genuinely new dependency/invalidation shapes; broader forced native/generated/hybrid alternatives; product-authority stale-edit/overlap/rebase/lock trials; paid compaction/resume identity; realistic long-form evidence/context-limit trials; then blind quality, correction-time, latency and cost receipts before `GO`/`MODIFY`/`NO-GO`. |
 | HREF-01 | Full source, one requested 180-frame dense motion window and WAV exist under pack `4431c08b...`; receipt `f6993480...` binds the sole project-owner all-nine-requirement `PASS`, no observed hard failure and a zero-minute correction estimate. | Independent agreement remains `UNVERIFIABLE_SINGLE_REVIEWER`; the receipt is research evidence only and does not authorize product execution. |
 | Final quality/decision | Prior technical and user ordinal evidence remains useful but bounded. | Obtain hash-bound blind quality, correction-time, latency and cost receipts, then publish frozen `GO`, `MODIFY` or `NO-GO`. |
@@ -108,10 +108,11 @@ After that completed cohort, Stage 2.5 still requires, in order:
 
 1. test genuinely new dependency/invalidation shapes and broader forced native,
    generated and hybrid alternatives;
-2. exercise stale user edits, overlap conflicts, safe rebase and locked ranges
-   through the product authority rather than fixtures alone;
-3. test paid episode compaction/resume without losing plan or opaque-result
-   identity;
+2. broaden the now-stateful cut-specific conflict/rebase/lock proof to other
+   product writers and live-store/multi-user conditions;
+3. if separately authorized, test paid episode compaction/resume without
+   losing plan, opaque-result, revision or cumulative-budget identity; the
+   zero-spend executable-owner gate is complete;
 4. extend long-form trials beyond coarse 4.5-hour structure to realistic media,
    bounded evidence and context-limit behavior; and
 5. obtain blind quality, correction-time, latency and cost receipts before the

@@ -5025,6 +5025,23 @@ authorization are all present.
   exercised. Stage 2.5 may proceed to compaction/resume and realistic
   long-form evidence plumbing, while broader ProjectService collaboration
   remains a separate production-foundation programme.
+- Commit `a1a09d481` replaces the resume specification's caller-asserted
+  readiness with one machine-issued, source-bound zero-spend gate over the
+  existing checkpoint, PlanService, opaque-result, runtime-budget,
+  dispatch-intent and separate-process resume owners. Execution
+  `stage25-resume-zero-spend-a1a09d481-v1` scrubbed all nine known provider
+  credential names, allowed no retry or paid dispatch, and passed the exact
+  eight-file 36/36 owner-test cohort. Receipt
+  `38a05470df609ba67852401e7610bac162dbda4e270466be48169daf851069a1`
+  binds source commit `a1a09d481b5f4b19c5a3f53e289bb522d97eb010`, its tree,
+  the 1,904-file clean Editron scope, toolchain, command, report, eight public
+  sentinel receipts and the supporting compaction/PlanService assertions.
+  Its only promotion is
+  `READY_FOR_SEPARATELY_AUTHORIZED_PAID_RESUME_TRIAL`; paid resume remains
+  `NOT_AUTHORIZED`. No provider, network-packet, live Atlas/QStash,
+  authenticated hosted-ingress, canonical apply/reload or audiovisual
+  acceptance proof was performed, and both provider dispatch and canonical
+  project mutation counts remain zero.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
