@@ -4,6 +4,8 @@ import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-jso
 import {
   appendMediaSourcePtsCadenceMapShardV1,
   claimMediaSourcePtsCadenceMapV1,
+  completeMediaSourcePtsCadenceMapV1,
+  createMediaSourcePtsCadenceMapCompletionReceiptV1,
   createMediaSourcePtsCadenceMapRecordV1,
   expectedMediaSourcePtsCadenceManifestObjectKeyV1,
   expectedMediaSourcePtsCadenceShardObjectKeyV1,
@@ -169,6 +171,64 @@ describe('MediaSourcePtsCadenceMapLifecycleV1', () => {
     });
     expect(JSON.stringify(candidate)).not.toContain('CFR');
     expect(JSON.stringify(candidate)).not.toContain('VFR');
+  });
+
+  it('terminalizes only an exact full-verifier receipt and then refuses renewed work', () => {
+    const first = shard();
+    const pending = createMediaSourcePtsCadenceMapRecordV1({ bootstrapShard: first, now: NOW });
+    const claimed = claim(pending);
+    const appended = appendMediaSourcePtsCadenceMapShardV1({
+      record: claimed,
+      claimId: CLAIM_ID,
+      shard: first,
+      privateSidecar: shardSidecar(claimed, first),
+      now: NOW,
+    });
+    const candidate = prepareMediaSourcePtsCadenceMapCompletionV1({
+      record: appended,
+      claimId: CLAIM_ID,
+      privateManifest: manifestSidecar(appended),
+      now: NOW,
+    });
+    const receipt = createMediaSourcePtsCadenceMapCompletionReceiptV1({
+      candidate,
+      verifierVersion: 'presentation-coverage-verifier-v1',
+      coveragePolicyVersion: 'coverage-policy-v1',
+    });
+
+    const terminal = completeMediaSourcePtsCadenceMapV1({
+      record: appended,
+      claimId: CLAIM_ID,
+      candidate,
+      completionReceipt: receipt,
+      now: NOW,
+    });
+    expect(terminal).toMatchObject({
+      status: 'COMPLETE',
+      activeClaim: null,
+      diagnostic: null,
+      completion: {
+        receipt: {
+          verifierVersion: 'presentation-coverage-verifier-v1',
+          coveragePolicyVersion: 'coverage-policy-v1',
+        },
+      },
+    });
+    expect(JSON.stringify(terminal)).not.toContain('CFR');
+    expect(JSON.stringify(terminal)).not.toContain('VFR');
+    expect(() => claimMediaSourcePtsCadenceMapV1({
+      record: terminal,
+      claimId: 'cadence_claim_0003',
+      now: NOW,
+      expiresAt: new Date('2026-08-25T12:01:00.000Z'),
+    })).toThrow('MEDIA_SOURCE_PTS_CADENCE_MAP_TERMINAL');
+    expect(() => completeMediaSourcePtsCadenceMapV1({
+      record: appended,
+      claimId: CLAIM_ID,
+      candidate,
+      completionReceipt: { ...receipt, verifierVersion: 'forged-verifier-v1' },
+      now: NOW,
+    })).toThrow('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
   });
 
   it('terminalizes unverifiable maps and refuses renewed work', () => {

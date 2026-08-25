@@ -23,6 +23,8 @@ export const MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_CADENCE_MAP_V1' as const;
 export const MEDIA_SOURCE_PTS_CADENCE_PRIVATE_SIDECAR_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_CADENCE_PRIVATE_SIDECAR_V1' as const;
+export const MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_KIND_V1 =
+  'EDITRON_MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_V1' as const;
 
 const ZERO_BIGINT = BigInt(0);
 const ONE_BIGINT = BigInt(1);
@@ -30,6 +32,7 @@ const ONE_BIGINT = BigInt(1);
 export type MediaSourcePtsCadenceMapStatusV1 =
   | 'PENDING'
   | 'MAPPING'
+  | 'COMPLETE'
   | 'UNVERIFIABLE';
 
 export type MediaSourcePtsCadencePrivateSidecarV1 = {
@@ -72,6 +75,7 @@ export type MediaSourcePtsCadenceMapRecordV1 = {
   requestedAt: string;
   activeClaim: MediaSourcePtsCadenceMapClaimV1 | null;
   checkpoint: MediaSourcePtsCadenceMapCheckpointV1;
+  completion: MediaSourcePtsCadenceMapCompletionV1 | null;
   completedAt: string | null;
   diagnostic: string | null;
 };
@@ -84,6 +88,28 @@ export type MediaSourcePtsCadenceCompletionCandidateV1 = {
   privateManifest: MediaSourcePtsCadencePrivateSidecarV1;
   requiredTerminalVerifier: 'COMPLETE_PRESENTATION_COVERAGE_AND_CONTIGUITY_V1';
   requiredTerminalWrite: 'MEDIA_ASSETS_COMPARE_AND_SET_V1';
+};
+
+/**
+ * A full-coverage verifier issues this receipt only after it has independently
+ * read the complete private manifest and every referenced presentation shard.
+ * The lifecycle validates its binding and provenance; it does not substitute
+ * for that verifier.
+ */
+export type MediaSourcePtsCadenceMapCompletionReceiptV1 = {
+  schemaVersion: 1;
+  kind: typeof MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_KIND_V1;
+  mapBindingSha256: string;
+  checkpointSha256: string;
+  privateManifest: MediaSourcePtsCadencePrivateSidecarV1;
+  verifierVersion: string;
+  coveragePolicyVersion: string;
+  receiptSha256: string;
+};
+
+export type MediaSourcePtsCadenceMapCompletionV1 = {
+  privateManifest: MediaSourcePtsCadencePrivateSidecarV1;
+  receipt: MediaSourcePtsCadenceMapCompletionReceiptV1;
 };
 
 /**
@@ -128,6 +154,7 @@ export function createMediaSourcePtsCadenceMapRecordV1(input: {
     requestedAt: validDate(input.now, 'MEDIA_SOURCE_PTS_CADENCE_MAP_NOW_INVALID').toISOString(),
     activeClaim: null,
     checkpoint: emptyCheckpoint(mapBindingSha256),
+    completion: null,
     completedAt: null,
     diagnostic: null,
   });
@@ -146,7 +173,7 @@ export function claimMediaSourcePtsCadenceMapV1(input: {
   if (expiresAt.getTime() <= now.getTime()) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_CLAIM_EXPIRY_INVALID');
   }
-  if (record.status === 'UNVERIFIABLE') {
+  if (record.status === 'COMPLETE' || record.status === 'UNVERIFIABLE') {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_TERMINAL');
   }
   if (
@@ -168,6 +195,7 @@ export function claimMediaSourcePtsCadenceMapV1(input: {
       claimedAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
     },
+    completion: null,
     completedAt: null,
     diagnostic: null,
   });
@@ -259,6 +287,73 @@ export function prepareMediaSourcePtsCadenceMapCompletionV1(input: {
   });
 }
 
+/**
+ * Creates the hash-bound envelope emitted by a full-coverage verifier. This
+ * normalizes verifier provenance only; it never reads sidecars or proves that
+ * their frame evidence covers a source by itself.
+ */
+export function createMediaSourcePtsCadenceMapCompletionReceiptV1(input: {
+  candidate: MediaSourcePtsCadenceCompletionCandidateV1;
+  verifierVersion: string;
+  coveragePolicyVersion: string;
+}): Readonly<MediaSourcePtsCadenceMapCompletionReceiptV1> {
+  const candidate = assertCompletionCandidate(input.candidate);
+  const material = {
+    schemaVersion: 1 as const,
+    kind: MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_KIND_V1,
+    mapBindingSha256: candidate.mapBindingSha256,
+    checkpointSha256: candidate.checkpointSha256,
+    privateManifest: candidate.privateManifest,
+    verifierVersion: boundedText(
+      input.verifierVersion,
+      'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID',
+    ),
+    coveragePolicyVersion: boundedText(
+      input.coveragePolicyVersion,
+      'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID',
+    ),
+  };
+  return frozen({
+    ...material,
+    receiptSha256: hashEditronCanonicalJsonV1(material),
+  });
+}
+
+/**
+ * Terminal success is available only to the existing MEDIA_ASSETS CAS owner
+ * after its full-coverage verifier emits an exact candidate-bound receipt.
+ * This transition still does not classify the source as CFR or VFR.
+ */
+export function completeMediaSourcePtsCadenceMapV1(input: {
+  record: MediaSourcePtsCadenceMapRecordV1;
+  claimId: string;
+  candidate: MediaSourcePtsCadenceCompletionCandidateV1;
+  completionReceipt: MediaSourcePtsCadenceMapCompletionReceiptV1;
+  now: Date;
+}): Readonly<MediaSourcePtsCadenceMapRecordV1> {
+  const record = assertActiveClaim(input.record, input.claimId, input.now);
+  const candidate = assertCompletionCandidate(input.candidate);
+  const checkpointSha256 = hashEditronCanonicalJsonV1(record.checkpoint);
+  if (
+    candidate.mapBindingSha256 !== record.mapBindingSha256
+    || candidate.checkpointSha256 !== checkpointSha256
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_MISMATCH');
+  }
+  const receipt = assertCompletionReceipt(input.completionReceipt, candidate);
+  return frozen({
+    ...record,
+    status: 'COMPLETE',
+    activeClaim: null,
+    completion: {
+      privateManifest: candidate.privateManifest,
+      receipt,
+    },
+    completedAt: validDate(input.now, 'MEDIA_SOURCE_PTS_CADENCE_MAP_NOW_INVALID').toISOString(),
+    diagnostic: null,
+  });
+}
+
 /** Terminal failure preserves the binding and refuses further claims or writes. */
 export function markMediaSourcePtsCadenceMapUnverifiableV1(input: {
   record: MediaSourcePtsCadenceMapRecordV1;
@@ -271,6 +366,7 @@ export function markMediaSourcePtsCadenceMapUnverifiableV1(input: {
     ...record,
     status: 'UNVERIFIABLE',
     activeClaim: null,
+    completion: null,
     completedAt: validDate(input.now, 'MEDIA_SOURCE_PTS_CADENCE_MAP_NOW_INVALID').toISOString(),
     diagnostic: boundedText(input.diagnostic, 'MEDIA_SOURCE_PTS_CADENCE_MAP_DIAGNOSTIC_INVALID'),
   });
@@ -338,10 +434,121 @@ function assertActiveClaim(
   return record;
 }
 
+function assertCompletionCandidate(
+  value: unknown,
+): Readonly<MediaSourcePtsCadenceCompletionCandidateV1> {
+  const candidate = asRecord(value, 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_INVALID');
+  exactKeys(candidate, [
+    'checkpointSha256', 'kind', 'mapBindingSha256', 'privateManifest',
+    'requiredTerminalVerifier', 'requiredTerminalWrite', 'schemaVersion',
+  ], 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_INVALID');
+  const mapBindingSha256 = assertSha256(
+    candidate.mapBindingSha256,
+    'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_INVALID',
+  );
+  const checkpointSha256 = assertSha256(
+    candidate.checkpointSha256,
+    'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_INVALID',
+  );
+  if (
+    candidate.schemaVersion !== 1
+    || candidate.kind !== MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1
+    || candidate.requiredTerminalVerifier !== 'COMPLETE_PRESENTATION_COVERAGE_AND_CONTIGUITY_V1'
+    || candidate.requiredTerminalWrite !== 'MEDIA_ASSETS_COMPARE_AND_SET_V1'
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_CANDIDATE_INVALID');
+  }
+  return frozen({
+    schemaVersion: 1,
+    kind: MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1,
+    mapBindingSha256,
+    checkpointSha256,
+    privateManifest: assertPrivateSidecar(
+      candidate.privateManifest,
+      expectedManifestObjectKey(mapBindingSha256, checkpointSha256),
+    ),
+    requiredTerminalVerifier: 'COMPLETE_PRESENTATION_COVERAGE_AND_CONTIGUITY_V1',
+    requiredTerminalWrite: 'MEDIA_ASSETS_COMPARE_AND_SET_V1',
+  });
+}
+
+function assertCompletionReceipt(
+  value: unknown,
+  candidate: Readonly<MediaSourcePtsCadenceCompletionCandidateV1>,
+): Readonly<MediaSourcePtsCadenceMapCompletionReceiptV1> {
+  const receipt = asRecord(value, 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
+  exactKeys(receipt, [
+    'checkpointSha256', 'coveragePolicyVersion', 'kind', 'mapBindingSha256',
+    'privateManifest', 'receiptSha256', 'schemaVersion', 'verifierVersion',
+  ], 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
+  if (
+    receipt.schemaVersion !== 1
+    || receipt.kind !== MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_KIND_V1
+    || receipt.mapBindingSha256 !== candidate.mapBindingSha256
+    || receipt.checkpointSha256 !== candidate.checkpointSha256
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
+  }
+  const privateManifest = assertPrivateSidecar(
+    receipt.privateManifest,
+    candidate.privateManifest.objectKey,
+  );
+  if (!samePrivateSidecar(privateManifest, candidate.privateManifest)) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
+  }
+  const material = {
+    schemaVersion: 1 as const,
+    kind: MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_KIND_V1,
+    mapBindingSha256: candidate.mapBindingSha256,
+    checkpointSha256: candidate.checkpointSha256,
+    privateManifest,
+    verifierVersion: boundedText(
+      receipt.verifierVersion,
+      'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID',
+    ),
+    coveragePolicyVersion: boundedText(
+      receipt.coveragePolicyVersion,
+      'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID',
+    ),
+  };
+  if (
+    hashEditronCanonicalJsonV1(material) !== assertSha256(
+      receipt.receiptSha256,
+      'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID',
+    )
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_RECEIPT_INVALID');
+  }
+  return frozen({ ...material, receiptSha256: receipt.receiptSha256 as string });
+}
+
+function assertCompletion(
+  value: unknown,
+  mapBindingSha256: string,
+  checkpoint: Readonly<MediaSourcePtsCadenceMapCheckpointV1>,
+): Readonly<MediaSourcePtsCadenceMapCompletionV1> {
+  const completion = asRecord(value, 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_INVALID');
+  exactKeys(completion, ['privateManifest', 'receipt'], 'MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_INVALID');
+  const checkpointSha256 = hashEditronCanonicalJsonV1(checkpoint);
+  const candidate = assertCompletionCandidate({
+    schemaVersion: 1,
+    kind: MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1,
+    mapBindingSha256,
+    checkpointSha256,
+    privateManifest: completion.privateManifest,
+    requiredTerminalVerifier: 'COMPLETE_PRESENTATION_COVERAGE_AND_CONTIGUITY_V1',
+    requiredTerminalWrite: 'MEDIA_ASSETS_COMPARE_AND_SET_V1',
+  });
+  return frozen({
+    privateManifest: candidate.privateManifest,
+    receipt: assertCompletionReceipt(completion.receipt, candidate),
+  });
+}
+
 function assertRecord(value: unknown): Readonly<MediaSourcePtsCadenceMapRecordV1> {
   const record = asRecord(value, 'MEDIA_SOURCE_PTS_CADENCE_MAP_RECORD_INVALID');
   exactKeys(record, [
-    'activeClaim', 'attemptCount', 'checkpoint', 'completedAt',
+    'activeClaim', 'attemptCount', 'checkpoint', 'completedAt', 'completion',
     'diagnostic', 'kind', 'mapBindingSha256', 'mapper', 'requestId', 'requestedAt',
     'schemaVersion', 'sourceBindingSha256', 'sourceTimebase', 'sourceVersionSha256',
     'status', 'storageVersionSha256', 'technicalObservationSha256', 'videoStreamIndex',
@@ -364,11 +571,23 @@ function assertRecord(value: unknown): Readonly<MediaSourcePtsCadenceMapRecordV1
   if (hashEditronCanonicalJsonV1(binding) !== mapBindingSha256) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_BINDING_MISMATCH');
   }
-  if (record.status !== 'PENDING' && record.status !== 'MAPPING' && record.status !== 'UNVERIFIABLE') {
+  if (
+    record.status !== 'PENDING'
+    && record.status !== 'MAPPING'
+    && record.status !== 'COMPLETE'
+    && record.status !== 'UNVERIFIABLE'
+  ) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_STATUS_INVALID');
   }
+  const checkpoint = assertCheckpoint(record.checkpoint);
+  const completion = record.completion === null
+    ? null
+    : assertCompletion(record.completion, mapBindingSha256, checkpoint);
   const activeClaim = record.activeClaim === null ? null : assertClaim(record.activeClaim);
-  if ((record.status === 'PENDING' || record.status === 'UNVERIFIABLE') && activeClaim !== null) {
+  if (
+    (record.status === 'PENDING' || record.status === 'COMPLETE' || record.status === 'UNVERIFIABLE')
+    && activeClaim !== null
+  ) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_CLAIM_STATE_INVALID');
   }
   if (record.status === 'MAPPING' && activeClaim === null) {
@@ -386,6 +605,18 @@ function assertRecord(value: unknown): Readonly<MediaSourcePtsCadenceMapRecordV1
   if (record.status !== 'UNVERIFIABLE' && diagnostic !== null) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_DIAGNOSTIC_STATE_INVALID');
   }
+  if (
+    (record.status === 'PENDING' || record.status === 'MAPPING' || record.status === 'UNVERIFIABLE')
+    && completion !== null
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_COMPLETION_STATE_INVALID');
+  }
+  if (
+    record.status === 'COMPLETE'
+    && (!completedAt || !completion || checkpoint.appendedShardCount === '0')
+  ) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_TERMINAL_STATE_INVALID');
+  }
   if (record.status === 'UNVERIFIABLE' && (!completedAt || !diagnostic)) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_TERMINAL_STATE_INVALID');
   }
@@ -397,7 +628,8 @@ function assertRecord(value: unknown): Readonly<MediaSourcePtsCadenceMapRecordV1
     attemptCount: nonNegativeSafeInteger(record.attemptCount, 'MEDIA_SOURCE_PTS_CADENCE_MAP_ATTEMPT_INVALID'),
     requestedAt: validDateText(record.requestedAt, 'MEDIA_SOURCE_PTS_CADENCE_MAP_REQUESTED_AT_INVALID'),
     activeClaim,
-    checkpoint: assertCheckpoint(record.checkpoint),
+    checkpoint,
+    completion,
     completedAt,
     diagnostic,
   });
@@ -528,6 +760,18 @@ function assertPrivateSidecar(
     byteLength: positiveSafeInteger(sidecar.byteLength, 'MEDIA_SOURCE_PTS_CADENCE_MAP_SIDECAR_SIZE_INVALID'),
     contentSha256: assertSha256(sidecar.contentSha256, 'MEDIA_SOURCE_PTS_CADENCE_MAP_SIDECAR_HASH_INVALID'),
   });
+}
+
+function samePrivateSidecar(
+  left: Readonly<MediaSourcePtsCadencePrivateSidecarV1>,
+  right: Readonly<MediaSourcePtsCadencePrivateSidecarV1>,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.kind === right.kind
+    && left.storage === right.storage
+    && left.objectKey === right.objectKey
+    && left.byteLength === right.byteLength
+    && left.contentSha256 === right.contentSha256;
 }
 
 function expectedShardObjectKey(
