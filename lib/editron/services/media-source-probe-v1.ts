@@ -1,4 +1,14 @@
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
+import {
+  modalProxyAuthHeadersV1,
+  readModalProxyAuthV1,
+  type ModalProxyAuthEnvironmentV1,
+} from './modal-proxy-auth-v1';
+
+export {
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1,
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1,
+} from './modal-proxy-auth-v1';
 
 /**
  * Remote, read-only technical probe for a stored source asset.
@@ -8,10 +18,6 @@ import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
  * operation permission. Those require separate storage and project owners.
  */
 export const MEDIA_SOURCE_PROBE_VERSION_V1 = 'EDITRON_MEDIA_SOURCE_PROBE_V1' as const;
-export const EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1 =
-  'EDITRON_MODAL_PROXY_AUTH_TOKEN_ID' as const;
-export const EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1 =
-  'EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET' as const;
 
 export type MediaSourceProbeDispositionV1 =
   | 'MEASURED'
@@ -84,7 +90,7 @@ export type MediaSourceProbeResultV1 =
       diagnostics: readonly [MediaSourceProbeDiagnosticV1];
     };
 
-export type MediaSourceProbeEnvironmentV1 = Readonly<Record<string, string | undefined>>;
+export type MediaSourceProbeEnvironmentV1 = ModalProxyAuthEnvironmentV1;
 
 export type MediaSourceProbeDependenciesV1 = {
   fetchImpl?: typeof fetch;
@@ -100,8 +106,7 @@ export function isMediaSourceProbeConfiguredV1(
 ): boolean {
   return Boolean(
     configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT)
-    && configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1])
-    && configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]),
+    && readModalProxyAuthV1(environment),
   );
 }
 
@@ -116,9 +121,8 @@ export async function probeMediaSourceV1(
 ): Promise<MediaSourceProbeResultV1> {
   const environment = dependencies.environment ?? process.env;
   const endpoint = configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT);
-  const proxyTokenId = configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1]);
-  const proxyTokenSecret = configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]);
-  if (!endpoint || !proxyTokenId || !proxyTokenSecret) {
+  const proxyAuth = readModalProxyAuthV1(environment);
+  if (!endpoint || !proxyAuth) {
     return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_NOT_CONFIGURED');
   }
 
@@ -128,8 +132,7 @@ export async function probeMediaSourceV1(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Modal-Key': proxyTokenId,
-        'Modal-Secret': proxyTokenSecret,
+        ...modalProxyAuthHeadersV1(proxyAuth),
       },
       body: JSON.stringify({ source_url: sourceUrl }),
       signal: AbortSignal.timeout(dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS),

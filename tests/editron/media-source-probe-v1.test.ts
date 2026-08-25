@@ -7,6 +7,10 @@ import {
   parseMediaSourceProbeResponseV1,
   probeMediaSourceV1,
 } from '@/lib/editron/services/media-source-probe-v1';
+import {
+  modalProxyAuthHeadersV1,
+  readModalProxyAuthV1,
+} from '@/lib/editron/services/modal-proxy-auth-v1';
 
 const configuredEnvironment = {
   EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
@@ -15,6 +19,23 @@ const configuredEnvironment = {
 };
 
 describe('MediaSourceProbeV1', () => {
+  it('reads only complete dedicated Modal proxy credentials', () => {
+    expect(readModalProxyAuthV1(configuredEnvironment)).toEqual({
+      tokenId: 'proxy-id',
+      tokenSecret: 'proxy-secret',
+    });
+    expect(readModalProxyAuthV1({
+      EDITRON_MODAL_PROXY_AUTH_TOKEN_ID: 'proxy-id',
+      EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET: ' ',
+      MODAL_TOKEN_ID: 'generic-id-must-not-fill-the-gap',
+      MODAL_TOKEN_SECRET: 'generic-secret-must-not-fill-the-gap',
+    })).toBeNull();
+    expect(modalProxyAuthHeadersV1({ tokenId: 'proxy-id', tokenSecret: 'proxy-secret' })).toEqual({
+      'Modal-Key': 'proxy-id',
+      'Modal-Secret': 'proxy-secret',
+    });
+  });
+
   it('requires the deployed endpoint and dedicated Modal proxy credentials', () => {
     expect(isMediaSourceProbeConfiguredV1(configuredEnvironment)).toBe(true);
     expect(isMediaSourceProbeConfiguredV1({
