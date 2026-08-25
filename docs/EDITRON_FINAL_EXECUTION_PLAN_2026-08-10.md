@@ -146,6 +146,20 @@ changes.
   fail-open/legacy-writer inventory and ProjectService range-effect migration
   are still required before the safety foundation is complete.
 
+- **2026-08-25 pipeline-video ingress closeout.** Commit `938d441b2` closes
+  two upstream P0s without touching the pipeline-video worker's project write:
+  an untrusted public caller can no longer choose `body.userId` when Clerk has
+  no session, and production can no longer charge/create a video batch then
+  claim queue success through an unsigned fetch that its worker rejects. The
+  server-side chat caller now supplies a two-minute, action-and-exact-body-bound
+  HMAC using the existing server-only monolith secret; production requires the
+  QStash publisher token and both worker signing keys before any credit or job
+  side effect. Direct fetch is development-only. Focused verification is 23/23
+  with repository typecheck and quiet ESLint passing. This does **not** migrate
+  the worker's raw overlay replacement, its raw quality-warning append, partial
+  QStash-publication recovery, or its Director pending-field clear/unsigned
+  downstream handoff; those remain the next pipeline-video P0 design/migration.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
