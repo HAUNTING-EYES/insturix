@@ -36,6 +36,13 @@ export type MediaSourceVideoStreamObservationV1 = {
   codedHeight: number | null;
   pixelFormat: string | null;
   sourceTimebase: MediaRationalV1 | null;
+  /**
+   * Exact ffprobe stream-domain anchors, not a source-time map. They are
+   * optional so historical technical observations remain readable; the
+   * current parser always emits each field as text or null.
+   */
+  sourceStartPts?: string | null;
+  sourceDurationTicks?: string | null;
   averageFrameRate: MediaRationalV1 | null;
   realFrameRate: MediaRationalV1 | null;
   frameCount: string | null;
@@ -54,6 +61,9 @@ export type MediaSourceAudioStreamObservationV1 = {
   channelCount: number | null;
   channelLayout: string | null;
   sourceTimebase: MediaRationalV1 | null;
+  /** See the matching video-stream fields: technical evidence only, never a PTS map. */
+  sourceStartPts?: string | null;
+  sourceDurationTicks?: string | null;
 };
 
 export type MediaSourceTechnicalObservationV1 = {
@@ -210,6 +220,8 @@ function parseVideoStream(stream: Record<string, unknown>): MediaSourceVideoStre
     codedHeight: safePositiveInteger(stream.height),
     pixelFormat: nullableString(stream.pix_fmt),
     sourceTimebase: parseRational(stream.time_base),
+    sourceStartPts: signedIntegerText(stream.start_pts),
+    sourceDurationTicks: nonNegativeIntegerText(stream.duration_ts),
     averageFrameRate: parseRational(stream.avg_frame_rate),
     realFrameRate: parseRational(stream.r_frame_rate),
     frameCount: nonNegativeIntegerText(stream.nb_frames),
@@ -232,6 +244,8 @@ function parseAudioStream(stream: Record<string, unknown>): MediaSourceAudioStre
     channelCount: safePositiveInteger(stream.channels),
     channelLayout: nullableString(stream.channel_layout),
     sourceTimebase: parseRational(stream.time_base),
+    sourceStartPts: signedIntegerText(stream.start_pts),
+    sourceDurationTicks: nonNegativeIntegerText(stream.duration_ts),
   };
 }
 
@@ -262,6 +276,13 @@ function positiveIntegerText(value: unknown): string | null {
 
 function nonNegativeIntegerText(value: unknown): string | null {
   return typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value.trim()) ? value.trim() : null;
+}
+
+function signedIntegerText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim();
+  if (!/^-?(0|[1-9]\d*)$/.test(candidate)) return null;
+  return candidate === '-0' ? '0' : candidate;
 }
 
 function nullableString(value: unknown): string | null {

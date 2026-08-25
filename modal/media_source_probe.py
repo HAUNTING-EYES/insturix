@@ -16,6 +16,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -30,7 +31,7 @@ PROBE_TIMEOUT_SECONDS = 120
 DEFAULT_ALLOWED_HOST_SUFFIXES = (".r2.cloudflarestorage.com", "storage.googleapis.com")
 STREAM_KEYS = (
     "index", "codec_type", "codec_name", "width", "height", "pix_fmt",
-    "time_base", "avg_frame_rate", "r_frame_rate", "nb_frames",
+    "time_base", "start_pts", "duration_ts", "avg_frame_rate", "r_frame_rate", "nb_frames",
     "sample_rate", "channels", "channel_layout", "color_space",
     "color_transfer", "color_primaries", "color_range", "tags",
 )
@@ -91,12 +92,38 @@ class MediaSourceProbe:
             "probe_version": f"{PROBE_VERSION}; {self.ffprobe_version}",
             "format": {key: format_data.get(key) for key in FORMAT_KEYS},
             "streams": [
-                {key: stream.get(key) for key in STREAM_KEYS}
+                _response_stream(stream)
                 for stream in streams
                 if isinstance(stream, dict) and stream.get("codec_type") in ("video", "audio")
             ],
             "processing_time_ms": round((time.monotonic() - started) * 1000),
         }
+
+
+def _response_stream(stream: dict) -> dict:
+    """Preserve PTS integers as JSON text so JavaScript cannot round large ticks.
+
+    This is a bounded technical observation only. It does not create a PTS map,
+    classify cadence, or grant any timeline operation permission.
+    """
+    response = {key: stream.get(key) for key in STREAM_KEYS}
+    response["start_pts"] = _signed_integer_text(stream.get("start_pts"))
+    response["duration_ts"] = _non_negative_integer_text(stream.get("duration_ts"))
+    return response
+
+
+def _signed_integer_text(value: object) -> str | None:
+    if isinstance(value, bool):
+        return None
+    candidate = str(value).strip() if isinstance(value, int) else value.strip() if isinstance(value, str) else None
+    if candidate is None or re.fullmatch(r"-?(0|[1-9][0-9]*)", candidate) is None:
+        return None
+    return "0" if candidate == "-0" else candidate
+
+
+def _non_negative_integer_text(value: object) -> str | None:
+    candidate = _signed_integer_text(value)
+    return candidate if candidate is not None and not candidate.startswith("-") else None
 
 
 def _is_allowed_source_url(value: str) -> bool:

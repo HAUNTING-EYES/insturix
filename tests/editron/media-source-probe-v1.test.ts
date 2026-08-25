@@ -82,11 +82,19 @@ describe('MediaSourceProbeV1', () => {
           streamIndex: 0,
           codec: 'h264',
           sourceTimebase: { numerator: '1', denominator: '90000' },
+          sourceStartPts: '-4500',
+          sourceDurationTicks: '1111050',
           averageFrameRate: { numerator: '30000', denominator: '1001' },
           timecode: '01:00:00;00',
           reelId: 'A001',
         }],
-        audioStreams: [{ streamIndex: 1, sampleRate: '48000', channelCount: 2 }],
+        audioStreams: [{
+          streamIndex: 1,
+          sampleRate: '48000',
+          channelCount: 2,
+          sourceStartPts: '0',
+          sourceDurationTicks: '592560',
+        }],
       },
     });
     expect(JSON.stringify(result)).not.toContain('presigned-secret');
@@ -141,6 +149,24 @@ describe('MediaSourceProbeV1', () => {
     expect(parseMediaSourceProbeResponseV1({ ok: true, probe_version: 'v1', format: {}, streams: 'not-an-array' })).toBeNull();
     expect(parseMediaSourceProbeResponseV1({ ...validResponse(), ok: false })).toBeNull();
   });
+
+  it('preserves only exact textual stream PTS anchors and leaves malformed anchors unavailable', () => {
+    const parsed = parseMediaSourceProbeResponseV1({
+      ...validResponse(),
+      streams: [{
+        index: 0,
+        codec_type: 'video',
+        time_base: '1/90000',
+        start_pts: 9_007_199_254_740_992,
+        duration_ts: '-1',
+      }],
+    });
+
+    expect(parsed?.videoStreams).toEqual([expect.objectContaining({
+      sourceStartPts: null,
+      sourceDurationTicks: null,
+    })]);
+  });
 });
 
 function validResponse() {
@@ -161,6 +187,8 @@ function validResponse() {
         height: 1080,
         pix_fmt: 'yuv420p',
         time_base: '1/90000',
+        start_pts: '-4500',
+        duration_ts: '1111050',
         avg_frame_rate: '30000/1001',
         r_frame_rate: '30000/1001',
         nb_frames: '370',
@@ -178,6 +206,8 @@ function validResponse() {
         channels: 2,
         channel_layout: 'stereo',
         time_base: '1/48000',
+        start_pts: '0',
+        duration_ts: '592560',
       },
     ],
   };
