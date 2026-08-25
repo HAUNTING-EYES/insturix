@@ -43,7 +43,12 @@ vi.mock("@/lib/editron/services/render-chapter-retention", () => ({
   renderChapterExpiresAt: vi.fn((createdAt: Date) => createdAt),
 }));
 
-import { getChapterRenderProgress, startChapterRender } from "@/lib/editron/services/chapter-renderer";
+import {
+  detectChapterBoundaries,
+  getChapterRenderProgress,
+  shouldUseChapterRendering,
+  startChapterRender,
+} from "@/lib/editron/services/chapter-renderer";
 
 describe("chapter renderer progress", () => {
   beforeEach(() => {
@@ -65,6 +70,28 @@ describe("chapter renderer progress", () => {
     mocks.enqueueChapterConcat.mockResolvedValue(undefined);
     mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
     mocks.updateOne.mockResolvedValue({});
+  });
+
+  it("keeps chapter duration policy stable across supplied numeric FPS values", () => {
+    expect(shouldUseChapterRendering(21_600, 24)).toBe(false);
+    expect(shouldUseChapterRendering(21_601, 24)).toBe(true);
+    expect(shouldUseChapterRendering(26_973, 29.97)).toBe(false);
+    expect(shouldUseChapterRendering(26_974, 29.97)).toBe(true);
+    expect(shouldUseChapterRendering(53_999, 60)).toBe(false);
+    expect(shouldUseChapterRendering(54_001, 60)).toBe(true);
+
+    const boundaries = detectChapterBoundaries([
+      { id: "a", type: "video", row: 2, from: 0, durationInFrames: 3_600 },
+      { id: "b", type: "video", row: 2, from: 3_600, durationInFrames: 3_600 },
+      { id: "c", type: "video", row: 2, from: 7_200, durationInFrames: 3_600 },
+    ] as any, 30_000, 24);
+
+    expect(boundaries.slice(0, 2)).toEqual([
+      { startFrame: 0, endFrame: 3_600 },
+      { startFrame: 3_600, endFrame: 7_200 },
+    ]);
+    expect(() => shouldUseChapterRendering(30_000, 0))
+      .toThrow("positive finite FPS");
   });
 
   it("starts chapter renders from absolute composition overlays using slim Lambda props", async () => {

@@ -31,19 +31,13 @@ import { assertRemotionSiteFresh } from './remotion-site-version';
 // ─── Configuration ────────────────────────────────────────────────
 
 /**
- * Frames above which we split into separately-rendered chapters instead of one Lambda render.
- * 27000 = 15 min at 30fps — the practical ceiling of a single `renderMediaOnLambda` (it chunks +
- * stitches internally, bounded by the 900s Lambda function timeout). Videos at/under this render
- * as ONE complete file via the standard path (the path that always worked, pre-chaptering). Only
- * genuinely long videos (>15 min) chapter, and those need FFmpeg concat to be reassembled.
+ * Chapter policy is a duration policy, not a 30-fps frame-count policy.  The
+ * caller still supplies a numeric render FPS today; rational/VFR source
+ * identity belongs to the later canonical-media spine.
  */
-const CHAPTER_SPLIT_THRESHOLD = 27000;
-
-/** Target chapter length in frames (~2.5 min at 30fps) */
-const TARGET_CHAPTER_FRAMES = 4500;
-
-/** Min chapter length — don't create tiny chapters */
-const MIN_CHAPTER_FRAMES = 900; // 30 seconds
+const CHAPTER_SPLIT_THRESHOLD_SECONDS = 15 * 60;
+const TARGET_CHAPTER_SECONDS = 2.5 * 60;
+const MIN_CHAPTER_SECONDS = 30;
 
 /**
  * AWS Lambda concurrent-execution budget to spend on chapter renders at once.
@@ -108,9 +102,10 @@ interface ChapterRenderJob {
 export function detectChapterBoundaries(
   overlays: Overlay[],
   totalFrames: number,
-  _fps: number,
+  fps: number,
 ): { startFrame: number; endFrame: number }[] {
-  if (totalFrames <= CHAPTER_SPLIT_THRESHOLD) {
+  const chapterPolicy = chapterFramePolicy(fps);
+  if (totalFrames <= chapterPolicy.splitThresholdFrames) {
     // Short video — single chapter, no splitting needed
     return [{ startFrame: 0, endFrame: totalFrames }];
   }
@@ -133,14 +128,14 @@ export function detectChapterBoundaries(
     splitPoints.push(Math.round((prevEnd + nextStart) / 2));
   }
 
-  // Build chapters using split points, targeting TARGET_CHAPTER_FRAMES
+  // Build chapters using split points, targeting the same duration at every numeric render FPS.
   const chapters: { startFrame: number; endFrame: number }[] = [];
   let chapterStart = 0;
 
   for (const splitPoint of splitPoints) {
     const chapterLength = splitPoint - chapterStart;
 
-    if (chapterLength >= TARGET_CHAPTER_FRAMES) {
+    if (chapterLength >= chapterPolicy.targetFrames) {
       chapters.push({ startFrame: chapterStart, endFrame: splitPoint });
       chapterStart = splitPoint;
     }
@@ -150,7 +145,7 @@ export function detectChapterBoundaries(
   if (chapterStart < totalFrames) {
     const lastChapterLength = totalFrames - chapterStart;
 
-    if (lastChapterLength < MIN_CHAPTER_FRAMES && chapters.length > 0) {
+    if (lastChapterLength < chapterPolicy.minimumFrames && chapters.length > 0) {
       // Too short — merge with previous chapter
       chapters[chapters.length - 1].endFrame = totalFrames;
     } else {
@@ -160,7 +155,7 @@ export function detectChapterBoundaries(
 
   // If no chapters were created (no good split points), fall back to even splits
   if (chapters.length === 0) {
-    const numChapters = Math.ceil(totalFrames / TARGET_CHAPTER_FRAMES);
+    const numChapters = Math.ceil(totalFrames / chapterPolicy.targetFrames);
     const framesPerChapter = Math.ceil(totalFrames / numChapters);
     for (let i = 0; i < numChapters; i++) {
       const start = i * framesPerChapter;
@@ -177,8 +172,32 @@ export function detectChapterBoundaries(
 /**
  * Check if a composition should use chapter-based rendering.
  */
-export function shouldUseChapterRendering(totalFrames: number): boolean {
-  return totalFrames > CHAPTER_SPLIT_THRESHOLD;
+export function shouldUseChapterRendering(totalFrames: number, fps: number): boolean {
+  return totalFrames > chapterFramePolicy(fps).splitThresholdFrames;
+}
+
+function chapterFramePolicy(fps: number): Readonly<{
+  splitThresholdFrames: number;
+  targetFrames: number;
+  minimumFrames: number;
+}> {
+  const normalizedFps = assertChapterFps(fps);
+  return {
+    splitThresholdFrames: framesForDurationSeconds(CHAPTER_SPLIT_THRESHOLD_SECONDS, normalizedFps),
+    targetFrames: framesForDurationSeconds(TARGET_CHAPTER_SECONDS, normalizedFps),
+    minimumFrames: framesForDurationSeconds(MIN_CHAPTER_SECONDS, normalizedFps),
+  };
+}
+
+function framesForDurationSeconds(seconds: number, fps: number): number {
+  return Math.ceil(seconds * fps);
+}
+
+function assertChapterFps(fps: number): number {
+  if (!Number.isFinite(fps) || fps <= 0) {
+    throw new Error('Chapter rendering requires a positive finite FPS');
+  }
+  return fps;
 }
 
 function chapterProgressErrorMessage(err: unknown): string {
@@ -327,15 +346,16 @@ export async function startChapterRender(
   if (!/^chr_[A-Za-z0-9_-]{12}$/.test(jobId)) {
     throw new Error('Chapter rendering requires a caller-owned chr_ admission ID');
   }
+  const normalizedFps = assertChapterFps(fps);
   const db = await getDatabase();
 
   // Detect chapter boundaries
-  const boundaries = detectChapterBoundaries(overlays, totalFrames, fps);
+  const boundaries = detectChapterBoundaries(overlays, totalFrames, normalizedFps);
 
   const compactRenderProps = buildLambdaRenderInputProps({
     overlays,
     durationInFrames: totalFrames,
-    fps,
+    fps: normalizedFps,
     width,
     height,
     isRendering: true,
@@ -373,7 +393,7 @@ export async function startChapterRender(
     status: 'rendering',
     totalFrames,
     overlays: renderOverlays,
-    fps,
+    fps: normalizedFps,
     width,
     height,
     createdAt,

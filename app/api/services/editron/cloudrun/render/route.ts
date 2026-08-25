@@ -194,7 +194,7 @@ export async function POST(request: Request) {
     const totalFrames = Math.max(Number(resolvedProps.durationInFrames) || 0, 0);
     const renderFps = Math.max(Number(resolvedProps.fps) || 30, 1);
     const { shouldUseChapterRendering, startChapterRender } = await import('@/lib/editron/services/chapter-renderer');
-    const usesChapterRendering = shouldUseChapterRendering(totalFrames);
+    const usesChapterRendering = shouldUseChapterRendering(totalFrames, renderFps);
     const lambdaRenderProps = buildLambdaRenderInputProps({ ...resolvedProps, isRendering: true });
 
     renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {

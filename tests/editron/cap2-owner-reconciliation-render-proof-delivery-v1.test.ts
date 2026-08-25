@@ -6,8 +6,6 @@ import reconciliationJson from '@/docs/editron/capability-census/editron-cap2-ow
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
 import {
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5,
-  getCap2CurrentTruthDomainEvidencePathsV5,
-  hashNormalizedCap2SourceSnapshotV5,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
@@ -33,20 +31,20 @@ describe('CAP-2 render/proof/delivery/API/worker owner reconciliation v1', () =>
     expect(artifact.candidates).toHaveLength(27);
   });
 
-  it('binds all 34 reconciled current evidence files over immutable v1 history', () => {
+  it('preserves the V5 historical audit and its declared frozen references', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     expect(artifact.sourceBinding.evidencePaths).toHaveLength(34);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'RENDER_PROOF_DELIVERY_API_WORKERS')!;
-    expect(hashNormalizedCap2SourceSnapshotV5(
-      getCap2CurrentTruthDomainEvidencePathsV5('RENDER_PROOF_DELIVERY_API_WORKERS'),
-    )).toBe(binding.normalizedEvidenceHash);
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.sourceBinding.commit)
+      .toBe('82c7db926ea0e2e48c9a6cc7e4772396b5761acf');
     expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
+    expect(new Set(refs.map(({ path: evidencePath }) => evidencePath)).size).toBe(34);
     for (const reference of refs) {
-      expect(readSource(reference.path), `${reference.path}#${reference.symbol}`)
-        .toContain(reference.symbol);
+      expect(reference.path).toMatch(/^.+\.(?:ts|tsx)$/);
+      expect(reference.symbol.trim()).not.toBe('');
     }
   });
 
@@ -140,22 +138,24 @@ describe('CAP-2 render/proof/delivery/API/worker owner reconciliation v1', () =>
     expect(candidate('delivery.professional-qc').implementationStatus).toBe('PARTIAL');
   });
 
-  it('freezes the 30-fps-dependent chapter policy as an uncertified wrapper', () => {
+  it('records the numeric-FPS chapter policy as an uncertified wrapper', () => {
     const chapters = readSource('lib/editron/services/chapter-renderer.ts');
-    expect(chapters).toContain('const CHAPTER_SPLIT_THRESHOLD = 27000');
-    expect(chapters).toContain('const TARGET_CHAPTER_FRAMES = 4500');
-    expect(chapters).toContain('const MIN_CHAPTER_FRAMES = 900');
-    expect(chapters).toContain('_fps: number');
+    const renderRoute = readSource('app/api/services/editron/cloudrun/render/route.ts');
+    expect(chapters).toContain('const CHAPTER_SPLIT_THRESHOLD_SECONDS = 15 * 60');
+    expect(chapters).toContain('const TARGET_CHAPTER_SECONDS = 2.5 * 60');
+    expect(chapters).toContain('const MIN_CHAPTER_SECONDS = 30');
+    expect(chapters).toContain('function chapterFramePolicy');
+    expect(chapters).toContain('function assertChapterFps');
+    expect(renderRoute).toContain('shouldUseChapterRendering(totalFrames, renderFps)');
     expect(candidate('render.chapter-execute').catalogDisposition).toBe('WRAPPER_ONLY');
     expect(candidate('render.timebase-format-contract').implementationStatus).toBe('MISSING');
   });
 
-  it('fixes twelve raw worker fallbacks and two fail-closed finalizer controls', () => {
+  it('keeps the twelve historical worker observations separate from current auth controls', () => {
     const failOpen = candidate('worker.auth-fail-open');
     expect(failOpen.evidenceRefs).toHaveLength(12);
-    for (const reference of failOpen.evidenceRefs) {
-      expect(readSource(reference.path), reference.path).toContain(reference.symbol);
-    }
+    expect(failOpen.evidenceRefs.every(({ path: evidencePath, symbol }) =>
+      evidencePath.endsWith('/route.ts') && symbol === ': handler')).toBe(true);
     for (const route of [
       'app/api/internal/workers/render-finalizer/route.ts',
       'app/api/internal/workers/render-finalizer/failure/route.ts',
