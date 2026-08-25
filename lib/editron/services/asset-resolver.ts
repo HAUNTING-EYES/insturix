@@ -12,6 +12,7 @@ import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
 import type { MediaSourcePtsCadenceMapRecordV1 } from './media-source-pts-cadence-map-lifecycle-v1';
+import type { MediaSourcePtsCadenceMapAssetRecordV2 } from './media-source-pts-cadence-map-asset-state-v2';
 import type {
   MediaProxyMasterRelationV1,
   MediaSourceInvalidationPlanV1,
@@ -69,6 +70,10 @@ export interface MediaAsset {
   sourcePtsCadenceMapV1?: Readonly<MediaSourcePtsCadenceMapRecordV1> | null;
   /** Exact canonical hash of `sourcePtsCadenceMapV1`, used only for owner CAS. */
   sourcePtsCadenceMapStateSha256V1?: string | null;
+  /** Current successor PTS state. V1 and V2 may never coexist on one asset. */
+  sourcePtsCadenceMapV2?: Readonly<MediaSourcePtsCadenceMapAssetRecordV2> | null;
+  /** Exact canonical hash of `sourcePtsCadenceMapV2`, used only for owner CAS. */
+  sourcePtsCadenceMapStateSha256V2?: string | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */
