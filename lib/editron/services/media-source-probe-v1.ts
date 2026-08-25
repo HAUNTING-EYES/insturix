@@ -8,6 +8,10 @@ import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
  * operation permission. Those require separate storage and project owners.
  */
 export const MEDIA_SOURCE_PROBE_VERSION_V1 = 'EDITRON_MEDIA_SOURCE_PROBE_V1' as const;
+export const EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1 =
+  'EDITRON_MODAL_PROXY_AUTH_TOKEN_ID' as const;
+export const EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1 =
+  'EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET' as const;
 
 export type MediaSourceProbeDispositionV1 =
   | 'MEASURED'
@@ -90,14 +94,14 @@ export type MediaSourceProbeDependenciesV1 = {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** The probe route is available only with both Modal credentials and its deployed endpoint. */
+/** The probe route is available only with Modal proxy credentials and its deployed endpoint. */
 export function isMediaSourceProbeConfiguredV1(
   environment: MediaSourceProbeEnvironmentV1 = process.env,
 ): boolean {
   return Boolean(
     configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT)
-    && configured(environment.MODAL_TOKEN_ID)
-    && configured(environment.MODAL_TOKEN_SECRET),
+    && configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1])
+    && configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]),
   );
 }
 
@@ -112,9 +116,9 @@ export async function probeMediaSourceV1(
 ): Promise<MediaSourceProbeResultV1> {
   const environment = dependencies.environment ?? process.env;
   const endpoint = configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT);
-  const tokenId = configured(environment.MODAL_TOKEN_ID);
-  const tokenSecret = configured(environment.MODAL_TOKEN_SECRET);
-  if (!endpoint || !tokenId || !tokenSecret) {
+  const proxyTokenId = configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1]);
+  const proxyTokenSecret = configured(environment[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]);
+  if (!endpoint || !proxyTokenId || !proxyTokenSecret) {
     return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_NOT_CONFIGURED');
   }
 
@@ -123,8 +127,9 @@ export async function probeMediaSourceV1(
     response = await (dependencies.fetchImpl ?? fetch)(endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Token ${tokenId}:${tokenSecret}`,
         'Content-Type': 'application/json',
+        'Modal-Key': proxyTokenId,
+        'Modal-Secret': proxyTokenSecret,
       },
       body: JSON.stringify({ source_url: sourceUrl }),
       signal: AbortSignal.timeout(dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS),

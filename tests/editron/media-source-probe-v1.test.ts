@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1,
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1,
   isMediaSourceProbeConfiguredV1,
   parseMediaSourceProbeResponseV1,
   probeMediaSourceV1,
@@ -8,16 +10,21 @@ import {
 
 const configuredEnvironment = {
   EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
-  MODAL_TOKEN_ID: 'modal-id',
-  MODAL_TOKEN_SECRET: 'modal-secret',
+  [EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1]: 'proxy-id',
+  [EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]: 'proxy-secret',
 };
 
 describe('MediaSourceProbeV1', () => {
-  it('requires the deployed endpoint and both Modal credentials', () => {
+  it('requires the deployed endpoint and dedicated Modal proxy credentials', () => {
     expect(isMediaSourceProbeConfiguredV1(configuredEnvironment)).toBe(true);
     expect(isMediaSourceProbeConfiguredV1({
       ...configuredEnvironment,
-      MODAL_TOKEN_SECRET: ' ',
+      [EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]: ' ',
+    })).toBe(false);
+    expect(isMediaSourceProbeConfiguredV1({
+      EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
+      MODAL_TOKEN_ID: 'api-token-is-not-proxy-auth',
+      MODAL_TOKEN_SECRET: 'api-secret-is-not-proxy-auth',
     })).toBe(false);
   });
 
@@ -50,7 +57,10 @@ describe('MediaSourceProbeV1', () => {
     });
     expect(JSON.stringify(result)).not.toContain('presigned-secret');
     expect(fetchImpl).toHaveBeenCalledWith('https://probe.example.test', expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Token modal-id:modal-secret' }),
+      headers: expect.objectContaining({
+        'Modal-Key': 'proxy-id',
+        'Modal-Secret': 'proxy-secret',
+      }),
       body: JSON.stringify({ source_url: 'https://storage.example.test/presigned-secret' }),
     }));
   });

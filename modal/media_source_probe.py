@@ -49,7 +49,9 @@ class MediaSourceProbe:
         self.ffprobe_version = completed.stdout.splitlines()[0] if completed.returncode == 0 else "ffprobe-unavailable"
         print(f"[MediaSourceProbe] ready: {self.ffprobe_version}")
 
-    @modal.fastapi_endpoint(method="POST")
+    # Modal rejects unauthenticated traffic before this method can receive a
+    # short-lived source URL. The TypeScript boundary sends Modal-Key/Secret.
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def probe(self, request: dict):
         import subprocess
         import time
