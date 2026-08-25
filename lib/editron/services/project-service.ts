@@ -4980,12 +4980,13 @@ function findPipelineVideoQualityWarningV1(
 }
 
 function isProjectPipelineVideoQualityWarningV1(
-  value: Record<string, unknown>,
+  value: unknown,
   projectId: string,
   warningId: string,
 ): value is ProjectPipelineVideoQualityWarningV1 {
   if (
-    value.schemaVersion !== 1
+    !isPlainRecord(value)
+    || value.schemaVersion !== 1
     || value.warningId !== warningId
     || !/^[a-f0-9]{64}$/.test(String(value.materialHash))
     || !isBoundedNonEmptyStringV1(value.batchId, 200)
@@ -5021,13 +5022,13 @@ function isProjectPipelineVideoQualityWarningV1(
     return false;
   }
   try {
-    assertProjectRevision(value.requestedRevision as ProjectRevisionV1);
-    assertProjectRevision(value.beforeRevision as ProjectRevisionV1);
-    assertProjectRevision(value.afterRevision as ProjectRevisionV1);
+    assertProjectRevision(value.requestedRevision as unknown as ProjectRevisionV1);
+    assertProjectRevision(value.beforeRevision as unknown as ProjectRevisionV1);
+    assertProjectRevision(value.afterRevision as unknown as ProjectRevisionV1);
     assertReceiptForProjectRevision(
       projectId,
-      value.mutationReceipt as ProjectMutationReceiptV1,
-      value.afterRevision as ProjectRevisionV1,
+      value.mutationReceipt as unknown as ProjectMutationReceiptV1,
+      value.afterRevision as unknown as ProjectRevisionV1,
     );
   } catch {
     return false;
@@ -5234,7 +5235,7 @@ function projectOptionalNonEmptyStringFieldV1(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function isBoundedNonEmptyStringV1(value: unknown, maxLength: number): boolean {
+function isBoundedNonEmptyStringV1(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
 }
 

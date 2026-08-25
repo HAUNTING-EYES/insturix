@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -591,6 +592,25 @@ describe("ProjectService pipeline video delivery V1", () => {
       qualityWarningCommand(project, { qualityScore: 101 }),
     )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed persisted warning history before a new project write", async () => {
+    const project = projectFixture();
+    const warningId = "pipeline-video-quality_" + createHash("sha256")
+      .update(JSON.stringify([PROJECT_ID, QUALITY_JOB_ID]))
+      .digest("hex");
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      ...project,
+      qualityWarnings: [{ warningId }],
+    });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.recordPipelineVideoQualityWarningV1(
+      USER_ID,
+      PROJECT_ID,
+      qualityWarningCommand(project),
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("wires low-quality warning persistence through ProjectService instead of a raw project write", () => {
