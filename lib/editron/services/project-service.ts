@@ -616,6 +616,20 @@ export interface ProjectDirectorMutationLeaseV1 {
 }
 
 /**
+ * A cleanup release does not apply a caller snapshot. Its lease token is the
+ * ownership predicate, but a successful release is still a ProjectService
+ * state transition and must issue the revision its following observers see.
+ */
+export type ProjectDirectorMutationLeaseReleaseResultV1 =
+  | {
+      disposition: "RELEASED";
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "LEASE_NOT_OWNED_OR_PROJECT_NOT_FOUND";
+    };
+
+/**
  * A ProjectService-issued handoff token for the pipeline-video completion
  * worker. It is deliberately project state, not a second queue or job owner:
  * the token keeps the original pending signal durable until the signed
@@ -2784,19 +2798,39 @@ export class ProjectService {
     userId: string,
     projectId: string,
     leaseId: string,
-  ): Promise<boolean> {
+  ): Promise<ProjectDirectorMutationLeaseReleaseResultV1> {
     const db = await getDatabase();
-    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId, directorLockToken: leaseId },
+    const committedAt = new Date();
+    const releasedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
       {
+        projectId,
+        userId,
+        directorLock: true,
+        directorLockToken: leaseId,
+      },
+      {
+        $set: { updatedAt: committedAt },
         $unset: {
           directorLock: "",
           directorLockAt: "",
           directorLockToken: "",
         },
+        $inc: { projectRevision: 1 },
       },
-    );
-    return result.modifiedCount === 1;
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+    if (!releasedProject) {
+      return { disposition: "LEASE_NOT_OWNED_OR_PROJECT_NOT_FOUND" };
+    }
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: projectRevisionFor(releasedProject),
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "RELEASED", receipt };
   }
 
   /**

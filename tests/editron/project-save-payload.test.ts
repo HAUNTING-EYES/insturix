@@ -543,10 +543,7 @@ describe("Editron project save payload compaction", () => {
   });
 
   it("does not let an old Director cleanup release a newer lease", async () => {
-    persistenceMocks.updateOne.mockResolvedValueOnce({
-      matchedCount: 0,
-      modifiedCount: 0,
-    });
+    persistenceMocks.findOneAndUpdate.mockResolvedValueOnce(null);
     const { projectService } = await import(
       "@/lib/editron/services/project-service",
     );
@@ -557,22 +554,83 @@ describe("Editron project save payload compaction", () => {
         "proj_1",
         "expired_director_lease",
       ),
-    ).resolves.toBe(false);
+    ).resolves.toEqual({ disposition: "LEASE_NOT_OWNED_OR_PROJECT_NOT_FOUND" });
 
-    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+    expect(persistenceMocks.findOneAndUpdate).toHaveBeenCalledWith(
       {
         projectId: "proj_1",
         userId: "user_1",
+        directorLock: true,
         directorLockToken: "expired_director_lease",
       },
-      {
+      expect.objectContaining({
+        $set: expect.objectContaining({ updatedAt: expect.any(Date) }),
         $unset: {
           directorLock: "",
           directorLockAt: "",
           directorLockToken: "",
         },
-      },
+        $inc: { projectRevision: 1 },
+      }),
+      { returnDocument: "after", includeResultMetadata: false },
     );
+  });
+
+  it("issues the writer revision and receipt when releasing its active Director lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T04:05:06.000Z"));
+    try {
+      persistenceMocks.findOneAndUpdate.mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        updatedAt: new Date("2026-08-25T04:05:06.000Z"),
+        projectRevision: 12,
+      });
+      const { projectService } = await import(
+        "@/lib/editron/services/project-service",
+      );
+
+      const captured = await projectService.captureMutationReceipts(() => (
+        projectService.releaseDirectorMutationLease(
+          "user_1",
+          "proj_1",
+          "director_lease",
+        )
+      ));
+
+      expect(captured.value).toEqual({
+        disposition: "RELEASED",
+        receipt: {
+          schemaVersion: 1,
+          projectId: "proj_1",
+          revision: {
+            schemaVersion: 1,
+            value: 12,
+            compatibilityUpdatedAt: "2026-08-25T04:05:06.000Z",
+          },
+          committedAt: "2026-08-25T04:05:06.000Z",
+        },
+      });
+      if (captured.value.disposition !== "RELEASED") {
+        throw new Error("Fixture did not release the Director lease.");
+      }
+      expect(captured.receipts).toEqual([captured.value.receipt]);
+      expect(persistenceMocks.findOneAndUpdate).toHaveBeenCalledWith(
+        {
+          projectId: "proj_1",
+          userId: "user_1",
+          directorLock: true,
+          directorLockToken: "director_lease",
+        },
+        expect.objectContaining({
+          $set: { updatedAt: new Date("2026-08-25T04:05:06.000Z") },
+          $inc: { projectRevision: 1 },
+        }),
+        { returnDocument: "after", includeResultMetadata: false },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("binds Director phase-0 facts to the final writer receipt", async () => {
