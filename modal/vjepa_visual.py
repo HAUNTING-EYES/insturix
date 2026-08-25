@@ -10,7 +10,7 @@ Analyzes video segments using Meta's V-JEPA 2 encoder to extract:
   - face_emotion / eye_contact: null (requires separate face model, Phase 3)
 
 Endpoint: POST https://insturix--vjepa-2-visual.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/vjepa-service.ts → moment-weight-service.ts (30% Phase 2)
 
 Deploy:   modal deploy modal/vjepa_visual.py
@@ -102,7 +102,7 @@ class VJEPAAnalyzer:
         self.model.eval()
         self.device = next(self.model.parameters()).device
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def analyze(self, request: dict):
         import time
 

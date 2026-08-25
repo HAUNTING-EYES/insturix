@@ -1,17 +1,49 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { analyzeVideoWithVjepa, buildVjepaCoverageSegments, chooseVjepaFrameSampleCount } from '../../lib/editron/services/vjepa-service';
+import {
+  analyzeVideoWithVjepa,
+  buildVjepaCoverageSegments,
+  chooseVjepaFrameSampleCount,
+  EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1,
+  isVjepaConfiguredV1,
+  type VjepaFetchV1,
+} from '../../lib/editron/services/vjepa-service';
+import {
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1,
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1,
+} from '../../lib/editron/services/modal-proxy-auth-v1';
 
 const originalFetch = globalThis.fetch;
-const originalTokenId = process.env.MODAL_TOKEN_ID;
-const originalTokenSecret = process.env.MODAL_TOKEN_SECRET;
+const environmentNames = [
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1,
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1,
+  EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1,
+  'MODAL_TOKEN_ID',
+  'MODAL_TOKEN_SECRET',
+] as const;
+const originalEnvironment = Object.fromEntries(
+  environmentNames.map((name) => [name, process.env[name]]),
+);
+
+beforeEach(() => {
+  process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1] = 'proxy-id';
+  process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1] = 'proxy-secret';
+  delete process.env[EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1];
+  delete process.env.MODAL_TOKEN_ID;
+  delete process.env.MODAL_TOKEN_SECRET;
+});
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  restoreEnv('MODAL_TOKEN_ID', originalTokenId);
-  restoreEnv('MODAL_TOKEN_SECRET', originalTokenSecret);
+  restoreEnvironment();
   vi.restoreAllMocks();
 });
+
+function restoreEnvironment(): void {
+  for (const name of environmentNames) {
+    restoreEnv(name, originalEnvironment[name]);
+  }
+}
 
 describe('V-JEPA service segment coverage', () => {
   it('builds continuous visual coverage segments from duration instead of speech gaps', () => {
@@ -86,7 +118,65 @@ describe('V-JEPA service segment coverage', () => {
         max_frames_per_segment?: number;
       };
       expect(body.max_frames_per_segment).toBe(24);
+      expect((init as RequestInit).headers).toMatchObject({
+        'Modal-Key': 'proxy-id',
+        'Modal-Secret': 'proxy-secret',
+      });
+      expect((init as RequestInit).headers).not.toHaveProperty('Authorization');
     }
+    expect(isVjepaConfiguredV1()).toBe(true);
+  });
+  it('does not dispatch with generic credentials or a foreign endpoint', async () => {
+    delete process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1];
+    delete process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1];
+    process.env.MODAL_TOKEN_ID = 'generic-token-must-not-authorize';
+    process.env.MODAL_TOKEN_SECRET = 'generic-secret-must-not-authorize';
+    let called = false;
+    const fetchImpl: VjepaFetchV1 = async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    };
+
+    await expect(analyzeVideoWithVjepa(
+      'https://cdn.test/source.mp4',
+      [{ startMs: 0, endMs: 1_000 }],
+      { fetchImpl },
+    )).resolves.toBeNull();
+    expect(called).toBe(false);
+    expect(isVjepaConfiguredV1()).toBe(false);
+
+    process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1] = 'proxy-id';
+    process.env[EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1] = 'proxy-secret';
+    process.env[EDITRON_MODAL_VJEPA_ENDPOINT_ENV_V1] = 'https://attacker.example.test';
+    await expect(analyzeVideoWithVjepa(
+      'https://cdn.test/source.mp4',
+      [{ startMs: 0, endMs: 1_000 }],
+      { fetchImpl },
+    )).resolves.toBeNull();
+    expect(called).toBe(false);
+    expect(isVjepaConfiguredV1()).toBe(false);
+  });
+
+  it('does not create visual evidence from malformed responses or leak request errors', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const malformed: VjepaFetchV1 = async () => new Response(JSON.stringify({
+      segments: [{ start_ms: 0, end_ms: 1_000, visual_significance: 'bad', motion_intensity: 0.4 }],
+    }), { status: 200 });
+    await expect(analyzeVideoWithVjepa(
+      'https://cdn.test/source.mp4',
+      [{ startMs: 0, endMs: 1_000 }],
+      { fetchImpl: malformed },
+    )).resolves.toBeNull();
+
+    const failed: VjepaFetchV1 = async () => {
+      throw new Error('request included https://private.example.test/presigned-url');
+    };
+    await expect(analyzeVideoWithVjepa(
+      'https://cdn.test/source.mp4',
+      [{ startMs: 0, endMs: 1_000 }],
+      { fetchImpl: failed },
+    )).resolves.toBeNull();
+    expect(error.mock.calls.flat().join(' ')).not.toContain('presigned-url');
   });
   it('retries a failed large Modal request as smaller batches before dropping V-JEPA', async () => {
     process.env.MODAL_TOKEN_ID = 'test-token-id';
