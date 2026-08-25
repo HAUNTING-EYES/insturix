@@ -50,7 +50,7 @@ export function SecondaryButton({
 }
 ```
 
-### Danger Button
+### Danger Button 
 ```tsx
 export function DangerButton({ 
   children, 
