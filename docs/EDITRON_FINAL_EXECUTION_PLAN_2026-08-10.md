@@ -338,8 +338,15 @@ changes.
   resume mapping, issue a proxy transform or mutate a project. Its decoder
   `best_effort_timestamp` origin and parser guards remain recorded as
   provisional policy in the evidence-debt register. The next implementation
-  remains the owner-bound private sidecar lifecycle, resumable mapper state
-  machine and terminal compare-and-set verifier.
+  is partially specified by commit `bece283e3`: a pure map lifecycle binds the
+  verified bootstrap shard, source/technical/mapper identity, owner-supplied
+  lease, contiguous checkpoint and deterministic private sidecar key. It
+  produces only a full-verifier/CAS completion candidate and fails closed for
+  tampering, gaps, stale claims or public keys. It has no R2/GCS private
+  adapter, byte I/O, `MEDIA_ASSETS` field, worker, database compare-and-set or
+  terminal map result; it cannot promote a source to CFR/VFR. The next runtime
+  implementation remains that existing-media-owner private port and
+  source-version-bound claim/checkpoint/terminal CAS verifier.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute

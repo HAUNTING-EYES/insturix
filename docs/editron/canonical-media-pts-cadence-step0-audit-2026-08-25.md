@@ -111,7 +111,7 @@ probe response, Mongo document or browser tab carry an entire ten-hour media
 map.  Short media uses fewer shards; long media uses the same immutable source
 identity and resumable shard protocol rather than a different product profile.
 
-## First implemented prerequisite and next implementation gate
+## Implemented prerequisites and next runtime gate
 
 Commit `426d3d09a` introduces `MediaSourcePtsCadenceShardV1` as a pure
 verifier.  It binds one contiguous presentation-order shard to the existing
@@ -128,20 +128,32 @@ decoder-derived candidate origin, not camera timecode.  Its 128-decimal-digit
 tick/ordinal guard and 256-character mapper-identity guard are defensive
 resource limits, not media-duration or format limits.
 
-The next code phase must specify and test the private sidecar storage port,
-mapper job state machine, chunk encoding, continuation and completion CAS.
-It must not call a large map "measured" until a real qualified source passes
-the full verifier.  It also must not modify ProjectService, generated
-compositions, overlays, captions, transitions, renderer behavior, user
-project data or the research-only long-form proxy.
+Commit `bece283e3` now specifies and tests the corresponding pure map-lifecycle
+contract. It accepts only a hash-verified bootstrap shard; then permits an
+owner-supplied lease, exactly contiguous presentation-order checkpoints and
+deterministically addressed `R2_PRIVATE`/`GCS_PRIVATE` sidecar references. A
+completion candidate names the required full-coverage verifier and one
+`MEDIA_ASSETS` compare-and-set write. Forged shard bindings, sequence/ordinal
+or PTS gaps, stale claims, public/incorrect sidecar keys, terminal reuse,
+corrupt diagnostics and counter overflow fail closed.
+
+This is still a pure contract: there is no private R2/GCS adapter, actual
+sidecar byte write/read, `MEDIA_ASSETS` field, mapper worker, claim CAS,
+complete-manifest verifier or terminal map persistence. It intentionally
+cannot call a large map "measured" until a real qualified source passes the
+full verifier. The next runtime phase is therefore the existing media owner's
+private artifact port and source-version-bound claim/checkpoint CAS, not a
+ProjectService, generated-composition, overlay, caption, transition, renderer,
+user-data or research-proxy change.
 
 ## Verification boundary
 
 This audit was initially grounded against `d4d3a9c7b` and rechecked through
-the pure verifier commit `426d3d09a`, including the signed qualification
-worker, `MEDIA_ASSETS` persistence, Modal probe, R2 adapter, proxy/master
-relation and legacy numeric frame projections.  Ten focused verifier tests,
-TypeScript and repository ESLint pass for that commit.  It does not establish
-a deployed Modal endpoint, an R2 private-artifact policy, a persisted PTS map,
+the pure verifier commit `426d3d09a` and lifecycle-contract commit
+`bece283e3`, including the signed qualification worker, `MEDIA_ASSETS`
+persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
+frame projections. Nineteen focused shard/lifecycle tests, TypeScript and
+repository ESLint pass for those commits. It does not establish a deployed
+Modal endpoint, an R2 private-artifact policy, a persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
 long-form media processing or production certification.
