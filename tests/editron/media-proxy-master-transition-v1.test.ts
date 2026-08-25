@@ -156,7 +156,7 @@ function inMemory(options: {
     storageVersion: storageVersion('master-r2-key', 'master-etag'),
   };
   const events: string[] = [];
-  const replace = vi.fn(async () => {
+  const replace = vi.fn(async (_input: Parameters<MediaProxyMasterTransitionPortsV1['replace']>[0]) => {
     events.push('replace');
     return true;
   });
