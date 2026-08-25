@@ -18,6 +18,10 @@ import {
   assertCap2CurrentTruthSourcesMatchV8,
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v8';
+import {
+  assertCap2CurrentTruthSourcesMatchV9,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v9';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -67,7 +71,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves historical bindings and detects source drift after a new writer repair', () => {
+  it('preserves historical bindings while V9 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
@@ -84,6 +88,11 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(() => assertCap2CurrentTruthSourcesMatchV8()).toThrow(
       'CAP-2 v8 current source coverage drift.',
     );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV8',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV9()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));

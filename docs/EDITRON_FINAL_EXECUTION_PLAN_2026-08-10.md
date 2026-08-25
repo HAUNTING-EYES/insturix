@@ -4558,7 +4558,25 @@ authorization are all present.
   that writer change. It records caller-pinned Project CAS as repaired while
   retaining `cut_section`'s research-catalog exclusion and the remaining
   range/rebase/lock/proof gaps. V1, V2 and V7 remain historical identities;
-  V8 is the current dossier, not production certification.
+  V8 is the immediate predecessor, not production certification.
+- Commit `d8e61f060` closes the raw generic duration-write seam without
+  pretending to migrate its two callers. `ProjectService.updateProject` now
+  rejects every field except one exact `durationInFrames` assertion and
+  delegates that assertion to
+  `reconcileProjectDurationFromOverlaysV1`. The owner reads the current
+  canonical overlay timings, rejects a mismatch or unrepresentable timing,
+  then performs one revision- and `updatedAt`-bound CAS that advances the
+  project revision and emits both mutation and exact range receipts. It also
+  fails on a lost CAS rather than overwriting newer state. Focused writer/CAP-2
+  verification is 71/71, with repository typecheck and quiet ESLint passing.
+  The two callers still carry `UNKNOWN_LEGACY_CALLER`, receive no returned
+  receipt, and Auto Edit remains a non-atomic delete/add sequence; the new
+  duration-reconcile receipt conservatively blocks cut rebase until a real
+  policy models it. CAP-2A V9, issued in this documentation checkpoint, is the
+  current research-only dossier; it chains V8 and binds source commit
+  `d8e61f0609ddae35e86baf1649bb243913376b87` plus source snapshot
+  `cbe2476f352082022f7fb6c4c5dc5703c551d3804d906f26c0b087eb5df08484`.
+  It makes no catalog promotion, runtime authorization or production claim.
 - Commit `5dd9c27f9` adds a generic blind-quality receipt contract with exact
   pack/rubric/candidate/result/proof bindings, required per-dimension coverage,
   explicit `UNVERIFIABLE`, single-reviewer non-consensus, and measured versus
