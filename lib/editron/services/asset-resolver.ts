@@ -299,16 +299,8 @@ export class AssetResolver {
     // LRU: mark the resolved assets as recently used (fire-and-forget, throttled).
     void touchAssetsLastUsed(db, assets.map(a => a.assetId));
 
-    console.log(`[AssetResolver] Resolving ${assetIds.size} assets, found ${assets.length} in DB`);
-
-    // Log unresolved assets
     const foundIds = new Set(assets.map(a => a.assetId));
     const assetsById = new Map(assets.map(asset => [asset.assetId, asset]));
-    for (const id of assetIds) {
-      if (!foundIds.has(id)) {
-        console.warn(`[AssetResolver] Asset NOT FOUND in media_assets: ${id}`);
-      }
-    }
 
     // Build assetId → URL map
     // Phase D W1: Use CDN URLs when available (never expire, edge-cached).
@@ -316,10 +308,6 @@ export class AssetResolver {
     // forceGCS=true skips CDN entirely (Lambda rendering needs Range headers that CDN proxy doesn't support).
     const cdnBaseUrl = forceGCS ? '' : (process.env.CDN_WORKER_URL || '');
     const assetMap = new Map<string, string>();
-
-    if (forceGCS) {
-      console.log(`[AssetResolver] forceGCS=true — resolving all ${assets.length} assets via GCS signed URLs (Lambda render)`);
-    }
 
     for (const asset of assets) {
       if (asset.type === 'sequence') continue;
@@ -335,22 +323,16 @@ export class AssetResolver {
         if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
           const storageKey = asset.r2Key?.trim() || asset.assetId;
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${storageKey}`);
-          console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
           assetMap.set(asset.assetId, asset.cachedUrl);
-          console.log(`[AssetResolver] ${asset.assetId}: existing non-GCS URL`);
         } else {
           // GCS signed URL path (used for forceGCS=true AND when CDN not configured)
-          const hasGCS = !!asset.gcsPath;
           const url = await this.getOrRefreshUrl(asset);
           assetMap.set(asset.assetId, url);
-          console.log(`[AssetResolver] ${asset.assetId}: GCS signed URL (hasGcsPath=${hasGCS}, urlLength=${url?.length || 0}, starts=${url?.substring(0, 50) || 'EMPTY'})`);
         }
-      } catch (err: any) {
-        console.error(`[AssetResolver] FAILED ${asset.assetId}: ${err.message} (gcsPath=${asset.gcsPath || 'NONE'}, r2Key=${(asset as any).r2Key || 'NONE'}, cachedUrl=${asset.cachedUrl?.substring(0, 50) || 'NONE'})`);
+      } catch {
         if (asset.cachedUrl) {
           assetMap.set(asset.assetId, asset.cachedUrl);
-          console.log(`[AssetResolver] ${asset.assetId}: using cachedUrl as fallback`);
         }
       }
     }
@@ -368,10 +350,9 @@ export class AssetResolver {
         const { url } = await refreshSignedUrl(gcsPath);
         if (url) {
           assetMap.set(assetId, url);
-          console.warn(`[AssetResolver] ${assetId}: resolved missing media_assets row from overlay gcsPath`);
         }
-      } catch (err: any) {
-        console.error(`[AssetResolver] FAILED ${assetId}: overlay gcsPath fallback failed: ${err.message}`);
+      } catch {
+        // The existing overlay source remains intact when its persisted row cannot be recovered.
       }
     }
 
@@ -400,11 +381,9 @@ export class AssetResolver {
           return result as typeof overlay;
         } else if (existingSrc) {
           // No resolved URL, but overlay already has a working URL (e.g., R2 proxy) — keep it
-          console.warn(`[AssetResolver] No resolved URL for ${overlay.assetId}, keeping existing: ${existingSrc.substring(0, 80)}`);
           return overlay;
         } else {
           // No URL anywhere — genuinely broken
-          console.error(`[AssetResolver] No URL available for ${overlay.assetId}, type=${overlay.type} — render will fail for this asset`);
           return overlay;
         }
       }
@@ -464,7 +443,6 @@ export class AssetResolver {
       if (expiresAt > now) {
         return asset.cachedUrl; // Still valid, use it
       }
-      console.error(`[AssetResolver] Asset ${asset.assetId} expired and has no gcsPath — media unavailable`);
       return ''; // Empty → editor shows "media unavailable" placeholder
     }
 
@@ -722,7 +700,6 @@ export class AssetResolver {
             fixed++;
           }
         } catch (error) {
-          console.error(`Failed to refresh asset ${issue.assetId}:`, error);
           remaining.push({
             overlayId: issue.overlayId,
             assetId: issue.assetId,
