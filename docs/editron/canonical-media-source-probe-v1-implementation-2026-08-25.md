@@ -33,16 +33,21 @@ binding, media invalidation, or operation eligibility. A malformed, missing,
 unconfigured, failed, or stream-empty response is `UNVERIFIABLE`, never
 silently filled from client metadata.
 
-The Modal endpoint has not been deployed. Deployment still requires the normal
-Modal token configuration plus an explicit allowlist for any non-R2/GCS storage
-host. The signed registration route now persists the bounded job and dispatches
-only a signed QStash worker. That worker reads provider object metadata before
-the remote probe, creates a short-lived server URL, probes it, reads provider
-metadata again, and compare-and-set writes a technical observation only when
-the same storage-version hash survived both reads. Missing queue/probe
-configuration, unavailable provider metadata, or an object changed during the
-probe remains explicitly pending/unverifiable; no unsigned or inline fallback
-exists.
+The Modal endpoint has not been deployed. Its deployment declaration now
+requires Modal proxy authentication, and its TypeScript client sends only the
+dedicated `EDITRON_MODAL_PROXY_AUTH_TOKEN_ID` and
+`EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET` values as `Modal-Key` and
+`Modal-Secret`. Generic `MODAL_TOKEN_*` credentials or an arbitrary
+`Authorization` header are not endpoint authentication. Deployment therefore
+still requires those proxy credentials plus an explicit allowlist for any
+non-R2/GCS storage host. The signed registration route now persists the bounded
+job and dispatches only a signed QStash worker. That worker reads provider
+object metadata before the remote probe, creates a short-lived server URL,
+probes it, reads provider metadata again, and compare-and-set writes a
+technical observation only when the same storage-version hash survived both
+reads. Missing queue/probe configuration, unavailable provider metadata, or an
+object changed during the probe remains explicitly pending/unverifiable; no
+unsigned or inline fallback exists.
 
 No project/timeline, renderer, analysis, or UI consumer treats this observation
 as a qualified source yet.

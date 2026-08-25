@@ -146,6 +146,14 @@ changes.
   verification. The existing `MediaAsset` type now carries a source-bound
   `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE` contract. The exact boundary is
   [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
+  Commit `025b4e73b` corrects its formerly unprotected Modal web endpoint:
+  the deployment declaration now requires Modal proxy authentication and the
+  TypeScript adapter sends dedicated `EDITRON_MODAL_PROXY_AUTH_TOKEN_ID` /
+  `EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET` values as `Modal-Key` /
+  `Modal-Secret`. Generic `MODAL_TOKEN_*` values and a custom `Authorization`
+  header are not treated as endpoint authorization. No deployment or
+  environment configuration occurred; absent proxy credentials remain
+  `UNVERIFIABLE`.
 
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
