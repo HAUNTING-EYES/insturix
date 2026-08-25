@@ -147,6 +147,10 @@ export type ClipOverlay = BaseOverlay & {
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
   posterUrl?: string; // Storyboard image used as thumbnail fallback (avoids CORS)
+  /** Inclusive source-frame start for exact source/timeline mapping. */
+  sourceStartFrame?: number;
+  /** Exclusive source-frame end for exact retime handle accounting. */
+  sourceEndFrame?: number;
   videoStartTime?: number;
   speed?: number;
   /** True if the video file contains embedded audio (e.g., Seedance 1.5 Pro).

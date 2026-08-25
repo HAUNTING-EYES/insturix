@@ -200,12 +200,20 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // If speedCurve is present, split into segments with different playback rates.
   // Each segment is a separate <Video> in a <Sequence> with correct source offset.
   const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
+  const sourceStartFrame = Number.isSafeInteger(overlay.sourceStartFrame)
+    ? overlay.sourceStartFrame!
+    : (overlay.videoStartTime || 0);
+  const availableSourceFrames = Number.isSafeInteger(overlay.sourceEndFrame)
+    && overlay.sourceEndFrame! > sourceStartFrame
+    ? overlay.sourceEndFrame! - sourceStartFrame
+    : overlay.durationInFrames;
 
   if (renderMediaMode === "audio-only") {
     if (hasSpeedCurve) {
       const segments = computeSpeedSegments(
         (overlay as any).speedCurve,
         overlay.durationInFrames,
+        availableSourceFrames,
       );
       return (
         <>
@@ -218,7 +226,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
             >
               <Audio
                 src={videoSrc}
-                startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+                startFrom={sourceStartFrame + seg.sourceStartFrame}
                 volume={resolvedVolume}
                 playbackRate={seg.playbackRate}
               />
@@ -231,7 +239,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     return (
       <Audio
         src={videoSrc}
-        startFrom={overlay.videoStartTime || 0}
+        startFrom={sourceStartFrame}
         volume={resolvedVolume}
         playbackRate={overlay.speed ?? 1}
       />
@@ -242,6 +250,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     const segments = computeSpeedSegments(
       (overlay as any).speedCurve,
       overlay.durationInFrames,
+      availableSourceFrames,
     );
     const VideoComponent = isRendering ? OffthreadVideo : Video;
 
@@ -256,7 +265,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
           >
             <VideoComponent
               src={videoSrc}
-              startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+              startFrom={sourceStartFrame + seg.sourceStartFrame}
               style={videoStyle}
               volume={resolvedVolume}
               playbackRate={seg.playbackRate}
@@ -274,7 +283,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
       <div style={containerStyle}>
         <OffthreadVideo
           src={videoSrc}
-          startFrom={overlay.videoStartTime || 0}
+          startFrom={sourceStartFrame}
           style={videoStyle}
           volume={resolvedVolume}
           playbackRate={overlay.speed ?? 1}
@@ -288,7 +297,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     <div style={containerStyle}>
       <Video
         src={videoSrc}
-        startFrom={overlay.videoStartTime || 0}
+        startFrom={sourceStartFrame}
         style={videoStyle}
         playbackRate={overlay.speed ?? 1}
         volume={resolvedVolume}

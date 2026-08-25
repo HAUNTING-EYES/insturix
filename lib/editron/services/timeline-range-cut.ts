@@ -330,6 +330,7 @@ function sliceSourceBoundOverlay(
     const sourceAdvance = sourceFramesConsumed(overlay, localStart);
     next.sourceStartFrame = sourceOffset + sourceAdvance;
     next.videoStartTime = next.sourceStartFrame;
+    next.sourceEndFrame = sourceOffset + sourceFramesConsumed(overlay, localEnd);
     if (Array.isArray(overlay.speedCurve) && overlay.speedCurve.length > 1) {
       next.speedCurve = sliceStepCurve(overlay.speedCurve, localStart, localEnd);
     }
@@ -369,6 +370,10 @@ function trimOverlayEnd(overlay: OverlayRecord, durationInFrames: number): Overl
     next,
     sliceKeyframeTracks(overlay.keyframeTracks, 0, next.durationInFrames),
   );
+  if (next.type === 'video' && next.sourceEndFrame != null) {
+    const sourceStartFrame = frame(next.sourceStartFrame ?? next.videoStartTime);
+    next.sourceEndFrame = sourceStartFrame + sourceFramesConsumed(overlay, next.durationInFrames);
+  }
   if (next.audioEndFrame != null) next.audioEndFrame = next.from + next.durationInFrames;
   return next;
 }
@@ -525,9 +530,18 @@ function setOptionalKeyframeTracks(
 
 function sourceFramesConsumed(overlay: OverlayRecord, localEndFrame: number): number {
   if (Array.isArray(overlay.speedCurve) && overlay.speedCurve.length > 1) {
+    const sourceStartFrame = frame(overlay.sourceStartFrame ?? overlay.videoStartTime);
+    const explicitSourceEndFrame = Number.isSafeInteger(overlay.sourceEndFrame)
+      ? frame(overlay.sourceEndFrame)
+      : null;
+    const availableSourceFrames = explicitSourceEndFrame != null
+      && explicitSourceEndFrame > sourceStartFrame
+      ? explicitSourceEndFrame - sourceStartFrame
+      : Math.max(1, frame(overlay.durationInFrames));
     const segments = computeSpeedSegments(
       overlay.speedCurve as Keyframe[],
       Math.max(1, frame(overlay.durationInFrames)),
+      availableSourceFrames,
     );
     return Math.round(segments.reduce((total, segment) => {
       const overlap = Math.max(
