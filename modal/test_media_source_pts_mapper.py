@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 import media_source_pts_scan_core as scan_core
+from media_source_pts_mapper import _verify_mapper_contract
 from media_source_pts_scan_core import (
     BATCH_KIND,
     MAP_KIND,
@@ -132,6 +133,27 @@ def test_request_binding_and_actual_ffprobe_version_cannot_be_forged():
 
     with pytest.raises(ScanInputError, match="SCAN_FFPROBE_VERSION_MISMATCH"):
         stage_scan_lines([], request_fixture(), "ffprobe version forged", lambda _body, _sidecar: None)
+
+
+def test_mapper_runtime_rejects_forged_mapper_and_policy_identity():
+    _verify_mapper_contract(validate_scan_request(request_fixture()))
+
+    mapper_forged = request_fixture()
+    mapper_forged["mapBinding"]["mapper"]["mapperVersion"] = "forged-mapper"
+    mapper_forged["mapBindingSha256"] = hashlib.sha256(
+        canonical_json(mapper_forged["mapBinding"]).encode(),
+    ).hexdigest()
+    with pytest.raises(ScanInputError, match="SCAN_MAPPER_CONTRACT_MISMATCH"):
+        _verify_mapper_contract(validate_scan_request(mapper_forged))
+
+    policy_forged = request_fixture()
+    policy_forged["mapBinding"]["mapper"]["commandPolicyVersion"] = "forged-policy"
+    policy_forged["resourcePolicy"]["policyVersion"] = "forged-policy"
+    policy_forged["mapBindingSha256"] = hashlib.sha256(
+        canonical_json(policy_forged["mapBinding"]).encode(),
+    ).hexdigest()
+    with pytest.raises(ScanInputError, match="SCAN_MAPPER_CONTRACT_MISMATCH"):
+        _verify_mapper_contract(validate_scan_request(policy_forged))
 
 
 def test_private_r2_retry_rereads_exact_bytes_and_rejects_tampering():

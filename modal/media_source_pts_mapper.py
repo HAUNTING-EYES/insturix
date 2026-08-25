@@ -43,6 +43,8 @@ SAFE_CALL_ID = re.compile(r"^fc-[A-Za-z0-9_-]{8,128}$")
 SAFE_ACCOUNT_ID = re.compile(r"^[a-f0-9]{32}$", re.IGNORECASE)
 SAFE_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 FRAME_SCAN_TIMEOUT_SECONDS = 86_400
+MAPPER_VERSION = "continuous-ffprobe-v1"
+COMMAND_POLICY_VERSION = "continuous-ffprobe-v1"
 
 
 @app.function(
@@ -55,6 +57,7 @@ FRAME_SCAN_TIMEOUT_SECONDS = 86_400
 )
 def map_source_pts(request: dict[str, Any]) -> dict[str, Any]:
     validated = validate_scan_request(request)
+    _verify_mapper_contract(validated)
     source_url = validated["source_url"]
     if not is_allowed_media_source_url(source_url, "EDITRON_MEDIA_PTS_ALLOWED_HOST_SUFFIXES"):
         raise ScanInputError("SCAN_SOURCE_URL_NOT_ALLOWED")
@@ -124,6 +127,7 @@ async def submit_source_pts_scan(request: fastapi.Request):
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_REQUEST_INVALID"})
     try:
         validated = validate_scan_request(body)
+        _verify_mapper_contract(validated)
         if not is_allowed_media_source_url(
             validated["source_url"], "EDITRON_MEDIA_PTS_ALLOWED_HOST_SUFFIXES",
         ):
@@ -176,6 +180,13 @@ def _ffprobe_version() -> str:
     if completed.returncode != 0 or not completed.stdout.splitlines():
         raise ScanInputError("SCAN_FFPROBE_UNAVAILABLE")
     return completed.stdout.splitlines()[0].strip()
+
+
+def _verify_mapper_contract(request: dict[str, Any]) -> None:
+    mapper = request["mapBinding"]["mapper"]
+    if mapper["mapperVersion"] != MAPPER_VERSION \
+            or mapper["commandPolicyVersion"] != COMMAND_POLICY_VERSION:
+        raise ScanInputError("SCAN_MAPPER_CONTRACT_MISMATCH")
 
 
 def _verify_selected_stream(source_url: str, stream_index: int, timebase: dict[str, str]) -> None:

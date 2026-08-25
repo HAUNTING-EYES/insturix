@@ -194,6 +194,13 @@ export function assertMediaSourcePtsCadenceScanRequestV1(value: unknown): MediaS
   });
 }
 
+/** Validates the URL-free immutable map identity used by durable orchestration. */
+export function assertMediaSourcePtsCadenceScanMapBindingV1(
+  value: unknown,
+): MediaSourcePtsCadenceScanMapBindingV1 {
+  return assertMapBinding(value);
+}
+
 function assertMapBinding(value: unknown): MediaSourcePtsCadenceScanMapBindingV1 {
   const record = assertScanRecordV1(value, 'SCAN_MAP_BINDING_INVALID');
   assertScanExactKeysV1(record, ['kind', 'mapper', 'schemaVersion', 'sourceBindingSha256', 'sourceTimebase', 'sourceVersionSha256', 'storageVersionSha256', 'technicalObservationSha256', 'videoStreamIndex'], 'SCAN_MAP_BINDING_INVALID');
