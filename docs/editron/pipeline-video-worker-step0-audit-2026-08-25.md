@@ -2,10 +2,11 @@
 
 ## Purpose and boundary
 
-This is the required pre-change audit for the next bounded legacy-project-writer
-migration on `infrastructure-improvs-+Editron`. It records current source
-behavior only. It does not move a writer, create a ProjectService command,
-change a queue, alter user data, authorize model work, or promote Stage 2.5.
+This began as the required pre-change audit for the next bounded
+legacy-project-writer migration on `infrastructure-improvs-+Editron`. The
+historical trace below preserves what was found before migration; the appended
+completed-migration sections record the current source truth. This document
+does not authorize model work or promote Stage 2.5.
 
 ## Files read completely
 
@@ -94,7 +95,7 @@ signed delivery.
 | Concern | Classification | Why |
 | --- | --- | --- |
 | Generated-video overlay replacement | **Closed by `f1a0d3078`** | The producer now snapshots exactly one overlay ID, expected asset and ProjectService revision before credits; the worker delegates delivery to `commitPipelineVideoDeliveryV1` and stores an explicit outcome. |
-| Low-quality warning append | Separate derived-evidence ownership question | It is a project-visible fact but has no revision/receipt boundary. It must not be silently bundled with overlay replacement. |
+| Low-quality warning append | **Closed by `145cfc988`** | The worker now asks the narrow ProjectService warning owner to append one job-bound fact under user-scoped CAS, replay/material checks and a writer-issued receipt. The score classification itself remains an uncalibrated analysis concern. |
 | Public `body.userId` fallback | **Closed in bounded ingress slice `938d441b2`** | Browser calls remain Clerk-scoped. A no-session caller now needs a fresh HMAC bound to this action and the exact raw body; an arbitrary external identity is rejected. |
 | Video enqueue without QStash configuration | **Closed in bounded ingress slice `938d441b2`** | Outside development, the route checks the publisher token and both worker verification keys before credits, batch records or a claimed queue response. |
 | Director pending-field clear plus fallback fetch | P0 false success / lost downstream work | The only durable trigger is erased before a verifiable signed handoff exists. |
@@ -149,10 +150,11 @@ typecheck and quiet ESLint passed.
 
 The ingress correction itself was deliberately not a durable replay ledger, a
 video-worker delivery receipt, a ProjectService command, or a fix for a
-partial QStash publication. The next bounded owner-contract phase is recorded
-below. The incoming video worker's raw overlay write, raw quality-warning
-append and Director pending-field clear/unsigned handoff remain open P0 work
-until that worker is actually migrated.
+partial QStash publication. At the time this historical paragraph was written,
+the incoming worker's raw overlay write, raw quality-warning append and
+Director pending-field clear/unsigned handoff remained open. Later sections
+record the bounded closure of each of those three paths; they do not close the
+other legacy-writer or recovery gaps.
 
 The media-assets collection stays its existing owner. Director run lifecycle
 stays its existing ProjectService owner. This command must not create a second
@@ -208,15 +210,43 @@ returned to the worker caller. An unexpected owner failure fails the job; a
 target conflict cannot silently claim project delivery succeeded.
 
 Focused target/wiring, delivery, cost and batch suites passed 17/17, followed
-by repository typecheck and quiet ESLint. This migration does **not** move the
-low-quality warning append or Director pending-field clear/dispatch.
+by repository typecheck and quiet ESLint. At that commit, this migration did
+**not** move the low-quality warning append or Director pending-field
+clear/dispatch; the later bounded migrations are recorded next.
+
+### Completed derived-warning migration
+
+Commit `145cfc988` moves only the low-quality project warning through
+`ProjectService.recordPipelineVideoQualityWarningV1`. The existing analysis
+owner still decides whether its inherited `< 40` score is low; ProjectService
+does not recalibrate, reinterpret, or silently discard that score. It validates
+the bounded job/batch/storyboard/asset material before any project read, derives
+one stable `(projectId, jobId)` identity and material hash, and appends exactly
+one V1 entry to the existing legacy-compatible `qualityWarnings` field.
+
+The command is user-scoped and revision-CAS-protected. A replay with identical
+material returns the original writer-issued receipt without a second write; a
+reused job identity with different material fails. A stale worker can rebase
+only this additive warning over newer unrelated project state, and its receipt
+records the requested, before and after revisions plus `FRESH` or
+`SAFE_REBASED_ADDITIVE_WARNING`. A lost final CAS race fails closed. The worker
+no longer writes `projects.qualityWarnings` directly.
+
+The warning's proof disposition is deliberately non-rendered:
+`DERIVED_ANALYSIS_WARNING_NOT_RENDERED_ACCEPTANCE_PROOF`. Repository search
+found no current product/UI consumer for `qualityWarnings`; this migration does
+not invent one, establish score calibration or retention policy, prove the
+rendered scene is bad, or solve audio/mix/delivery quality. Focused
+ProjectService/video-delivery/Director regression coverage passed 22/22, with
+repository typecheck and quiet ESLint passing.
 
 ## Sequencing and non-claims
 
-The next implementation must locate the current durable dispatch/claim record
-before choosing whether a failed Director publication is represented on the
-project, batch, or existing Director-run owner. Deleting that fallback alone is
-not sufficient because it would leave the cleared pending fields unrecoverable.
+The remaining pipeline-video safety work must address the raw finalize producer
+of the pending Director signal, generic project-status writers, a transactional
+publication/recovery owner, and the rest of the legacy-writer inventory. The
+completed Director handoff prevents this worker from erasing its durable signal
+before a signed claim; it is not an outbox or automatic recovery driver.
 
 The completed producer ingress phase is independent because it has one public
 authorization owner and one existing queue/credit owner. It is not a
