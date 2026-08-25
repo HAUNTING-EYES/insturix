@@ -119,7 +119,8 @@ changes.
   and quiet ESLint. This is a completed pipeline-audio **project writer**
   migration, not a claim of audio render/mix proof, transactional media assets,
   unified beat analysis, range collaboration, or migration of other legacy
-  writers. The next ordered foundation is the canonical media/timebase/evidence
+  writers. The next ordered foundation remains the residual fail-open and
+  legacy-project-writer inventory, then the canonical media/timebase/evidence
   spine, followed by the remaining Stage 2.5 generalisation evidence.
 
 - **2026-08-25 media/timebase Step-0 current truth.** The live media library
@@ -158,7 +159,7 @@ changes.
   with repository typecheck and quiet ESLint passing. This does **not** migrate
   the worker's raw overlay replacement, its raw quality-warning append, partial
   QStash-publication recovery, or its Director pending-field clear/unsigned
-  downstream handoff; those remain the next pipeline-video P0 design/migration.
+  downstream handoff; those were the next pipeline-video P0 design/migration.
 
 - **2026-08-25 pipeline-video ProjectService delivery migration — overlay
   replacement only.** Commits `3d4852e46`, `6ea12538a` and `f1a0d3078` create
@@ -180,6 +181,29 @@ changes.
   overlay replacement fallback. Focused target/wiring, delivery, cost and batch
   coverage passed 17/17, with repository typecheck and quiet ESLint passing.
   Quality-warning persistence and Director dispatch are not included.
+- **2026-08-25 pipeline-video durable Director handoff.** Commit `330ed5091`
+  removes the false-success/lost-work path at batch completion. Its **Director
+  handoff block** no longer reads a project directly, defaults a missing
+  profile, clears `pendingDirector*`, or fetches the legacy
+  `/api/services/editron/director/execute` route. It requires a batch-bound
+  owner, QStash publisher token, both signing keys and a deployed worker URL before it asks
+  `ProjectService.preparePipelineDirectorDispatchV1` to issue a revision-bound
+  dispatch token. The ProjectService CAS retains the original pending profile
+  and owner signal, records `directing_queued`, and is idempotent for the same
+  batch; a final CAS race returns the already-issued token without another
+  write. QStash publication targets only the signed
+  `/api/internal/workers/director` route. The batch records publication,
+  configuration block, ineligibility or retryable publish failure as a
+  non-authoritative delivery observation; it never reports a direct fetch as
+  success. Only that signed worker can supply the exact token to
+  `claimDirectorRunV1`; its successful CAS atomically clears the pending signal
+  and handoff record while issuing the normal Director run receipt. A missing
+  configuration or publish failure therefore leaves the project signal intact
+  rather than losing work. Focused ProjectService/route regression coverage is
+  18/18, with repository typecheck and quiet ESLint passing. This is not a
+  transactional publication outbox, automatic recovery/retry driver, migration
+  of finalize's raw pending-signal producer, generic project-status writer or
+  raw quality-warning append; those remain explicit legacy-writer work.
 
 ## The desired experience, in plain words
 
