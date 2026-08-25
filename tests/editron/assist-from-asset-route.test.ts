@@ -62,7 +62,7 @@ const oldEnv = { ...process.env };
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   // Dev-inline path: no QSTASH_TOKEN so the handler runs analysis + director inline.
-  process.env = { ...oldEnv };
+  process.env = { ...oldEnv, NODE_ENV: 'development' };
   delete process.env.QSTASH_TOKEN;
   mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
   mocks.getAsset.mockResolvedValue({ assetId: 'a1', filename: 'clip.mp4', type: 'video', duration: 30 });
@@ -99,6 +99,27 @@ describe('from-asset assist intake handler', () => {
     await expect(res.json()).resolves.toEqual({
       success: false,
       error: 'Auto-edit queue is unavailable because its signing keys are not configured.',
+    });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deduct).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.analyzeVideo).not.toHaveBeenCalled();
+    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+  });
+
+  it('fails before charging or creating a project when production has no QStash publisher token', async () => {
+    process.env = { ...process.env, NODE_ENV: 'production' };
+    delete process.env.QSTASH_TOKEN;
+    delete process.env.QSTASH_CURRENT_SIGNING_KEY;
+    delete process.env.QSTASH_NEXT_SIGNING_KEY;
+
+    const res = await POST(request({ assetId: 'a1' }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      success: false,
+      error: 'Auto-edit queue is unavailable because its publisher token or signing keys are not configured.',
     });
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.deduct).not.toHaveBeenCalled();

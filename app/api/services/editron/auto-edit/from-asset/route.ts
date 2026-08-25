@@ -28,7 +28,11 @@ import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
-import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
+import {
+  isInternalQStashDispatchConfigured,
+  isInternalQStashWorkerAuthConfigured,
+  isInternalWorkerInlineFallbackAllowed,
+} from '@/lib/editron/security/internal-worker-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -173,6 +177,12 @@ export async function POST(request: NextRequest) {
     if (qstashToken && !isInternalQStashWorkerAuthConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Auto-edit queue is unavailable because its signing keys are not configured.' },
+        { status: 503 },
+      );
+    }
+    if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Auto-edit queue is unavailable because its publisher token or signing keys are not configured.' },
         { status: 503 },
       );
     }
