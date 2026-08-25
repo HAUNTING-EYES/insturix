@@ -175,6 +175,20 @@ changes.
   rather than a storage-owner-issued source handle, so it is not the finished
   canonical-media ingress/provenance boundary.
 
+- **2026-08-25 Music Analysis source-auth correction.** Step-0 commit
+  `89a30417d` first removed dead worker code and raw diagnostic/error prints.
+  Commit `74f66518b` then changes only the repository source boundary: the
+  Essentia Modal declaration requires proxy authentication, and its client
+  uses only the dedicated, host-bound proxy credentials. Generic
+  `MODAL_TOKEN_*` values and arbitrary/HTTP endpoint configuration cannot
+  authorize a call or receive proxy headers. The client logs no raw request
+  error and rejects malformed worker payloads before downstream consumers see
+  music facts. Focused Music/Scene boundary tests pass 12/12, Python compile,
+  TypeScript checking and quiet ESLint pass. No Modal deployment or environment
+  update was made. The worker still receives a caller-provided temporary audio
+  URL, so canonical-media provenance, URL origin/redirect/byte/expiry policy,
+  and storage-owner-issued handles remain open.
+
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
   lifecycle as an optional field on the existing `MediaAsset` type. It accepts
@@ -3441,8 +3455,9 @@ execution/interpretation checkpoint above supersedes it.
   actual spend from provider token receipts is `$0.626745190`, not the
   `$21.126758` worst-case ceiling. The immutable interpretation is
   `docs/editron/open-ended-editing/oe-v3r4-provider-native-handoff-order-results-2026-08-22.md`.
-- **HREF-01 is `READY_FOR_SINGLE_PROJECT_OWNER_REVIEW`, not human-approved.**
-  One Gemini 3.6 native-video/audio observation completed with no editing
+- **Historical HREF-01 status (superseded by qualified review receipt
+  `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`).**
+  At this point one Gemini 3.6 native-video/audio observation had completed with no editing
   operators and no project mutation. Its blinded pack contains the exact full
   64.75-second source plus the requested `[20s,23s)` window at 60/1 fps: 180
   decoded frames, embedded audio and a separate 96 kHz stereo PCM WAV. The
@@ -3450,10 +3465,11 @@ execution/interpretation checkpoint above supersedes it.
   `4431c08ba4f3731718f350723137699dd57cca810e0c80c0f5c95b922fbe93ba`.
   Gemini 3.7 attempts ended in provider HTTP 500/high-demand errors and are
   infrastructure failures, not semantic failures. The user's earlier sparse
-  rubric approval approved the protocol, not this model output. A single
-  project-owner review is useful evidence, while formal promotion remains
-  blocked pending a second independent qualified reviewer. Exact artifacts and
-  hashes are recorded in
+  rubric approval approved the protocol, not this model output. The subsequent
+  sole qualified project-owner review marked all nine criteria `PASS`, no hard
+  failure and zero-minute correction; independent agreement remains
+  `UNVERIFIABLE_SINGLE_REVIEWER`, so it is research evidence only. Exact
+  artifacts and hashes are recorded in
   `docs/editron/open-ended-editing/oe-href01-native-review-pack-2026-08-22.md`.
 - **Historical media-foundation checkpoint (superseded by the paid-cohort
   result below):** the eight sealed holdout media inputs reached
