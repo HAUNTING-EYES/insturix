@@ -226,6 +226,19 @@ changes.
   ProjectService/video-delivery/Director regression coverage passed 22/22, with
   repository typecheck and quiet ESLint passing.
 
+- **Next bounded safety slice is audited, not yet implemented.**
+  [pipeline-finalize-director-intent-step0-audit-2026-08-25.md](./editron/pipeline-finalize-director-intent-step0-audit-2026-08-25.md)
+  isolates the raw finalize producer of `pendingDirectorProfileId` and
+  `pendingDirectorUserId`. The live route currently catches a failed raw write
+  but still returns `directorQueued: true`, even though it only intends later
+  pipeline-video completion to prepare a signed Director dispatch. The next
+  narrow ProjectService command must exact-CAS that intent, be idempotent only
+  for the identical pending state, reject active/prepared/Assist/stale states,
+  issue a receipt and make the API result truthful. Reused-project metadata,
+  storyboard/music-policy facts, synchronous BGM attachment and generic status
+  tracking are explicitly separate writers and are not authorized by this
+  slice.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
