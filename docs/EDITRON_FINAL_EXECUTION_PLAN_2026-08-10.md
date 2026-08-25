@@ -434,12 +434,24 @@ changes.
   storage-URL policy instead of duplicating an SSRF rule. This commit does not
   contain the continuous ffprobe process, Modal submit/poll functions, private
   R2 deployment, staging reader/finalizer, asset CAS call or cadence conclusion.
-  The owner remains unwired: no continuous scanner, signed durable mapper
-  job, deployed private-bucket/live-Atlas proof, source/proxy transform or
-  ProjectService consumer exists. The next bounded slice is the signed durable
-  Modal continuous presentation-order scanner over that staging contract,
-  followed by the signed Editron transport/finalizer; model evaluation,
-  DEP-02/DEP-03 and project routing remain later in the frozen order.
+  Commit `01ce47827` implements the compute side of that boundary: one
+  continuous `ffprobe -show_frames` process validates the exact selected stream,
+  source timebase and ffprobe version, preserves measured presentation ticks and
+  durations without seek-chunk inference, and conditionally writes bounded,
+  hash-chained canonical batches to a private R2 bucket with exact readback.
+  Proxy-authenticated Modal submit/poll endpoints use a durable function-call
+  identity and return only a binding plus terminal summary. No-network tests
+  cover forged bindings, gaps, missing durations, excess batches, private DNS
+  and altered existing bytes. The exact continuous command also completed over
+  one repository media sample with 3,885 measured frames in four batches.
+  This is local implementation/command proof, not a Modal deployment, live
+  private-bucket write, Atlas mutation or product certification. The existing
+  `MEDIA_ASSETS` owner remains unwired to it: a signed Editron transport,
+  staging reader/finalizer, V2 artifact conversion and source-bound asset CAS
+  call are still required. Source/proxy transforms and the ProjectService
+  consumer also remain absent. Those owner-side steps are next; model
+  evaluation, DEP-02/DEP-03 and project routing remain later in the frozen
+  order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
