@@ -6,6 +6,7 @@ import {
   createProjectVideoSourceTimeTransformV1,
   PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
   rebindSourcePresentationTimestampV1,
+  VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2,
   VIDEO_SOURCE_TIME_BINDING_KIND_V1,
   type VerifiedVideoSourceTimeBindingV1,
 } from '@/lib/editron/services/video-source-time-transform-v1';
@@ -94,6 +95,37 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
     forged.segments[0].playbackRate = 3;
     expect(() => rebindSourcePresentationTimestampV1(forged, binding(), '3003'))
       .toThrow('VIDEO_SOURCE_TIME_TRANSFORM_INVALID');
+  });
+
+  it('rebinds through a shortened composition using its explicit source span', () => {
+    const transform = createProjectVideoSourceTimeTransformV1({
+      projectId: 'project-1', overlayId: 17,
+      beforeProjectRevision: revision(16, '2026-08-26T00:00:00.000Z'),
+      afterProjectRevision: revision(17, '2026-08-26T00:00:01.000Z'),
+      projectFps: 30, timelineStartFrame: 0, sourceStartFrame: 0,
+      sourceEndFrameExclusive: 120,
+      durationInFrames: 60,
+      speedCurve: [
+        { frame: 0, value: 2, easing: 'linear' },
+        { frame: 59, value: 2, easing: 'linear' },
+      ],
+      sourceBinding: binding(),
+    });
+
+    expect(transform).toMatchObject({
+      rendererMappingVersion: VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2,
+      sourceEndFrameExclusive: 120,
+      segments: [
+        { timelineStartFrame: 0, timelineEndFrameExclusive: 59, playbackRate: 2, sourceStartFrame: 0, sourceEndFrameExclusive: 118 },
+        { timelineStartFrame: 59, timelineEndFrameExclusive: 60, playbackRate: 2, sourceStartFrame: 118, sourceEndFrameExclusive: 120 },
+      ],
+    });
+    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(100 * 3003)))
+      .toEqual({
+        disposition: 'REBOUND', sourcePresentationTimestampTicks: String(100 * 3003),
+        sourceFrameOrdinal: 100, projectFrame: 50,
+        transformSha256: transform.transformSha256,
+      });
   });
 
   it('requires the stored speed track to match the renderer speed curve exactly', () => {

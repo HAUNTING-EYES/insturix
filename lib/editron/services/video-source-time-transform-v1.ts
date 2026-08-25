@@ -23,6 +23,8 @@ export const PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1 =
   'PROJECT_SERVICE_VIDEO_RETIME_WRITER_V1' as const;
 export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1 =
   'EDITRON_STEP_SPEED_SEGMENTS_V1' as const;
+export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2 =
+  'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2' as const;
 
 export type VerifiedVideoSourceTimeBindingV1 = Readonly<{
   schemaVersion: 1;
@@ -44,7 +46,9 @@ export type ProjectVideoSourceTimeTransformV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_KIND_V1;
   writerAuthority: typeof PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1;
-  rendererMappingVersion: typeof VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1;
+  rendererMappingVersion:
+    | typeof VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1
+    | typeof VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2;
   projectId: string;
   overlayId: string;
   assetId: string;
@@ -54,6 +58,7 @@ export type ProjectVideoSourceTimeTransformV1 = Readonly<{
   sourceBinding: VerifiedVideoSourceTimeBindingV1;
   timelineStartFrame: number;
   sourceStartFrame: number;
+  sourceEndFrameExclusive?: number;
   durationInFrames: number;
   speedCurveSha256: string;
   segments: readonly Readonly<{
@@ -118,6 +123,7 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
   projectFps: number;
   timelineStartFrame: number;
   sourceStartFrame: number;
+  sourceEndFrameExclusive?: number;
   durationInFrames: number;
   speedCurve: readonly Keyframe[];
   sourceBinding: VerifiedVideoSourceTimeBindingV1;
@@ -127,11 +133,24 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
   const overlayId = boundedText(String(input.overlayId), 'VIDEO_SOURCE_TIME_TRANSFORM_OVERLAY_INVALID');
   const timelineStartFrame = nonNegativeInteger(input.timelineStartFrame, 'VIDEO_SOURCE_TIME_TRANSFORM_TIMELINE_START_INVALID');
   const sourceStartFrame = nonNegativeInteger(input.sourceStartFrame, 'VIDEO_SOURCE_TIME_TRANSFORM_SOURCE_START_INVALID');
+  const sourceEndFrameExclusive = input.sourceEndFrameExclusive === undefined
+    ? undefined
+    : positiveInteger(input.sourceEndFrameExclusive, 'VIDEO_SOURCE_TIME_TRANSFORM_SOURCE_END_INVALID');
+  if (sourceEndFrameExclusive !== undefined && sourceEndFrameExclusive <= sourceStartFrame) {
+    throw new Error('VIDEO_SOURCE_TIME_TRANSFORM_SOURCE_RANGE_INVALID');
+  }
   const durationInFrames = positiveInteger(input.durationInFrames, 'VIDEO_SOURCE_TIME_TRANSFORM_DURATION_INVALID');
   const projectFps = positiveFinite(input.projectFps, 'VIDEO_SOURCE_TIME_TRANSFORM_PROJECT_FPS_INVALID');
   assertRevisionPair(input.beforeProjectRevision, input.afterProjectRevision);
   const speedCurve = assertSpeedCurve(input.speedCurve, durationInFrames);
-  const segments = computeSpeedSegments(speedCurve, durationInFrames).map((segment) => {
+  const availableSourceFrames = sourceEndFrameExclusive === undefined
+    ? durationInFrames
+    : sourceEndFrameExclusive - sourceStartFrame;
+  const segments = computeSpeedSegments(
+    speedCurve,
+    durationInFrames,
+    availableSourceFrames,
+  ).map((segment) => {
     const sourceSegmentStart = sourceStartFrame + segment.sourceStartFrame;
     const sourceSegmentEnd = sourceSegmentStart
       + ((segment.compositionEndFrame - segment.compositionStartFrame) * segment.playbackRate);
@@ -155,7 +174,9 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
     schemaVersion: 1 as const,
     kind: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_KIND_V1,
     writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
-    rendererMappingVersion: VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1,
+    rendererMappingVersion: sourceEndFrameExclusive === undefined
+      ? VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1
+      : VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2,
     projectId,
     overlayId,
     assetId: sourceBinding.assetId,
@@ -165,6 +186,7 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
     sourceBinding,
     timelineStartFrame,
     sourceStartFrame,
+    ...(sourceEndFrameExclusive === undefined ? {} : { sourceEndFrameExclusive }),
     durationInFrames,
     speedCurveSha256: hashEditronCanonicalJsonV1(speedCurve),
     segments,
@@ -289,7 +311,11 @@ function assertTransform(value: ProjectVideoSourceTimeTransformV1): void {
   delete unsigned.transformSha256;
   if (value.kind !== PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_KIND_V1
     || value.writerAuthority !== PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1
-    || value.rendererMappingVersion !== VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1
+    || (value.rendererMappingVersion !== VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1
+      && value.rendererMappingVersion !== VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2)
+    || (value.rendererMappingVersion === VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2
+      && (!Number.isSafeInteger(value.sourceEndFrameExclusive)
+        || value.sourceEndFrameExclusive! <= value.sourceStartFrame))
     || value.transformSha256 !== hashEditronCanonicalJsonV1(unsigned)) {
     throw new Error('VIDEO_SOURCE_TIME_TRANSFORM_INVALID');
   }
