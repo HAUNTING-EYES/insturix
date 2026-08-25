@@ -18,7 +18,7 @@ import {
 
 export const MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_V1' as const;
-export const MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_ABSOLUTE_MAX_BATCHES_V1 = 100_000;
+export const MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_ABSOLUTE_MAX_BATCHES_V1 = 10_000;
 
 export type MediaSourcePtsCadenceScanResultBatchV1 = Readonly<{
   shardSequence: number;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import {
   assertMediaSourcePtsCadenceScanResultV1,
   MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_KIND_V1,
@@ -11,13 +12,34 @@ import {
 } from '@/lib/editron/services/media-source-pts-cadence-scan-staging-v1';
 
 describe('media source PTS cadence scan staging V1', () => {
+  it('shares the exact map-binding identity used by the Python scanner', () => {
+    expect(hashEditronCanonicalJsonV1({
+      schemaVersion: 1,
+      kind: 'EDITRON_MEDIA_SOURCE_PTS_CADENCE_MAP_V1',
+      sourceVersionSha256: '1'.repeat(64),
+      storageVersionSha256: '2'.repeat(64),
+      sourceBindingSha256: '3'.repeat(64),
+      technicalObservationSha256: '4'.repeat(64),
+      videoStreamIndex: 0,
+      sourceTimebase: { numerator: '1', denominator: '90000' },
+      mapper: {
+        mapperVersion: 'continuous-ffprobe-v1',
+        ffprobeVersion: 'ffprobe version 8.1',
+        commandPolicyVersion: 'continuous-ffprobe-v1',
+        timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP',
+      },
+    })).toBe('1f7c9f18a590f05683e9bad42069a45367f78fed1e5feafc630733e40a7acc92');
+  });
+
   it('round-trips canonical frame evidence and derives a private content-addressed sidecar', () => {
     const serialization = batchFixture();
     const sidecar = createMediaSourcePtsCadenceScanBatchSidecarV1({ serialization });
 
     expect(parseMediaSourcePtsCadenceScanStagingBatchV1(serialization.canonicalJson))
       .toEqual(serialization.batch);
-    expect(serialization.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    // Shared with the Python scanner suite: a mismatch blocks cross-runtime staging.
+    expect(serialization.contentSha256)
+      .toBe('f64f8ba465edb897feaf31f4a7d504ff03332403c57547616c17ceac46a32ad3');
     expect(sidecar).toMatchObject({
       storage: 'R2_PRIVATE',
       byteLength: serialization.byteLength,
