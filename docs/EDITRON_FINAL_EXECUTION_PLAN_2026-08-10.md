@@ -403,8 +403,16 @@ changes.
   it cannot prove that the index covers the qualified source and therefore
   cannot issue source-wide CFR/VFR or terminalize a map. A source-coverage
   verifier, V2 state path and worker remain required.
-  There is still no mapper worker or terminal map result. The next runtime
-  implementation remains source-version-bound claim/checkpoint/terminal work.
+  Commit `650d46b82` adds that pure source-coverage verifier over the injected
+  reader: it derives the expected presentation bounds from one qualified
+  source/stream and mapper binding, requires the V2 index to match that binding
+  and to span those exact bounds, and only then returns `CFR` or `VFR`.
+  Partial indexes, forged coverage expectations and cross-map indexes remain
+  `UNVERIFIABLE`. It does not select or call a storage backend, write V2 state,
+  run a mapper worker, terminalize an asset map, bind ProjectService, or make a
+  product cadence claim. There is still no mapper worker or terminal map
+  result. The next runtime implementation remains source-version-bound
+  claim/checkpoint/terminal work.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute

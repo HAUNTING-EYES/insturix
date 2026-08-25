@@ -81,6 +81,10 @@ property any chosen owner must satisfy.
 
 - No continuous mapper, private deployment proof, live Atlas CAS, full verifier
   or terminal map exists.
+- Commit `650d46b82` is only a pure qualified-source coverage decision over an
+  injected V2 reader. It proves neither an actual storage read, persistent V2
+  map state, continuous-scan checkpoint, worker retry nor terminal asset
+  receipt.
 - `MEDIA-15` remains open: every legacy storage/source writer must be
   classified before a map consumer is wired.
 - V1 cannot represent source discontinuities or epochs; `MEDIA-17` records

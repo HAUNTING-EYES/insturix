@@ -187,14 +187,18 @@ can claim terminal completion.
 Commit `3cd22d54f` fills the read/verify portion only through an injected
 reader. It verifies every listed object's measured bytes and canonical payload
 against the V2 index and reports an explicit indexed-range cadence observation.
-It cannot establish that the index starts/ends with the qualified source, so it
-is not the required source-complete verifier and cannot issue CFR/VFR or a
-terminal map record.
+Commit `650d46b82` adds a pure qualified-source coverage decision over that
+result: exact source/stream/mapper binding plus exact qualified start/end PTS
+coverage is required before it calls the observed result `CFR` or `VFR`.
+Partial indexes, forged coverage and another map binding remain
+`UNVERIFIABLE`. Both are injected-reader contracts only; neither establishes a
+storage reader, V2 state owner or terminal map record.
 
-There is still no mapper worker, source-complete verifier or terminal map
-persistence. It intentionally cannot call a large map "measured" until a real
-qualified source passes the full verifier. The next runtime phase is source-
-version-bound claim/checkpoint/terminal work, not a ProjectService,
+There is still no mapper worker, persistent V2 source-coverage state or
+terminal map persistence. It intentionally cannot call a large map "measured"
+until a real qualified source passes the full verifier through an actual
+storage-owner reader. The next runtime phase is source-version-bound
+claim/checkpoint/terminal work, not a ProjectService,
 generated-composition, overlay, caption, transition, renderer, user-data or
 research-proxy change.
 

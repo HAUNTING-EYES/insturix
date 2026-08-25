@@ -50,6 +50,14 @@ an explicit `UNVERIFIABLE` reason; its cadence result is intentionally named
 It neither selects a storage backend nor proves the index covers the qualified
 source's complete presentation range.
 
+Commit `650d46b82` supplies the next pure decision boundary. Given one
+qualified source/stream/mapper coverage contract and an injected V2 reader, it
+requires matching map identity and exact qualified start/end PTS coverage before
+it calls the observed cadence `CFR` or `VFR`. A partial index, forged coverage
+hash or different qualified map remains `UNVERIFIABLE`. This is not a storage
+reader, V2 asset-state owner, mapper worker, terminal receipt, ProjectService
+binding or product source-time capability.
+
 ## Consequence
 
 Do not build a runtime mapper, source/proxy transform, ProjectService binding,
@@ -82,10 +90,11 @@ separate, versioned successor sidecar protocol before mapper runtime work:
    policy until calibrated. Exceeding a bound ends `UNVERIFIABLE`; it must not
    silently discard frames or infer cadence.
 4. **Independent full verifier.** Commit `3cd22d54f` verifies every object
-   listed by a supplied index. The remaining full verifier must additionally
-   bind expected start/end coverage from the qualified technical observation,
-   reject partial-source indexes, and only then issue a terminal source-wide
-   cadence receipt.
+   listed by a supplied index, and `650d46b82` adds the pure qualified
+   start/end coverage decision over that result. The remaining runtime owner
+   must bind that verified result to persisted V2 state and a terminal receipt;
+   it must still reject partial-source indexes before any terminal source-wide
+   cadence result is exposed.
 5. **Explicit discontinuity model.** The successor must either represent
    declared presentation epochs/segments or honestly reject them. It may not
    relax V1 contiguity while still claiming one global ordinal map.
