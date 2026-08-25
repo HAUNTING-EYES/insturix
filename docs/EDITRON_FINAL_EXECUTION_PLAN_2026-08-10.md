@@ -328,9 +328,18 @@ changes.
   whose status and manifest reference live on the existing `MEDIA_ASSETS`
   record. It must preserve ordered lossless PTS/duration evidence, fail closed
   for incomplete or invalid coverage, and clear on source replacement. This is
-  Step-0 architecture only: no map worker, persistence field, deployment,
-  ProjectService source binding, operation eligibility or long-form claim has
-  been added.
+  still not a source map, map worker, persistence field, deployment,
+  ProjectService source binding, operation eligibility or long-form claim.
+  Commit `426d3d09a` adds only a pure local-shard verifier: it requires an
+  exact existing source/qualification/storage/technical-observation binding,
+  selected reduced-rational stream timebase and mapper policy, then preserves
+  lossless PTS/duration ticks and distinguishes `UNIFORM_LOCAL` from
+  `VARIABLE_LOCAL`. It cannot claim source-wide CFR/VFR, persist artifacts,
+  resume mapping, issue a proxy transform or mutate a project. Its decoder
+  `best_effort_timestamp` origin and parser guards remain recorded as
+  provisional policy in the evidence-debt register. The next implementation
+  remains the owner-bound private sidecar lifecycle, resumable mapper state
+  machine and terminal compare-and-set verifier.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute

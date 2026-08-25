@@ -9,8 +9,11 @@ existing `MEDIA_ASSETS` record.  Until that owner and its sidecar persistence
 exist, source PTS anchors remain technical evidence only and every precise
 source/proxy/timeline operation remains unavailable.
 
-This is a pre-implementation audit.  It adds no runtime, persistence field,
-deployment, worker dispatch, capability eligibility, ProjectService command or
+This began as a pre-implementation audit.  Commit `426d3d09a` now adds one
+pure, deterministic prerequisite: it verifies a *local* cadence-shard
+descriptor against an existing qualified source/version/technical observation
+binding.  It still adds no persistence field, deployment, worker dispatch,
+capability eligibility, ProjectService command, source-wide cadence result or
 long-form claim.
 
 ## Code-grounded current truth
@@ -108,22 +111,37 @@ probe response, Mongo document or browser tab carry an entire ten-hour media
 map.  Short media uses fewer shards; long media uses the same immutable source
 identity and resumable shard protocol rather than a different product profile.
 
-## First implementation gate
+## First implemented prerequisite and next implementation gate
 
-Before code is added, the shared design must specify and test the private
-sidecar storage port, mapper job state machine, chunk encoding, continuation
-and completion CAS.  The first code phase may introduce those owner-bound
-interfaces and deterministic sentinels; it must not call a large map
-"measured" until a real qualified source passes the full verifier.  It also
-must not modify ProjectService, generated compositions, overlays, captions,
-transitions, renderer behavior, user project data or the research-only
-long-form proxy.
+Commit `426d3d09a` introduces `MediaSourcePtsCadenceShardV1` as a pure
+verifier.  It binds one contiguous presentation-order shard to the existing
+source version, measured qualification/storage version, exact technical
+observation hash, selected video stream, reduced rational timebase, mapper
+identity/policy and timestamp origin.  PTS and duration ticks are lossless
+text parsed as `BigInt`; the verifier emits only `UNIFORM_LOCAL` or
+`VARIABLE_LOCAL` for that supplied shard.
+
+It deliberately cannot call a source `CFR`/`VFR`, persist a sidecar, resume
+work, write `MEDIA_ASSETS`, derive a proxy transform, bind ProjectService or
+make an operation eligible.  `FFPROBE_BEST_EFFORT_TIMESTAMP` is a
+decoder-derived candidate origin, not camera timecode.  Its 128-decimal-digit
+tick/ordinal guard and 256-character mapper-identity guard are defensive
+resource limits, not media-duration or format limits.
+
+The next code phase must specify and test the private sidecar storage port,
+mapper job state machine, chunk encoding, continuation and completion CAS.
+It must not call a large map "measured" until a real qualified source passes
+the full verifier.  It also must not modify ProjectService, generated
+compositions, overlays, captions, transitions, renderer behavior, user
+project data or the research-only long-form proxy.
 
 ## Verification boundary
 
-This audit was grounded against the current branch at `d4d3a9c7b`, including
-the signed qualification worker, `MEDIA_ASSETS` persistence, Modal probe,
-R2 adapter, proxy/master relation and legacy numeric frame projections.  It
-does not establish a deployed Modal endpoint, an R2 private-artifact policy,
-a PTS map, CFR/VFR support, source/proxy mapping, mixed-rate editing, long-form
-media processing or production certification.
+This audit was initially grounded against `d4d3a9c7b` and rechecked through
+the pure verifier commit `426d3d09a`, including the signed qualification
+worker, `MEDIA_ASSETS` persistence, Modal probe, R2 adapter, proxy/master
+relation and legacy numeric frame projections.  Ten focused verifier tests,
+TypeScript and repository ESLint pass for that commit.  It does not establish
+a deployed Modal endpoint, an R2 private-artifact policy, a persisted PTS map,
+source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
+long-form media processing or production certification.
