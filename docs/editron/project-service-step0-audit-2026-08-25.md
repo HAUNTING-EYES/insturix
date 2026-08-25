@@ -14,13 +14,30 @@ This audit precedes the bounded migration of a legacy project writer into
 | Diagnostic scan | The only console calls are an unauthorized-access warning and a failed project-link-cleanup error. Both describe live operational outcomes; neither is debug logging. |
 | Structural cleanup | No code cleanup was justified by the audit. No speculative deletion was made. |
 
+## Reissue: current branch truth
+
+The originally named Director-delivery-failure migration is complete on this
+branch. It is no longer the next writer boundary.
+
+A fresh complete source scan of `project-service.ts` and all internal worker
+route exports found:
+
+- no additional unused import, unused local, unused public contract or debug
+  log that can be removed safely;
+- no production missing-signing-key branch that invokes a raw internal-worker
+  handler; the four chat worker routes permit their raw handlers only under
+  `NODE_ENV === "test"` and otherwise return `503`; and
+- older module-time QStash wrappers still use inconsistent `500`/`503`
+  configuration responses. They are a deployment-observability consistency
+  concern, not evidence of a newly found production fail-open path.
+
 ## Next bounded migration
 
-`app/api/internal/workers/director/failure/route.ts` still writes project
-terminal state directly through MongoDB. The next slice will add one narrow
-ProjectService-owned Director delivery-failure command with revision/receipt
-semantics, while leaving the separate upload-batch write explicitly outside
-that command until its own owner is designed.
+The next safe ProjectService slice is the remaining direct single-overlay
+writer family: add, idempotent add and delete. It will make each successful
+write append a truthful range-effect receipt in the same revision-bound CAS.
+It will not claim generic range locking, generic safe rebase, durable artifact
+invalidation or a migration of whole-family/manual-state writers.
 
 ## Non-claims
 
