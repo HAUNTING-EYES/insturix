@@ -48,32 +48,44 @@ falling through to a raw handler. The newer dispatcher correction in
 when publisher/signing configuration is absent. Neither fact makes the writer
 safe.
 
-## Required migration shape (not implemented here)
+## ProjectService owner materialization (current branch; not wired)
 
-The next structural phase must be specific to pipeline-audio delivery. It must
-not wrap this route in a generic metadata writer or reuse the research planner.
-It needs a ProjectService-owned command that receives already-produced audio
-delivery material, validates a fresh expected revision and delivery identity,
-attaches only the declared overlays/facts through CAS, and returns a
-writer-issued revision/receipt.
+The next structural phase was kept specific to pipeline-audio delivery: it did
+not wrap the route in a generic metadata writer or reuse the research planner.
+`ProjectService.commitPipelineAudioDeliveryV1` now receives already-produced
+audio material, validates an expected project revision plus a planning visual-
+timeline binding and delivery identity, and makes one CAS-owned project write.
 
-- BGM/SFX deliveries need independent idempotency identities so both can land.
-- A BGM beat-alignment request must re-read current canonical state and
-  recompute from that state after a conflict; it must never write a stale full
-  overlay snapshot.
-- The command must return a scoped effect and an honest proof disposition.
-- Asset registration and best-effort warning persistence must be classified
-  separately; they must not be silently promoted into timeline authority.
-- The existing `addOverlayIfAbsent`, `commitMgRenderDelivery`, and
-  `replaceOverlayFamilyAtomic` methods are useful patterns, but none can be
-  adopted blindly: the first is single-overlay only, the second is MG-specific,
-  and the third replaces a whole overlay family.
+- BGM/SFX deliveries have independent `audio-delivery_*` idempotency identities
+  and a canonical hash of their full declared material. Reuse of the same ID
+  with changed material fails rather than replaying as success.
+- The planning binding includes the project timebase and non-audio overlay
+  identity/timing. A stale delivery can rebase only when the intervening change
+  is audio-only. Legacy timestamp drift and changed visual timeline material
+  fail closed.
+- A BGM delivery that loses CAS reloads current state, recomputes beat
+  alignment from that fresh state, and retries once. This preserves an
+  intervening SFX append instead of later replacing it with a stale array.
+- Each applied, skipped, or failed delivery gets one writer-issued revision,
+  bounded delivery receipt, changed-path record and explicit proof disposition.
+  An attached sound is `UNVERIFIABLE` until rendered audio/mix proof exists;
+  it is not called verified.
+- Warnings travel through the same command. Asset registration remains a
+  separately classified media-asset write, not project/timeline authority.
+
+Focused contract tests cover stable binding, fresh SFX delivery, exact replay,
+changed material, audio-only rebase, visual-change refusal, and BGM CAS retry
+preserving concurrent SFX. The owner and adjacent revision/save suites pass
+55/55, with repository typecheck and focused quiet ESLint passing.
+
+This is **owner materialization only**. The active worker route still writes
+`projects` directly, so there is no active writer migration claim yet.
 
 ## Non-claims and next proof
 
-This cleanup does not fix BGM/SFX concurrency, migrate beat alignment, repair
-the split beat-analysis callers, certify the audio mix, or complete the Stage
-1 writer audit. The next implementation phase must begin with a separately
-reviewed owner contract and adversarial tests for fresh delivery, duplicate
-delivery, BGM/SFX interleaving, stale revision, asset/warning failure, and
-zero-write blocked dispositions.
+This work does not wire the legacy route, repair the split beat-analysis
+callers, certify the audio mix, migrate media-asset registration, or complete
+the Stage 1 writer audit. The next bounded phase must replace raw project
+writes in the worker with this owner and prove the active signed ingress,
+warning outcomes, duplicate QStash delivery, asset/warning failure separation,
+and zero-write blocked dispositions.

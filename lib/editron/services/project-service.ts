@@ -51,6 +51,17 @@ import {
   type TimelineRangeCutResult,
   type TimelineRangeCutSplitChildV1,
 } from "./timeline-range-cut";
+import { ROW, alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
+import {
+  clonePipelineAudioCanonicalValueV1,
+  isPipelineAudioOverlayForKindV1,
+  pipelineAudioDeliveryMaterialHashV1,
+  preparePipelineAudioDeliveryOverlaysV1,
+  projectPipelineAudioTimelineBindingHashV1,
+  type PipelineAudioDeliveryBeatV1,
+  type PipelineAudioDeliveryKindV1,
+  type PipelineAudioDeliveryOutcomeV1,
+} from "./pipeline-audio-project-delivery-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -285,6 +296,74 @@ export interface ProjectMgRenderDeliveryCommitV1 {
   outcome: ProjectMgRenderDeliveryOutcomeV1;
 }
 
+/**
+ * A signed asynchronous audio worker supplies already-generated material.
+ * ProjectService alone decides whether it can land on the current project.
+ */
+export interface ProjectPipelineAudioDeliveryCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  planningTimelineBindingHash: string;
+  deliveryId: string;
+  kind: PipelineAudioDeliveryKindV1;
+  outcome: PipelineAudioDeliveryOutcomeV1;
+  overlays: Overlay[];
+  musicCoveragePlan?: unknown;
+  beatFrames?: readonly PipelineAudioDeliveryBeatV1[];
+  warnings?: readonly Record<string, unknown>[];
+}
+
+export type ProjectPipelineAudioDeliveryRebaseV1 =
+  | "FRESH"
+  | "SAFE_REBASED_AUDIO_ONLY"
+  | "WARNING_ONLY_REBASED";
+
+export interface ProjectPipelineAudioDeliveryReceiptV1 {
+  schemaVersion: 1;
+  deliveryId: string;
+  kind: PipelineAudioDeliveryKindV1;
+  outcome: PipelineAudioDeliveryOutcomeV1;
+  materialHash: string;
+  planningTimelineBindingHash: string;
+  beforeRevision: ProjectRevisionV1;
+  afterRevision: ProjectRevisionV1;
+  mutationReceipt: ProjectMutationReceiptV1;
+  rebase: ProjectPipelineAudioDeliveryRebaseV1;
+  attachedOverlayIds: readonly string[];
+  beatAlignment: {
+    snappedCount: number;
+    changedOverlayIds: readonly string[];
+    rejectedCount: number;
+  } | null;
+  changedPaths: readonly string[];
+  proof: {
+    required: boolean;
+    status: "UNVERIFIABLE" | null;
+    reason: string;
+  };
+  committedAt: string;
+}
+
+export type ProjectPipelineAudioDeliveryRebaseBlockReasonV1 =
+  | "TIMELINE_BINDING_CHANGED"
+  | "LEGACY_REVISION_DRIFT";
+
+export class ProjectPipelineAudioDeliveryRebaseBlockedError extends Error {
+  readonly code = "PROJECT_PIPELINE_AUDIO_DELIVERY_REBASE_BLOCKED";
+
+  constructor(
+    readonly currentRevision: ProjectRevisionV1,
+    readonly reason: ProjectPipelineAudioDeliveryRebaseBlockReasonV1,
+  ) {
+    super("Pipeline audio delivery cannot safely rebase: " + reason + ".");
+    this.name = "ProjectPipelineAudioDeliveryRebaseBlockedError";
+  }
+}
+
+export interface ProjectPipelineAudioDeliveryResultV1 {
+  disposition: "APPLIED" | "ALREADY_APPLIED";
+  deliveryReceipt: ProjectPipelineAudioDeliveryReceiptV1;
+}
+
 export interface CapturedProjectMutationReceiptsV1<T> {
   value: T;
   receipts: ProjectMutationReceiptV1[];
@@ -477,6 +556,8 @@ const TIMELINE_RANGE_CUT_LOCK_DEFAULT_TTL_MS = 2 * 60 * 1000;
 const TIMELINE_RANGE_CUT_LOCK_MIN_TTL_MS = 1_000;
 const TIMELINE_RANGE_CUT_LOCK_MAX_TTL_MS = 5 * 60 * 1000;
 const MAX_TIMELINE_RANGE_CUT_LOCK_RECORDS_V1 = 200;
+const MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1 = 200;
+const MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1 = 2;
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -591,6 +672,8 @@ export interface Project {
   generatedCompositions?: ProjectGeneratedCompositionEntryV1[];
   /** Bounded ProjectService-owned history for timeline-range reconciliation. */
   timelineRangeChangeReceipts?: ProjectTimelineRangeChangeReceiptV1[];
+  /** Bounded idempotency/receipt history for signed BGM and SFX worker deliveries. */
+  pipelineAudioDeliveryReceipts?: ProjectPipelineAudioDeliveryReceiptV1[];
   /** Bounded cut-specific coordination leases; no other command honors them yet. */
   timelineRangeCutLocks?: ProjectTimelineRangeCutLockV1[];
   lastAutosaveAt?: Date;
@@ -3133,6 +3216,196 @@ export class ProjectService {
   }
 
   /**
+   * Attach an already-generated BGM/SFX worker outcome through the canonical
+   * project revision owner. BGM alignment re-runs only against the current CAS
+   * snapshot, never against an earlier full-overlay read.
+   */
+  async commitPipelineAudioDeliveryV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineAudioDeliveryCommandV1,
+  ): Promise<ProjectPipelineAudioDeliveryResultV1> {
+    assertProjectPipelineAudioDeliveryCommandV1(input);
+    const materialHash = pipelineAudioDeliveryMaterialHashV1(input);
+    const preparedOverlays = preparePipelineAudioDeliveryOverlaysV1(input, materialHash)
+      .map((overlay) => ensureAtomicOverlayReceipt(overlay, {
+        source: "project-service-pipeline-audio-delivery",
+        intent: "persist-" + input.kind.toLowerCase(),
+        reason: "signed pipeline audio delivery attached through ProjectService",
+      }));
+    const canonicalWarnings = (input.warnings ?? []).map((warning) => (
+      clonePipelineAudioCanonicalValueV1(warning) as Record<string, unknown>
+    ));
+    const canonicalMusicCoveragePlan = input.musicCoveragePlan === undefined
+      ? undefined
+      : clonePipelineAudioCanonicalValueV1(input.musicCoveragePlan);
+    const requiresTimelineBinding = input.outcome === "ATTACHED"
+      || canonicalMusicCoveragePlan !== undefined;
+    const db = await getDatabase();
+
+    for (let attempt = 0; attempt < MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1; attempt++) {
+      const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+        { projectId, userId },
+      )) as Project | null;
+      if (!current) throw new ProjectNotFoundOrForbiddenError();
+
+      const existing = findPipelineAudioDeliveryReceiptV1(current, input.deliveryId);
+      if (existing) {
+        if (
+          existing.materialHash !== materialHash
+          || existing.kind !== input.kind
+          || existing.outcome !== input.outcome
+        ) {
+          throw new ProjectMutationWriteError(
+            "Pipeline audio delivery identity was reused with different material.",
+          );
+        }
+        return {
+          disposition: "ALREADY_APPLIED",
+          deliveryReceipt: structuredClone(existing),
+        };
+      }
+
+      const beforeRevision = projectRevisionFor(current);
+      const sameRevision = sameProjectRevisionV1(input.expectedRevision, beforeRevision);
+      const currentBindingHash = projectPipelineAudioTimelineBindingHashV1(current);
+      if (requiresTimelineBinding && !sameRevision) {
+        if (beforeRevision.value === input.expectedRevision.value) {
+          throw new ProjectPipelineAudioDeliveryRebaseBlockedError(
+            beforeRevision,
+            "LEGACY_REVISION_DRIFT",
+          );
+        }
+        if (currentBindingHash !== input.planningTimelineBindingHash) {
+          throw new ProjectPipelineAudioDeliveryRebaseBlockedError(
+            beforeRevision,
+            "TIMELINE_BINDING_CHANGED",
+          );
+        }
+      }
+
+      const rebase: ProjectPipelineAudioDeliveryRebaseV1 = sameRevision
+        ? "FRESH"
+        : requiresTimelineBinding
+          ? "SAFE_REBASED_AUDIO_ONLY"
+          : "WARNING_ONLY_REBASED";
+      const nextOverlays = structuredClone(current.overlays || []);
+      let beatAlignment: ProjectPipelineAudioDeliveryReceiptV1["beatAlignment"] = null;
+      if (input.outcome === "ATTACHED") {
+        nextOverlays.push(...preparedOverlays);
+        if (input.kind === "BGM" && input.beatFrames && input.beatFrames.length > 0) {
+          const alignment = alignCutsToBeatsWithEvidence(
+            nextOverlays,
+            [...input.beatFrames],
+            current.fps || 30,
+          );
+          beatAlignment = {
+            snappedCount: alignment.snappedCount,
+            changedOverlayIds: [...new Set(
+              alignment.changes.flatMap((change) => [
+                String(change.clipAId),
+                String(change.clipBId),
+                ...change.transitionOverlayIds.map(String),
+              ]),
+            )],
+            rejectedCount: alignment.rejections.length,
+          };
+        }
+      }
+
+      const committedAt = new Date();
+      const afterRevision: ProjectRevisionV1 = {
+        schemaVersion: 1,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      };
+      const mutationReceipt: ProjectMutationReceiptV1 = {
+        schemaVersion: 1,
+        projectId,
+        revision: afterRevision,
+        committedAt: committedAt.toISOString(),
+      };
+      const changedPaths = pipelineAudioDeliveryChangedPathsV1(
+        input,
+        canonicalWarnings.length,
+        canonicalMusicCoveragePlan !== undefined,
+      );
+      const deliveryReceipt: ProjectPipelineAudioDeliveryReceiptV1 = {
+        schemaVersion: 1,
+        deliveryId: input.deliveryId,
+        kind: input.kind,
+        outcome: input.outcome,
+        materialHash,
+        planningTimelineBindingHash: input.planningTimelineBindingHash,
+        beforeRevision,
+        afterRevision,
+        mutationReceipt,
+        rebase,
+        attachedOverlayIds: preparedOverlays.map((overlay) => String(overlay.id)),
+        beatAlignment,
+        changedPaths,
+        proof: input.outcome === "ATTACHED"
+          ? {
+            required: true,
+            status: "UNVERIFIABLE",
+            reason: "NO_RENDERED_AUDIO_OR_MIX_PROOF",
+          }
+          : {
+            required: false,
+            status: null,
+            reason: "NO_AUDIO_OVERLAY_ATTACHED",
+          },
+        committedAt: committedAt.toISOString(),
+      };
+      const push: Record<string, unknown> = {
+        pipelineAudioDeliveryReceipts: {
+          $each: [deliveryReceipt],
+          $slice: -MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1,
+        },
+      };
+      if (canonicalWarnings.length > 0) {
+        push.pipelineWarnings = { $each: canonicalWarnings };
+      }
+      const set: Record<string, unknown> = { updatedAt: committedAt };
+      if (input.outcome === "ATTACHED" && input.kind === "BGM") {
+        set.overlays = nextOverlays;
+      } else if (input.outcome === "ATTACHED") {
+        push.overlays = { $each: preparedOverlays };
+      }
+      if (canonicalMusicCoveragePlan !== undefined) {
+        set.musicCoveragePlan = canonicalMusicCoveragePlan;
+        set["intelligence.audio.musicCoveragePlan"] = canonicalMusicCoveragePlan;
+      }
+
+      const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        {
+          projectId,
+          userId,
+          "pipelineAudioDeliveryReceipts.deliveryId": { $ne: input.deliveryId },
+          ...projectRevisionPredicate(beforeRevision),
+        },
+        {
+          $set: set,
+          // Mongo's generic Document does not model validated dynamic $push
+          // fields. Keep the cast at this driver boundary only.
+          $push: push as never,
+          $inc: { projectRevision: 1 },
+        },
+      );
+      if (result.matchedCount === 1) {
+        if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+        this.publishMutationReceipt(mutationReceipt);
+        return { disposition: "APPLIED", deliveryReceipt };
+      }
+    }
+
+    throw new ProjectMutationConflictError(
+      await this.getProjectRevision(userId, projectId),
+      "Pipeline audio delivery lost the final compare-and-swap race.",
+    );
+  }
+
+  /**
    * Commit source-audio rights, any linked storyboard copies, and the project
    * timeline in one transaction. A stale project revision rolls back all
    * companion writes and returns no receipt.
@@ -3586,6 +3859,93 @@ function sameProjectRevisionV1(
   return left.schemaVersion === right.schemaVersion
     && left.value === right.value
     && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+function assertProjectPipelineAudioDeliveryCommandV1(
+  input: ProjectPipelineAudioDeliveryCommandV1,
+): void {
+  assertProjectRevision(input.expectedRevision);
+  if (
+    !/^audio-delivery_[A-Za-z0-9_-]{18}$/.test(input.deliveryId)
+    || !/^[a-f0-9]{64}$/.test(input.planningTimelineBindingHash)
+    || (input.kind !== "BGM" && input.kind !== "SFX")
+    || (input.outcome !== "ATTACHED" && input.outcome !== "SKIPPED" && input.outcome !== "FAILED")
+    || !Array.isArray(input.overlays)
+    || !Array.isArray(input.warnings ?? [])
+    || !Array.isArray(input.beatFrames ?? [])
+  ) {
+    throw new ProjectMutationWriteError("Pipeline audio delivery input is invalid.");
+  }
+  if (
+    input.warnings?.some((warning) => !isPlainRecord(warning))
+    || input.beatFrames?.some((beat) => (
+      !Number.isSafeInteger(beat.frame)
+      || beat.frame < 0
+      || typeof beat.isDownbeat !== "boolean"
+    ))
+  ) {
+    throw new ProjectMutationWriteError("Pipeline audio delivery evidence is invalid.");
+  }
+  const overlayIds = input.overlays.map((overlay) => String(overlay.id));
+  if (
+    new Set(overlayIds).size !== overlayIds.length
+    || input.overlays.some((overlay) => (
+      !isPipelineAudioOverlayForKindV1(overlay, input.kind)
+      || typeof (overlay as { assetId?: unknown }).assetId !== "string"
+      || !(overlay as { assetId?: string }).assetId?.trim()
+    ))
+    || (input.outcome === "ATTACHED" && input.overlays.length === 0)
+    || (input.outcome !== "ATTACHED" && input.overlays.length !== 0)
+    || (input.kind === "SFX" && (
+      input.musicCoveragePlan !== undefined
+      || (input.beatFrames?.length ?? 0) > 0
+    ))
+    || (input.kind === "BGM"
+      && input.outcome !== "FAILED"
+      && input.musicCoveragePlan === undefined)
+  ) {
+    throw new ProjectMutationWriteError("Pipeline audio delivery material is invalid.");
+  }
+  try {
+    if (input.musicCoveragePlan !== undefined) {
+      clonePipelineAudioCanonicalValueV1(input.musicCoveragePlan);
+    }
+    for (const warning of input.warnings ?? []) {
+      clonePipelineAudioCanonicalValueV1(warning);
+    }
+  } catch {
+    throw new ProjectMutationWriteError("Pipeline audio delivery material is not canonical JSON.");
+  }
+}
+
+function findPipelineAudioDeliveryReceiptV1(
+  project: Pick<Project, "pipelineAudioDeliveryReceipts">,
+  deliveryId: string,
+): ProjectPipelineAudioDeliveryReceiptV1 | null {
+  const receipts = project.pipelineAudioDeliveryReceipts;
+  if (receipts === undefined) return null;
+  if (!Array.isArray(receipts)) {
+    throw new ProjectMutationWriteError("Pipeline audio delivery receipt history is invalid.");
+  }
+  const matching = receipts.filter((receipt) => receipt?.deliveryId === deliveryId);
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError("Pipeline audio delivery identity is not unique.");
+  }
+  return matching[0] ?? null;
+}
+
+function pipelineAudioDeliveryChangedPathsV1(
+  input: ProjectPipelineAudioDeliveryCommandV1,
+  warningCount: number,
+  hasMusicCoveragePlan: boolean,
+): string[] {
+  const paths = ["pipelineAudioDeliveryReceipts"];
+  if (input.outcome === "ATTACHED") paths.push("overlays");
+  if (warningCount > 0) paths.push("pipelineWarnings");
+  if (hasMusicCoveragePlan) {
+    paths.push("musicCoveragePlan", "intelligence.audio.musicCoveragePlan");
+  }
+  return paths;
 }
 
 function assertProjectDirectorDeliveryFailureCommandV1(

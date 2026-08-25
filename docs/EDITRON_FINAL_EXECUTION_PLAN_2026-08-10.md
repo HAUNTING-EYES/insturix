@@ -104,11 +104,15 @@ changes.
   No Stage 2.5 paid dispatch is authorized by this audit.
 - The next legacy writer is the pipeline-audio worker. Commit `6382641ce`
   already makes its production dispatch fail closed when QStash publisher or
-  signing configuration is absent; it does **not** migrate the worker's raw
-  BGM/SFX project writes. The required Step-0 audit is recorded in
-  [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md): its BGM full-array beat-alignment write can lose an intervening
-  SFX append. The next bounded phase is a specific ProjectService audio-delivery
-  owner and adversarial concurrency proof, not a generic worker wrapper.
+  signing configuration is absent. The current branch now materializes the
+  narrow `ProjectService.commitPipelineAudioDeliveryV1` owner described in
+  [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md): it has exact delivery-material idempotency, a non-audio timeline
+  binding, audio-only safe rebase, BGM fresh-snapshot CAS retry, writer-issued
+  receipt, and explicit `UNVERIFIABLE` attached-audio proof. Its focused owner
+  and adjacent revision/save suites pass 55/55 with repository typecheck and
+  focused quiet ESLint. This is `NOT_WIRED`: the active worker still performs
+  raw BGM/SFX project writes. The next bounded phase is its ingress migration
+  and active-path adversarial proof, not a generic worker wrapper.
 
 ## The desired experience, in plain words
 
