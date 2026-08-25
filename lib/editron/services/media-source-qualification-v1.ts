@@ -3,6 +3,9 @@ import type {
   MediaSourceProbeResultV1,
   MediaSourceTechnicalObservationV1,
 } from './media-source-probe-v1';
+import type { MediaSourceStorageLocatorV1 } from './media-source-storage-version-v1';
+
+export type { MediaSourceStorageLocatorV1 } from './media-source-storage-version-v1';
 
 /**
  * Embedded lifecycle for one measured source technical observation.
@@ -14,11 +17,6 @@ import type {
  */
 export const MEDIA_SOURCE_QUALIFICATION_VERSION_V1 =
   'EDITRON_MEDIA_SOURCE_QUALIFICATION_V1' as const;
-
-export type MediaSourceStorageLocatorV1 = {
-  provider: 'R2' | 'GCS';
-  objectKey: string;
-};
 
 export type MediaSourceQualificationStatusV1 =
   | 'PENDING'

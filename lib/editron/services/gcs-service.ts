@@ -223,14 +223,29 @@ export async function fileExists(gcsPath: string): Promise<boolean> {
  * callers fail open on null. GCS reports `size` as a string, so it is parsed here.
  */
 export async function getGcsObjectSize(gcsPath: string): Promise<number | null> {
+  return (await readGcsObjectVersionObservationV1(gcsPath))?.byteLength ?? null;
+}
+
+/**
+ * Reads GCS's immutable object generation with its actual byte length. The
+ * generation is provider metadata, not an Editron byte digest or canonical
+ * media identity. Null remains an explicit unavailable result.
+ */
+export async function readGcsObjectVersionObservationV1(
+  gcsPath: string,
+): Promise<{ byteLength: number; generation: string } | null> {
   try {
     const blob = bucket.file(gcsPath);
     const [metadata] = await blob.getMetadata();
     const raw = metadata.size;
-    const size = typeof raw === 'string' ? parseInt(raw, 10) : raw;
-    return typeof size === 'number' && !Number.isNaN(size) ? size : null;
+    const byteLength = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+    const generation = typeof metadata.generation === 'string'
+      ? metadata.generation.trim()
+      : '';
+    if (!Number.isSafeInteger(byteLength) || byteLength <= 0 || !generation) return null;
+    return { byteLength, generation };
   } catch (err: unknown) {
-    console.warn('[GCS] getGcsObjectSize failed:', err instanceof Error ? err.message : err);
+    console.warn('[GCS] object-version observation failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }
