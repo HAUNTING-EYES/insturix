@@ -345,15 +345,17 @@ changes.
   the active claim, exact candidate and hash-bound full-verifier receipt; it
   still cannot perform that verification or promote a source to CFR/VFR. Both
   contracts fail closed for tampering, gaps, stale claims or public keys.
-  Commit pending after the current verification pass adds only an injectable
-  R2 sidecar codec/port: it canonicalizes map-bound shard/manifest bytes,
+  Commit `173432a4c` adds only an injectable R2 sidecar codec/port: it
+  canonicalizes map-bound shard/manifest bytes,
   conditionally writes with `If-None-Match: *`, and reads the exact bytes back
   on both first write and retry. Its factory requires an explicit
   `NO_BROWSER_ROUTE` storage declaration and rejects the known `editron-cdn`
-  public bucket. That declaration is not access control or deployment proof:
-  the checked-in CDN worker currently serves arbitrary keys, so this port is
-  unwired and no deployed-private-storage claim is permitted until the worker
-  route and bucket binding are hardened and verified. There is still no
+  public bucket. That declaration is not access control or deployment proof.
+  The next checked-in worker hardening rejects the reserved `private/`
+  namespace (including encoded keys) before calling R2 and refuses non-read
+  methods; source-level tests prove that denial only. This port remains
+  unwired and no deployed-private-storage claim is permitted until the deployed
+  worker route and its bound bucket are verified. There is still no
   `MEDIA_ASSETS` field, worker, database compare-and-set or terminal map
   result. The next runtime implementation remains that existing-media-owner
   private port and source-version-bound claim/checkpoint/terminal CAS verifier.

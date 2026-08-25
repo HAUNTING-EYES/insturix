@@ -25,6 +25,12 @@ export default {
         headers: corsHeaders,
       });
     }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+      });
+    }
 
     try {
       const url = new URL(request.url);
@@ -46,6 +52,20 @@ export default {
       if (!r2Key || r2Key === '/') {
         return new Response('Missing asset key', {
           status: 400,
+          headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+        });
+      }
+      try {
+        r2Key = decodeURIComponent(r2Key);
+      } catch {
+        return new Response('Malformed asset key', {
+          status: 400,
+          headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+        });
+      }
+      if (isPrivateR2Key(r2Key)) {
+        return new Response('Private asset namespace', {
+          status: 403,
           headers: { 'Content-Type': 'text/plain', ...corsHeaders },
         });
       }
@@ -80,3 +100,9 @@ export default {
     }
   },
 };
+
+function isPrivateR2Key(r2Key) {
+  const withoutLeadingSeparators = r2Key.replace(/^[/\\]+/, '');
+  return withoutLeadingSeparators === 'private'
+    || withoutLeadingSeparators.startsWith('private/');
+}
