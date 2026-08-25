@@ -23,7 +23,7 @@ long-form claim.
 | Immutable byte source | `runMediaSourceQualificationWorkerV1` reads the existing `MEDIA_ASSETS` row, observes storage before/after a complete server byte hash, then CAS-writes `sourceVersionV1` on that same row. | A source version is bound to one unchanged provider object and full-byte digest. | Frame presentation order, cadence, source-time ranges, proxy mapping or project eligibility. |
 | Stream technical observation | `modal/media_source_probe.py` runs `ffprobe -show_format -show_streams`; `media-source-probe-v1.ts` parses a bounded report. | Per-stream rational timebase plus nullable exact-text `start_pts` and `duration_ts`. | A frame PTS map or CFR/VFR result. Stream rate labels are not enough. |
 | Existing proxy/master relationship | `MediaProxyMasterRelationV1`, persisted only after a qualified master promotion. | Exact proxy/master source-version identities and invalidation intent. | Its mapping is deliberately `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`. |
-| Existing storage adapter | `r2-service.ts` can server-read object versions and issue short-lived read URLs. The normal upload helper deliberately creates browser-facing media object URLs. | Server-side object access for the existing media owner. | A private, chunked, hash-addressed derivative-artifact lifecycle. |
+| Existing storage adapter | `r2-service.ts` remains browser-media oriented. Commit `173432a4c` adds an unwired injectable R2 sidecar codec/port that requires a declared no-browser-route bucket and conditionally writes/verifies exact bytes. Commit `f7da79e32` reserves `private/` in the checked-in browser worker. | Deterministic sidecar bytes plus source-level CDN denial for that namespace. | A deployed private bucket/worker binding, asset lifecycle persistence, a mapper worker or a source map. |
 | Current qualification delivery | `app/api/internal/workers/media-source-qualification/route.ts` is signed and capped at 180 seconds. | Bounded source qualification work. | Ten-hour mapping, resumable frame indexing or a durable shard owner. |
 | Current legacy frame projection | `edited-timeline-context.ts` and `brief-executor.ts` use numeric project/source frame arithmetic. | Historical feature-specific frame mapping. | Source-version identity, PTS, VFR, proxy transform, receipt, or canonical authority. |
 
@@ -145,24 +145,36 @@ only a future private-sidecar reader and complete-coverage verifier may issue
 that input through the existing media owner's one compare-and-set transition.
 It remains neither a CFR/VFR conclusion nor a source/proxy mapping result.
 
-This is still a pure contract: there is no private R2/GCS adapter, actual
-sidecar byte write/read, `MEDIA_ASSETS` field, mapper worker, claim CAS,
+Commit `173432a4c` adds the next bounded adapter layer: canonical map-bound
+shard/manifest serialization and an injected server-only R2 port. It makes a
+conditional `If-None-Match: *` write, then checks the exact bounded stored
+bytes and SHA-256 both after the first write and after an already-present retry.
+It rejects the known public `editron-cdn` bucket and requires a deployment-owned
+`NO_BROWSER_ROUTE` declaration. That declaration alone is not security.
+Commit `f7da79e32` additionally makes the checked-in Clickatron worker reject
+raw and URL-encoded `private/` keys before R2 access, and reject non-read
+methods. Its test proves source behavior only; the deployed worker/bucket
+binding remains unverified.
+
+There is still no `MEDIA_ASSETS` field, mapper worker, claim CAS,
 complete-manifest verifier or terminal map persistence. It intentionally
 cannot call a large map "measured" until a real qualified source passes the
 full verifier. The next runtime phase is therefore the existing media owner's
-private artifact port and source-version-bound claim/checkpoint/terminal CAS,
-not a ProjectService, generated-composition, overlay, caption, transition,
-renderer, user-data or research-proxy change.
+source-version-bound claim/checkpoint/terminal CAS, not a ProjectService,
+generated-composition, overlay, caption, transition, renderer, user-data or
+research-proxy change.
 
 ## Verification boundary
 
 This audit was initially grounded against `d4d3a9c7b` and rechecked through
-the pure verifier commit `426d3d09a` and lifecycle-contract commit
-`bece283e3` plus terminal-contract correction `ff27d6da6`, including the
+the pure verifier commit `426d3d09a`, lifecycle-contract commit `bece283e3`,
+terminal-contract correction `ff27d6da6`, guarded private-sidecar adapter
+`173432a4c` and source worker hardening `f7da79e32`, including the
 signed qualification worker, `MEDIA_ASSETS`
 persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
-frame projections. Twenty focused shard/lifecycle tests, TypeScript and
-repository ESLint pass for those commits. It does not establish a deployed
-Modal endpoint, an R2 private-artifact policy, a persisted PTS map,
+frame projections. Twenty-four focused shard/lifecycle/sidecar tests plus four
+worker denial tests, TypeScript and repository ESLint pass for those commits.
+It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
+a deployed worker/bucket binding, a persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
 long-form media processing or production certification.

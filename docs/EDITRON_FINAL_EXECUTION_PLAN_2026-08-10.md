@@ -351,9 +351,9 @@ changes.
   on both first write and retry. Its factory requires an explicit
   `NO_BROWSER_ROUTE` storage declaration and rejects the known `editron-cdn`
   public bucket. That declaration is not access control or deployment proof.
-  The next checked-in worker hardening rejects the reserved `private/`
-  namespace (including encoded keys) before calling R2 and refuses non-read
-  methods; source-level tests prove that denial only. This port remains
+  Commit `f7da79e32` hardens the checked-in worker to reject the reserved
+  `private/` namespace (including encoded keys) before calling R2 and refuse
+  non-read methods; source-level tests prove that denial only. This port remains
   unwired and no deployed-private-storage claim is permitted until the deployed
   worker route and its bound bucket are verified. There is still no
   `MEDIA_ASSETS` field, worker, database compare-and-set or terminal map
