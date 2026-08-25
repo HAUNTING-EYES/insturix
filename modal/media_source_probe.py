@@ -13,22 +13,24 @@ lib/editron/services/media-source-probe-v1.ts
 
 from __future__ import annotations
 
-import ipaddress
 import json
-import os
 import re
-import socket
-from urllib.parse import urlparse
 
 import modal
 
+from media_source_url_policy import is_allowed_media_source_url
+
 
 app = modal.App("editron-media-source-probe")
-image = modal.Image.debian_slim(python_version="3.11").apt_install("ffmpeg").pip_install("fastapi[standard]")
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg")
+    .pip_install("fastapi[standard]")
+    .add_local_python_source("media_source_url_policy")
+)
 
 PROBE_VERSION = "EDITRON_MEDIA_SOURCE_PROBE_V1"
 PROBE_TIMEOUT_SECONDS = 120
-DEFAULT_ALLOWED_HOST_SUFFIXES = (".r2.cloudflarestorage.com", "storage.googleapis.com")
 STREAM_KEYS = (
     "index", "codec_type", "codec_name", "width", "height", "pix_fmt",
     "time_base", "start_pts", "duration_ts", "avg_frame_rate", "r_frame_rate", "nb_frames",
@@ -59,7 +61,10 @@ class MediaSourceProbe:
 
         started = time.monotonic()
         source_url = request.get("source_url")
-        if not isinstance(source_url, str) or not _is_allowed_source_url(source_url):
+        if not is_allowed_media_source_url(
+            source_url,
+            "EDITRON_MEDIA_PROBE_ALLOWED_HOST_SUFFIXES",
+        ):
             return {"ok": False, "error": "SOURCE_URL_NOT_ALLOWED"}
 
         try:
@@ -124,30 +129,3 @@ def _signed_integer_text(value: object) -> str | None:
 def _non_negative_integer_text(value: object) -> str | None:
     candidate = _signed_integer_text(value)
     return candidate if candidate is not None and not candidate.startswith("-") else None
-
-
-def _is_allowed_source_url(value: str) -> bool:
-    """Reject local/private targets; accept only known storage hosts plus operator additions."""
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        return False
-
-    hostname = parsed.hostname.lower().rstrip(".")
-    suffixes = set(DEFAULT_ALLOWED_HOST_SUFFIXES)
-    suffixes.update(
-        entry.strip().lower().lstrip(".")
-        for entry in os.getenv("EDITRON_MEDIA_PROBE_ALLOWED_HOST_SUFFIXES", "").split(",")
-        if entry.strip()
-    )
-    if not any(hostname == suffix.lstrip(".") or hostname.endswith(suffix if suffix.startswith(".") else f".{suffix}") for suffix in suffixes):
-        return False
-
-    try:
-        addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return False
-    for address in addresses:
-        candidate = ipaddress.ip_address(address[4][0])
-        if candidate.is_private or candidate.is_loopback or candidate.is_link_local or candidate.is_reserved:
-            return False
-    return True
