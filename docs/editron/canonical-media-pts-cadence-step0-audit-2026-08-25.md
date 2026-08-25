@@ -191,14 +191,30 @@ Commit `650d46b82` adds a pure qualified-source coverage decision over that
 result: exact source/stream/mapper binding plus exact qualified start/end PTS
 coverage is required before it calls the observed result `CFR` or `VFR`.
 Partial indexes, forged coverage and another map binding remain
-`UNVERIFIABLE`. Both are injected-reader contracts only; neither establishes a
-storage reader, V2 state owner or terminal map record.
+`UNVERIFIABLE`. At that point both were injected-reader contracts only.
 
-There is still no mapper worker, persistent V2 source-coverage state or
-terminal map persistence. It intentionally cannot call a large map "measured"
-until a real qualified source passes the full verifier through an actual
-storage-owner reader. The next runtime phase is source-version-bound
-claim/checkpoint/terminal work, not a ProjectService,
+Commit `981b5f903` adds the first V2 `MEDIA_ASSETS` state owner. One V2 asset
+envelope embeds the existing V1 lease/checkpoint lifecycle rather than
+persisting a second V1 authority. Each checkpoint binds a content-addressed V2
+manifest index, requires it to extend the previous immutable index, rereads the
+stored index and every indexed frame batch, and only then advances the embedded
+lifecycle. Terminal `CFR` or `VFR` additionally requires exact qualified-source
+coverage plus reread of the V1 lifecycle manifest; the terminal receipt binds
+the source range, index verification, lifecycle completion and verifier
+version. The matching Mongo adapter writes only the existing `MEDIA_ASSETS`
+record through source/qualification-bound compare-and-set and rejects a
+parallel persisted V1 pair, malformed current state, stale expectation,
+changed source or lost race. Lease time is sampled after asynchronous evidence
+reads so a slow verification cannot complete under an expired claim.
+
+This is a real state/CAS owner but remains deliberately **unwired**. There is
+still no V2 private-artifact writer/deployed reader, continuous presentation-
+order scanner, signed durable mapper job, source-replacement clearing of the
+new V2 pair, live Atlas/private-bucket proof, source/proxy transform,
+ProjectService consumer or product source-time permission. Until those exist,
+no runtime caller may treat the optional V2 fields as a usable map. The next
+bounded phase is the private V2 artifact port plus complete V2 invalidation on
+the already-audited source-replacement writers; it is not a ProjectService,
 generated-composition, overlay, caption, transition, renderer, user-data or
 research-proxy change.
 
@@ -230,7 +246,10 @@ persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
 frame projections. Fifty-two focused shard/lifecycle/sidecar/asset-state/CAS,
 qualification, proxy-promotion and worker-denial tests, TypeScript and
 repository ESLint pass for those commits.
+Commit `981b5f903` adds a further 5 adversarial V2 owner cases; the complete
+focused V1/V2 PTS chain passes 38/38, with repository TypeScript and quiet
+ESLint passing at that commit.
 It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
-a deployed worker/bucket binding, a persisted PTS map,
+a deployed worker/bucket binding, an invoked mapper or live persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
 long-form media processing or production certification.
