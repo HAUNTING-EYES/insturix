@@ -160,8 +160,9 @@ changes.
   QStash-publication recovery, or its Director pending-field clear/unsigned
   downstream handoff; those remain the next pipeline-video P0 design/migration.
 
-- **2026-08-25 pipeline-video ProjectService owner contract — not wired.**
-  Commits `3d4852e46` and `6ea12538a` create the narrowly typed
+- **2026-08-25 pipeline-video ProjectService delivery migration — overlay
+  replacement only.** Commits `3d4852e46`, `6ea12538a` and `f1a0d3078` create
+  and wire the narrowly typed
   `commitPipelineVideoDeliveryV1` path: one stable target overlay ID plus
   expected prior asset, exact expected revision, canonical delivery material,
   idempotency/material hash, writer-issued after-revision, exact local range
@@ -171,11 +172,14 @@ changes.
   source asset; target mutation, retyping, absence, duplicate-material misuse
   and a second CAS loss remain explicit no-write conflicts. It also refuses
   unproven native audio, while preserving the truthful no-native-audio/no-
-  receipt provider case. Focused ProjectService delivery/range coverage passed
-  27/27, with repository
-  typecheck and quiet ESLint passing. This is **shared owner plumbing only**:
-  the live video worker still has its raw project update and does not call the
-  command; quality-warning persistence and Director dispatch are not included.
+  receipt provider case. The producer now resolves one numeric target from one
+  ProjectService snapshot before credits; missing/ambiguous targets stop before
+  charge, while initial/pre-finalize generation has no project target. The
+  worker registers media in its existing owner and calls the command; it records
+  `APPLIED`, `ALREADY_APPLIED`, or explicit `CONFLICT` on the job and has no raw
+  overlay replacement fallback. Focused target/wiring, delivery, cost and batch
+  coverage passed 17/17, with repository typecheck and quiet ESLint passing.
+  Quality-warning persistence and Director dispatch are not included.
 
 ## The desired experience, in plain words
 

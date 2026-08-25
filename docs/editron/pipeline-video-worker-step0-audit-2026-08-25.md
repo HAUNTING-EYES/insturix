@@ -29,7 +29,7 @@ removed separately without changing behavior. Its operational `console` logs
 remain intact because they describe provider work, delivery, quality and
 failure states.
 
-## Current write and dispatch trace
+## Historical pre-migration write and dispatch trace
 
 ```text
 browser or chat regeneration request
@@ -93,7 +93,7 @@ signed delivery.
 
 | Concern | Classification | Why |
 | --- | --- | --- |
-| Generated-video overlay replacement | P0 stale/concurrent project write | It mutates a live timeline overlay outside ProjectService CAS/receipt semantics. |
+| Generated-video overlay replacement | **Closed by `f1a0d3078`** | The producer now snapshots exactly one overlay ID, expected asset and ProjectService revision before credits; the worker delegates delivery to `commitPipelineVideoDeliveryV1` and stores an explicit outcome. |
 | Low-quality warning append | Separate derived-evidence ownership question | It is a project-visible fact but has no revision/receipt boundary. It must not be silently bundled with overlay replacement. |
 | Public `body.userId` fallback | **Closed in bounded ingress slice `938d441b2`** | Browser calls remain Clerk-scoped. A no-session caller now needs a fresh HMAC bound to this action and the exact raw body; an arbitrary external identity is rejected. |
 | Video enqueue without QStash configuration | **Closed in bounded ingress slice `938d441b2`** | Outside development, the route checks the publisher token and both worker verification keys before credits, batch records or a claimed queue response. |
@@ -159,7 +159,7 @@ stays its existing ProjectService owner. This command must not create a second
 project store, checkpoint store, timeline, registry, dispatcher or proof
 authority.
 
-### Completed owner-contract phase — not runtime migration
+### Completed owner-contract phase
 
 Commit `3d4852e46`, corrected by `6ea12538a`, introduces the narrow
 `ProjectService.commitPipelineVideoDeliveryV1` boundary and pure delivery
@@ -184,26 +184,46 @@ generation receipt can land only with both fields absent; the command does not
 invent provenance.
 
 Focused ProjectService delivery/range tests passed 27/27, followed by
-repository typecheck and quiet ESLint. This commit **does not call the command
-from the worker**, does not remove the raw worker write, and does not migrate
-quality warnings or Director dispatch. Those remain the next separately tested
-runtime phases.
+repository typecheck and quiet ESLint. At this point the contract itself was
+not yet connected to the worker.
+
+### Completed runtime migration — exact video overlay only
+
+Commit `f1a0d3078` connects the owner without creating another project or
+timeline authority. Before a credit charge, the producer resolves each existing
+storyboard asset to exactly one numeric video overlay in a single
+`ProjectService.loadProjectForMutation` snapshot. Missing, ambiguous or
+non-numeric existing targets return `409` before charge or enqueue. Initial
+generation with no prior asset and pre-finalize/legacy storyboard IDs continue
+without a project-delivery target because the later finalize path owns
+insertion.
+
+The signed worker payload carries the project ID, snapshot revision, exact
+overlay/asset target and deterministic delivery ID. After generation it keeps
+media-assets registration in its existing owner, then calls
+`commitPipelineVideoDeliveryV1`; it never reads the storyboard to rediscover a
+target and contains no raw `overlays.$` replacement or retry. `APPLIED`,
+`ALREADY_APPLIED`, and `CONFLICT` outcomes are persisted on the video job and
+returned to the worker caller. An unexpected owner failure fails the job; a
+target conflict cannot silently claim project delivery succeeded.
+
+Focused target/wiring, delivery, cost and batch suites passed 17/17, followed
+by repository typecheck and quiet ESLint. This migration does **not** move the
+low-quality warning append or Director pending-field clear/dispatch.
 
 ## Sequencing and non-claims
 
-The next implementation must materialize the already-designed stable overlay
-id, expected source binding and expected revision at the worker producer, then
-make the worker call the owner command instead of the raw update. It must also
-locate the current durable dispatch/claim record before choosing whether a
-failed publication is represented on the project, batch, or existing Director
-run owner. Deleting the fallback alone is not sufficient because it would leave
-the cleared pending fields unrecoverable.
+The next implementation must locate the current durable dispatch/claim record
+before choosing whether a failed Director publication is represented on the
+project, batch, or existing Director-run owner. Deleting that fallback alone is
+not sufficient because it would leave the cleared pending fields unrecoverable.
 
 The completed producer ingress phase is independent because it has one public
 authorization owner and one existing queue/credit owner. It is not a
 replacement for the later narrow ProjectService video-delivery command.
 
 This audit does not claim that every worker or every legacy project writer is
-now accounted for. It does not certify ProjectService range locks/rebase,
+now accounted for. It does not certify generic ProjectService range locks/safe
+rebase,
 rational media timebases, generated-composition execution, audio mix proof,
 long-form processing, or Stage 2.5 readiness.
