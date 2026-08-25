@@ -12,7 +12,7 @@ Analyzes audio for music characteristics using Essentia:
   - duration_ms: total audio duration
 
 Endpoint: POST https://jainnimit728--music-analysis-essentia-analyzer-analyze.modal.run
-Auth:     Token {MODAL_TOKEN_ID}:{MODAL_TOKEN_SECRET}
+Auth:     Modal proxy authentication (Modal-Key / Modal-Secret)
 Consumer: lib/editron/services/music-analysis-service.ts → director-agent.ts
 
 Deploy:   modal deploy modal/music_analysis_essentia.py
@@ -68,7 +68,7 @@ class EssentiaAnalyzer:
 
         self.es = es
 
-    @modal.fastapi_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
     def analyze(self, request: dict):
         import time
         import numpy as np
