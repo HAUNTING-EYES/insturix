@@ -148,6 +148,14 @@ changes.
   public upload route has been changed yet. The exact boundary is
   [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
 
+- **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
+  source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
+  lifecycle as an optional field on the existing `MediaAsset` type. It accepts
+  only a server-owned R2 key or GCS path for a user upload and binds claims to
+  `(assetId, provider, objectKey)`. It is not live ingress/worker wiring, a
+  byte/source-version identity, a proxy mapping, a ProjectService command, or
+  a source-qualified production claim.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
