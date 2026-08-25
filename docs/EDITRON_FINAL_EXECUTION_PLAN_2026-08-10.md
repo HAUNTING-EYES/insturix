@@ -153,7 +153,12 @@ changes.
   `Modal-Secret`. Generic `MODAL_TOKEN_*` values and a custom `Authorization`
   header are not treated as endpoint authorization. No deployment or
   environment configuration occurred; absent proxy credentials remain
-  `UNVERIFIABLE`.
+  `UNVERIFIABLE`. Commit `b96253b52` then extracts that dedicated credential
+  reader and `Modal-Key`/`Modal-Secret` header construction into the bounded
+  `modal-proxy-auth-v1.ts` owner, while preserving the source-probe public
+  configuration constants. This is shared security plumbing only: it does not
+  authenticate another endpoint, deploy anything, or close the remaining
+  worker-auth audit.
 
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`

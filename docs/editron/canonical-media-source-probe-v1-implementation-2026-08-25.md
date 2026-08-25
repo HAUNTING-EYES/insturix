@@ -49,6 +49,14 @@ reads. Missing queue/probe configuration, unavailable provider metadata, or an
 object changed during the probe remains explicitly pending/unverifiable; no
 unsigned or inline fallback exists.
 
+Commit `b96253b52` moves only the dedicated proxy-credential read and header
+construction into `modal-proxy-auth-v1.ts`. The source probe re-exports its
+existing public environment-name constants, so this extraction does not change
+the endpoint, credential names, observation protocol, or source qualification
+scope. Other legacy Modal callers remain separately unremediated until each
+endpoint and caller have been audited and migrated in a bounded fail-closed
+slice.
+
 No project/timeline, renderer, analysis, or UI consumer treats this observation
 as a qualified source yet.
 
