@@ -22,6 +22,10 @@ import {
   assertCap2CurrentTruthSourcesMatchV9,
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v9';
+import {
+  assertCap2CurrentTruthSourcesMatchV10,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v10';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -71,7 +75,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves historical bindings while V9 owns current source verification', () => {
+  it('preserves historical bindings while V10 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
@@ -92,7 +96,14 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       artifactType: 'EditronCapabilityCurrentTruthReissueAuditV8',
       manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.manifestHash,
     });
-    expect(() => assertCap2CurrentTruthSourcesMatchV9()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV9()).toThrow(
+      'CAP-2 v9 current source coverage drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.priorAuditBinding).toMatchObject({
+      artifactType: 'EditronCapabilityCurrentTruthReissueAuditV9',
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V9.manifestHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV10()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -174,6 +185,24 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       .toBe('WHOLE_STATE_STALE_SNAPSHOT_RISK');
     expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V8.semanticDelta).toMatchObject({
       deltaId: 'core.chat-cut-caller-pinned-project-cas',
+      catalogPromotion: false,
+    });
+  });
+
+  it('records Director lease cleanup as a token-bound receipt writer without calling it a range lock', () => {
+    const projectService = readSource('lib/editron/services/project-service.ts');
+    const releaseStart = projectService.indexOf('async releaseDirectorMutationLease(');
+    const releaseEnd = projectService.indexOf('/**', releaseStart);
+    const releaseBody = projectService.slice(releaseStart, releaseEnd);
+
+    expect(releaseBody).toContain('findOneAndUpdate(');
+    expect(releaseBody).toContain('directorLock: true');
+    expect(releaseBody).toContain('directorLockToken: leaseId');
+    expect(releaseBody).toContain('$inc: { projectRevision: 1 }');
+    expect(releaseBody).toContain('this.publishMutationReceipt(receipt)');
+    expect(releaseBody).toContain('LEASE_NOT_OWNED_OR_PROJECT_NOT_FOUND');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V10.semanticDelta).toMatchObject({
+      deltaId: 'core.director-lease-release-writer-receipt',
       catalogPromotion: false,
     });
   });

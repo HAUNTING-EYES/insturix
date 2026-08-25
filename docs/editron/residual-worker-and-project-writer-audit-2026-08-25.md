@@ -5,8 +5,9 @@ Status: `CURRENT_SOURCE_AUDIT_COMPLETE`; publisher-config closeout is commit
 `0a12c798d`, the source-bound Video Analysis duration-owner migration is
 commit `13d02b5c0`, the generic duration compatibility bridge is narrowed and
 receipt-bearing at `d8e61f060`, and the finalizer synchronous-BGM owner
-migration is in the current branch. Remaining rows are current residual
-writers, not a claim that their families have been migrated.
+migration is in the current branch. Commit `a20f052a9` makes the Director
+failure/cancellation lease cleanup receipt-bearing. Remaining rows are current
+residual writers, not a claim that their families have been migrated.
 
 ## Scope and method
 
@@ -129,6 +130,7 @@ mix proof.
 | Closed P1-4a | Chat `reframe_project` in `chat-visual-tools.ts`. | Commit `7b190ae90` carries the revision from `loadProjectForMutation` into one `saveProjectWithReceipt` CAS for the canvas/overlay mutation and its audit path. | It remains a whole-project operation without range-scoped effects, rebase, undo/replay or rendered proof. | A stale snapshot cannot now commit the reframe or leave a separate audit write behind. |
 | Closed P1-4b | Raw generic duration update through `ProjectService.updateProject`. | Commit `d8e61f060` narrows the helper to one exact `durationInFrames` assertion and delegates it to `reconcileProjectDurationFromOverlaysV1`. The owner derives exact current overlay extent and commits one revision- and `updatedAt`-bound receipt-bearing CAS. | It is a compatibility bridge only, not a generic project-update authority or complete collaboration model. | The former raw duration overwrite is closed: stale asserted duration and CAS loss fail without a write. |
 | P1-4c | Direct duration bridge callers in `agent/tools.ts` and `auto-edit-service.ts`. | Both reach the new ProjectService duration owner through the temporary bridge. | They still provide no actor provenance, do not consume its receipt, and Auto Edit remains a delete/add multi-write sequence; the reconciliation receipt has no materialized invalidation chain and conservatively blocks cut rebase. | Lower than the former raw generic write, but not a completed command/rebase/atomic Auto Edit migration. |
+| Closed P1-4d | Director failure/cancellation lease cleanup in `ProjectService.releaseDirectorMutationLease`. | Commit `a20f052a9` atomically matches the active exact lease token, clears it, advances `projectRevision` and `updatedAt`, and publishes/returns a writer-issued receipt; an old or absent token is an explicit no-write result. | It is a short coordination lease, not a generic range lock, safe-rebase/undo owner or Director-fact migration. The current cleanup caller does not expose the receipt. | The previous raw token-only cleanup can no longer clear a newer active lease or succeed without a writer revision/receipt. |
 
 The `tribeLockAt` claim is a workflow lease, not a timeline mutation. Credits,
 refunds, upload-batch aggregation and media-asset registration likewise retain
@@ -160,18 +162,22 @@ command merely to reduce the table count.
    ProjectService owner derives current overlay extent and writes it through
    one revision-bound receipt-bearing CAS. Direct caller provenance/receipt
    consumption and Auto Edit atomicity remain open as P1-4c.
-7. **Next — implement the canonical media/timebase spine before source-bound
+7. **Completed — repair failure/cancellation Director lease cleanup**
+   (`a20f052a9`). The token-bound ProjectService writer now advances a revision
+   and issues a receipt on successful release; it does not establish generic
+   locks, range effects, rebase, undo or Director-fact ownership.
+8. **Next — implement the canonical media/timebase spine before source-bound
    lifecycle/fact migration.** The current rich timebase contract is still
    unwired; it must bind existing media storage to qualified master/proxy
    source identity and measured technical metadata without adding a media
    registry.
-8. **Completed for the known unauthenticated Modal source paths — migrate the
+9. **Completed for the known unauthenticated Modal source paths — migrate the
    analyzer pairs and standalone Gemma classifier one bounded pair at a time.**
    Source Probe, Scene, Music, Wav2Vec and V-JEPA now use the shared dedicated,
    host-bound proxy boundary; `436b37e19` closes the separate Gemma research
    endpoint. No generic-token fallback, proxy-header host escape, endpoint
    deployment claim or source URL provenance claim is made.
-9. **Then — design lifecycle/analysis fact migration by named family after
+10. **Then — design lifecycle/analysis fact migration by named family after
    qualified media identity exists.** Status, analysis provenance,
    native-audio evidence, Director observer facts, workflow leases and batch
    orchestration have different lifecycle, proof and invalidation rules. The

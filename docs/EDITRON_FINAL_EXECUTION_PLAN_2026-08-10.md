@@ -4577,6 +4577,18 @@ authorization are all present.
   `d8e61f0609ddae35e86baf1649bb243913376b87` plus source snapshot
   `cbe2476f352082022f7fb6c4c5dc5703c551d3804d906f26c0b087eb5df08484`.
   It makes no catalog promotion, runtime authorization or production claim.
+- Commit `a20f052a9` repairs the failure/cancellation Director lease cleanup
+  without turning it into generic collaboration locking. The token-bound
+  `ProjectService.releaseDirectorMutationLease` atomically requires the active
+  matching lease, clears it, advances `projectRevision` and `updatedAt`, and
+  publishes/returns its writer-issued receipt. An old or absent lease returns
+  an explicit no-write disposition. The current Director cleanup caller still
+  does not consume or expose that receipt; Director observer facts, range
+  effects/rebase/undo, rational media timebases, durable invalidation and
+  rendered proof remain separate open work. CAP-2A V10 chains V9 and binds
+  source commit `a20f052a94438f22367dc8311dc77bd87264d380` plus source snapshot
+  `2cfb53bb39458f3c18c1f4cd79d4ca78a16a2bf3901ec51bca7b5907534f7290`.
+  It makes no catalog promotion, runtime authorization or production claim.
 - Commit `5dd9c27f9` adds a generic blind-quality receipt contract with exact
   pack/rubric/candidate/result/proof bindings, required per-dimension coverage,
   explicit `UNVERIFIABLE`, single-reviewer non-consensus, and measured versus
