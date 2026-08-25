@@ -525,15 +525,6 @@ export class AssetResolver {
   }
 
   /**
-   * Get a proxy URL that never expires.
-   * Returns /api/services/editron/assets/url/{assetId} which 302-redirects
-   * to the current valid URL. Browser caches redirect for 1 hour.
-   */
-  getProxyUrl(assetId: string): string {
-    return `/api/services/editron/assets/url/${assetId}`;
-  }
-
-  /**
    * Get asset by assetId
    */
   async getAsset(assetId: string, userId: string): Promise<MediaAsset | null> {
