@@ -71,6 +71,26 @@ describe('Stage 2.5 RHC-01 preview candidates V1', () => {
     expect(Object.isFrozen(overlays)).toBe(true);
   });
 
+  it('binds native metadata to the actual frame-150 continuation seam', () => {
+    const artifact = buildStage25Rhc01PreviewCandidatesV1(identity);
+    const native = artifact.candidates.find(({ route }) => route === 'NATIVE');
+    expect(native).toMatchObject({
+      candidateId: 'RHC-01:NATIVE:V1.2',
+      boardRange: { startFrame: 0, endExclusiveFrame: 150 },
+      followingRange: { startFrame: 150, endExclusiveFrame: 210 },
+      handoffs: {
+        nativeBoundary: {
+          projectFrame: 150,
+          exitingAssetId: 'rhc01-product-c',
+          exitingSourceFrame: 149,
+          followingAssetId: 'rhc01-following-shot',
+          followingSourceFrame: 150,
+        },
+        generatedToNativeBoundary: null,
+      },
+    });
+  });
+
   it('binds generated-to-native continuity explicitly for generated and hybrid forms', () => {
     const artifact = buildStage25Rhc01PreviewCandidatesV1(identity);
     const generated = artifact.candidates.find(({ route }) => route === 'GENERATED_COMPOSITION');

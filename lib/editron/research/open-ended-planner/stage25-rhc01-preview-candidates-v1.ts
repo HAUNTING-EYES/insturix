@@ -17,7 +17,7 @@ import { verifyGeneratedCompositionProgramV1 } from './generated-composition-pro
 import { STAGE25_HELDOUT_ROUTE_FREEZE_V1 } from './stage25-heldout-route-freeze-v1';
 
 export const STAGE25_RHC01_PREVIEW_CANDIDATES_VERSION_V1 =
-  'EDITRON_OE_STAGE25_RHC01_PREVIEW_CANDIDATES_V1_1' as const;
+  'EDITRON_OE_STAGE25_RHC01_PREVIEW_CANDIDATES_V1_2' as const;
 
 const CANVAS = Object.freeze({ width: 1080, height: 1920, fps: 30 });
 const BOARD_END = 180;
@@ -67,8 +67,10 @@ export function buildStage25Rhc01PreviewCandidatesV1(
   const candidates = [
     {
       ...common,
-      candidateId: 'RHC-01:NATIVE:V1',
+      candidateId: 'RHC-01:NATIVE:V1.2',
       route: 'NATIVE' as const,
+      boardRange: { startFrame: 0, endExclusiveFrame: 150 },
+      followingRange: { startFrame: 150, endExclusiveFrame: PREVIEW_END },
       editableRepresentation: {
         kind: 'EDITRON_OVERLAY_PLAN',
         overlayPlanHash: hashCanonicalJsonV1(nativeOverlays),
@@ -76,6 +78,13 @@ export function buildStage25Rhc01PreviewCandidatesV1(
         overlays: nativeOverlays,
       },
       handoffs: {
+        nativeBoundary: {
+          projectFrame: 150,
+          exitingAssetId: 'rhc01-product-c',
+          exitingSourceFrame: 149,
+          followingAssetId: 'rhc01-following-shot',
+          followingSourceFrame: 150,
+        },
         generatedToNativeBoundary: null,
         audio: 'NO_AUDIO_IN_BOUNDED_FIXTURE',
         timebase: '30/1_PROJECT_AND_SOURCE_CFR',
@@ -83,7 +92,7 @@ export function buildStage25Rhc01PreviewCandidatesV1(
     },
     {
       ...common,
-      candidateId: 'RHC-01:GENERATED_COMPOSITION:V1',
+      candidateId: 'RHC-01:GENERATED_COMPOSITION:V1.2',
       route: 'GENERATED_COMPOSITION' as const,
       editableRepresentation: {
         kind: 'GENERATED_COMPOSITION_PROGRAM',
@@ -94,6 +103,7 @@ export function buildStage25Rhc01PreviewCandidatesV1(
         supplementalFacts: generated.supplementalFacts,
       },
       handoffs: {
+        nativeBoundary: null,
         generatedToNativeBoundary: {
           projectFrame: BOARD_END,
           generatedSourceSlotId: 'source-light',
@@ -107,7 +117,7 @@ export function buildStage25Rhc01PreviewCandidatesV1(
     },
     {
       ...common,
-      candidateId: 'RHC-01:HYBRID:V1',
+      candidateId: 'RHC-01:HYBRID:V1.2',
       route: 'HYBRID' as const,
       boardRange: { startFrame: 0, endExclusiveFrame: 150 },
       followingRange: { startFrame: 150, endExclusiveFrame: PREVIEW_END },
@@ -126,6 +136,7 @@ export function buildStage25Rhc01PreviewCandidatesV1(
         },
       },
       handoffs: {
+        nativeBoundary: null,
         generatedToNativeBoundary: {
           projectFrame: 150,
           generatedSourceSlotId: 'source-light',
