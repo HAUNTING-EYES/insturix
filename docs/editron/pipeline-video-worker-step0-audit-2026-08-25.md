@@ -11,6 +11,8 @@ change a queue, alter user data, authorize model work, or promote Stage 2.5.
 
 - `app/api/internal/workers/pipeline/video/route.ts` (794 lines, read in four
   sequential chunks)
+- `app/api/services/pipeline/storyboard/[id]/generate-videos/route.ts` (626
+  lines, read in sequential chunks)
 - `app/api/services/pipeline/storyboard/[id]/finalize/route.ts` (the
   Director-pending-field producer)
 - `app/api/services/editron/director/execute/route.ts` (the internal-dispatch
@@ -30,6 +32,12 @@ failure states.
 ## Current write and dispatch trace
 
 ```text
+browser or chat regeneration request
+  -> generate-videos public route
+      -> Clerk session, or the current unverified body.userId fallback
+      -> credit charge + batch/job records
+      -> QStash publish, or unsigned production fetch fallback
+          -> pipeline-video worker verifies QStash in production
 finalize route
   -> raw projects.$set pendingDirectorProfileId/pendingDirectorUserId
   -> video worker generates a scene
@@ -66,12 +74,27 @@ response and logs a successful dispatch. The pending fields have already been
 cleared, so there is no durable retry signal. This is a false-success/lost-work
 path, not an incoming unauthenticated-handler execution path.
 
+The producer has two earlier failures. The public `generate-videos` route
+uses a Clerk result when present, but accepts a caller-supplied `body.userId`
+when Clerk has no session. Its server-side chat caller relies on that fallback
+because it makes an HTTP request without the browser session. The same fallback
+also permits an untrusted caller to select another user's storyboard identity.
+
+The producer then creates the batch and job records after deducting credits.
+Outside development, a missing `QSTASH_TOKEN` takes an unsigned,
+fire-and-forget `fetch` branch. The video worker correctly rejects it because
+it requires QStash verification. The producer does not await the response yet
+returns a successful queued batch. This is an upstream false-success path;
+the batch remains queued and charged without a signed delivery.
+
 ## Root-cause classification
 
 | Concern | Classification | Why |
 | --- | --- | --- |
 | Generated-video overlay replacement | P0 stale/concurrent project write | It mutates a live timeline overlay outside ProjectService CAS/receipt semantics. |
 | Low-quality warning append | Separate derived-evidence ownership question | It is a project-visible fact but has no revision/receipt boundary. It must not be silently bundled with overlay replacement. |
+| Public `body.userId` fallback | P0 authorization failure | A server chat call needs a trusted identity, but the current fallback also accepts an arbitrary external identity. |
+| Video enqueue without QStash configuration | P0 false success / charged non-dispatch | It creates/charges work before using an unsigned call that the worker rejects. |
 | Director pending-field clear plus fallback fetch | P0 false success / lost downstream work | The only durable trigger is erased before a verifiable signed handoff exists. |
 | Inbound video-worker QStash authentication | Not newly proven fail-open | Production chooses `verifySignatureAppRouter` when keys exist and rejects on missing keys. This older form remains a consistency audit item. |
 
@@ -96,6 +119,16 @@ delivery command with, at minimum:
 7. a separate durable Director-dispatch state transition that clears or claims
    the pending signal only after a signed queue publication/claim is recorded.
 
+Before that project-writer command is introduced, the enqueue producer needs a
+separate ingress correction:
+
+1. browser requests authenticate only as their Clerk user;
+2. the server-side chat caller carries a short-lived, action-and-body-bound
+   signature using the existing server-only monolith secret; and
+3. production checks the QStash publisher token and worker signing-key pair
+   before credit deduction, job creation or a claimed queued response. Local
+   development may retain its direct worker call.
+
 The media-assets collection stays its existing owner. Director run lifecycle
 stays its existing ProjectService owner. This command must not create a second
 project store, checkpoint store, timeline, registry, dispatcher or proof
@@ -109,6 +142,11 @@ also locate the current durable dispatch/claim record before choosing whether a
 failed publication is represented on the project, batch, or existing Director
 run owner. Deleting the fallback alone is not sufficient because it would leave
 the cleared pending fields unrecoverable.
+
+The first implementation phase may close the producer ingress independently
+because it has one public authorization owner and one existing queue/credit
+owner. It must not treat that ingress fix as a replacement for the later narrow
+ProjectService video-delivery command.
 
 This audit does not claim that every worker or every legacy project writer is
 now accounted for. It does not certify ProjectService range locks/rebase,
