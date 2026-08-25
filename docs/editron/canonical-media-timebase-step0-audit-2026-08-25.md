@@ -106,6 +106,20 @@ proxy/master qualification, rational timebase/PTS extraction, a source-record
 sequence consumer, analysis invalidation, deployment proof, or long-form
 certification.
 
+Commit `699633aee` advances only the formerly unsafe proxy-to-master swap. Its
+shared interactive/cron transition reads the completed multipart row under the
+same `(assetId, userId)`, requires a current R2 storage observation, leaves the
+proxy key retained for deletion/history, switches the resolver's active key to
+the server-derived master key, clears the active source identity and installs a
+new master-bound `PENDING` qualification record. It preserves an old identity
+only as `proxySourceVersionV1` when that identity validates as the same owner,
+asset, media kind and proxy R2 object. A dispatch failure is visibly pending,
+not a successful qualification. The cron now requires `CRON_SECRET` and no
+longer performs a raw swap. This does not yet persist the existing
+`MediaProxyMasterRelationV1`, create invalidation intent, measure source PTS
+mapping, touch ProjectService, or make hashing resumable beyond the worker's
+180-second bound.
+
 ## Verification boundary
 
 This audit does not claim a working production media spine, a raised upload

@@ -277,6 +277,22 @@ changes.
   that bounded delivery is explicitly unqualified, not evidence that large
   media can yet resume or scale.
 
+- **2026-08-25 server-owned proxy/master activation.** Commit `699633aee`
+  replaces the browser-trusted proxy swap with one guarded `MEDIA_ASSETS`
+  transition. The interactive route and authenticated stale-upload cron both
+  derive the candidate master only from the same user's completed
+  `MEDIA_UPLOADS` row, verify its live R2 storage observation, retain the
+  proxy storage key and a valid historical proxy source version when present,
+  clear active `sourceVersionV1`, install a fresh master-bound `PENDING`
+  qualification record, and only then publish the existing signed worker. The
+  resolver selects `originalR2Key` only after that non-proxy transition, so
+  new reads use the server-selected master rather than the old proxy. A worker
+  dispatch outage is returned as `PENDING`, never as a qualified source. This
+  is not a proxy/master relation, PTS transform, analysis invalidation
+  consumer, ProjectService source-binding/rebase command, long-form hash
+  worker, or production media certification. The existing browser caller may
+  still send obsolete URL/key fields, but the server ignores them for authority.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
