@@ -17,6 +17,11 @@ import {
   type MediaSourceStorageVersionInspectionV1,
   type MediaSourceStorageVersionV1,
 } from './media-source-storage-version-v1';
+import {
+  issueStoredMediaSourceContentIdentityV1,
+  type MediaSourceContentIdentityResultV1,
+} from './media-source-content-identity-v1';
+import type { MediaSourceOwnerV1, MediaSourceVersionV1 } from './media-source-version-v1';
 
 export const MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1 =
   'media-source-qualification' as const;
@@ -36,23 +41,33 @@ export type MediaSourceQualificationDispatchResultV1 = {
 };
 
 export type MediaSourceQualificationWorkerResultV1 =
-  | { disposition: 'COMPLETED'; status: 'MEASURED_TECHNICAL' | 'UNVERIFIABLE' }
+  | {
+      disposition: 'COMPLETED';
+      status: 'MEASURED_TECHNICAL' | 'UNVERIFIABLE';
+      sourceIdentity: 'ISSUED' | 'UNVERIFIABLE';
+    }
   | { disposition: 'SKIPPED'; reason: 'ASSET_NOT_FOUND' | 'QUALIFICATION_RECORD_INVALID' | 'SOURCE_BINDING_MISMATCH' | 'ACTIVE_CLAIM' | 'TERMINAL' }
   | { disposition: 'RACE_LOST' };
 
 export type MediaSourceQualificationWorkerPortsV1 = {
-  load(assetId: string, userId: string): Promise<{ sourceQualificationV1?: unknown } | null>;
+  load(assetId: string, userId: string): Promise<{
+    sourceQualificationV1?: unknown;
+    orgId?: unknown;
+    type?: unknown;
+  } | null>;
   replace(input: {
     assetId: string;
     userId: string;
     expected: MediaSourceQualificationRecordV1;
     next: MediaSourceQualificationRecordV1;
+    sourceVersionV1: Readonly<MediaSourceVersionV1> | null;
   }): Promise<boolean>;
   resolveVerifiedSourceUrl(record: MediaSourceQualificationRecordV1): Promise<
     | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
     | { disposition: 'UNVERIFIABLE'; result: MediaSourceProbeResultV1 }
   >;
   inspectStorageVersion(record: MediaSourceQualificationRecordV1): Promise<MediaSourceStorageVersionInspectionV1>;
+  openExactByteStream(sourceUrl: string): AsyncIterable<Uint8Array>;
   probe(sourceUrl: string): Promise<MediaSourceProbeResultV1>;
   now(): Date;
 };
@@ -111,21 +126,26 @@ export async function runMediaSourceQualificationWorkerV1(
     load: async (assetId, userId) => {
       const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
         { assetId, userId },
-        { projection: { sourceQualificationV1: 1 } },
+        { projection: { sourceQualificationV1: 1, orgId: 1, type: 1 } },
       );
       return asset
-        ? { sourceQualificationV1: (asset as { sourceQualificationV1?: unknown }).sourceQualificationV1 }
+        ? {
+            sourceQualificationV1: (asset as { sourceQualificationV1?: unknown }).sourceQualificationV1,
+            orgId: (asset as { orgId?: unknown }).orgId,
+            type: (asset as { type?: unknown }).type,
+          }
         : null;
     },
-    replace: async ({ assetId, userId, expected, next }) => {
+    replace: async ({ assetId, userId, expected, next, sourceVersionV1 }) => {
       const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         qualificationCompareAndSetFilter(assetId, userId, expected),
-        { $set: { sourceQualificationV1: next } },
+        { $set: { sourceQualificationV1: next, sourceVersionV1 } },
       );
       return result.matchedCount === 1;
     },
     resolveVerifiedSourceUrl: resolveVerifiedSourceUrlV1,
     inspectStorageVersion: (record) => inspectMediaSourceStorageVersionV1(record.locator),
+    openExactByteStream: openMediaSourceByteStreamV1,
     probe: probeMediaSourceV1,
     now: () => new Date(),
   });
@@ -154,46 +174,83 @@ export async function executeMediaSourceQualificationWorkerV1(
     userId: message.userId,
     expected: record,
     next: claim.record,
+    sourceVersionV1: null,
   })) {
     return { disposition: 'RACE_LOST' };
   }
 
   let probeResult: MediaSourceProbeResultV1;
   let storageVersion: MediaSourceStorageVersionV1 | null = null;
+  let sourceVersionV1: Readonly<MediaSourceVersionV1> | null = null;
+  let sourceIdentity: 'ISSUED' | 'UNVERIFIABLE' = 'UNVERIFIABLE';
   try {
     const source = await ports.resolveVerifiedSourceUrl(claim.record);
     if (source.disposition !== 'AVAILABLE') {
       probeResult = source.result;
     } else {
-      probeResult = await ports.probe(source.sourceUrl);
-      if (probeResult.disposition === 'MEASURED') {
-        let observedAfterProbe: MediaSourceStorageVersionInspectionV1;
+      const owner = sourceOwnerForAssetV1(message.userId, asset.orgId);
+      const mediaKind = mediaKindFromAssetV1(asset.type);
+      if (owner && mediaKind) {
+        let identity: MediaSourceContentIdentityResultV1;
         try {
-          observedAfterProbe = await ports.inspectStorageVersion(claim.record);
+          identity = await issueStoredMediaSourceContentIdentityV1({
+            owner,
+            assetId: message.assetId,
+            mediaKind,
+          }, {
+            inspectStorageVersionBeforeRead: async () => ({
+              disposition: 'OBSERVED',
+              storageVersion: source.storageVersion,
+            }),
+            openExactByteStream: () => ports.openExactByteStream(source.sourceUrl),
+            inspectStorageVersionAfterRead: () => ports.inspectStorageVersion(claim.record),
+          });
         } catch {
-          observedAfterProbe = {
-            disposition: 'UNVERIFIABLE',
-            diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
-          };
+          identity = { disposition: 'UNVERIFIABLE', diagnostic: 'MEDIA_SOURCE_READ_FAILED' };
         }
-        if (observedAfterProbe.disposition !== 'OBSERVED') {
-          probeResult = unverifiableMediaSourceProbeResultV1(
-            'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
-          );
-        } else if (!sameMediaSourceStorageVersionV1(
-          source.storageVersion,
-          observedAfterProbe.storageVersion,
-        )) {
-          probeResult = unverifiableMediaSourceProbeResultV1(
-            'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
-          );
-        } else {
-          storageVersion = source.storageVersion;
+        if (identity.disposition === 'ISSUED') {
+          sourceVersionV1 = identity.sourceVersion;
+          sourceIdentity = 'ISSUED';
+        }
+      }
+
+      probeResult = await ports.probe(source.sourceUrl);
+      let observedAfterProbe: MediaSourceStorageVersionInspectionV1;
+      try {
+        observedAfterProbe = await ports.inspectStorageVersion(claim.record);
+      } catch {
+        observedAfterProbe = {
+          disposition: 'UNVERIFIABLE',
+          diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+        };
+      }
+      if (observedAfterProbe.disposition !== 'OBSERVED') {
+        probeResult = unverifiableMediaSourceProbeResultV1(
+          'MEDIA_SOURCE_STORAGE_VERSION_UNAVAILABLE',
+        );
+        sourceVersionV1 = null;
+        sourceIdentity = 'UNVERIFIABLE';
+      } else if (!sameMediaSourceStorageVersionV1(
+        source.storageVersion,
+        observedAfterProbe.storageVersion,
+      )) {
+        probeResult = unverifiableMediaSourceProbeResultV1(
+          'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
+        );
+        sourceVersionV1 = null;
+        sourceIdentity = 'UNVERIFIABLE';
+      } else {
+        storageVersion = source.storageVersion;
+        if (probeResult.disposition !== 'MEASURED') {
+          sourceVersionV1 = null;
+          sourceIdentity = 'UNVERIFIABLE';
         }
       }
     }
   } catch {
     probeResult = unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE');
+    sourceVersionV1 = null;
+    sourceIdentity = 'UNVERIFIABLE';
   }
 
   const completion = completeMediaSourceQualificationV1({
@@ -209,13 +266,14 @@ export async function executeMediaSourceQualificationWorkerV1(
     userId: message.userId,
     expected: claim.record,
     next: completion.record,
+    sourceVersionV1,
   })) {
     return { disposition: 'RACE_LOST' };
   }
   if (completion.record.status !== 'MEASURED_TECHNICAL' && completion.record.status !== 'UNVERIFIABLE') {
     return { disposition: 'RACE_LOST' };
   }
-  return { disposition: 'COMPLETED', status: completion.record.status };
+  return { disposition: 'COMPLETED', status: completion.record.status, sourceIdentity };
 }
 
 export function getMediaSourceQualificationWorkerUrlV1(): string | null {
@@ -288,6 +346,40 @@ function unavailableSignedUrl(): { disposition: 'UNVERIFIABLE'; result: MediaSou
     disposition: 'UNVERIFIABLE',
     result: unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE'),
   };
+}
+
+async function* openMediaSourceByteStreamV1(sourceUrl: string): AsyncIterable<Uint8Array> {
+  const response = await fetch(sourceUrl, {
+    cache: 'no-store',
+    headers: { 'accept-encoding': 'identity' },
+    redirect: 'error',
+  });
+  const contentEncoding = response.headers.get('content-encoding')?.trim().toLowerCase();
+  if (!response.ok || !response.body || (contentEncoding && contentEncoding !== 'identity')) {
+    throw new Error('MEDIA_SOURCE_BYTE_STREAM_UNAVAILABLE');
+  }
+  const reader = response.body.getReader();
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function sourceOwnerForAssetV1(userId: string, orgId: unknown): MediaSourceOwnerV1 | null {
+  if (orgId === undefined || orgId === null) return { kind: 'USER', userId };
+  if (typeof orgId !== 'string' || !cleanText(orgId, 256)) return null;
+  return { kind: 'ORG', orgId: orgId.trim() };
+}
+
+function mediaKindFromAssetV1(value: unknown): MediaSourceVersionV1['mediaKind'] | null {
+  return value === 'video' || value === 'audio' || value === 'image'
+    ? value
+    : null;
 }
 
 function asQualificationRecord(value: unknown): MediaSourceQualificationRecordV1 | null {

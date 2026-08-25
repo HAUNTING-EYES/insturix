@@ -11,6 +11,7 @@ import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codeg
 import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
+import type { MediaSourceVersionV1 } from './media-source-version-v1';
 
 export interface MediaAsset {
   _id?: any;
@@ -46,6 +47,12 @@ export interface MediaAsset {
   originalR2Key?: string;
   /** Source-bound technical-probe lifecycle embedded in this existing media record. */
   sourceQualificationV1?: MediaSourceQualificationRecordV1;
+  /**
+   * Immutable identity issued only after a complete server-read byte hash and
+   * matching before/after provider observations. `null` is an explicit
+   * non-qualified result, never a client or URL fallback.
+   */
+  sourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */

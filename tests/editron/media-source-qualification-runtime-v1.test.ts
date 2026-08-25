@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -18,6 +19,7 @@ import {
   type MediaSourceStorageVersionInspectionV1,
   type MediaSourceStorageVersionV1,
 } from '@/lib/editron/services/media-source-storage-version-v1';
+import type { MediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 
 const repoRoot = resolve(__dirname, '../..');
 const now = new Date('2026-08-25T08:00:00.000Z');
@@ -73,10 +75,21 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     const memory = inMemoryPorts(() => stored, (next) => { stored = next; });
     const result = await executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports);
 
-    expect(result).toEqual({ disposition: 'COMPLETED', status: 'MEASURED_TECHNICAL' });
+    expect(result).toEqual({
+      disposition: 'COMPLETED',
+      status: 'MEASURED_TECHNICAL',
+      sourceIdentity: 'ISSUED',
+    });
     expect(stored.status).toBe('MEASURED_TECHNICAL');
     expect(stored.observation?.observationSha256).toBe('a'.repeat(64));
     expect(stored.storageVersion?.storageVersionSha256).toBe(storageVersion().storageVersionSha256);
+    expect(memory.sourceVersion()).toMatchObject({
+      assetId: 'asset_a',
+      mediaKind: 'video',
+      byteLength: 1_024,
+      contentSha256: createHash('sha256').update(Buffer.alloc(1_024, 1)).digest('hex'),
+      storageVersion: storageVersion(),
+    });
   });
 
   it('does not retain technical evidence when the storage object changes during probing', async () => {
@@ -92,13 +105,39 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     );
 
     await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports))
-      .resolves.toEqual({ disposition: 'COMPLETED', status: 'UNVERIFIABLE' });
+      .resolves.toEqual({
+        disposition: 'COMPLETED',
+        status: 'UNVERIFIABLE',
+        sourceIdentity: 'UNVERIFIABLE',
+      });
     expect(stored).toMatchObject({
       status: 'UNVERIFIABLE',
       diagnostic: 'MEDIA_SOURCE_STORAGE_VERSION_CHANGED',
       storageVersion: null,
       observation: null,
     });
+    expect(memory.sourceVersion()).toBeNull();
+  });
+
+  it('does not issue a source version when technical qualification fails after a complete byte read', async () => {
+    let stored = record();
+    const memory = inMemoryPorts(() => stored, (next) => { stored = next; });
+    const probe = vi.fn(async (): Promise<MediaSourceProbeResultV1> => ({
+      disposition: 'UNVERIFIABLE',
+      observation: null,
+      diagnostics: ['MEDIA_SOURCE_PROBE_UNAVAILABLE'],
+    }));
+
+    await expect(executeMediaSourceQualificationWorkerV1(messageFor(stored), {
+      ...memory.ports,
+      probe,
+    })).resolves.toEqual({
+      disposition: 'COMPLETED',
+      status: 'UNVERIFIABLE',
+      sourceIdentity: 'UNVERIFIABLE',
+    });
+    expect(memory.sourceVersion()).toBeNull();
+    expect(stored.status).toBe('UNVERIFIABLE');
   });
 
   it('never probes a mismatched, active, raced, or terminal record', async () => {
@@ -124,7 +163,11 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     );
     const result = await executeMediaSourceQualificationWorkerV1(messageFor(stored), memory.ports);
 
-    expect(result).toEqual({ disposition: 'COMPLETED', status: 'UNVERIFIABLE' });
+    expect(result).toEqual({
+      disposition: 'COMPLETED',
+      status: 'UNVERIFIABLE',
+      sourceIdentity: 'UNVERIFIABLE',
+    });
     expect(stored.diagnostic).toBe('MEDIA_SOURCE_STORAGE_UNAVAILABLE');
     expect(JSON.stringify(result)).not.toContain('presigned-secret');
     expect(memory.probe).not.toHaveBeenCalled();
@@ -168,7 +211,9 @@ function inMemoryPorts(
   resolveVerifiedSourceUrl: unknown;
   inspectStorageVersion: unknown;
   probe: unknown;
+  sourceVersion(): Readonly<MediaSourceVersionV1> | null;
 } {
+  let storedSourceVersion: Readonly<MediaSourceVersionV1> | null = null;
   const resolveVerifiedSourceUrl = vi.fn(async () => source);
   const inspectStorageVersion = vi.fn(async (): Promise<MediaSourceStorageVersionInspectionV1> => (
     afterProbeObservation ?? (source.disposition === 'AVAILABLE'
@@ -184,20 +229,25 @@ function inMemoryPorts(
   }));
   return {
     ports: {
-    load: vi.fn(async () => ({ sourceQualificationV1: loadRecord() })),
-    replace: vi.fn(async ({ next }) => {
+    load: vi.fn(async () => ({ sourceQualificationV1: loadRecord(), type: 'video' })),
+    replace: vi.fn(async ({ next, sourceVersionV1 }) => {
       if (!compareAndSet) return false;
       persist(next);
+      storedSourceVersion = sourceVersionV1;
       return true;
     }),
     resolveVerifiedSourceUrl,
     inspectStorageVersion,
+    openExactByteStream: async function* () {
+      yield Buffer.alloc(1_024, 1);
+    },
     probe,
     now: () => now,
     },
     resolveVerifiedSourceUrl,
     inspectStorageVersion,
     probe,
+    sourceVersion: () => storedSourceVersion,
   };
 }
 
