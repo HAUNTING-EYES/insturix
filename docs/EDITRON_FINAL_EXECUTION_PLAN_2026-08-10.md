@@ -574,6 +574,25 @@ changes.
   next public owner gap: downstream consumers still lack a writer-issued,
   source-version-bound source-time transform after retiming.
 
+  Commit `63a86bf7d` defines the missing transform vocabulary without claiming
+  that the writer is wired. `resolveVerifiedVideoSourceTimeBindingV1` accepts
+  only the existing `MEDIA_ASSETS` V2 terminal PTS/cadence state bound to the
+  immutable source version. `createProjectVideoSourceTimeTransformV1` then
+  binds that evidence, before/after ProjectService revisions, the legacy
+  numeric project FPS, source/timeline offsets, speed curve and exact current
+  `computeSpeedSegments` renderer mapping into one immutable transform. Exact
+  CFR PTS events can be rebound; VFR without private-index lookup, subframe
+  output positions, incomplete/tampered evidence, invalid curves and
+  insufficient source handles fail closed. Two adversarial contract tests,
+  repository typecheck and quiet ESLint pass. The test also records an important
+  current-renderer limitation: speed keyframe easing is not evaluated by the
+  segment owner, and later playback can be capped after earlier segments consume
+  the overlay's available source span. This checkpoint is
+  `CONTRACT_ONLY_NOT_WRITER_ISSUED`: ProjectService does not yet issue or persist
+  the transform, `apply_speed_ramp` still does not return it, VFR event rebinding
+  remains absent, and no project mutation or render occurred. The next bounded
+  phase is the dedicated ProjectService speed-ramp CAS and chat handoff.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
