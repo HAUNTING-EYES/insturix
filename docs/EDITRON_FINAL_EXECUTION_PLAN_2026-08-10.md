@@ -554,6 +554,26 @@ changes.
   remains; DEP-02/DEP-03, project routing and model evaluation remain later in the
   frozen order.
 
+  Commit `f1b3eb2d6` materializes `HOLD-DEP-02` without creating a second
+  replacement, rights, media, project or mutation owner. A new pure verifier
+  accepts only a replacement form already issued by the existing
+  `resolveUserAssetOverlayPlacement` decision owner and binds that form to the
+  caller's exact ProjectService revision, immutable `MediaSourceVersionV1`,
+  trusted visual-rights evidence, source-handle/PTS evidence, old target and
+  presentation, outside-state hash and muted-audio disposition. It requires
+  `add_overlay` before `delete_overlay`; missing, copied, reordered or tampered
+  inputs return an explicit zero-write `SAFE_STOP`. The Stage 2.5 isolated owner
+  now executes all six frozen sentinels: resolved swap, list/search equivalence,
+  delete-before-resolution rejection, untrusted-rights safe stop, double/partial
+  swap rejection and forged-binding rejection. The focused six-file cluster
+  passes 109/109 with repository typecheck and quiet ESLint passing. This is
+  `ISOLATED_SYNTHETIC_CURRENT_EDIT_PROOF_ONLY`: canonical ProjectService mutation
+  count remains zero, no renderer or reload proof ran, no production visual-
+  rights or source-handle authority was added, and the legacy
+  `use_matching_footage` path remains uncertified. `HOLD-DEP-03` is therefore the
+  next public owner gap: downstream consumers still lack a writer-issued,
+  source-version-bound source-time transform after retiming.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
