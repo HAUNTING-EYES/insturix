@@ -3901,7 +3901,7 @@ function assertProjectPipelineAudioDeliveryCommandV1(
       || (input.beatFrames?.length ?? 0) > 0
     ))
     || (input.kind === "BGM"
-      && input.outcome !== "FAILED"
+      && input.outcome === "ATTACHED"
       && input.musicCoveragePlan === undefined)
   ) {
     throw new ProjectMutationWriteError("Pipeline audio delivery material is invalid.");

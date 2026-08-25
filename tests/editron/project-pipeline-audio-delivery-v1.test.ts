@@ -309,6 +309,40 @@ describe("ProjectService pipeline audio delivery V1", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
+  it("records a BGM policy skip without inventing a coverage plan or overlay", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const result = await projectService.commitPipelineAudioDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      bgmCommand(project, {
+        outcome: "SKIPPED",
+        overlays: [],
+        musicCoveragePlan: undefined,
+      }),
+    );
+
+    expect(result.deliveryReceipt).toMatchObject({
+      kind: "BGM",
+      outcome: "SKIPPED",
+      rebase: "FRESH",
+      attachedOverlayIds: [],
+      proof: {
+        required: false,
+        status: null,
+        reason: "NO_AUDIO_OVERLAY_ATTACHED",
+      },
+      changedPaths: ["pipelineAudioDeliveryReceipts"],
+    });
+    const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
+    expect(update.$set.musicCoveragePlan).toBeUndefined();
+    expect(update.$set.overlays).toBeUndefined();
+    expect(update.$push.overlays).toBeUndefined();
+  });
+
   it("retries a BGM delivery from a fresh CAS snapshot and preserves an intervening SFX", async () => {
     const base = projectFixture();
     const afterConcurrentSfx = projectFixture(8, "2026-08-25T00:00:01.000Z", [
