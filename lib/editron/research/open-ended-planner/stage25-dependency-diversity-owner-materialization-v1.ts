@@ -14,6 +14,16 @@ import {
   type TimelineFrameRangeV1,
   type TimelineRangeCutCoordinateTransformV1,
 } from '../../services/timeline-range-cut';
+import { createMediaSourceStorageVersionV1 }
+  from '../../services/media-source-storage-version-v1';
+import { createMediaSourceVersionV1 }
+  from '../../services/media-source-version-v1';
+import {
+  userMediaReplacementOutsideTargetStateSha256V1,
+  userMediaReplacementPresentationV1,
+  type UserMediaReplacementEvidenceV1,
+  type VerifiedUserMediaReplacementFormV1,
+} from '../../services/user-media-replacement-form-v1';
 import type { Project, ProjectRevisionV1 } from '../../services/project-service';
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
@@ -41,16 +51,21 @@ type OwnerDisposition = 'EDIT_APPLIED' | 'ZERO_WRITE_SAFE_STOP'
 type ProofArtifactKind = 'CURRENT_EDIT_RECEIPT' | 'SAFE_STOP_RECEIPT' | 'NONE';
 
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1_1' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1_2' as const;
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_V1_1' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_V1_2' as const;
 
 const FILTER_WRITER_AUTHORITY =
   'STAGE25_DEPENDENCY_DIVERSITY_FILTER_CLONE_WRITER_V1_1' as const;
+const REPLACEMENT_WRITER_AUTHORITY =
+  'STAGE25_DEPENDENCY_DIVERSITY_REPLACEMENT_CLONE_WRITER_V1_1' as const;
 const TASK_OWNER_RECEIPT_AUTHORITY =
   'STAGE25_DEPENDENCY_DIVERSITY_TASK_OWNER_RECEIPT_V1_1' as const;
 const D01_ALL_EVIDENCE = [
   'EV-D01-TIMELINE', 'EV-D01-WARM', 'EV-D01-COOL', 'EV-D01-FLAT', 'EV-D01-PRESERVE',
+] as const;
+const D02_ALL_EVIDENCE = [
+  'EV-D02-TIMELINE', 'EV-D02-CANDIDATE', 'EV-D02-RIGHTS', 'EV-D02-PRESERVE',
 ] as const;
 const D04_ALL_EVIDENCE = [
   'EV-D04-FLASH-A', 'EV-D04-FLASH-B', 'EV-D04-TIMELINE', 'EV-D04-AUDIO',
@@ -112,9 +127,13 @@ export interface Stage25DependencyDiversityOwnerOutcomeV1 {
 }
 
 const D01_EVIDENCE = materializeD01Evidence();
+const D02_REPLACEMENT_EVIDENCE = materializeD02ReplacementEvidence();
+const D02_FORM = materializeD02Form('LIST');
+const D02_EVIDENCE = materializeD02Evidence();
 const D04_EVIDENCE = materializeD04Evidence();
-const D02_OWNER_GAP_AUDIT = auditDep02PublicOwnerGapV1();
+const D02_OWNER_CONTRACT_AUDIT = auditDep02PublicOwnerContractV1();
 const D01_EXPECTED_STATE = expectedD01TaskState();
+const D02_EXPECTED_STATE = expectedD02TaskState();
 const D04_EXPECTED_STATE = expectedD04TaskState();
 
 const MATERIALIZATION_MATERIAL = {
@@ -142,15 +161,20 @@ const MATERIALIZATION_MATERIAL = {
     },
     {
       taskId: 'HOLD-DEP-02',
-      disposition: 'NOT_EXECUTABLE_PUBLIC_FORM_OWNER_GAP' as const,
-      fixtureMaterialization: 'AUDIT_FIXTURE_ONLY_NO_WRITER_EFFECTS' as const,
+      disposition: 'EXECUTABLE_ZERO_SPEND_OWNER' as const,
+      fixtureMaterialization: 'MATERIALIZED_DETERMINISTIC_PROJECT_AND_PUBLIC_EVIDENCE' as const,
       expectedRevisionLabel: 'R31',
       baselineProjectStateSha256: projectStateSha256(buildProject('HOLD-DEP-02')),
-      expectedFinalSemanticStateSha256: null,
-      evidence: [] as const,
-      ownerGapAudit: D02_OWNER_GAP_AUDIT,
-      effectShape: 'BLOCKED_BEFORE_MUTATION_OWNER_MATERIALIZATION',
-      proofCeiling: 'NO_PROOF',
+      expectedFinalSemanticStateSha256: hashCanonicalJsonV1(D02_EXPECTED_STATE),
+      evidence: D02_EVIDENCE,
+      ownerContractAudit: D02_OWNER_CONTRACT_AUDIT,
+      ownerRefs: [
+        'lib/editron/agent/chat-asset-tools.ts#resolveUserAssetOverlayPlacement',
+        'lib/editron/services/user-media-replacement-form-v1.ts#resolveVerifiedUserMediaReplacementFormV1',
+        'lib/editron/research/open-ended-planner/provider-native-project-service-clone-owner-v2r.ts#createProviderNativeProjectServiceCloneOwnerV2R',
+      ],
+      effectShape: 'VERIFIED_FORM_ADD_THEN_LATEST_RECEIPT_DELETE',
+      proofCeiling: 'CURRENT_EDIT_PROOF',
     },
     {
       taskId: 'HOLD-DEP-03',
@@ -182,13 +206,15 @@ const MATERIALIZATION_MATERIAL = {
     },
   ],
   fixtureEvidenceProvenance: {
-    taskIds: ['HOLD-DEP-01', 'HOLD-DEP-04'] as const,
+    taskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-04'] as const,
     status: 'DETERMINISTIC_SYNTHETIC_FIXTURES_ONLY' as const,
     evidenceQualityCeiling: 'STRUCTURAL_OWNER_MECHANICS_ONLY' as const,
     doesNotEstablish: [
       'REAL_COLOUR_EVIDENCE_QUALITY',
       'REAL_MOTION_EVIDENCE_QUALITY',
       'REAL_AUDIO_EVIDENCE_QUALITY',
+      'REAL_VISUAL_RIGHTS_AUTHORITY',
+      'REAL_SOURCE_HANDLE_QUALITY',
       'REAL_EDITORIAL_QUALITY',
     ] as const,
   },
@@ -196,6 +222,7 @@ const MATERIALIZATION_MATERIAL = {
     status: 'BOUNDED_RUNTIME_IDENTITIES_NOT_TRANSITIVE_SOURCE_CLOSURE' as const,
     identities: [
       FILTER_WRITER_AUTHORITY,
+      REPLACEMENT_WRITER_AUTHORITY,
       'PROJECTSERVICE_ISOLATED_CUT_PROPOSAL_WRITER_V2R_1',
       'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_ISSUER_V2R_1',
     ],
@@ -211,52 +238,34 @@ export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1 = deepFreezeV
   materializationSha256: hashCanonicalJsonV1(MATERIALIZATION_MATERIAL),
 });
 
-export function auditDep02PublicOwnerGapV1(): Readonly<JsonRecord> {
+export function auditDep02PublicOwnerContractV1(): Readonly<JsonRecord> {
   const project = buildProject('HOLD-DEP-02');
-  const candidate: NormalizedAssetCandidate = {
-    assetId: 'dep02-screen-v2', type: 'video', name: 'Owned screen recording v2',
-    duration: 20, dimensions: { width: 1920, height: 1080 },
-    thumbnailHint: 'available', tags: ['owned', 'screen-recording', 'v2'],
-    score: 1, confidence: 0.99, confidenceLabel: 'high',
-    matchReasons: ['direct-asset-id'], usedInProject: false,
-    overlayIds: [], sceneIndexes: [],
-    useWith: {
-      tool: 'use_matching_footage', assetId: 'dep02-screen-v2',
-      note: 'Existing replacement route; rights and source handles still require separate evidence.',
-    },
-  };
+  const candidate = d02Candidate('LIST');
   const resolution = resolveUserAssetOverlayPlacement(project, [candidate], {
     query: 'owned screen recording v2', operation: 'replace', placement: 'full-frame',
     targetOverlayId: 202, sourceStartFrame: 0,
+    replacementEvidence: D02_REPLACEMENT_EVIDENCE,
   });
-  const resolvedOperatorId = resolution.useWith?.use_matching_footage
-    ? 'use_matching_footage' : resolution.useWith?.add_overlay ? 'add_overlay' : 'NONE';
+  const form = resolution.useWith?.verifiedReplacement;
   const eligible = STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1.tasks
     .find(({ taskId }) => taskId === 'HOLD-DEP-02')!.eligibleOperatorIds;
-  const replacementHandoff = record(resolution.useWith?.use_matching_footage);
-  const sourceStartFrame = replacementHandoff.sourceStartFrame;
-  const sourceEndFrame = replacementHandoff.sourceEndFrame;
-  const hasRightsBinding = text(replacementHandoff.rightsStatus).trim().length > 0
-    && text(replacementHandoff.rightsEvidenceId).trim().length > 0;
-  const hasSourceHandleBinding = typeof sourceStartFrame === 'number'
-    && Number.isSafeInteger(sourceStartFrame) && sourceStartFrame >= 0
-    && typeof sourceEndFrame === 'number'
-    && Number.isSafeInteger(sourceEndFrame) && sourceEndFrame > sourceStartFrame;
+  const resolvedOperatorIds = form?.requiredMutationOrder ?? [];
   const material = {
-    auditVersion: 'EDITRON_OE_DEP02_PUBLIC_OWNER_GAP_AUDIT_V1_1',
+    auditVersion: 'EDITRON_OE_DEP02_PUBLIC_OWNER_CONTRACT_AUDIT_V1_2',
     resolverStatus: resolution.status,
-    resolvedOperatorId,
-    resolvedOperatorEligibleInFrozenTask: eligible.includes(resolvedOperatorId),
-    observedReplacementHandoffFields: Object.keys(replacementHandoff).sort(),
-    structuralBindingCriteria: {
-      rights: ['rightsStatus', 'rightsEvidenceId'],
-      sourceHandles: ['sourceStartFrame', 'sourceEndFrame'],
-    },
-    unrelatedCandidateNote: candidate.useWith.note,
-    hasRightsBinding,
-    hasSourceHandleBinding,
+    verifiedFormIssued: Boolean(form),
+    resolvedOperatorIds,
+    resolvedOperatorsEligibleInFrozenTask: resolvedOperatorIds
+      .every((operatorId) => eligible.includes(operatorId)),
+    formFields: form ? Object.keys(form).sort() : [],
+    sourceVersionSha256: form?.replacement.sourceVersionSha256 ?? null,
+    rightsEvidenceSha256: form?.replacement.rightsEvidenceSha256 ?? null,
+    sourceHandleEvidenceSha256: form?.replacement.sourceHandleEvidenceSha256 ?? null,
+    presentationSha256: form?.target.presentationSha256 ?? null,
+    outsideTargetStateSha256: form?.target.outsideTargetStateSha256 ?? null,
     requiredFrozenMutationOrder: ['add_overlay', 'delete_overlay'],
-    gap: 'The current replacement resolver emits use_matching_footage, which is outside the frozen eligible set, and exposes no rights or source-handle binding. An add-before-delete owner would require hidden form/evidence.',
+    legacyUseMatchingFootageStillUncertified: Boolean(resolution.useWith?.use_matching_footage),
+    gap: null,
   };
   return deepFreezeV1({ ...material, auditSha256: hashCanonicalJsonV1(material) });
 }
@@ -270,7 +279,14 @@ export async function executeStage25DependencyDiversityOwnerScenarioV1(
   if (sentinelId === 'DEP01_AMBIGUOUS_CAST_SAFE_STOP_ACCEPT') return noWriteSafeStop('HOLD-DEP-01', sentinelId, 'AMBIGUOUS_CAST');
   if (sentinelId === 'DEP01_PROTECTED_RANGE_WRITE_REJECT') return runD01Blocked(sentinelId, 'PROTECTED_RANGE');
   if (sentinelId === 'DEP01_TAMPERED_TRACE_REJECT') return d01TamperOutcome(sentinelId);
-  if (sentinelId.startsWith('DEP02_')) return contractGapOutcome('HOLD-DEP-02', sentinelId, String(D02_OWNER_GAP_AUDIT.gap));
+  if (sentinelId === 'DEP02_RESOLVED_SWAP_ACCEPT') return runD02Good(sentinelId, 'LIST');
+  if (sentinelId === 'DEP02_LIST_SEARCH_DISCOVERY_EQUIVALENT') return runD02Equivalent(sentinelId);
+  if (sentinelId === 'DEP02_DELETE_BEFORE_RESOLUTION_REJECT') return runD02DeleteFirst(sentinelId);
+  if (sentinelId === 'DEP02_UNVERIFIED_REPLACEMENT_SAFE_STOP_ACCEPT') {
+    return runD02UnverifiedSafeStop(sentinelId);
+  }
+  if (sentinelId === 'DEP02_PARTIAL_OR_DOUBLE_SWAP_REJECT') return runD02DoubleSwap(sentinelId);
+  if (sentinelId === 'DEP02_FORGED_CANDIDATE_BINDING_REJECT') return runD02ForgedBinding(sentinelId);
   if (sentinelId.startsWith('DEP03_')) return contractGapOutcome('HOLD-DEP-03', sentinelId,
     String(STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1.tasks
       .find(({ taskId }) => taskId === 'HOLD-DEP-03')!.publicContractGap));
@@ -486,6 +502,368 @@ function createD01FilterOwner(
           taskState: d01TaskState(input.project),
         },
         evidenceIds: D01_ALL_EVIDENCE,
+      });
+    },
+  };
+}
+
+async function runD02Good(
+  sentinelId: string,
+  discovery: 'LIST' | 'SEARCH',
+): Promise<Readonly<Stage25DependencyDiversityOwnerOutcomeV1>> {
+  const episode = await executeD02Swap(discovery, 'GOOD');
+  return ownerOutcome({
+    taskId: 'HOLD-DEP-02', sentinelId, ownerDisposition: 'EDIT_APPLIED',
+    proofArtifactKind: 'CURRENT_EDIT_RECEIPT', operationAttemptCount: episode.attempts,
+    unsafeAttemptCount: 0, ownerBlockedAttemptCount: 0,
+    isolatedMutationCount: episode.mutations,
+    finalSemanticStateSha256: episode.finalSemanticStateSha256,
+    observations: [episode.observation], trace: episode.trace,
+  });
+}
+
+async function runD02Equivalent(
+  sentinelId: string,
+): Promise<Readonly<Stage25DependencyDiversityOwnerOutcomeV1>> {
+  const list = await executeD02Swap('LIST', 'GOOD');
+  const search = await executeD02Swap('SEARCH', 'GOOD');
+  if (list.finalSemanticStateSha256 !== search.finalSemanticStateSha256) {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_DISCOVERY_EQUIVALENCE_DRIFT');
+  }
+  return ownerOutcome({
+    taskId: 'HOLD-DEP-02', sentinelId, ownerDisposition: 'EDIT_APPLIED',
+    proofArtifactKind: 'CURRENT_EDIT_RECEIPT',
+    operationAttemptCount: list.attempts + search.attempts,
+    unsafeAttemptCount: 0, ownerBlockedAttemptCount: 0,
+    isolatedMutationCount: list.mutations + search.mutations,
+    finalSemanticStateSha256: list.finalSemanticStateSha256,
+    observations: [list.observation, search.observation],
+    trace: [...list.trace, ...search.trace],
+  });
+}
+
+async function runD02DeleteFirst(
+  sentinelId: string,
+): Promise<Readonly<Stage25DependencyDiversityOwnerOutcomeV1>> {
+  const clone = await freshClone('HOLD-DEP-02', createD02SwapOwner(D02_FORM), sentinelId);
+  const execution = await clone.resolved.isolatedClone.executeIsolated({
+    operatorId: 'delete_overlay', turn: 1,
+    arguments: {
+      projectId: 'oe-hold-dep-02',
+      expectedProjectRevision: clone.resolved.currentRevision.projectRevision,
+      overlayId: 202, replacementOverlayId: 203,
+      previousReceiptSha256: '0'.repeat(64), formSha256: D02_FORM.formSha256,
+      evidenceIds: D02_ALL_EVIDENCE,
+    },
+  });
+  const output = requiredRecord(execution.output, 'D02_DELETE_FIRST_OUTPUT_INVALID');
+  if (execution.disposition === 'OK' || output.code !== 'D02_ADD_RECEIPT_REQUIRED') {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_DELETE_FIRST_NOT_BLOCKED');
+  }
+  const proposal = await requiredProposalReceipt(clone.resolved.isolatedClone.finalizeProposalReceipt);
+  assertCanonicalUnchanged(clone, proposal);
+  return ownerOutcome({
+    taskId: 'HOLD-DEP-02', sentinelId, ownerDisposition: 'UNSAFE_ATTEMPT_BLOCKED',
+    proofArtifactKind: 'NONE', operationAttemptCount: 1, unsafeAttemptCount: 1,
+    ownerBlockedAttemptCount: 1, isolatedMutationCount: 0,
+    finalSemanticStateSha256: null,
+    observations: [{ guardCode: output.code, proposalReceiptSha256: proposal.receiptSha256 }],
+    trace: [traceExecution('delete_overlay', 1, execution)],
+  });
+}
+
+async function runD02DoubleSwap(
+  sentinelId: string,
+): Promise<Readonly<Stage25DependencyDiversityOwnerOutcomeV1>> {
+  const episode = await executeD02Swap('LIST', 'DOUBLE_ADD');
+  return ownerOutcome({
+    taskId: 'HOLD-DEP-02', sentinelId, ownerDisposition: 'UNSAFE_ATTEMPT_BLOCKED',
+    proofArtifactKind: 'NONE', operationAttemptCount: episode.attempts,
+    unsafeAttemptCount: 1, ownerBlockedAttemptCount: 1,
+    isolatedMutationCount: episode.mutations, finalSemanticStateSha256: null,
+    observations: [episode.observation], trace: episode.trace,
+  });
+}
+
+function runD02UnverifiedSafeStop(
+  sentinelId: string,
+): Readonly<Stage25DependencyDiversityOwnerOutcomeV1> {
+  const untrusted = structuredClone(D02_REPLACEMENT_EVIDENCE) as UserMediaReplacementEvidenceV1;
+  untrusted.trustedEvidenceSha256 = {
+    ...untrusted.trustedEvidenceSha256,
+    rights: '0'.repeat(64),
+  };
+  const resolution = resolveUserAssetOverlayPlacement(
+    buildProject('HOLD-DEP-02'),
+    [d02Candidate('LIST')],
+    {
+      query: 'owned screen recording v2', operation: 'replace', placement: 'full-frame',
+      targetOverlayId: 202, sourceStartFrame: 0, replacementEvidence: untrusted,
+    },
+  );
+  if (resolution.status !== 'unverified-replacement'
+    || !resolution.warnings.includes('RIGHTS_EVIDENCE_INVALID')
+    || resolution.useWith) {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_UNVERIFIED_DID_NOT_SAFE_STOP');
+  }
+  return noWriteSafeStop('HOLD-DEP-02', sentinelId, 'RIGHTS_EVIDENCE_INVALID');
+}
+
+async function runD02ForgedBinding(
+  sentinelId: string,
+): Promise<Readonly<Stage25DependencyDiversityOwnerOutcomeV1>> {
+  const clone = await freshClone('HOLD-DEP-02', createD02SwapOwner(D02_FORM), sentinelId);
+  const execution = await clone.resolved.isolatedClone.executeIsolated({
+    operatorId: 'add_overlay', turn: 1,
+    arguments: {
+      projectId: 'oe-hold-dep-02',
+      expectedProjectRevision: clone.resolved.currentRevision.projectRevision,
+      assetId: D02_FORM.replacement.assetId,
+      targetRange: D02_FORM.target.timelineRange,
+      sourceRange: D02_FORM.replacement.sourceRange,
+      formSha256: 'f'.repeat(64), evidenceIds: D02_ALL_EVIDENCE,
+    },
+  });
+  const output = requiredRecord(execution.output, 'D02_FORGED_BINDING_OUTPUT_INVALID');
+  if (execution.disposition === 'OK' || output.code !== 'D02_FORM_BINDING_INVALID') {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_FORGED_BINDING_NOT_REJECTED');
+  }
+  const proposal = await requiredProposalReceipt(clone.resolved.isolatedClone.finalizeProposalReceipt);
+  assertCanonicalUnchanged(clone, proposal);
+  return ownerOutcome({
+    taskId: 'HOLD-DEP-02', sentinelId, ownerDisposition: 'TAMPER_REJECTED',
+    proofArtifactKind: 'NONE', operationAttemptCount: 1, unsafeAttemptCount: 0,
+    ownerBlockedAttemptCount: 1, isolatedMutationCount: 0,
+    finalSemanticStateSha256: null,
+    observations: [{ guardCode: output.code, proposalReceiptSha256: proposal.receiptSha256 }],
+    trace: [traceExecution('add_overlay', 1, execution)], trustedReceipt: false,
+  });
+}
+
+async function executeD02Swap(
+  discovery: 'LIST' | 'SEARCH',
+  mode: 'GOOD' | 'DOUBLE_ADD',
+) {
+  const form = materializeD02Form(discovery);
+  if (form.formSha256 !== D02_FORM.formSha256) {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_DISCOVERY_FORM_DRIFT');
+  }
+  const clone = await freshClone(
+    'HOLD-DEP-02', createD02SwapOwner(form), `d02-${discovery}-${mode}`,
+  );
+  let revision = clone.resolved.currentRevision.projectRevision;
+  let attempts = 1;
+  let mutations = 0;
+  const trace: JsonRecord[] = [];
+  const add = await clone.resolved.isolatedClone.executeIsolated({
+    operatorId: 'add_overlay', turn: 1,
+    arguments: {
+      projectId: 'oe-hold-dep-02', expectedProjectRevision: revision,
+      assetId: form.replacement.assetId, targetRange: form.target.timelineRange,
+      sourceRange: form.replacement.sourceRange,
+      formSha256: form.formSha256, evidenceIds: D02_ALL_EVIDENCE,
+    },
+  });
+  trace.push(traceExecution('add_overlay', 1, add));
+  if (add.disposition !== 'OK') {
+    throw new Error(`STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_ADD_FAILED:${add.disposition}`);
+  }
+  mutations += 1;
+  revision = receiptRevision(add);
+  const addReceiptSha256 = hashCanonicalJsonV1(add.output.receipt);
+  const replacementOverlayId = number(add.output.replacementOverlayId);
+
+  if (mode === 'DOUBLE_ADD') {
+    attempts += 1;
+    const duplicate = await clone.resolved.isolatedClone.executeIsolated({
+      operatorId: 'add_overlay', turn: 2,
+      arguments: {
+        projectId: 'oe-hold-dep-02', expectedProjectRevision: revision,
+        assetId: form.replacement.assetId, targetRange: form.target.timelineRange,
+        sourceRange: form.replacement.sourceRange,
+        formSha256: form.formSha256, evidenceIds: D02_ALL_EVIDENCE,
+      },
+    });
+    trace.push(traceExecution('add_overlay', 2, duplicate));
+    const output = requiredRecord(duplicate.output, 'D02_DOUBLE_ADD_OUTPUT_INVALID');
+    if (duplicate.disposition === 'OK' || output.code !== 'D02_REPLACEMENT_ALREADY_ADDED') {
+      throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_DOUBLE_ADD_NOT_BLOCKED');
+    }
+    const proposal = await requiredProposalReceipt(clone.resolved.isolatedClone.finalizeProposalReceipt);
+    assertCanonicalUnchanged(clone, proposal);
+    return {
+      attempts, mutations, finalSemanticStateSha256: null, trace,
+      observation: { discovery, mode, guardCode: output.code,
+        proposalReceiptSha256: proposal.receiptSha256 },
+    };
+  }
+
+  attempts += 1;
+  const remove = await clone.resolved.isolatedClone.executeIsolated({
+    operatorId: 'delete_overlay', turn: 2,
+    arguments: {
+      projectId: 'oe-hold-dep-02', expectedProjectRevision: revision,
+      overlayId: form.target.overlayId, replacementOverlayId,
+      previousReceiptSha256: addReceiptSha256,
+      formSha256: form.formSha256, evidenceIds: D02_ALL_EVIDENCE,
+    },
+  });
+  trace.push(traceExecution('delete_overlay', 2, remove));
+  if (remove.disposition !== 'OK') {
+    throw new Error(`STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_DELETE_FAILED:${remove.disposition}`);
+  }
+  mutations += 1;
+  const finalState = requiredRecord(remove.output.taskState, 'D02_TASK_STATE_MISSING');
+  const finalSemanticStateSha256 = hashCanonicalJsonV1(finalState);
+  if (finalSemanticStateSha256 !== hashCanonicalJsonV1(D02_EXPECTED_STATE)) {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_FINAL_STATE_INVALID');
+  }
+  const proposal = await requiredProposalReceipt(clone.resolved.isolatedClone.finalizeProposalReceipt);
+  assertCanonicalUnchanged(clone, proposal);
+  return {
+    attempts, mutations, finalSemanticStateSha256, trace,
+    observation: { discovery, mode, replacementOverlayId,
+      proposalReceiptSha256: proposal.receiptSha256, finalSemanticStateSha256 },
+  };
+}
+
+function createD02SwapOwner(
+  form: Readonly<VerifiedUserMediaReplacementFormV1>,
+): Readonly<ProjectServiceIsolatedOperatorOwnerV2R> {
+  let addReceiptSha256: string | null = null;
+  let replacementOverlayId: number | null = null;
+  return {
+    execute: async (input) => {
+      if (input.call.operatorId !== 'add_overlay' && input.call.operatorId !== 'delete_overlay') {
+        return blockedExecution('D02_OPERATOR_UNSUPPORTED');
+      }
+      if (input.projectId !== 'oe-hold-dep-02'
+        || input.project.projectId !== input.projectId
+        || text(input.call.arguments.projectId) !== input.projectId) {
+        return blockedExecution('D02_PROJECT_SCOPE_CONFLICT');
+      }
+      if (text(input.call.arguments.expectedProjectRevision) !== input.currentProjectRevision) {
+        return blockedExecution('D02_REVISION_CONFLICT');
+      }
+      if (!validateEvidenceFactsExact(D02_EVIDENCE, D02_EVIDENCE)
+        || !sameStringSequence(input.call.arguments.evidenceIds, D02_ALL_EVIDENCE)) {
+        return blockedExecution('D02_EVIDENCE_BINDING_INVALID');
+      }
+      if (text(input.call.arguments.formSha256) !== form.formSha256
+        || form.formSha256 !== D02_FORM.formSha256
+        || form.expectedProjectRevisionSha256 !== hashCanonicalJsonV1(input.baseRevision)) {
+        return blockedExecution('D02_FORM_BINDING_INVALID');
+      }
+
+      if (input.call.operatorId === 'add_overlay') {
+        if (addReceiptSha256 || replacementOverlayId !== null) {
+          return blockedExecution('D02_REPLACEMENT_ALREADY_ADDED');
+        }
+        if (text(input.call.arguments.assetId) !== form.replacement.assetId
+          || !same(input.call.arguments.targetRange, form.target.timelineRange)
+          || !same(input.call.arguments.sourceRange, form.replacement.sourceRange)) {
+          return blockedExecution('D02_FORM_TO_ADD_BINDING_INVALID');
+        }
+        const oldOverlay = input.project.overlays.find(
+          ({ id }) => String(id) === String(form.target.overlayId),
+        );
+        if (!oldOverlay || oldOverlay.type !== 'video'
+          || oldOverlay.assetId !== form.target.oldAssetId
+          || hashCanonicalJsonV1(userMediaReplacementPresentationV1(oldOverlay))
+            !== form.target.presentationSha256
+          || d02OutsideStateSha256(input.project, [form.target.overlayId])
+            !== form.target.outsideTargetStateSha256) {
+          return blockedExecution('D02_OLD_STATE_OR_PRESENTATION_STALE');
+        }
+        const beforeState = projectProposalStateV2R(input.project);
+        replacementOverlayId = Math.max(...input.project.overlays.map(({ id }) => Number(id))) + 1;
+        const replacement = structuredClone(oldOverlay);
+        const replacementRecord = replacement as unknown as JsonRecord;
+        replacement.id = replacementOverlayId;
+        replacement.assetId = form.replacement.assetId;
+        replacementRecord.sourceStartFrame = form.replacement.sourceRange.startFrame;
+        replacementRecord.videoStartTime = form.replacement.sourceRange.startFrame;
+        delete replacementRecord.src;
+        input.project.overlays.push(replacement);
+        const afterState = projectProposalStateV2R(input.project);
+        const beforeStateSha256 = hashCanonicalJsonV1(beforeState);
+        const afterStateSha256 = hashCanonicalJsonV1(afterState);
+        const projectRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+          writerAuthority: REPLACEMENT_WRITER_AUTHORITY,
+          tenantId: input.tenantId, userId: input.userId, projectId: input.projectId,
+          canonicalBaseRevision: input.baseRevision,
+          previousProjectRevision: input.currentProjectRevision,
+          operatorId: input.call.operatorId, turn: input.call.turn,
+          argumentSha256: hashCanonicalJsonV1(input.call.arguments),
+          beforeStateSha256, afterStateSha256,
+        });
+        const receipt = {
+          status: 'PASS' as const, projectRevision, replacementOverlayId,
+          formSha256: form.formSha256, beforeStateSha256, afterStateSha256,
+          proof: {
+            authority: REPLACEMENT_WRITER_AUTHORITY,
+            beforeStateSha256, afterStateSha256,
+            changedPaths: changedProjectProposalPathsV2R(beforeState, afterState),
+          },
+        };
+        addReceiptSha256 = hashCanonicalJsonV1(receipt);
+        return deepFreezeV1({
+          authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION' as const,
+          disposition: 'OK' as const,
+          output: { receipt, replacementOverlayId,
+            taskState: d02TaskState(input.project, form, replacementOverlayId) },
+          evidenceIds: D02_ALL_EVIDENCE,
+        });
+      }
+
+      if (!addReceiptSha256 || replacementOverlayId === null) {
+        return blockedExecution('D02_ADD_RECEIPT_REQUIRED');
+      }
+      if (text(input.call.arguments.previousReceiptSha256) !== addReceiptSha256
+        || String(input.call.arguments.overlayId) !== String(form.target.overlayId)
+        || number(input.call.arguments.replacementOverlayId) !== replacementOverlayId) {
+        return blockedExecution('D02_ADD_RECEIPT_OR_TARGET_INVALID');
+      }
+      const oldIndex = input.project.overlays.findIndex(
+        ({ id }) => String(id) === String(form.target.overlayId),
+      );
+      const replacement = input.project.overlays.find(({ id }) => id === replacementOverlayId);
+      if (oldIndex < 0 || !replacement || replacement.assetId !== form.replacement.assetId
+        || hashCanonicalJsonV1(userMediaReplacementPresentationV1(replacement))
+          !== form.target.presentationSha256
+        || d02OutsideStateSha256(input.project, [form.target.overlayId, replacementOverlayId])
+          !== form.target.outsideTargetStateSha256) {
+        return blockedExecution('D02_PARTIAL_OR_PRESENTATION_DRIFT');
+      }
+      const beforeState = projectProposalStateV2R(input.project);
+      input.project.overlays.splice(oldIndex, 1);
+      const afterState = projectProposalStateV2R(input.project);
+      const beforeStateSha256 = hashCanonicalJsonV1(beforeState);
+      const afterStateSha256 = hashCanonicalJsonV1(afterState);
+      const projectRevision = issueProjectServiceIsolatedWriterRevisionV2R({
+        writerAuthority: REPLACEMENT_WRITER_AUTHORITY,
+        tenantId: input.tenantId, userId: input.userId, projectId: input.projectId,
+        canonicalBaseRevision: input.baseRevision,
+        previousProjectRevision: input.currentProjectRevision,
+        operatorId: input.call.operatorId, turn: input.call.turn,
+        argumentSha256: hashCanonicalJsonV1(input.call.arguments),
+        beforeStateSha256, afterStateSha256,
+      });
+      return deepFreezeV1({
+        authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION' as const,
+        disposition: 'OK' as const,
+        output: {
+          receipt: { status: 'PASS', projectRevision,
+            predecessorReceiptSha256: addReceiptSha256,
+            formSha256: form.formSha256, beforeStateSha256, afterStateSha256,
+            proof: {
+              authority: REPLACEMENT_WRITER_AUTHORITY,
+              beforeStateSha256, afterStateSha256,
+              changedPaths: changedProjectProposalPathsV2R(beforeState, afterState),
+            } },
+          taskState: d02TaskState(input.project, form, replacementOverlayId),
+        },
+        evidenceIds: D02_ALL_EVIDENCE,
       });
     },
   };
@@ -760,7 +1138,7 @@ function createD04ObservingCutOwner(
 }
 
 function noWriteSafeStop(
-  taskId: 'HOLD-DEP-01' | 'HOLD-DEP-04',
+  taskId: 'HOLD-DEP-01' | 'HOLD-DEP-02' | 'HOLD-DEP-04',
   sentinelId: string,
   reason: string,
 ): Readonly<Stage25DependencyDiversityOwnerOutcomeV1> {
@@ -884,6 +1262,128 @@ function materializeD01Evidence(): readonly Readonly<EvidenceFactV1>[] {
   ]);
 }
 
+function materializeD02ReplacementEvidence(): Readonly<UserMediaReplacementEvidenceV1> {
+  const project = buildProject('HOLD-DEP-02');
+  const storageVersion = createMediaSourceStorageVersionV1({
+    locator: { provider: 'R2', objectKey: 'stage25/dep02/screen-v2.mp4' },
+    byteLength: 12_000_000,
+    providerVersion: { kind: 'R2_ETAG', value: 'dep02-screen-v2-etag' },
+  });
+  const sourceVersion = createMediaSourceVersionV1({
+    owner: { kind: 'USER', userId: project.userId },
+    assetId: 'dep02-screen-v2', mediaKind: 'video', byteLength: 12_000_000,
+    contentSha256: hashCanonicalJsonV1({ fixture: 'dep02-screen-v2-bytes' }),
+    storageVersion,
+  });
+  const rightsMaterial = {
+    schemaVersion: 1 as const,
+    authority: 'STAGE25_SYNTHETIC_VISUAL_RIGHTS_FIXTURE_V1',
+    evidenceId: 'EV-D02-RIGHTS-OWNER', disposition: 'OWNED_BY_USER' as const,
+    projectId: project.projectId, assetId: sourceVersion.assetId,
+    sourceVersionSha256: sourceVersion.sourceVersionSha256,
+    permittedUse: 'EDIT_AND_RENDER_PROJECT' as const,
+  };
+  const rights = { ...rightsMaterial, evidenceSha256: hashCanonicalJsonV1(rightsMaterial) };
+  const handlesMaterial = {
+    schemaVersion: 1 as const,
+    authority: 'STAGE25_SYNTHETIC_SOURCE_HANDLE_FIXTURE_V1',
+    evidenceId: 'EV-D02-HANDLES-OWNER', projectId: project.projectId,
+    assetId: sourceVersion.assetId,
+    sourceVersionSha256: sourceVersion.sourceVersionSha256,
+    selectedSourceRange: { startFrame: 0, endFrame: 180 },
+    availableSourceRange: { startFrame: 0, endFrame: 600 },
+    sourcePtsMapTerminalReceiptSha256: hashCanonicalJsonV1({
+      fixture: 'dep02-source-pts-map-terminal',
+      sourceVersionSha256: sourceVersion.sourceVersionSha256,
+    }),
+    nativeAudioDisposition: 'MUTED' as const,
+  };
+  const sourceHandles = {
+    ...handlesMaterial, evidenceSha256: hashCanonicalJsonV1(handlesMaterial),
+  };
+  return deepFreezeV1({
+    projectRevision: revisionFor('HOLD-DEP-02'), sourceVersion, rights, sourceHandles,
+    trustedEvidenceSha256: {
+      rights: rights.evidenceSha256, sourceHandles: sourceHandles.evidenceSha256,
+    },
+  });
+}
+
+function d02Candidate(discovery: 'LIST' | 'SEARCH'): NormalizedAssetCandidate {
+  return {
+    assetId: 'dep02-screen-v2', type: 'video', name: 'Owned screen recording v2',
+    duration: 20, dimensions: { width: 1920, height: 1080 },
+    thumbnailHint: 'available', tags: ['owned', 'screen-recording', 'v2'],
+    score: 1, confidence: 0.99, confidenceLabel: 'high',
+    matchReasons: [discovery === 'LIST' ? 'listed-owner-asset' : 'searched-owner-asset'],
+    usedInProject: false, overlayIds: [], sceneIndexes: [],
+    useWith: {
+      tool: 'use_matching_footage', assetId: 'dep02-screen-v2',
+      note: 'Legacy handoff remains uncertified; verifiedReplacement carries the bounded form.',
+    },
+  };
+}
+
+function materializeD02Form(
+  discovery: 'LIST' | 'SEARCH',
+): Readonly<VerifiedUserMediaReplacementFormV1> {
+  const resolution = resolveUserAssetOverlayPlacement(
+    buildProject('HOLD-DEP-02'),
+    [d02Candidate(discovery)],
+    {
+      query: 'owned screen recording v2', operation: 'replace', placement: 'full-frame',
+      targetOverlayId: 202, sourceStartFrame: 0,
+      replacementEvidence: D02_REPLACEMENT_EVIDENCE,
+    },
+  );
+  const form = resolution.useWith?.verifiedReplacement;
+  if (resolution.status !== 'ready' || !form) {
+    throw new Error(
+      `STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_FORM_NOT_READY:${resolution.status}:${resolution.warnings.join(',')}`,
+    );
+  }
+  return form;
+}
+
+function materializeD02Evidence(): readonly Readonly<EvidenceFactV1>[] {
+  return deepFreezeV1([
+    evidenceFact({
+      evidenceId: 'EV-D02-TIMELINE', visibility: 'PUBLIC_TASK_EVIDENCE',
+      ownerRef: 'ProjectService.loadProjectForMutation paired snapshot',
+      projectStateSha256: projectStateSha256(buildProject('HOLD-DEP-02')),
+      expectedProjectRevisionSha256: D02_FORM.expectedProjectRevisionSha256,
+      target: D02_FORM.target,
+    }),
+    evidenceFact({
+      evidenceId: 'EV-D02-CANDIDATE', visibility: 'PUBLIC_TASK_EVIDENCE',
+      ownerRefs: [
+        'MEDIA_ASSETS.sourceVersionV1',
+        'lib/editron/agent/chat-asset-tools.ts#resolveUserAssetOverlayPlacement',
+      ],
+      assetId: D02_FORM.replacement.assetId,
+      sourceVersionSha256: D02_FORM.replacement.sourceVersionSha256,
+      sourceRange: D02_FORM.replacement.sourceRange,
+      sourceHandleEvidenceSha256: D02_FORM.replacement.sourceHandleEvidenceSha256,
+      sourcePtsMapTerminalReceiptSha256: D02_FORM.replacement.sourcePtsMapTerminalReceiptSha256,
+    }),
+    evidenceFact({
+      evidenceId: 'EV-D02-RIGHTS', visibility: 'PUBLIC_TASK_EVIDENCE',
+      ownerRef: 'STAGE25_SYNTHETIC_VISUAL_RIGHTS_FIXTURE_V1',
+      rightsEvidenceId: D02_FORM.replacement.rightsEvidenceId,
+      rightsEvidenceSha256: D02_FORM.replacement.rightsEvidenceSha256,
+      evidenceQualityCeiling: 'SYNTHETIC_FIXTURE_ONLY',
+    }),
+    evidenceFact({
+      evidenceId: 'EV-D02-PRESERVE', visibility: 'PUBLIC_TASK_EVIDENCE',
+      ownerRef: 'lib/editron/services/user-media-replacement-form-v1.ts',
+      presentationSha256: D02_FORM.target.presentationSha256,
+      outsideTargetStateSha256: D02_FORM.target.outsideTargetStateSha256,
+      requiredMutationOrder: D02_FORM.requiredMutationOrder,
+      formSha256: D02_FORM.formSha256,
+    }),
+  ]);
+}
+
 function materializeD04Evidence(): readonly Readonly<EvidenceFactV1>[] {
   const project = buildProject('HOLD-DEP-04');
   const rangeFacts = (['A', 'B'] as const).map((label) => {
@@ -939,6 +1439,81 @@ function expectedD01TaskState(): JsonRecord {
     Object.assign(overlay, { styles: plan.updates[0].nextStyles });
   }
   return d01TaskState(project);
+}
+
+function expectedD02TaskState(): JsonRecord {
+  const project = buildProject('HOLD-DEP-02');
+  const oldIndex = project.overlays.findIndex(({ id }) => id === D02_FORM.target.overlayId);
+  const oldOverlay = project.overlays[oldIndex];
+  if (oldIndex < 0 || !oldOverlay) {
+    throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_D02_EXPECTED_TARGET_MISSING');
+  }
+  const replacementOverlayId = Math.max(...project.overlays.map(({ id }) => Number(id))) + 1;
+  const replacement = structuredClone(oldOverlay);
+  const replacementRecord = replacement as unknown as JsonRecord;
+  replacement.id = replacementOverlayId;
+  replacement.assetId = D02_FORM.replacement.assetId;
+  replacementRecord.sourceStartFrame = D02_FORM.replacement.sourceRange.startFrame;
+  replacementRecord.videoStartTime = D02_FORM.replacement.sourceRange.startFrame;
+  delete replacementRecord.src;
+  project.overlays.push(replacement);
+  project.overlays.splice(oldIndex, 1);
+  return d02TaskState(project, D02_FORM, replacementOverlayId);
+}
+
+function d02TaskState(
+  project: Readonly<Project>,
+  form: Readonly<VerifiedUserMediaReplacementFormV1>,
+  replacementOverlayId: number,
+): JsonRecord {
+  const replacement = project.overlays.find(({ id }) => id === replacementOverlayId);
+  const replacementRecord = replacement as unknown as JsonRecord | undefined;
+  const replacementSourceStart = replacement
+    ? number(replacementRecord?.sourceStartFrame ?? replacementRecord?.videoStartTime) : 0;
+  return {
+    durationInFrames: project.durationInFrames,
+    overlayCount: project.overlays.length,
+    oldOverlayPresent: project.overlays.some(
+      ({ id }) => String(id) === String(form.target.overlayId),
+    ),
+    replacementOverlayCount: project.overlays.filter(
+      ({ assetId }) => assetId === form.replacement.assetId,
+    ).length,
+    replacement: replacement ? {
+      overlayId: replacement.id,
+      assetId: replacement.assetId,
+      timelineRange: {
+        startFrame: replacement.from,
+        endFrame: replacement.from + replacement.durationInFrames,
+      },
+      sourceRange: {
+        startFrame: replacementSourceStart,
+        endFrame: replacementSourceStart + replacement.durationInFrames,
+      },
+      presentationSha256: hashCanonicalJsonV1(
+        userMediaReplacementPresentationV1(replacement),
+      ),
+      sourceVersionSha256: form.replacement.sourceVersionSha256,
+      formSha256: form.formSha256,
+    } : null,
+    outsideTargetStateSha256: replacement
+      ? d02OutsideStateSha256(project, [replacement.id]) : null,
+  };
+}
+
+function d02OutsideStateSha256(
+  project: Readonly<Project>,
+  excludedOverlayIds: readonly (string | number)[],
+): string {
+  const excluded = new Set(excludedOverlayIds.map(String));
+  const withoutExcluded = {
+    ...project,
+    overlays: project.overlays.filter(({ id }) => !excluded.has(String(id))),
+  };
+  return userMediaReplacementOutsideTargetStateSha256V1(
+    withoutExcluded as unknown as Record<string, unknown>,
+    '__NO_D02_OVERLAY__',
+  );
 }
 
 function d01TaskState(project: Readonly<Project>): JsonRecord {
@@ -1011,7 +1586,7 @@ function d04TaskState(project: Readonly<Project>): JsonRecord {
 }
 
 async function freshClone(
-  taskId: 'HOLD-DEP-01' | 'HOLD-DEP-04',
+  taskId: 'HOLD-DEP-01' | 'HOLD-DEP-02' | 'HOLD-DEP-04',
   isolatedOperatorOwner: Readonly<ProjectServiceIsolatedOperatorOwnerV2R>,
   episodeId: string,
 ) {
@@ -1092,7 +1667,7 @@ function buildProject(taskId: 'HOLD-DEP-01' | 'HOLD-DEP-02' | 'HOLD-DEP-04'): Pr
           from: 0, durationInFrames: 600, sourceStartFrame: 0, videoStartTime: 0 }),
         overlay({ id: 202, type: 'video', assetId: 'dep02-screen-old', row: 1,
           from: 120, durationInFrames: 180, sourceStartFrame: 30, videoStartTime: 30,
-          left: 320, top: 180, width: 1280, height: 720,
+          left: 320, top: 180, width: 1280, height: 720, rotation: 0,
           styles: { objectFit: 'contain', opacity: 1 } }),
       ],
     };
@@ -1114,7 +1689,9 @@ function buildProject(taskId: 'HOLD-DEP-01' | 'HOLD-DEP-02' | 'HOLD-DEP-04'): Pr
   };
 }
 
-function revisionFor(taskId: 'HOLD-DEP-01' | 'HOLD-DEP-04'): ProjectRevisionV1 {
+function revisionFor(
+  taskId: 'HOLD-DEP-01' | 'HOLD-DEP-02' | 'HOLD-DEP-04',
+): ProjectRevisionV1 {
   const project = buildProject(taskId);
   return {
     schemaVersion: 1, value: Number(project.projectRevision),
@@ -1241,4 +1818,8 @@ function sum(values: readonly number[]): number { return values.reduce((total, v
 // form or output disappears, materialization fails before any owner executes.
 if (!v2rOperatorFieldSchema('apply_filter', 'effectPlan')) {
   throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_FILTER_FORM_SCHEMA_MISSING');
+}
+if (!v2rOperatorFieldSchema('add_overlay', 'sourceRange')
+  || !v2rOperatorFieldSchema('delete_overlay', 'overlayId')) {
+  throw new Error('STAGE25_DEPENDENCY_DIVERSITY_OWNER_REPLACEMENT_FORM_SCHEMA_MISSING');
 }

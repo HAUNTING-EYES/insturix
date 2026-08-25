@@ -6,7 +6,7 @@ import {
 import { runStage25DependencyDiversitySentinelsV1 }
   from './stage25-dependency-diversity-sentinel-runner-v1';
 import {
-  auditDep02PublicOwnerGapV1,
+  auditDep02PublicOwnerContractV1,
   executeStage25DependencyDiversityOwnerScenarioV1,
   STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1,
   STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_VERSION_V1,
@@ -18,7 +18,7 @@ type JsonRecord = Record<string, unknown>;
 type DerivedAxes = Stage25DependencyDiversitySentinelV1['expected'];
 
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_V1_1' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_V1_2' as const;
 
 /**
  * Independently validates owner artifacts and derives every score axis from
@@ -66,7 +66,7 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
       taskResults.push(result);
     }
 
-    const executable = task.taskId === 'HOLD-DEP-01' || task.taskId === 'HOLD-DEP-04';
+    const executable = task.taskId !== 'HOLD-DEP-03';
     if (executable && taskResults.some(({ frozenExpectationMatched }) => !frozenExpectationMatched)) {
       fail(`EXECUTABLE_TASK_SENTINEL_MISMATCH:${task.taskId}`);
     }
@@ -81,9 +81,7 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
       frozenExpectationMatchCount: taskResults.filter(({ frozenExpectationMatched }) => frozenExpectationMatched).length,
       disposition: executable
         ? 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS'
-        : task.taskId === 'HOLD-DEP-02'
-          ? 'NOT_READY_PUBLIC_FORM_OWNER_GAP'
-          : 'NOT_READY_PUBLIC_SOURCE_TIME_MAP_GAP',
+        : 'NOT_READY_PUBLIC_SOURCE_TIME_MAP_GAP',
     });
   }
 
@@ -96,8 +94,8 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
     materializationSha256: String(materialization.materializationSha256),
     taskReceipts,
     sentinelResults,
-    executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-04'] as const,
-    blockedTaskIds: ['HOLD-DEP-02', 'HOLD-DEP-03'] as const,
+    executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-04'] as const,
+    blockedTaskIds: ['HOLD-DEP-03'] as const,
     assessment: 'PASS_ZERO_SPEND_OWNER_EXECUTION_WITH_PUBLIC_GAPS' as const,
     inferenceDisposition: 'NOT_READY_FOR_INFERENCE' as const,
     sourceClosureDisposition: 'BOUNDED_RUNTIME_IDENTITIES_NOT_TRANSITIVE_SOURCE_CLOSURE' as const,
@@ -106,7 +104,8 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
     canonicalProjectMutationCount: 0 as const,
     stateEffects: [] as const,
     whatHasNotBeenChecked: [
-      'DEP02_ADD_BEFORE_DELETE_FORM_RIGHTS_AND_HANDLES_OWNER',
+      'DEP02_LIVE_RIGHTS_AND_SOURCE_HANDLE_AUTHORITY',
+      'DEP02_CANONICAL_PROJECTSERVICE_APPLY_RELOAD_RENDER',
       'DEP03_PUBLIC_SOURCE_TIME_TRANSFORM',
       'TRANSITIVE_CURRENT_SOURCE_CLOSURE',
       'RENDERED_VISUAL_OR_AUDIO_PROOF',
@@ -141,9 +140,12 @@ function validateMaterialization(value: unknown): JsonRecord {
   }
   const dep02 = tasks.find(({ taskId }) => taskId === 'HOLD-DEP-02')
     ?? fail('DEP02_MATERIALIZATION_MISSING');
-  if (dep02.disposition !== 'NOT_EXECUTABLE_PUBLIC_FORM_OWNER_GAP'
-    || hashCanonicalJsonV1(dep02.ownerGapAudit) !== hashCanonicalJsonV1(auditDep02PublicOwnerGapV1())) {
-    fail('DEP02_GAP_AUDIT_INVALID');
+  if (dep02.disposition !== 'EXECUTABLE_ZERO_SPEND_OWNER'
+    || dep02.proofCeiling !== 'CURRENT_EDIT_PROOF'
+    || !isSha256(dep02.expectedFinalSemanticStateSha256)
+    || hashCanonicalJsonV1(dep02.ownerContractAudit)
+      !== hashCanonicalJsonV1(auditDep02PublicOwnerContractV1())) {
+    fail('DEP02_OWNER_CONTRACT_INVALID');
   }
   const dep03 = tasks.find(({ taskId }) => taskId === 'HOLD-DEP-03')
     ?? fail('DEP03_MATERIALIZATION_MISSING');

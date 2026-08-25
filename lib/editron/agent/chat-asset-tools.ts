@@ -3,6 +3,12 @@ import { z } from "zod";
 
 import type { MediaAsset } from "../services/asset-resolver";
 import type { AssetSearchResult } from "../services/asset-search-service";
+import {
+  resolveVerifiedUserMediaReplacementFormV1,
+  userMediaReplacementOutsideTargetStateSha256V1,
+  type UserMediaReplacementEvidenceV1,
+  type VerifiedUserMediaReplacementFormV1,
+} from "../services/user-media-replacement-form-v1";
 
 
 export type UserAssetType = "video" | "audio" | "image";
@@ -53,6 +59,7 @@ export type UserAssetOverlayStatus =
   | "low-confidence"
   | "unsupported-type"
   | "no-target"
+  | "unverified-replacement"
   | "conflicting-target";
 
 export interface UserAssetOverlayOptions {
@@ -70,6 +77,8 @@ export interface UserAssetOverlayOptions {
   targetOverlayId?: string | number;
   targetSceneIndex?: number;
   sourceStartFrame?: number;
+  /** Owner-issued evidence only. This is deliberately absent from the model tool schema. */
+  replacementEvidence?: Readonly<UserMediaReplacementEvidenceV1>;
   minConfidence?: number;
   allowLowConfidence?: boolean;
 }
@@ -102,6 +111,8 @@ export interface UserAssetOverlayResolution {
       assetId: string;
       sourceStartFrame?: number;
     };
+    /** Verified final form; the existing resolver remains the sole form owner. */
+    verifiedReplacement?: Readonly<VerifiedUserMediaReplacementFormV1>;
   };
 }
 
@@ -492,6 +503,61 @@ export function resolveUserAssetOverlayPlacement(
           : "Asset replacement needs targetOverlayId from the selected timeline clip or one unambiguous targetSceneIndex.",
       };
     }
+    let verifiedReplacement: Readonly<VerifiedUserMediaReplacementFormV1> | undefined;
+    if (options.replacementEvidence) {
+      if (!hasOverlayTarget) {
+        return {
+          status: "unverified-replacement",
+          operation,
+          query: options.query,
+          inferredType: candidate.type,
+          placement,
+          candidates: sorted,
+          candidate,
+          warnings,
+          message: "Verified replacement requires one exact targetOverlayId; no mutation form was issued.",
+        };
+      }
+      const targetOverlay = (project?.overlays ?? [])
+        .find((overlay: any) => String(overlay.id) === String(options.targetOverlayId));
+      if (!targetOverlay || targetOverlay.type !== "video") {
+        return {
+          status: "no-target",
+          operation,
+          query: options.query,
+          inferredType: candidate.type,
+          placement,
+          candidates: sorted,
+          candidate,
+          warnings,
+          message: `Verified replacement target ${String(options.targetOverlayId)} was not found as one video overlay.`,
+        };
+      }
+      const verification = resolveVerifiedUserMediaReplacementFormV1({
+        projectId: String(project.projectId),
+        replacementAssetId: candidate.assetId,
+        targetOverlay,
+        outsideTargetStateSha256: userMediaReplacementOutsideTargetStateSha256V1(
+          project as Record<string, unknown>,
+          targetOverlay.id,
+        ),
+        evidence: options.replacementEvidence,
+      });
+      if (verification.status !== "READY") {
+        return {
+          status: "unverified-replacement",
+          operation,
+          query: options.query,
+          inferredType: candidate.type,
+          placement,
+          candidates: sorted,
+          candidate,
+          warnings: [...warnings, verification.code],
+          message: `Replacement evidence failed closed (${verification.code}); the existing overlay must remain unchanged.`,
+        };
+      }
+      verifiedReplacement = verification.form;
+    }
     return {
       status: "ready",
       operation,
@@ -502,6 +568,7 @@ export function resolveUserAssetOverlayPlacement(
       candidate,
       warnings,
       useWith: {
+        ...(verifiedReplacement ? { verifiedReplacement } : {}),
         use_matching_footage: {
           ...(hasOverlayTarget ? { overlayId: options.targetOverlayId } : {}),
           ...(hasSceneTarget ? { sceneIndex: Math.round(options.targetSceneIndex!) } : {}),
