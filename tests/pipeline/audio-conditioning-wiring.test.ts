@@ -138,6 +138,7 @@ import {
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
 import { resolveRuntimeMusicCoveragePlan } from '../../lib/editron/services/music-coverage-runtime';
 import { analyzeConditionedMusicBeatGrid } from '../../lib/editron/services/music-beat-grid';
+import { projectPipelineAudioTimelineBindingHashV1 } from '../../lib/editron/services/pipeline-audio-project-delivery-v1';
 import { createTools } from '../../lib/editron/agent/tools';
 import { POST as finalizeStoryboard } from '../../app/api/services/pipeline/storyboard/[id]/finalize/route';
 import { POST as runAudioWorker } from '../../app/api/internal/workers/pipeline/audio/route';
@@ -272,6 +273,26 @@ function makeStoryboard(beatSyncActive: boolean) {
           mood: 'confident',
           assetRecommendation: 'ai-video',
         },
+      },
+    ],
+  };
+}
+
+function makeFinalizeTimelineSnapshot() {
+  return {
+    projectId: 'proj_audio',
+    userId: 'user_1',
+    fps: 30,
+    durationInFrames: 150,
+    overlays: [
+      {
+        id: 'video_initial',
+        type: 'video',
+        row: 1,
+        from: 0,
+        durationInFrames: 150,
+        assetId: 'video_1',
+        content: 'https://cdn.example.com/scene.mp4',
       },
     ],
   };
@@ -525,12 +546,18 @@ describe('storyboard finalize audio conditioning', () => {
     mocks.findProjectBySessionId.mockResolvedValue(null);
     mocks.saveProject.mockResolvedValue(undefined);
     mocks.loadProjectForMutation.mockResolvedValue({
+      project: makeFinalizeTimelineSnapshot(),
       revision: {
         schemaVersion: 1,
         value: 1,
         compatibilityUpdatedAt: '2026-08-25T00:00:00.000Z',
       },
     });
+    mocks.commitPipelineAudioDeliveryV1.mockImplementation(async (
+      _userId: unknown,
+      _projectId: unknown,
+      input: Record<string, unknown>,
+    ) => makeAudioWorkerDeliveryResult(input));
     mocks.recordPipelineDirectorIntentV1.mockResolvedValue({
       disposition: 'RECORDED',
       receipt: {
@@ -577,8 +604,9 @@ describe('storyboard finalize audio conditioning', () => {
     mocks.emitBrandEvent.mockResolvedValue(undefined);
   });
 
-  it('conditions and persists beat-sync BGM after the initial project save', async () => {
+  it('conditions and delivers beat-sync BGM through ProjectService after the initial project save', async () => {
     mocks.getStoryboard.mockResolvedValue(makeStoryboard(true));
+    const expectedSnapshot = makeFinalizeTimelineSnapshot();
 
     const response = await finalizeStoryboard(makeRequest({}) as any, {
       params: Promise.resolve({ id: 'sb_audio' }),
@@ -602,17 +630,37 @@ describe('storyboard finalize audio conditioning', () => {
     expect(mocks.analyzeBeatsFull).toHaveBeenCalledTimes(1);
     expect(mocks.detectBeats).not.toHaveBeenCalled();
 
-    const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
-      ([collectionName, , mutation]) => (
-        collectionName === 'projects'
-        && mutation?.$push?.overlays?.$each?.some(
-          (overlay: any) => overlay?.metadata?.source === 'finalize-sync-beat-sync',
-        )
+    const deliveryCall = mocks.commitPipelineAudioDeliveryV1.mock.calls.find(
+      ([, projectId, command]) => (
+        projectId === 'proj_audio'
+        && command?.kind === 'BGM'
+        && command?.outcome === 'ATTACHED'
       ),
     );
-    expect(projectOverlayMutation).toBeDefined();
-    expect(projectOverlayMutation?.[2].$push.overlays.$each).toHaveLength(1);
-    expect(projectOverlayMutation?.[2].$push.overlays.$each[0]).toMatchObject({
+    expect(deliveryCall).toBeDefined();
+    const delivery = deliveryCall?.[2] as Record<string, any>;
+    expect(delivery).toMatchObject({
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 1,
+        compatibilityUpdatedAt: '2026-08-25T00:00:00.000Z',
+      },
+      planningTimelineBindingHash: projectPipelineAudioTimelineBindingHashV1(expectedSnapshot),
+      deliveryId: expect.stringMatching(/^audio-delivery_[A-Za-z0-9_-]{18}$/),
+      kind: 'BGM',
+      outcome: 'ATTACHED',
+      musicCoveragePlan: expect.objectContaining({
+        version: 'music-coverage-plan-v1',
+        mode: 'full',
+      }),
+      beatFrames: [
+        { frame: 0, isDownbeat: true },
+        { frame: 15, isDownbeat: false },
+        { frame: 30, isDownbeat: false },
+      ],
+    });
+    expect(delivery.overlays).toHaveLength(1);
+    expect(delivery.overlays[0]).toMatchObject({
       from: 0,
       durationInFrames: 150,
       startFromSound: 0,
@@ -645,6 +693,17 @@ describe('storyboard finalize audio conditioning', () => {
         },
       },
     });
+    expect(mocks.saveProject.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.loadProjectForMutation.mock.invocationCallOrder[0],
+    );
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects'
+        && mutation?.$push?.overlays?.$each?.some(
+          (overlay: any) => overlay?.metadata?.source === 'finalize-sync-beat-sync',
+        )
+      ),
+    )).toBe(false);
 
     const assetMutation = mocks.dbUpdateOne.mock.calls.find(
       ([collectionName, filter]) => (
@@ -674,6 +733,37 @@ describe('storyboard finalize audio conditioning', () => {
         source: 'audio-analysis',
       },
     });
+  });
+
+  it('does not raw-append BGM after ProjectService blocks the planned visual binding', async () => {
+    mocks.getStoryboard.mockResolvedValue(makeStoryboard(true));
+    mocks.commitPipelineAudioDeliveryV1.mockRejectedValueOnce(Object.assign(
+      new Error('Pipeline audio delivery cannot safely rebase: TIMELINE_BINDING_CHANGED.'),
+      { code: 'PROJECT_PIPELINE_AUDIO_DELIVERY_REBASE_BLOCKED' },
+    ));
+
+    const response = await finalizeStoryboard(makeRequest({}) as any, {
+      params: Promise.resolve({ id: 'sb_audio' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.commitPipelineAudioDeliveryV1).toHaveBeenCalledTimes(1);
+    expect(mocks.dispatchAudioJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'bgm',
+        projectId: 'proj_audio',
+        userId: 'user_1',
+      }),
+      'BGM',
+    );
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects'
+        && mutation?.$push?.overlays?.$each?.some(
+          (overlay: any) => overlay?.metadata?.source === 'finalize-sync-beat-sync',
+        )
+      ),
+    )).toBe(false);
   });
 
   it('passes exact timeline and platform evidence to the async worker path', async () => {

@@ -283,16 +283,21 @@ changes.
   raw-updates every video overlay. Focused coverage passes 11/11 with
   repository typecheck and quiet lint. This remains numeric-FPS only and does
   not migrate native-audio evidence, analysis lifecycle/status writes, source
-  identity, rational/VFR timebases, or media invalidation. The next P0 writer
-  remains the finalizer's synchronous BGM overlay append.
+  identity, rational/VFR timebases, or media invalidation. The subsequent P0
+  writer, the finalizer's synchronous BGM attachment, is closed below.
 
 - **2026-08-25 finalizer synchronous-BGM Step-0.**
   [pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md](./editron/pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md)
-  verifies that the existing `commitPipelineAudioDeliveryV1` is the sole
-  suitable owner: it already supplies CAS, replay identity, audio-only rebase,
-  writer receipt and unverified-mix proof status. The finalizer must supply a
-  pre-generation snapshot/binding and deterministic delivery ID, then remove
-  its raw BGM push; no second audio command or metadata migration is in scope.
+  verified that the existing `commitPipelineAudioDeliveryV1` is the sole
+  suitable owner: it supplies CAS, replay identity, audio-only rebase, writer
+  receipt and unverified-mix proof status. The finalizer now captures a
+  pre-generation ProjectService snapshot/binding, derives a deterministic
+  delivery ID from immutable BGM material, and uses that owner for synchronous
+  `BGM`/`ATTACHED` delivery. Its raw BGM project push is removed. A
+  visual-binding block produces the existing explicit degraded async path,
+  never a raw retry. Finalizer wiring plus the core audio owner pass 36/36;
+  repository typecheck and quiet lint pass. This is not a migration of the
+  finalizer's other metadata/lifecycle writers or rendered-mix proof.
 
 ## The desired experience, in plain words
 

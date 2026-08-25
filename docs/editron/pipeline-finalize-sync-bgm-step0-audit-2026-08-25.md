@@ -1,19 +1,18 @@
 # Pipeline Finalize synchronous-BGM owner migration — Step-0 audit
 
 Date: 2026-08-25  
-Status: `STEP_0_COMPLETE_NO_DEAD_CODE_REMOVAL_JUSTIFIED`
+Status: `IMPLEMENTED_AND_VERIFIED`
 
-## Exact current defect
+## Former defect, now resolved
 
-`app/api/services/pipeline/storyboard/[id]/finalize/route.ts:1290-1301`
-currently raw-pushes synchronous beat-sync BGM overlays after the initial
-project save. It also writes `musicCoveragePlan`, its intelligence projection,
-and `updatedAt` without a user predicate, ProjectService revision, delivery
-identity, replay receipt, safe rebase decision, or rendered-mix proof.
+The former synchronous beat-sync branch raw-pushed BGM overlays after the
+initial project save. It also wrote `musicCoveragePlan`, its intelligence
+projection, and `updatedAt` without a user predicate, ProjectService revision,
+delivery identity, replay receipt, safe rebase decision, or rendered-mix proof.
 
 The BGM is generated from a real coverage plan and may carry beat evidence.
-That material is valid input to the existing audio owner, but its raw project
-append is not a canonical timeline mutation.
+That material is valid input to the existing audio owner. The bounded migration
+now lands it through that owner rather than a raw project append.
 
 ## Existing authority verified
 
@@ -29,8 +28,8 @@ append is not a canonical timeline mutation.
 
 The asynchronous audio worker uses that command after taking a snapshot and
 binding `projectPipelineAudioTimelineBindingHashV1`. The synchronous finalizer
-has the same BGM material but currently omits those two inputs and bypasses the
-owner. A second BGM command is therefore prohibited.
+has the same BGM material and now supplies both inputs to the owner. A second
+BGM command remains prohibited.
 
 ## Step-0 cleanup audit
 
@@ -49,9 +48,9 @@ The finalizer route is over 300 lines. Its retained setup, generation and
 fallback code is live, so a broad cleanup/refactor would obscure this safety
 migration.
 
-## Frozen narrow migration shape
+## Implemented narrow migration shape
 
-The implementation may touch only the synchronous beat-sync BGM producer and
+The implementation touched only the synchronous beat-sync BGM producer and
 its focused tests.
 
 1. After the finalizer's own current metadata writes and immediately before
@@ -74,7 +73,7 @@ its focused tests.
    current explicit degraded warning and use the existing asynchronous path;
    do not raw-attach the already-generated BGM.
 
-## Required verification
+## Required verification — satisfied
 
 1. The synchronous path passes an expected revision and a binding hash made
    from the same pre-generation snapshot to the existing audio owner.
@@ -85,7 +84,9 @@ its focused tests.
 4. A replay does not add a second overlay; a visual-timeline change results in
    the existing explicit degraded/async outcome, not a local overlay write.
 5. Existing audio-owner tests still prove audio-only safe rebase, visual-change
-   block, receipt and proof semantics.
+   block, receipt and proof semantics. The finalizer wiring and core audio-owner
+   suites pass 36/36; repository `pnpm exec tsc --noEmit` and
+   `pnpm exec eslint . --quiet` pass.
 
 ## Non-claims
 

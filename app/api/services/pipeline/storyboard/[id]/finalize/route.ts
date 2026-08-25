@@ -25,6 +25,8 @@ import {
   resolveRuntimeMusicCoveragePlan,
 } from '@/lib/editron/services/music-coverage-runtime';
 import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
+import { projectPipelineAudioTimelineBindingHashV1 } from '@/lib/editron/services/pipeline-audio-project-delivery-v1';
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -42,6 +44,34 @@ type PipelineWarningSink = {
 };
 
 const BGM_BILLING_PROVIDER = 'cassetteai';
+
+/**
+ * A synchronous beat-sync attempt has no QStash payload to carry the worker
+ * delivery identity. Derive the same replay-safe identity from immutable
+ * planning and generated-audio material instead of creating another registry.
+ */
+function createSynchronousBgmDeliveryId(input: {
+  projectId: string;
+  storyboardId: string;
+  audioAssetId: string;
+  planningTimelineBindingHash: string;
+  musicCoveragePlan: unknown;
+  totalFrames: number;
+  fps: number;
+}): string {
+  const materialHash = hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    source: 'pipeline-finalize-sync-bgm-v1',
+    projectId: input.projectId,
+    storyboardId: input.storyboardId,
+    audioAssetId: input.audioAssetId,
+    planningTimelineBindingHash: input.planningTimelineBindingHash,
+    musicCoveragePlan: input.musicCoveragePlan,
+    totalFrames: input.totalFrames,
+    fps: input.fps,
+  });
+  return `audio-delivery_${materialHash.slice(0, 18)}`;
+}
 
 function getBillableBgmDurationSeconds(totalDurationSec: number): number {
   const rounded = Math.round(totalDurationSec);
@@ -1163,6 +1193,15 @@ export async function POST(
 
       if (bgmCreditCharge) {
         try {
+          // Bind the generated BGM to the exact visual timeline it was planned
+          // against. ProjectService may later rebase only audio-only drift.
+          const syncBgmPlanningSnapshot = await projectService.loadProjectForMutation(
+            userId,
+            project.projectId,
+          );
+          const syncBgmPlanningTimelineBindingHash = projectPipelineAudioTimelineBindingHashV1(
+            syncBgmPlanningSnapshot.project,
+          );
           console.log(
             `[Finalize] Beat-sync ACTIVE — generating BGM synchronously for beat detection (${totalDurationSec}s, "${musicPrompt.substring(0, 60)}")`
           );
@@ -1287,15 +1326,26 @@ export async function POST(
             { upsert: true },
           );
 
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: project.projectId },
+          const audioDelivery = await projectService.commitPipelineAudioDeliveryV1(
+            userId,
+            project.projectId,
             {
-              $push: { overlays: { $each: bgmOverlays } } as any,
-              $set: {
+              expectedRevision: syncBgmPlanningSnapshot.revision,
+              planningTimelineBindingHash: syncBgmPlanningTimelineBindingHash,
+              deliveryId: createSynchronousBgmDeliveryId({
+                projectId: project.projectId,
+                storyboardId: id,
+                audioAssetId: bgm.audioAssetId,
+                planningTimelineBindingHash: syncBgmPlanningTimelineBindingHash,
                 musicCoveragePlan,
-                'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-                updatedAt: new Date(),
-              },
+                totalFrames: currentFrame,
+                fps,
+              }),
+              kind: 'BGM',
+              outcome: 'ATTACHED',
+              overlays: bgmOverlays,
+              musicCoveragePlan,
+              beatFrames: beatEvidence?.beatGrid.beats,
             },
           );
           overlays.push(...bgmOverlays);
@@ -1303,8 +1353,8 @@ export async function POST(
           bgmSyncCompleted = true;
           console.log(
             beatEvidence
-              ? '[Finalize] Sync BGM + analyzed beat grid ready for Director'
-              : '[Finalize] Sync BGM ready; beat alignment unavailable and reported',
+              ? `[Finalize] Sync BGM ${audioDelivery.disposition} + analyzed beat grid ready for Director`
+              : `[Finalize] Sync BGM ${audioDelivery.disposition}; beat alignment unavailable and reported`,
           );
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
