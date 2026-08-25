@@ -362,6 +362,13 @@ changes.
   Mongo compare-and-set adapter: it rechecks that binding before each write,
   requires an exact prior state hash and returns an honest race/invalid-state
   disposition. No mapper worker calls it and no live Atlas write is claimed.
+  Commit `228b28dd4` clears both cadence-map fields in the real proxy-to-master
+  replacement payload; commit `584b913ff` clears them in both the claim and
+  completion writes of the source-qualification worker. These are the two
+  currently audited writers that directly reset/issue `sourceVersionV1`.
+  They do not prove legacy raw storage-key writers cannot change an already
+  qualified asset: that separate inventory and migration rule remains
+  `MEDIA-15` evidence debt.
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 

@@ -167,6 +167,14 @@ state hash, verifies the next record against the live source/qualification,
 then performs a source-bound compare-and-set. The adapter is not called by a
 mapper and its injected-port suite is not a live Atlas write proof.
 
+Commits `228b28dd4` and `584b913ff` close the two current code paths that
+directly reset or issue `sourceVersionV1`: proxy-to-master promotion and the
+qualification worker. Both now write the cadence record and its state hash as
+`null` before fresh source identity can be used. This is explicit
+source-bound-observation invalidation, not a mapper result. The broader raw
+`r2Key` writer inventory remains open because old migration or generator paths
+may not participate in source-version ownership; it is recorded as `MEDIA-15`.
+
 There is still no mapper worker, complete-manifest verifier or terminal map
 persistence. It intentionally cannot call a large map "measured" until a real
 qualified source passes the full verifier. The next runtime phase is source-
@@ -180,12 +188,13 @@ This audit was initially grounded against `d4d3a9c7b` and rechecked through
 the pure verifier commit `426d3d09a`, lifecycle-contract commit `bece283e3`,
 terminal-contract correction `ff27d6da6`, guarded private-sidecar adapter
 `173432a4c`, source worker hardening `f7da79e32` and asset-state boundary
-`822e9182e` plus Mongo CAS adapter `3ad3a1078`, including the
+`822e9182e` plus Mongo CAS adapter `3ad3a1078`, proxy-promotion invalidation
+`228b28dd4` and qualification invalidation `584b913ff`, including the
 signed qualification worker, `MEDIA_ASSETS`
 persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
-frame projections. Thirty-one focused shard/lifecycle/sidecar/asset-state/CAS
-tests plus four worker denial tests, TypeScript and repository ESLint pass for
-those commits.
+frame projections. Fifty-two focused shard/lifecycle/sidecar/asset-state/CAS,
+qualification, proxy-promotion and worker-denial tests, TypeScript and
+repository ESLint pass for those commits.
 It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
 a deployed worker/bucket binding, a persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
