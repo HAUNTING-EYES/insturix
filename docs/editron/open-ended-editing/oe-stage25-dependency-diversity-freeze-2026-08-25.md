@@ -107,3 +107,26 @@ and cut/filter authorities. The receipt binds bounded runtime identities, not
 a transitive current-source closure, rendered proof, canonical apply/reload or
 model competence. Its inference disposition is therefore still
 `NOT_READY_FOR_INFERENCE`.
+
+## Public retime callable successor
+
+Commit `afee8f1cc` closes the live-callable half of the `HOLD-DEP-03` gap. The
+chat `apply_speed_ramp` handler no longer persists a planned curve through
+independent `updateOverlay` calls. It now reads one ProjectService snapshot,
+carries that exact revision into `applyVideoSourceRangeRetimeV1`, and returns
+the writer-issued mutation receipt, timeline receipt, exact retime/ripple
+effect and downstream source-time transform.
+
+The callable is deliberately fail-closed and bounded to one complete isolated
+CFR video source range at a constant rate above 1x through 4x. Partial curves,
+slow motion, VFR, mixed-track reconform, overlapping dependent state,
+insufficient handles, existing retime/keyframes and stale revisions are not
+silently approximated. They return a no-write failure.
+
+This does **not** rewrite the frozen V2R9 operator packet or its original
+`NOT_READY_PUBLIC_CONTRACT_GAP` finding. That immutable packet still declares
+receipt-only output. `HOLD-DEP-03` remains blocked until a new versioned public
+operator contract binds the callable's closed form and output, all six frozen
+sentinels execute at zero spend, and a successor readiness receipt is issued.
+No inference, render or canonical test-project mutation occurred in this
+callable phase.

@@ -4930,6 +4930,20 @@ authorization are all present.
   typecheck and quiet ESLint passing. This is structural owner evidence only:
   provider inference, render, canonical project mutation, current-source
   closure, media quality and model competence remain unproved.
+- Commit `afee8f1cc` replaces the public chat `apply_speed_ramp` multiwrite
+  loop with the existing ProjectService source-range retime owner. The callable
+  now carries its loaded revision into one CAS, returns the writer-issued
+  mutation/timeline receipts plus `sourceRangeRetimeEffect` and
+  `sourceTimeTransform`, and refuses unsupported forms before any write. Its
+  intentionally narrow live form is a complete isolated CFR source range at a
+  constant rate above 1x through 4x; partial ramps, slow motion, VFR,
+  mixed-track reconform, dependencies, insufficient handles, prior retime and
+  stale revisions remain explicit gaps. Focused verification is 255/255 with
+  quiet focused ESLint passing and no Editron TypeScript errors; the full
+  repository typecheck remains blocked only by concurrent unstaged ThinkForge
+  work. This commit does not alter the frozen V2R9 operator packet, materialize
+  `HOLD-DEP-03`, prove a render or authorize inference. A separately versioned
+  public-contract successor and zero-spend sentinel receipt remain next.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
