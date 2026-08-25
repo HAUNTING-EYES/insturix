@@ -55,7 +55,7 @@ import {
   type TimelineRangeCutResult,
   type TimelineRangeCutSplitChildV1,
 } from "./timeline-range-cut";
-import { ROW, alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
+import { alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
 import {
   clonePipelineAudioCanonicalValueV1,
   isPipelineAudioOverlayForKindV1,
