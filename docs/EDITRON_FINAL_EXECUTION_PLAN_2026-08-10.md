@@ -650,6 +650,25 @@ changes.
   certificate. The next slice is one ProjectService CAS that derives the source
   binding, persists this exact state/effect/transform and advances one revision.
 
+  Commit `7457ab774` completes that bounded ProjectService writer. The new
+  `applyVideoSourceRangeRetimeV1` re-reads the exact project revision, rejects
+  an active Director mutation or overlapping timeline-range lock, resolves the
+  current user-owned media asset and CFR terminal PTS binding, and invokes the
+  pure isolated-range owner. One CAS stores the shortened speed-curve target,
+  every shifted later overlay, the new project duration and a single exact
+  timeline receipt. That receipt carries the V2 source-time transform and a
+  distinct `RETIME_AND_SHIFT_LEFT` effect; it does not mislabel the operation
+  as deleted source content. Downstream event rebinding now accepts this
+  ProjectService-owned receipt class and still re-reads project revision, asset
+  identity and source binding. Overlapping dialogue, VFR event rebinding,
+  insufficient source handles and every pure-owner conflict remain zero-write
+  safe stops. Focused writer/retime/cut verification passes 29/29 and the two
+  changed paths pass quiet ESLint. Repository typecheck has zero errors in the
+  Editron writer paths and remains blocked by 15 concurrent unstaged ThinkForge
+  errors. This is **PROJECTSERVICE_WRITER_NOT_CHAT_OR_SENTINEL_WIRED**: no chat
+  operator, canonical project fixture, render proof or DEP-03 successor receipt
+  has yet consumed the writer.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
