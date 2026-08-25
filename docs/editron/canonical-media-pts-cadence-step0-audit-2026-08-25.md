@@ -156,11 +156,16 @@ raw and URL-encoded `private/` keys before R2 access, and reject non-read
 methods. Its test proves source behavior only; the deployed worker/bucket
 binding remains unverified.
 
-There is still no `MEDIA_ASSETS` field, mapper worker, claim CAS,
-complete-manifest verifier or terminal map persistence. It intentionally
-cannot call a large map "measured" until a real qualified source passes the
-full verifier. The next runtime phase is therefore the existing media owner's
-source-version-bound claim/checkpoint/terminal CAS, not a ProjectService,
+Commit `822e9182e` adds the optional asset field shape and a pure state reader
+that accepts a map only if its source version, storage version, measured
+qualification observation and canonical state hash agree. It does not write a
+Mongo record, change a source, claim work or expose a consumer.
+
+There is still no mapper worker, claim CAS, complete-manifest verifier or
+terminal map persistence. It intentionally cannot call a large map "measured"
+until a real qualified source passes the full verifier. The next runtime phase
+is therefore the existing media owner's source-version-bound
+claim/checkpoint/terminal CAS, not a ProjectService,
 generated-composition, overlay, caption, transition, renderer, user-data or
 research-proxy change.
 
@@ -169,11 +174,13 @@ research-proxy change.
 This audit was initially grounded against `d4d3a9c7b` and rechecked through
 the pure verifier commit `426d3d09a`, lifecycle-contract commit `bece283e3`,
 terminal-contract correction `ff27d6da6`, guarded private-sidecar adapter
-`173432a4c` and source worker hardening `f7da79e32`, including the
+`173432a4c`, source worker hardening `f7da79e32` and asset-state boundary
+`822e9182e`, including the
 signed qualification worker, `MEDIA_ASSETS`
 persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
-frame projections. Twenty-four focused shard/lifecycle/sidecar tests plus four
-worker denial tests, TypeScript and repository ESLint pass for those commits.
+frame projections. Twenty-seven focused shard/lifecycle/sidecar/asset-state
+tests plus four worker denial tests, TypeScript and repository ESLint pass for
+those commits.
 It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
 a deployed worker/bucket binding, a persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,

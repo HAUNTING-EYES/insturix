@@ -355,10 +355,13 @@ changes.
   `private/` namespace (including encoded keys) before calling R2 and refuse
   non-read methods; source-level tests prove that denial only. This port remains
   unwired and no deployed-private-storage claim is permitted until the deployed
-  worker route and its bound bucket are verified. There is still no
-  `MEDIA_ASSETS` field, worker, database compare-and-set or terminal map
+  worker route and its bound bucket are verified. Commit `822e9182e` adds the
+  optional `MEDIA_ASSETS` field shape plus a pure reader/writer boundary that
+  requires the current source version, technical qualification and a canonical
+  map-state hash to agree. It performs no database write or job dispatch.
+  There is still no mapper worker, database compare-and-set or terminal map
   result. The next runtime implementation remains that existing-media-owner
-  private port and source-version-bound claim/checkpoint/terminal CAS verifier.
+  source-version-bound claim/checkpoint/terminal CAS verifier.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
