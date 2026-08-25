@@ -4,15 +4,23 @@
  * Mirrors music-analysis-service.ts:
  *   - Modal serverless CPU endpoint running ffmpeg scene detection
  *   - Fire-and-forget warmup
- *   - Returns null on failure (consumer keeps the LLM's cut estimate + logs loudly)
+ *   - Returns null on failure; the canonical reference caller treats missing
+ *     measured cuts as unavailable rather than substituting model timing.
  *
  * WHY: Gemini fabricates cut timing (measured F1 0.66, a ~1 Hz grid on fast edits), and the
  * reference analyzer runs on Vercel serverless where ffmpeg is off the hot path. So cut cadence —
  * an OBJECTIVE signal — is measured on a worker, not hallucinated. See detect-cuts-ffmpeg.ts for the
- * same parser used locally in eval; this is the deployed production path.
+ * same parser used locally in eval; this is the intended worker path.
  *
  * Consumer: reference-content-extractor.ts (overrides EditDNA.cutRhythm + pacing with real cuts).
  */
+
+import {
+  isModalProxyEndpointV1,
+  modalProxyAuthHeadersV1,
+  readModalProxyAuthV1,
+  type ModalProxyAuthEnvironmentV1,
+} from './modal-proxy-auth-v1';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -53,8 +61,11 @@ interface ModalSceneResponse {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MODAL_SCENE_ENDPOINT = process.env.MODAL_SCENE_DETECTION_ENDPOINT
-  || 'https://jainnimit728--scene-detection-ffmpeg-scenedetector-detect.modal.run';
+export const EDITRON_MODAL_SCENE_DETECTION_ENDPOINT_ENV_V1 =
+  'MODAL_SCENE_DETECTION_ENDPOINT' as const;
+
+const DEFAULT_MODAL_SCENE_ENDPOINT =
+  'https://jainnimit728--scene-detection-ffmpeg-scenedetector-detect.modal.run';
 
 const COLD_TIMEOUT_MS = 90_000;
 
@@ -71,16 +82,34 @@ export interface DetectScenesOptions {
   fetchImpl?: FetchImpl;
 }
 
+/**
+ * Resolves only an HTTPS Modal endpoint. A custom domain requires a separate
+ * reviewed trust policy before dedicated proxy credentials may be sent to it.
+ */
+function sceneDetectionEndpointV1(
+  environment: ModalProxyAuthEnvironmentV1 = process.env,
+): string | null {
+  const configured = environment[EDITRON_MODAL_SCENE_DETECTION_ENDPOINT_ENV_V1]?.trim();
+  const endpoint = configured || DEFAULT_MODAL_SCENE_ENDPOINT;
+  return isModalProxyEndpointV1(endpoint) ? endpoint : null;
+}
+
+export function isSceneDetectionConfiguredV1(
+  environment: ModalProxyAuthEnvironmentV1 = process.env,
+): boolean {
+  return Boolean(sceneDetectionEndpointV1(environment) && readModalProxyAuthV1(environment));
+}
+
 // ─── Warmup ─────────────────────────────────────────────────────────────────
 
 export function warmupSceneDetection(): void {
-  const tokenId = process.env.MODAL_TOKEN_ID;
-  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
-  if (!tokenId || !tokenSecret) return;
+  const endpoint = sceneDetectionEndpointV1();
+  const proxyAuth = readModalProxyAuthV1();
+  if (!endpoint || !proxyAuth) return;
 
-  fetch(MODAL_SCENE_ENDPOINT, {
+  fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Token ${tokenId}:${tokenSecret}` },
+    headers: { 'Content-Type': 'application/json', ...modalProxyAuthHeadersV1(proxyAuth) },
     body: JSON.stringify({ video_url: '' }),
     signal: AbortSignal.timeout(COLD_TIMEOUT_MS),
   })
@@ -92,7 +121,7 @@ export function warmupSceneDetection(): void {
 
 /**
  * Detect hard cuts in a video via ffmpeg on Modal. Returns null when the endpoint is missing,
- * unauthenticated, unreachable, or errors — the caller degrades to the LLM's cut estimate and logs.
+ * unauthenticated, unreachable, or errors. The canonical caller rejects missing measured cuts.
  */
 export async function detectScenesRemote(
   videoUrl: string,
@@ -100,10 +129,10 @@ export async function detectScenesRemote(
 ): Promise<SceneDetectionResult | null> {
   if (!videoUrl) return null;
 
-  const tokenId = process.env.MODAL_TOKEN_ID;
-  const tokenSecret = process.env.MODAL_TOKEN_SECRET;
-  if (!tokenId || !tokenSecret) {
-    console.warn('[SceneDetection] No Modal credentials — skipping deterministic cut detection');
+  const endpoint = sceneDetectionEndpointV1();
+  const proxyAuth = readModalProxyAuthV1();
+  if (!endpoint || !proxyAuth) {
+    console.warn('[SceneDetection] No trusted Modal endpoint or dedicated proxy credentials');
     return null;
   }
 
@@ -112,10 +141,10 @@ export async function detectScenesRemote(
   if (opts.sceneThreshold !== undefined) body.scene_threshold = opts.sceneThreshold;
 
   try {
-    console.log(`[SceneDetection] Calling Modal ffmpeg endpoint for ${videoUrl.substring(0, 60)}...`);
-    const response = await fetchImpl(MODAL_SCENE_ENDPOINT, {
+    console.log('[SceneDetection] Calling Modal ffmpeg endpoint');
+    const response = await fetchImpl(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Token ${tokenId}:${tokenSecret}` },
+      headers: { 'Content-Type': 'application/json', ...modalProxyAuthHeadersV1(proxyAuth) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(COLD_TIMEOUT_MS),
     });
@@ -153,7 +182,7 @@ export async function detectScenesRemote(
 
 /**
  * Deterministic cuts → EditDNA cut-rhythm override. avgClipDuration counts N cuts as N+1 clips.
- * Returns null when the detection is unusable (no duration) so the caller keeps the LLM estimate.
+ * Returns null when detection is unusable. The caller determines whether that is fatal.
  */
 export function cutDetectionToCutRhythm(result: SceneDetectionResult): CutRhythmOverride | null {
   if (result.durationMs <= 0) return null;
