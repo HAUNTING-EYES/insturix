@@ -83,9 +83,21 @@ export async function runMediaSourcePtsCadenceMapAssetStoreV2(input: {
   expectedStateSha256: string | null;
   nextRecord: MediaSourcePtsCadenceMapAssetRecordV2;
 }): Promise<MediaSourcePtsCadenceMapAssetStoreResultV2> {
+  return persistMediaSourcePtsCadenceMapAssetStateV2(
+    input,
+    await createMediaSourcePtsCadenceMapAssetMongoPortsV2(),
+  );
+}
+
+/**
+ * Exposes the existing MEDIA_ASSETS read/CAS ports for owner composition.
+ * Callers may not persist around persistMediaSourcePtsCadenceMapAssetStateV2.
+ */
+export async function createMediaSourcePtsCadenceMapAssetMongoPortsV2(
+): Promise<MediaSourcePtsCadenceMapAssetStorePortsV2> {
   const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
   const db = await getDatabase();
-  return persistMediaSourcePtsCadenceMapAssetStateV2(input, {
+  return {
     load: async (assetId, userId) => {
       const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
         { assetId, userId },
@@ -123,7 +135,7 @@ export async function runMediaSourcePtsCadenceMapAssetStoreV2(input: {
       );
       return result.matchedCount === 1;
     },
-  });
+  };
 }
 
 export function mediaSourcePtsCadenceMapAssetCompareAndSetFilterV2(input: Readonly<{

@@ -200,7 +200,7 @@ export async function runMediaSourceQualificationWorkerV1(
       );
       return result.matchedCount === 1;
     },
-    resolveVerifiedSourceUrl: resolveVerifiedSourceUrlV1,
+    resolveVerifiedSourceUrl: resolveVerifiedMediaSourceUrlV1,
     inspectStorageVersion: (record) => inspectMediaSourceStorageVersionV1(record.locator),
     openExactByteStream: openMediaSourceByteStreamV1,
     probe: probeMediaSourceV1,
@@ -384,7 +384,8 @@ function qualificationCompareAndSetFilter(
   };
 }
 
-async function resolveVerifiedSourceUrlV1(
+/** Issues a fresh server-only URL only after observing the current storage version. */
+export async function resolveVerifiedMediaSourceUrlV1(
   record: MediaSourceQualificationRecordV1,
 ): Promise<
   | { disposition: 'AVAILABLE'; sourceUrl: string; storageVersion: MediaSourceStorageVersionV1 }
