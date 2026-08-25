@@ -79,4 +79,12 @@ describe('video-analysis worker zero-edit wiring', () => {
     }
     expect(INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED).toBe('INTERNAL_WORKER_DISPATCH_NOT_CONFIGURED');
   });
+
+  it('routes duration correction through the fresh ProjectService snapshot, never a broad video-overlay write', () => {
+    expect(source).toContain('selectVideoAnalysisDurationCorrectionTargetV1');
+    expect(source).toContain('projectService.loadProjectForMutation(userId, projectId)');
+    expect(source).toContain('projectService.commitVideoAnalysisDurationCorrectionV1(');
+    expect(source).not.toContain('Math.round(actualDurationSec * 30)');
+    expect(source).not.toContain("'overlays.$[vid].durationInFrames': actualFrames");
+  });
 });

@@ -121,7 +121,8 @@ export type ProjectTimelineChangeActorKindV1 =
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "UPDATE_OVERLAY"
-  | "REPLACE_PIPELINE_VIDEO_DELIVERY";
+  | "REPLACE_PIPELINE_VIDEO_DELIVERY"
+  | "CORRECT_VIDEO_ANALYSIS_DURATION";
 
 export interface ProjectTimelineRippleEffectV1 {
   kind: "REMOVE_AND_SHIFT_LEFT";
@@ -432,6 +433,72 @@ export interface ProjectPipelineVideoDeliveryResultV1 {
 }
 
 /**
+ * A Video Analysis worker may correct only its exact initial source overlay.
+ * This is deliberately not a generic duration or timeline updater.
+ */
+export interface ProjectVideoAnalysisDurationCorrectionCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  assetId: string;
+  observedDurationMs: number;
+  durationSource: "container" | "transcript";
+  target: {
+    overlayId: number;
+    expectedAssetId: string;
+    expectedFromFrame: 0;
+    expectedSourceStartFrame: 0 | null;
+    expectedDurationInFrames: number;
+  };
+}
+
+export type ProjectVideoAnalysisDurationCorrectionNotEligibleReasonV1 =
+  | "NO_UNIQUE_INITIAL_SOURCE_OVERLAY"
+  | "TARGET_EXPECTATION_MISMATCH"
+  | "PROJECT_DURATION_MISMATCH"
+  | "PROJECT_FPS_INVALID";
+
+export interface ProjectVideoAnalysisDurationCorrectionReceiptV1 {
+  schemaVersion: 1;
+  correctionId: string;
+  materialHash: string;
+  assetId: string;
+  observedDurationMs: number;
+  durationSource: "container" | "transcript";
+  projectFps: number;
+  target: Readonly<ProjectVideoAnalysisDurationCorrectionCommandV1["target"]>;
+  requestedRevision: ProjectRevisionV1;
+  beforeRevision: ProjectRevisionV1;
+  afterRevision: ProjectRevisionV1;
+  mutationReceipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
+  changedPaths: readonly [
+    "durationInFrames",
+    "overlays",
+    "videoAnalysisDurationCorrectionReceipts",
+    "timelineRangeChangeReceipts",
+  ];
+  proof: {
+    required: true;
+    status: "UNVERIFIABLE";
+    reason: "NO_RENDERED_VIDEO_PROOF";
+  };
+  committedAt: string;
+}
+
+export type ProjectVideoAnalysisDurationCorrectionResultV1 =
+  | {
+      disposition: "APPLIED" | "ALREADY_APPLIED";
+      correctionReceipt: ProjectVideoAnalysisDurationCorrectionReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_CURRENT";
+      correctedDurationInFrames: number;
+    }
+  | {
+      disposition: "NOT_ELIGIBLE";
+      reason: ProjectVideoAnalysisDurationCorrectionNotEligibleReasonV1;
+    };
+
+/**
  * A low-quality result is derived by the pipeline analysis owner. ProjectService
  * records it as an additive fact but never decides whether a score is low.
  */
@@ -740,6 +807,7 @@ const MAX_TIMELINE_RANGE_CUT_LOCK_RECORDS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1 = 2;
 const MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1 = 200;
+const MAX_VIDEO_ANALYSIS_DURATION_CORRECTION_RECEIPTS_V1 = 200;
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -858,6 +926,8 @@ export interface Project {
   pipelineAudioDeliveryReceipts?: ProjectPipelineAudioDeliveryReceiptV1[];
   /** Bounded idempotency/receipt history for signed generated-video deliveries. */
   pipelineVideoDeliveryReceipts?: ProjectPipelineVideoDeliveryReceiptV1[];
+  /** Bounded replay history for source-bound Video Analysis duration corrections. */
+  videoAnalysisDurationCorrectionReceipts?: ProjectVideoAnalysisDurationCorrectionReceiptV1[];
   /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
   qualityWarnings?: unknown[];
   /** Bounded cut-specific coordination leases; no other command honors them yet. */
@@ -4160,6 +4230,273 @@ export class ProjectService {
   }
 
   /**
+   * Correct duration evidence from Video Analysis only when it still belongs
+   * to one untouched initial source overlay. Unlike generated-video delivery,
+   * this command never rebases: a concurrent editor change wins.
+   */
+  async commitVideoAnalysisDurationCorrectionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectVideoAnalysisDurationCorrectionCommandV1,
+  ): Promise<ProjectVideoAnalysisDurationCorrectionResultV1> {
+    assertProjectVideoAnalysisDurationCorrectionCommandV1(input);
+    const materialHash = videoAnalysisDurationCorrectionMaterialHashV1(projectId, input);
+    const correctionId = `video-analysis-duration_${materialHash}`;
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!current) throw new ProjectNotFoundOrForbiddenError();
+
+    const existing = findVideoAnalysisDurationCorrectionReceiptV1(
+      current,
+      projectId,
+      correctionId,
+    );
+    if (existing) {
+      if (existing.materialHash !== materialHash) {
+        throw new ProjectMutationWriteError(
+          "Video Analysis duration correction identity was reused with different material.",
+        );
+      }
+      return {
+        disposition: "ALREADY_APPLIED",
+        correctionReceipt: structuredClone(existing),
+      };
+    }
+
+    const beforeRevision = projectRevisionFor(current);
+    if (!sameProjectRevisionV1(input.expectedRevision, beforeRevision)) {
+      throw new ProjectMutationConflictError(
+        beforeRevision,
+        "Video Analysis duration evidence is stale. Reload before correcting the timeline.",
+      );
+    }
+
+    const eligibility = resolveVideoAnalysisDurationCorrectionTargetV1(
+      current,
+      input.assetId,
+    );
+    if ("reason" in eligibility) {
+      return { disposition: "NOT_ELIGIBLE", reason: eligibility.reason };
+    }
+    if (!sameVideoAnalysisDurationCorrectionTargetV1(eligibility.target, input.target)) {
+      return { disposition: "NOT_ELIGIBLE", reason: "TARGET_EXPECTATION_MISMATCH" };
+    }
+    if (!isProjectTimelineFpsV1(current.fps)) {
+      return { disposition: "NOT_ELIGIBLE", reason: "PROJECT_FPS_INVALID" };
+    }
+
+    const correctedDurationInFrames = Math.round(
+      (input.observedDurationMs / 1_000) * current.fps,
+    );
+    if (!Number.isSafeInteger(correctedDurationInFrames) || correctedDurationInFrames <= 0) {
+      throw new ProjectMutationWriteError(
+        "Video Analysis duration evidence cannot be represented in this project frame coordinate.",
+      );
+    }
+    if (correctedDurationInFrames === input.target.expectedDurationInFrames) {
+      return { disposition: "ALREADY_CURRENT", correctedDurationInFrames };
+    }
+
+    const overlaysWithTargetId = current.overlays.filter(
+      (overlay) => overlay.id === input.target.overlayId,
+    );
+    if (overlaysWithTargetId.length !== 1) {
+      return { disposition: "NOT_ELIGIBLE", reason: "TARGET_EXPECTATION_MISMATCH" };
+    }
+    const targetOverlay = overlaysWithTargetId[0];
+    const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
+    if (!beforeFrameRange) {
+      return { disposition: "NOT_ELIGIBLE", reason: "TARGET_EXPECTATION_MISMATCH" };
+    }
+    const correctedOverlay = withAtomicOverlayUpdateReceipt(
+      targetOverlay,
+      { durationInFrames: correctedDurationInFrames } as Partial<Overlay>,
+      {
+        source: "project-service-video-analysis-duration-correction",
+        intent: "correct-initial-video-duration",
+        reason: "Video Analysis corrected one verified initial source overlay through ProjectService",
+      },
+    );
+    const afterFrameRange = overlayTimelineFrameRangeV1(correctedOverlay);
+    const unionFrameRange = unionTimelineFrameRangesV1(
+      beforeFrameRange,
+      afterFrameRange,
+    );
+    if (!afterFrameRange || !unionFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Video Analysis duration correction could not derive its exact local timeline effect.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: beforeRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
+    const changedPaths = [
+      "durationInFrames",
+      "overlays",
+      "videoAnalysisDurationCorrectionReceipts",
+      "timelineRangeChangeReceipts",
+    ] as const;
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-video-analysis-duration_${nanoid(18)}`,
+      projectId,
+      operation: "CORRECT_VIDEO_ANALYSIS_DURATION",
+      actorKind: "SYSTEM",
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps: current.fps,
+      beforeProjectRevision: beforeRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: [beforeFrameRange],
+      writeFrameRangesBefore: [unionFrameRange],
+      affectedFrameRangesAfter: [afterFrameRange],
+      affectedOverlayRefs: [overlayRef],
+      changedPaths,
+      rangeObservation: "EXACT",
+      overlayTemporalChange: {
+        overlayRef,
+        beforeFrameRange,
+        afterFrameRange,
+        unionFrameRange,
+      },
+      timelineCoordinateTransform: null,
+      splitChildren: [],
+      ripple: null,
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [unionFrameRange],
+      },
+    };
+    const correctionReceipt: ProjectVideoAnalysisDurationCorrectionReceiptV1 = {
+      schemaVersion: 1,
+      correctionId,
+      materialHash,
+      assetId: input.assetId,
+      observedDurationMs: input.observedDurationMs,
+      durationSource: input.durationSource,
+      projectFps: current.fps,
+      target: structuredClone(input.target),
+      requestedRevision: structuredClone(input.expectedRevision),
+      beforeRevision,
+      afterRevision,
+      mutationReceipt,
+      timelineChangeReceipt,
+      changedPaths,
+      proof: {
+        required: true,
+        status: "UNVERIFIABLE",
+        reason: "NO_RENDERED_VIDEO_PROOF",
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        durationInFrames: beforeFrameRange.endFrame,
+        overlays: {
+          $elemMatch: {
+            id: input.target.overlayId,
+            type: "video",
+            assetId: input.target.expectedAssetId,
+            from: 0,
+            durationInFrames: input.target.expectedDurationInFrames,
+            $or: [
+              { sourceStartFrame: { $exists: false } },
+              { sourceStartFrame: 0 },
+            ],
+          },
+        },
+        "videoAnalysisDurationCorrectionReceipts.correctionId": { $ne: correctionId },
+        ...projectRevisionPredicate(beforeRevision),
+      },
+      {
+        $set: {
+          durationInFrames: correctedDurationInFrames,
+          "overlays.$[target]": correctedOverlay,
+          updatedAt: committedAt,
+        },
+        $push: {
+          videoAnalysisDurationCorrectionReceipts: {
+            $each: [correctionReceipt],
+            $slice: -MAX_VIDEO_ANALYSIS_DURATION_CORRECTION_RECEIPTS_V1,
+          },
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -MAX_VIDEO_ANALYSIS_DURATION_CORRECTION_RECEIPTS_V1,
+          },
+        } as never,
+        $inc: { projectRevision: 1 },
+      },
+      {
+        arrayFilters: [{
+          "target.id": input.target.overlayId,
+          "target.type": "video",
+          "target.assetId": input.target.expectedAssetId,
+          "target.from": 0,
+          "target.durationInFrames": input.target.expectedDurationInFrames,
+        }],
+      },
+    );
+    if (result.matchedCount === 1) {
+      if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+      this.publishMutationReceipt(mutationReceipt);
+      return { disposition: "APPLIED", correctionReceipt };
+    }
+
+    const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
+    const replay = findVideoAnalysisDurationCorrectionReceiptV1(
+      afterConflict,
+      projectId,
+      correctionId,
+    );
+    if (replay) {
+      if (replay.materialHash !== materialHash) {
+        throw new ProjectMutationWriteError(
+          "Video Analysis duration correction identity was reused with different material.",
+        );
+      }
+      return {
+        disposition: "ALREADY_APPLIED",
+        correctionReceipt: structuredClone(replay),
+      };
+    }
+    const conflictRevision = projectRevisionFor(afterConflict);
+    if (!sameProjectRevisionV1(beforeRevision, conflictRevision)) {
+      throw new ProjectMutationConflictError(
+        conflictRevision,
+        "Video Analysis duration correction lost its exact compare-and-swap race.",
+      );
+    }
+    const afterEligibility = resolveVideoAnalysisDurationCorrectionTargetV1(
+      afterConflict,
+      input.assetId,
+    );
+    if ("reason" in afterEligibility) {
+      return { disposition: "NOT_ELIGIBLE", reason: afterEligibility.reason };
+    }
+    throw new ProjectMutationWriteError(
+      "Video Analysis duration correction did not produce exactly one durable update.",
+    );
+  }
+
+  /**
    * Persist one signed worker's low-quality observation. The mutation is
    * additive, so a stale worker snapshot can rebase only by preserving all
    * newer project state and appending the same job-bound warning once.
@@ -5032,6 +5369,246 @@ function findPipelineVideoDeliveryReceiptV1(
     throw new ProjectMutationWriteError("Pipeline video delivery identity is not unique.");
   }
   return matching[0] ?? null;
+}
+
+type VideoAnalysisDurationCorrectionTargetResolutionV1 =
+  | { target: ProjectVideoAnalysisDurationCorrectionCommandV1["target"] }
+  | { reason: ProjectVideoAnalysisDurationCorrectionNotEligibleReasonV1 };
+
+/**
+ * The producer may ask ProjectService which exact initial source overlay is
+ * eligible, but this helper never mutates state and the command repeats the
+ * same check under its compare-and-swap predicate.
+ */
+export function selectVideoAnalysisDurationCorrectionTargetV1(
+  project: Pick<Project, "overlays" | "durationInFrames">,
+  assetId: string,
+): ProjectVideoAnalysisDurationCorrectionCommandV1["target"] | null {
+  const resolution = resolveVideoAnalysisDurationCorrectionTargetV1(project, assetId);
+  return "target" in resolution ? resolution.target : null;
+}
+
+function resolveVideoAnalysisDurationCorrectionTargetV1(
+  project: Pick<Project, "overlays" | "durationInFrames">,
+  assetId: string,
+): VideoAnalysisDurationCorrectionTargetResolutionV1 {
+  if (!Array.isArray(project.overlays) || !isBoundedNonEmptyStringV1(assetId, 500)) {
+    return { reason: "NO_UNIQUE_INITIAL_SOURCE_OVERLAY" };
+  }
+  const candidates = project.overlays
+    .map((overlay) => videoAnalysisDurationCorrectionTargetForOverlayV1(overlay, assetId))
+    .filter((target): target is ProjectVideoAnalysisDurationCorrectionCommandV1["target"] => (
+      target !== null
+    ));
+  if (candidates.length !== 1) {
+    return { reason: "NO_UNIQUE_INITIAL_SOURCE_OVERLAY" };
+  }
+  const target = candidates[0];
+  const expectedProjectDuration = target.expectedFromFrame + target.expectedDurationInFrames;
+  if (project.durationInFrames !== expectedProjectDuration) {
+    return { reason: "PROJECT_DURATION_MISMATCH" };
+  }
+  return { target };
+}
+
+function videoAnalysisDurationCorrectionTargetForOverlayV1(
+  overlay: Overlay,
+  assetId: string,
+): ProjectVideoAnalysisDurationCorrectionCommandV1["target"] | null {
+  if (overlay.type !== "video" || overlay.assetId !== assetId) return null;
+  const frameRange = overlayTimelineFrameRangeV1(overlay);
+  if (!frameRange || frameRange.startFrame !== 0) return null;
+  const rawSourceStartFrame = (overlay as { sourceStartFrame?: unknown }).sourceStartFrame;
+  if (rawSourceStartFrame !== undefined && rawSourceStartFrame !== 0) return null;
+  if (!Number.isSafeInteger(overlay.id) || overlay.id < 0) return null;
+  return {
+    overlayId: overlay.id,
+    expectedAssetId: assetId,
+    expectedFromFrame: 0,
+    expectedSourceStartFrame: rawSourceStartFrame === 0 ? 0 : null,
+    expectedDurationInFrames: frameRange.endFrame,
+  };
+}
+
+function sameVideoAnalysisDurationCorrectionTargetV1(
+  left: ProjectVideoAnalysisDurationCorrectionCommandV1["target"],
+  right: ProjectVideoAnalysisDurationCorrectionCommandV1["target"],
+): boolean {
+  return left.overlayId === right.overlayId
+    && left.expectedAssetId === right.expectedAssetId
+    && left.expectedFromFrame === right.expectedFromFrame
+    && left.expectedSourceStartFrame === right.expectedSourceStartFrame
+    && left.expectedDurationInFrames === right.expectedDurationInFrames;
+}
+
+function isProjectTimelineFpsV1(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function assertProjectVideoAnalysisDurationCorrectionCommandV1(
+  input: ProjectVideoAnalysisDurationCorrectionCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || Object.keys(input).some((key) => ![
+      "expectedRevision",
+      "assetId",
+      "observedDurationMs",
+      "durationSource",
+      "target",
+    ].includes(key))
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.assetId, 500)
+    || !Number.isSafeInteger(input.observedDurationMs)
+    || input.observedDurationMs <= 0
+    || (input.durationSource !== "container" && input.durationSource !== "transcript")
+    || !isPlainRecord(input.target)
+    || Object.keys(input.target).some((key) => ![
+      "overlayId",
+      "expectedAssetId",
+      "expectedFromFrame",
+      "expectedSourceStartFrame",
+      "expectedDurationInFrames",
+    ].includes(key))
+    || !Number.isSafeInteger(input.target.overlayId)
+    || input.target.overlayId < 0
+    || input.target.expectedAssetId !== input.assetId
+    || input.target.expectedFromFrame !== 0
+    || (input.target.expectedSourceStartFrame !== 0
+      && input.target.expectedSourceStartFrame !== null)
+    || !Number.isSafeInteger(input.target.expectedDurationInFrames)
+    || input.target.expectedDurationInFrames <= 0
+  ) {
+    throw new ProjectMutationWriteError(
+      "Video Analysis duration correction must carry one exact source-bound target and measured duration.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function videoAnalysisDurationCorrectionMaterialHashV1(
+  projectId: string,
+  input: ProjectVideoAnalysisDurationCorrectionCommandV1,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      projectId,
+      input.assetId,
+      input.observedDurationMs,
+      input.durationSource,
+      input.target.overlayId,
+      input.target.expectedAssetId,
+      input.target.expectedFromFrame,
+      input.target.expectedSourceStartFrame,
+      input.target.expectedDurationInFrames,
+    ]))
+    .digest("hex");
+}
+
+function findVideoAnalysisDurationCorrectionReceiptV1(
+  project: Pick<Project, "videoAnalysisDurationCorrectionReceipts">,
+  projectId: string,
+  correctionId: string,
+): ProjectVideoAnalysisDurationCorrectionReceiptV1 | null {
+  const receipts = project.videoAnalysisDurationCorrectionReceipts;
+  if (receipts === undefined) return null;
+  if (!Array.isArray(receipts)) {
+    throw new ProjectMutationWriteError(
+      "Video Analysis duration correction receipt history is invalid.",
+    );
+  }
+  const matching = receipts.filter((receipt) => (
+    isPlainRecord(receipt) && receipt.correctionId === correctionId
+  ));
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError(
+      "Video Analysis duration correction identity is not unique.",
+    );
+  }
+  const existing = matching[0];
+  if (!existing) return null;
+  if (!isProjectVideoAnalysisDurationCorrectionReceiptV1(existing, projectId, correctionId)) {
+    throw new ProjectMutationWriteError(
+      "Video Analysis duration correction receipt is invalid.",
+    );
+  }
+  return existing;
+}
+
+function isProjectVideoAnalysisDurationCorrectionReceiptV1(
+  value: unknown,
+  projectId: string,
+  correctionId: string,
+): value is ProjectVideoAnalysisDurationCorrectionReceiptV1 {
+  if (
+    !isPlainRecord(value)
+    || value.schemaVersion !== 1
+    || value.correctionId !== correctionId
+    || value.correctionId !== `video-analysis-duration_${value.materialHash}`
+    || !/^[a-f0-9]{64}$/.test(String(value.materialHash))
+    || !isBoundedNonEmptyStringV1(value.assetId, 500)
+    || !Number.isSafeInteger(value.observedDurationMs)
+    || (value.observedDurationMs as number) <= 0
+    || (value.durationSource !== "container" && value.durationSource !== "transcript")
+    || !isProjectTimelineFpsV1(value.projectFps)
+    || !isPlainRecord(value.target)
+    || !isPlainRecord(value.requestedRevision)
+    || !isPlainRecord(value.beforeRevision)
+    || !isPlainRecord(value.afterRevision)
+    || !isPlainRecord(value.mutationReceipt)
+    || !isPlainRecord(value.timelineChangeReceipt)
+    || !Array.isArray(value.changedPaths)
+    || value.changedPaths.join("|") !== [
+      "durationInFrames",
+      "overlays",
+      "videoAnalysisDurationCorrectionReceipts",
+      "timelineRangeChangeReceipts",
+    ].join("|")
+    || !isPlainRecord(value.proof)
+    || value.proof.required !== true
+    || value.proof.status !== "UNVERIFIABLE"
+    || value.proof.reason !== "NO_RENDERED_VIDEO_PROOF"
+    || !isValidDateValueV1(value.committedAt)
+  ) {
+    return false;
+  }
+  try {
+    const input: ProjectVideoAnalysisDurationCorrectionCommandV1 = {
+      expectedRevision: value.requestedRevision as unknown as ProjectRevisionV1,
+      assetId: value.assetId as string,
+      observedDurationMs: value.observedDurationMs as number,
+      durationSource: value.durationSource as "container" | "transcript",
+      target: value.target as unknown as ProjectVideoAnalysisDurationCorrectionCommandV1["target"],
+    };
+    assertProjectVideoAnalysisDurationCorrectionCommandV1(input);
+    if (
+      value.materialHash !== videoAnalysisDurationCorrectionMaterialHashV1(projectId, input)
+      || !sameProjectRevisionV1(
+        value.beforeRevision as unknown as ProjectRevisionV1,
+        value.requestedRevision as unknown as ProjectRevisionV1,
+      )
+      || !isProjectTimelineRangeChangeReceiptForRevisionV1(
+        value.timelineChangeReceipt,
+        projectId,
+        value.beforeRevision as unknown as ProjectRevisionV1,
+      )
+      || value.timelineChangeReceipt.operation !== "CORRECT_VIDEO_ANALYSIS_DURATION"
+    ) {
+      return false;
+    }
+    assertProjectRevision(value.afterRevision as unknown as ProjectRevisionV1);
+    assertReceiptForProjectRevision(
+      projectId,
+      value.mutationReceipt as unknown as ProjectMutationReceiptV1,
+      value.afterRevision as unknown as ProjectRevisionV1,
+    );
+    return sameProjectRevisionV1(
+      value.timelineChangeReceipt.afterProjectRevision as ProjectRevisionV1,
+      value.afterRevision as unknown as ProjectRevisionV1,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function assertProjectPipelineVideoQualityWarningCommandV1(

@@ -544,19 +544,47 @@ async function handler(request: NextRequest) {
       const reportedDuration = durationSec;
 
       if (resolved.corrected) {
-        const actualFrames = Math.round(actualDurationSec * 30);
         console.log(`[VideoAnalysisWorker] Duration corrected via ${resolved.source}: reported=${reportedDuration}s → ${actualDurationSec.toFixed(1)}s (speech ends ${transcriptEndSec.toFixed(1)}s).`);
-
-        await db.collection('projects').updateOne(
-          { projectId },
-          {
-            $set: {
-              durationInFrames: actualFrames,
-              'overlays.$[vid].durationInFrames': actualFrames,
-            },
-          },
-          { arrayFilters: [{ 'vid.type': 'video' }] },
-        );
+        if (resolved.source === 'container' || resolved.source === 'transcript') {
+          const {
+            projectService,
+            selectVideoAnalysisDurationCorrectionTargetV1,
+          } = await import('@/lib/editron/services/project-service');
+          const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+          const target = selectVideoAnalysisDurationCorrectionTargetV1(
+            snapshot.project,
+            assetId,
+          );
+          if (!target) {
+            console.warn(
+              '[VideoAnalysisWorker] Duration evidence did not match one untouched initial source overlay; project timeline unchanged.',
+            );
+          } else {
+            try {
+              const correction = await projectService.commitVideoAnalysisDurationCorrectionV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: snapshot.revision,
+                  assetId,
+                  observedDurationMs: actualDurationMs,
+                  durationSource: resolved.source,
+                  target,
+                },
+              );
+              console.log(
+                `[VideoAnalysisWorker] Duration correction ${correction.disposition}; project timeline changed only when its exact initial source target remained current.`,
+              );
+            } catch (durationCorrectionError: unknown) {
+              const msg = durationCorrectionError instanceof Error
+                ? durationCorrectionError.message
+                : String(durationCorrectionError);
+              console.warn(
+                `[VideoAnalysisWorker] Duration evidence could not safely update the project timeline: ${msg}`,
+              );
+            }
+          }
+        }
 
         // Also fix rawFootageAnalysis.originalDurationMs so silence removal math works
         rawFootageAnalysis.originalDurationMs = actualDurationMs;

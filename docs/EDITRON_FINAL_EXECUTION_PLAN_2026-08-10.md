@@ -270,6 +270,22 @@ changes.
   and local timeline effect—never the current raw update of every video overlay
   or a generic `updateProject` call.
 
+- **2026-08-25 Video Analysis duration-owner migration.**
+  `ProjectService.commitVideoAnalysisDurationCorrectionV1` now owns the
+  narrow correction path. Video Analysis first takes a fresh ProjectService
+  snapshot, then may correct exactly one initial, matching source overlay only
+  when the root duration is still its prior end; it uses the current numeric
+  project FPS rather than a hard-coded `30`, exact-CASes the snapshot, never
+  rebases a stale worker, and records writer-issued mutation/replay/timeline
+  receipts. A 12,000-ms observation becomes 300 frames on a 25-fps project.
+  Ambiguous, moved, duplicate-ID, root-mismatched and stale targets make no
+  write; identical replay returns its original receipt. The worker no longer
+  raw-updates every video overlay. Focused coverage passes 11/11 with
+  repository typecheck and quiet lint. This remains numeric-FPS only and does
+  not migrate native-audio evidence, analysis lifecycle/status writes, source
+  identity, rational/VFR timebases, or media invalidation. The next P0 writer
+  remains the finalizer's synchronous BGM overlay append.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
