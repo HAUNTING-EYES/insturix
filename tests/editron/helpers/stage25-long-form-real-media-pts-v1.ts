@@ -43,7 +43,7 @@ export async function buildStage25LongFormPtsEvidenceV1(input: Readonly<{
   const observation = parseMediaSourceProbeResponseV1({
     ok: true,
     probe_version: `${MEDIA_SOURCE_PROBE_VERSION_V1}; ${input.ffprobeIdentity}`,
-    streams: input.rawProbe.streams,
+    streams: normalizeStage25LongFormProbeStreamsV1(input.rawProbe.streams),
     format: input.rawProbe.format,
   }) ?? fail('TECHNICAL_OBSERVATION_INVALID');
   const storageVersion = createMediaSourceStorageVersionV1({
@@ -211,6 +211,24 @@ export async function buildStage25LongFormPtsEvidenceV1(input: Readonly<{
     windows,
     ptsScanAndVerifyMs: Math.max(1, Math.round(performance.now() - started)),
   };
+}
+
+export function normalizeStage25LongFormProbeStreamsV1(
+  streams: readonly Record<string, unknown>[] | undefined,
+): Array<Record<string, unknown>> | undefined {
+  return streams?.map((stream) => ({
+    ...stream,
+    start_pts: integerText(stream.start_pts, true),
+    duration_ts: integerText(stream.duration_ts, false),
+  }));
+}
+
+function integerText(value: unknown, signed: boolean): string | null {
+  const candidate = typeof value === 'string' ? value.trim()
+    : typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : null;
+  if (candidate === null || !/^-?(0|[1-9]\d*)$/.test(candidate)
+    || (!signed && candidate.startsWith('-'))) return null;
+  return candidate === '-0' ? '0' : candidate;
 }
 
 function parseFrame(line: string): MediaSourcePtsCadenceFrameInputV1 {

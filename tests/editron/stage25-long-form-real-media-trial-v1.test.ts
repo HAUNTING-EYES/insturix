@@ -9,6 +9,8 @@ import {
   finalizeStage25LongFormRealMediaTrialV1,
   type Stage25LongFormRealMediaTrialInputV1,
 } from '@/lib/editron/research/open-ended-planner/stage25-long-form-real-media-trial-v1';
+import { normalizeStage25LongFormProbeStreamsV1 }
+  from './helpers/stage25-long-form-real-media-pts-v1';
 
 describe('Stage 2.5 long-form actual-container trial V1', () => {
   it('binds full-source PTS coverage and refuses to call partial context complete', () => {
@@ -97,6 +99,22 @@ describe('Stage 2.5 long-form actual-container trial V1', () => {
       'fetch(', 'generateContent(', 'ProjectService', 'PlanService', 'getDatabase(',
       'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY',
     ]) expect(source, forbidden).not.toContain(forbidden);
+  });
+
+  it('normalizes local ffprobe PTS integers exactly like the production probe boundary', () => {
+    expect(normalizeStage25LongFormProbeStreamsV1([{
+      start_pts: 0,
+      duration_ts: 486_000_515,
+    }, {
+      start_pts: -4_500,
+      duration_ts: -1,
+    }])).toEqual([{
+      start_pts: '0',
+      duration_ts: '486000515',
+    }, {
+      start_pts: '-4500',
+      duration_ts: null,
+    }]);
   });
 });
 
