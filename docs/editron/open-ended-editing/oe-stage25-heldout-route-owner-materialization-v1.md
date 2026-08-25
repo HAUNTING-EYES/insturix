@@ -76,3 +76,26 @@ Focused route/candidate verification is 27/27; repository typecheck and quiet
 ESLint pass. Next: materialize exact fixture bytes, render each candidate
 through the existing native/generated owners, prove the declared boundary, and
 only then issue a blind-review pack.
+
+## Preview-runtime successor — 2026-08-26
+
+Commit `1646244e6` adds the bounded local runtime needed for that next step. It
+materializes three deterministic, silent H.264/BT.709 source fixtures at
+540x960, 30/1 and 210 frames, then byte-copies the third source as the declared
+continuation asset. The receipt binds every byte, the installed FFmpeg and
+ffprobe identities, and the bundled OFL Noto Sans font without claiming a
+licensed customer corpus or universal media support.
+
+The same slice renders a real video overlay through Editron's existing
+Remotion editor root and assembles a generated-island/native-source boundary
+through an exact FFmpeg frame contract. The initial assembly exposed a real
+239/240-frame timestamp defect; segment timestamps are now constructed from
+their frame ordinal before concatenation, and the exact 240-frame assertion
+passes. Focused runtime verification is 3/3; repository typecheck and quiet
+ESLint pass.
+
+This is still runtime-mechanics evidence only. It made zero provider, cloud,
+database or ProjectService calls; did not mutate a project; did not render the
+three full RHC-01 candidates; and issued no route, quality, fidelity or product
+authorization. The next bounded slice remains the full candidate render and
+hash-bound blind-review pack.

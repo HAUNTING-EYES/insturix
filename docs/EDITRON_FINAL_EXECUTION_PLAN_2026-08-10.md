@@ -4980,6 +4980,19 @@ authorization are all present.
   typecheck and quiet ESLint passing. The next bounded slice is actual fixture
   byte materialization and existing-owner proxy rendering for these three
   candidates; route quality and product execution remain unproved.
+- Commit `1646244e6` materializes and verifies the bounded local preview
+  runtime for that route-candidate phase. It creates three exact silent
+  H.264/BT.709 sources at 540x960, 30/1 and 210 frames, byte-copies the declared
+  continuation source, hash-binds the installed FFmpeg/ffprobe identities and
+  bundled OFL Noto Sans font, renders one real overlay through the existing
+  Editron Remotion root, and assembles/measures a generated-island/native-source
+  boundary. The first actual assembly found a 239/240-frame timestamp defect;
+  frame-ordinal timestamp construction fixes it while preserving the exact
+  assertion. Focused verification is 3/3 with repository typecheck and quiet
+  ESLint passing. This remains local runtime-mechanics evidence: no provider,
+  cloud, database or ProjectService call occurred, no canonical state changed,
+  and no full RHC-01 candidate, blind review, route decision or production
+  authorization exists yet.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
