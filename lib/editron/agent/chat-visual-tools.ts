@@ -444,9 +444,9 @@ const speedRampSchema = z.object({
   durationFrames: z.coerce.number().int().min(3).default(30).describe("Ramp window when only targetFrame is supplied. 30 frames matches the existing speed-change default."),
   videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional video overlay id. If omitted, the active video overlay at the ramp start is used."),
   targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the ramp range when explicit frames are not supplied."),
-  targetSpeed: z.coerce.number().min(0.01).max(4).default(0.5).describe("Middle speed multiplier before config clamping. 0.5 matches the existing EDL default."),
-  replaceExistingSpeedCurve: z.boolean().default(false).describe("Allow replacing an existing speed curve or speed keyframe track."),
-  allowDialogueSpeedRamp: z.boolean().default(false).describe("Allow retiming over caption/dialogue evidence. Keep false unless the user explicitly accepts speech sync risk."),
+  targetSpeed: z.coerce.number().min(0.01).max(4).default(2).describe("Requested source-range playback rate. The current public writer supports only rates above 1x through 4x; slower or partial forms safe-stop."),
+  replaceExistingSpeedCurve: z.boolean().default(false).describe("Legacy compatibility input. The atomic source-range owner never replaces an existing speed curve or speed track."),
+  allowDialogueSpeedRamp: z.boolean().default(false).describe("Legacy compatibility input. The atomic source-range owner always refuses dependent dialogue or overlay overlap."),
 });
 
 const fadeSchema = z.object({
@@ -947,28 +947,81 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
     async (input: z.infer<typeof speedRampSchema>) => {
       try {
         const { projectService } = await import("../services/project-service");
-        const project = await projectService.loadProject(userId, projectId);
-        if (!project) {
-          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+        const project = snapshot.project;
+        const range = resolveSpeedRampFrameRange(project, input);
+        if (!range.ok) {
+          return JSON.stringify({ status: "error", message: range.message, data: {
+            disposition: "SAFE_STOP",
+            reason: "TARGET_RANGE_UNRESOLVED",
+            warnings: range.warnings,
+          } });
+        }
+        const target = resolveSpeedRampVideoOverlay(
+          Array.isArray(project.overlays) ? project.overlays : [],
+          range.range,
+          input.videoOverlayId,
+        );
+        if (!target) {
+          return JSON.stringify({ status: "error", message: "No single video overlay owns the requested retime range.", data: {
+            disposition: "SAFE_STOP",
+            reason: "TARGET_VIDEO_NOT_FOUND",
+          } });
+        }
+        const overlayId = Number(target.id);
+        const overlayStartFrame = frame(target.from);
+        const overlayEndFrame = overlayStartFrame + duration(target.durationInFrames);
+        const targetSpeed = round3(input.targetSpeed ?? 2);
+        if (!Number.isSafeInteger(overlayId)
+          || range.range.startFrame !== overlayStartFrame
+          || range.range.endFrame !== overlayEndFrame
+          || targetSpeed <= 1
+          || targetSpeed > 4) {
+          return JSON.stringify({
+            status: "error",
+            message: "The current public speed-ramp owner supports only a complete isolated video source range at a constant rate above 1x through 4x.",
+            data: {
+              disposition: "SAFE_STOP",
+              reason: "UNSUPPORTED_PUBLIC_RETIME_FORM",
+              supportedForm: "ISOLATED_WHOLE_SOURCE_RANGE_CFR_FAST_RETIME_V1",
+              requestedRange: range.range,
+              targetOverlayRange: { startFrame: overlayStartFrame, endFrame: overlayEndFrame },
+              targetSpeed,
+            },
+          });
         }
 
-        const plan = applySpeedRampToProject(project, input);
-        if (plan.status !== "changed") {
-          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        const result = await projectService.applyVideoSourceRangeRetimeV1(
+          userId,
+          projectId,
+          {
+            expectedRevision: snapshot.revision,
+            actorKind: "AGENT",
+            overlayId,
+            playbackRate: targetSpeed,
+          },
+        );
+        if (result.disposition !== "APPLIED") {
+          return JSON.stringify({
+            status: "error",
+            message: `Source-range retime stopped without writing: ${result.reason}.`,
+            data: result,
+          });
         }
         const resultData = withAffectedFrameRanges(
-          plan,
-          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          {
+            disposition: result.disposition,
+            targetOverlayId: overlayId,
+            sourceRangeRetimeEffect: result.sourceRangeRetimeEffect,
+            sourceTimeTransform: result.sourceTimeTransform,
+            mutationReceipt: result.mutationReceipt,
+            timelineChangeReceipt: result.timelineChangeReceipt,
+            warnings: range.warnings,
+            message: `Retimed isolated video overlay ${overlayId} and issued its downstream source-time transform.`,
+          },
+          [...result.timelineChangeReceipt.affectedFrameRangesAfter],
           "apply_speed_ramp",
         );
-
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            speedCurve: update.nextSpeedCurve,
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
-
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply speed ramp." });
@@ -976,9 +1029,9 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
     },
     {
       name: "apply_speed_ramp",
-      description: `Apply a bounded speed ramp to the active video overlay over a resolved frame range.
-Use for "slow this moment down", "speed ramp on this action", or "return to normal speed after emphasis" after a selected range, target frame, find_audio_moment, or find_visual_moment.
-Writes speedCurve plus matching speed keyframes into the existing video speed path. Refuses dialogue/caption overlap and existing speed curves unless explicitly allowed.`,
+      description: `Atomically retime one complete isolated video source range faster than real time and return the writer-issued source-time transform.
+The resolved startFrame/endFrame must equal the target overlay bounds and targetSpeed must be above 1x through 4x. The ProjectService owner preserves the complete source range, ripples only non-overlapping later state, and refuses dialogue/overlay dependencies, VFR, stale revisions, insufficient handles, existing retime or local keyframes.
+Partial curves, slow motion, mixed-track reconform and arbitrary ramps are explicit capability gaps; this tool never falls back to piecemeal updateOverlay writes.`,
       schema: speedRampSchema,
     },
   );

@@ -241,18 +241,102 @@ describe('chat mechanical tool contracts', () => {
     const project = makeProject([{
       id: 3,
       type: 'video',
+      assetId: 'asset-video-3',
       from: 0,
       durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
       row: 0,
       src: 'https://cdn.example.com/source.mp4',
     }], 180);
-    installProjectStore(project);
+    const store = installProjectStore(project);
     const beforeProject = structuredClone(project);
+    const beforeRevision = {
+      schemaVersion: 1 as const,
+      value: 1,
+      compatibilityUpdatedAt: project.updatedAt.toISOString(),
+    };
+    const committedAt = '2026-07-18T00:00:01.000Z';
+    const afterRevision = {
+      schemaVersion: 1 as const,
+      value: 2,
+      compatibilityUpdatedAt: committedAt,
+    };
+    const sourceTimeTransform = {
+      schemaVersion: 1 as const,
+      rendererMappingVersion: 'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2',
+      projectId: project.projectId,
+      overlayId: '3',
+      assetId: 'asset-video-3',
+      beforeProjectRevision: beforeRevision,
+      afterProjectRevision: afterRevision,
+      timelineStartFrame: 0,
+      sourceStartFrame: 0,
+      sourceEndFrameExclusive: 180,
+      durationInFrames: 90,
+      transformSha256: 'a'.repeat(64),
+    };
+    const loadForMutation = vi.spyOn(projectService, 'loadProjectForMutation')
+      .mockResolvedValue({ project: structuredClone(project), revision: beforeRevision } as any);
+    const applyRetime = vi.spyOn(projectService, 'applyVideoSourceRangeRetimeV1')
+      .mockImplementation(async (_userId, projectId, command) => {
+        expect(command).toEqual({
+          expectedRevision: beforeRevision,
+          actorKind: 'AGENT',
+          overlayId: 3,
+          playbackRate: 2,
+        });
+        Object.assign(project.overlays[0], {
+          durationInFrames: 90,
+          sourceStartFrame: 0,
+          sourceEndFrame: 180,
+          speedCurve: [{ frame: 0, value: 2 }, { frame: 89, value: 2 }],
+        });
+        Object.assign(project, {
+          durationInFrames: 90,
+          projectRevision: 2,
+          updatedAt: new Date(committedAt),
+        });
+        const sourceRangeRetimeEffect = {
+          beforeTimelineRange: { startFrame: 0, endFrame: 180 },
+          afterTimelineRange: { startFrame: 0, endFrame: 90 },
+          beforeProjectDurationInFrames: 180,
+          afterProjectDurationInFrames: 90,
+          shiftedBeforeRange: { startFrame: 180, endFrame: 180 },
+          shiftedAfterRange: { startFrame: 90, endFrame: 90 },
+          deltaFrames: -90,
+          affectedOverlayIds: [3],
+        };
+        const timelineChangeReceipt = {
+          schemaVersion: 1 as const,
+          receiptId: 'timeline-video-source-retime_chat-tool-test',
+          projectId,
+          operation: 'RETIME_VIDEO_SOURCE_RANGE' as const,
+          actorKind: 'AGENT' as const,
+          beforeProjectRevision: beforeRevision,
+          afterProjectRevision: afterRevision,
+          committedAt,
+          affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 90 }],
+          sourceTimeTransform,
+        };
+        return {
+          disposition: 'APPLIED' as const,
+          mutationReceipt: {
+            schemaVersion: 1 as const,
+            projectId,
+            revision: afterRevision,
+            committedAt,
+          },
+          timelineChangeReceipt,
+          sourceRangeRetimeEffect,
+          sourceTimeTransform,
+        } as any;
+      });
     const args = {
       videoOverlayId: 3,
-      startFrame: 30,
-      endFrame: 90,
-      targetSpeed: 0.5,
+      startFrame: 0,
+      endFrame: 180,
+      targetSpeed: 2,
       allowDialogueSpeedRamp: false,
     };
 
@@ -262,9 +346,14 @@ describe('chat mechanical tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        affectedFrameRanges: [{ startFrame: 30, endFrame: 90 }],
+        disposition: 'APPLIED',
+        affectedFrameRanges: [{ startFrame: 0, endFrame: 90 }],
+        sourceTimeTransform,
       },
     });
+    expect(loadForMutation).toHaveBeenCalledWith(project.userId, project.projectId);
+    expect(applyRetime).toHaveBeenCalledTimes(1);
+    expect(store.updateOverlay).not.toHaveBeenCalled();
 
     const enforced = enforceChatToolPostcondition({
       toolName: 'apply_speed_ramp',
@@ -296,11 +385,66 @@ describe('chat mechanical tool contracts', () => {
     });
 
     expect(request.mutationRanges).toEqual([{
-      startFrame: 30,
+      startFrame: 0,
       endFrame: 90,
       toolName: 'apply_speed_ramp',
     }]);
-    expect(request.sampleFrames).toEqual([29, 30, 60, 89, 90]);
+    expect(request.sampleFrames).toEqual([0, 45, 89]);
+  });
+
+  it('safe-stops unsupported partial slow motion before calling any writer', async () => {
+    const project = makeProject([{
+      id: 4,
+      type: 'video',
+      assetId: 'asset-video-4',
+      from: 0,
+      durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180);
+    const store = installProjectStore(project);
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: structuredClone(project),
+      revision: {
+        schemaVersion: 1,
+        value: 1,
+        compatibilityUpdatedAt: project.updatedAt.toISOString(),
+      },
+    } as any);
+    const applyRetime = vi.spyOn(projectService, 'applyVideoSourceRangeRetimeV1');
+
+    const result = parseEnvelope(await toolNamed('apply_speed_ramp').invoke({
+      videoOverlayId: 4,
+      startFrame: 30,
+      endFrame: 90,
+      targetSpeed: 0.5,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'TOOL_HANDLER_ERROR',
+        details: { raw: { data: {
+          disposition: 'SAFE_STOP',
+          reason: 'UNSUPPORTED_PUBLIC_RETIME_FORM',
+        } } },
+      },
+    });
+    expect(applyRetime).not.toHaveBeenCalled();
+    expect(store.updateOverlay).not.toHaveBeenCalled();
+    expect(project).toEqual(makeProject([{
+      id: 4,
+      type: 'video',
+      assetId: 'asset-video-4',
+      from: 0,
+      durationInFrames: 180,
+      sourceStartFrame: 0,
+      sourceEndFrame: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180));
   });
 
   it('reports exact affected windows from every visual mutation producer', async () => {
