@@ -23,6 +23,14 @@ a usable source PTS map.  It does not invalidate the narrow properties already
 tested: canonical descriptor hashes, conditional private writes, source-bound
 CAS, and source-change invalidation remain useful prerequisites.
 
+Commit `785c296d7` begins the successor at the narrowest safe seam:
+`MediaSourcePtsCadenceFrameBatchPayloadV2` retains the ordered frame records,
+canonicalizes them, and on decode recomputes the V1 descriptor's evidence hash,
+range, count and cadence. Its explicit resource policy must equal the mapper
+command-policy version. It has no object-key/state owner, manifest index,
+reader, verifier, job or product consumer; it does not change this finding for
+the live V1 lifecycle.
+
 ## Consequence
 
 Do not build a runtime mapper, source/proxy transform, ProjectService binding,
@@ -39,7 +47,8 @@ data to perform that verification.
 Keep V1 immutable as the existing narrow descriptor/lifecycle contract.  Add a
 separate, versioned successor sidecar protocol before mapper runtime work:
 
-1. **Lossless frame-batch payload.** Each immutable batch must contain the
+1. **Lossless frame-batch payload.** Commit `785c296d7` supplies a pure V2
+   codec for this first requirement. Each immutable batch must contain the
    descriptor plus the ordered per-frame PTS/duration records (or a specified
    lossless encoding with an independently tested decoder). The decoder must
    recompute the descriptor's frame-evidence hash, count, start/end, local
@@ -70,8 +79,9 @@ This audit inspected the current implementations of:
 - `media-source-pts-cadence-shard-v1.ts`;
 - `media-source-pts-cadence-private-sidecar-codec-v1.ts`;
 - `media-source-pts-cadence-map-lifecycle-v1.ts`; and
-- the corresponding lifecycle and private-sidecar tests.
+- the corresponding lifecycle and private-sidecar tests; plus the pure V2
+  frame-batch codec and its adversarial test.
 
-It is a design-correction record only. No runtime mapping behavior changes, and
-no claim is made that a V2 protocol, mapper worker, private deployment, live
+The new batch codec does not change runtime mapping behavior. No claim is made
+that a V2 manifest/index protocol, mapper worker, private deployment, live
 Atlas write, renderer consumer or ProjectService source binding exists.

@@ -383,7 +383,13 @@ changes.
   the manifest only a rolling checkpoint. It cannot recover per-frame PTS or
   enumerate every shard, so it cannot be promoted to a usable source map. A
   versioned frame-payload/manifest-index successor is required before mapper
-  runtime work; V1 stays a strict prerequisite contract.
+  runtime work; V1 stays a strict prerequisite contract. Commit `785c296d7`
+  supplies only the first pure successor piece: a canonical V2 frame-batch
+  codec retains every PTS/duration record, binds its explicit resource policy
+  to the mapper command-policy version, and rechecks descriptor/hash/range
+  agreement on decode. It has no V2 object-key/state owner, manifest index,
+  reader, verifier, worker or consumer, so it remains non-executable evidence
+  plumbing rather than a map.
   There is still no mapper worker or terminal map result. The next runtime
   implementation remains source-version-bound claim/checkpoint/terminal work.
 
