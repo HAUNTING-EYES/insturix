@@ -59,7 +59,8 @@ The following is current **repository source** truth, not a deployment claim:
 | --- | --- | --- |
 | Media source probe | `025b4e73b`, `b96253b52` and `27dd95b83` declare Modal proxy auth, dedicated credentials and a host-bound `https://*.modal.run` client. | The endpoint is not deployed; canonical byte identity and storage-issued source qualification remain open. |
 | Scene detection | `eb7836dc9` declares `requires_proxy_auth=True`; its client uses the same dedicated, host-bound proxy credentials and has a source guard test. Missing evidence is rejected by the canonical reference extractor. | No deployment/environment update was made. The worker still receives a temporary URL rather than resolving a storage-owner-issued source handle. |
-| Music analysis, Wav2Vec and V-JEPA | Their source endpoint/client pairs still use the former generic `Authorization: Token <MODAL_TOKEN_ID>:<MODAL_TOKEN_SECRET>` pattern. | Each needs its own endpoint/caller/exposure audit and bounded fail-closed migration. |
+| Music analysis | Step-0 cleanup `89a30417d` removed dead code and raw diagnostic/error prints only; its endpoint/client pair still uses the former generic `Authorization: Token <MODAL_TOKEN_ID>:<MODAL_TOKEN_SECRET>` pattern. | Its dedicated endpoint/caller/exposure audit and bounded fail-closed migration are next; the cleanup is not an auth fix. |
+| Wav2Vec and V-JEPA | Their source endpoint/client pairs still use the former generic `Authorization: Token <MODAL_TOKEN_ID>:<MODAL_TOKEN_SECRET>` pattern. | Each needs its own endpoint/caller/exposure audit, required Step-0 cleanup, and bounded fail-closed migration. |
 
 The scene extractor validates a canonical registration receipt but does not
 bind `source.videoUrl` itself to that receipt. Therefore proxy authentication
