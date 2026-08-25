@@ -593,6 +593,28 @@ changes.
   remains absent, and no project mutation or render occurred. The next bounded
   phase is the dedicated ProjectService speed-ramp CAS and chat handoff.
 
+  Commit `217930e47` completes the dedicated ProjectService writer slice.
+  `applyVideoSpeedRampV1` accepts the exact caller snapshot revision and an
+  explicit actor, re-reads the video overlay and current user-owned media
+  asset, validates that `sourceStartFrame`/`videoStartTime` agree, and rejects
+  renderer state unless its single speed keyframe track exactly matches the
+  form-owner-selected `speedCurve`. It derives the verified source binding
+  from the existing `MEDIA_ASSETS` V2 terminal PTS state and prepares the
+  transform before one overlay-and-receipt CAS. Missing media timing or source
+  handles produces a structured zero-write `SAFE_STOP`; stale project state,
+  contradictory coordinates, forged bindings and curve/track divergence fail
+  before mutation. The successful timeline receipt carries the exact transform
+  with before/after ProjectService revisions. Downstream rebinding re-reads the
+  current project, resolves the transform from ProjectService-owned receipt
+  history (a caller hash is not authorization), re-reads the current media
+  binding and returns `UNVERIFIABLE` for stale project/source identity. The
+  58-test focused writer/contract/cut/save cluster, repository typecheck and
+  quiet ESLint pass. This remains a truthful **WRITER_ISSUED_NOT_CHAT_WIRED**
+  checkpoint: the existing `apply_speed_ramp` chat tool still uses generic
+  `updateOverlay`, VFR private-index rebinding and rendered proof remain absent,
+  and the frozen `HOLD-DEP-03` isolated sentinel has not yet been reissued
+  against this owner.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
