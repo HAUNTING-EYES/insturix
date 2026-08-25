@@ -250,6 +250,21 @@ changes.
   current-truth reissue of the residual raw-writer inventory before selecting
   its next P0 owner migration.
 
+- **2026-08-25 residual worker/project-writer current truth.** The fresh
+  audit [residual-worker-and-project-writer-audit-2026-08-25.md](./editron/residual-worker-and-project-writer-audit-2026-08-25.md)
+  confirms a distinction that the earlier worker-auth record did not cover:
+  Video Analysis and TRIBE reject missing inbound QStash signing keys through
+  the shared request-time guard, but both still treat a missing *publisher*
+  token as permission to run downstream work inline. That is a production
+  fail-open orchestration branch, not an unsigned ingress. The next bounded
+  safety repair is to allow inline work only in explicit development and return
+  a configuration failure before database/provider side effects in production.
+  The audit separately ranks the raw Video Analysis 30-fps duration overwrite,
+  finalizer synchronous BGM overlay append, lifecycle/analysis fact writes,
+  Director observer facts, legacy status tracking and generic `updateProject`
+  calls. No generic metadata owner is authorized; the ordered next owner after
+  the configuration repair is the source-bound Video Analysis duration command.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
