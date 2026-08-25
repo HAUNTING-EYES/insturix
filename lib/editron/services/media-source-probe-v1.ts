@@ -57,6 +57,15 @@ export type MediaSourceTechnicalObservationV1 = {
   observationSha256: string;
 };
 
+export type MediaSourceProbeDiagnosticV1 =
+  | 'MEDIA_SOURCE_PROBE_NOT_CONFIGURED'
+  | 'MEDIA_SOURCE_PROBE_HTTP_FAILURE'
+  | 'MEDIA_SOURCE_PROBE_REQUEST_FAILED'
+  | 'MEDIA_SOURCE_PROBE_RESPONSE_INVALID'
+  | 'MEDIA_SOURCE_PROBE_NO_USABLE_STREAMS'
+  | 'MEDIA_SOURCE_STORAGE_UNAVAILABLE'
+  | 'MEDIA_SOURCE_SIGNED_URL_UNAVAILABLE';
+
 export type MediaSourceProbeResultV1 =
   | {
       disposition: 'MEASURED';
@@ -66,13 +75,7 @@ export type MediaSourceProbeResultV1 =
   | {
       disposition: 'UNVERIFIABLE';
       observation: null;
-      diagnostics: readonly [
-        'MEDIA_SOURCE_PROBE_NOT_CONFIGURED'
-        | 'MEDIA_SOURCE_PROBE_HTTP_FAILURE'
-        | 'MEDIA_SOURCE_PROBE_REQUEST_FAILED'
-        | 'MEDIA_SOURCE_PROBE_RESPONSE_INVALID'
-        | 'MEDIA_SOURCE_PROBE_NO_USABLE_STREAMS',
-      ];
+      diagnostics: readonly [MediaSourceProbeDiagnosticV1];
     };
 
 export type MediaSourceProbeEnvironmentV1 = Readonly<Record<string, string | undefined>>;
@@ -110,7 +113,7 @@ export async function probeMediaSourceV1(
   const tokenId = configured(environment.MODAL_TOKEN_ID);
   const tokenSecret = configured(environment.MODAL_TOKEN_SECRET);
   if (!endpoint || !tokenId || !tokenSecret) {
-    return unverifiable('MEDIA_SOURCE_PROBE_NOT_CONFIGURED');
+    return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_NOT_CONFIGURED');
   }
 
   let response: Response;
@@ -125,22 +128,22 @@ export async function probeMediaSourceV1(
       signal: AbortSignal.timeout(dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
   } catch {
-    return unverifiable('MEDIA_SOURCE_PROBE_REQUEST_FAILED');
+    return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_REQUEST_FAILED');
   }
 
-  if (!response.ok) return unverifiable('MEDIA_SOURCE_PROBE_HTTP_FAILURE');
+  if (!response.ok) return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_HTTP_FAILURE');
 
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    return unverifiable('MEDIA_SOURCE_PROBE_RESPONSE_INVALID');
+    return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_RESPONSE_INVALID');
   }
 
   const observation = parseMediaSourceProbeResponseV1(payload);
-  if (!observation) return unverifiable('MEDIA_SOURCE_PROBE_RESPONSE_INVALID');
+  if (!observation) return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_RESPONSE_INVALID');
   if (observation.videoStreams.length === 0 && observation.audioStreams.length === 0) {
-    return unverifiable('MEDIA_SOURCE_PROBE_NO_USABLE_STREAMS');
+    return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_NO_USABLE_STREAMS');
   }
 
   return { disposition: 'MEASURED', observation, diagnostics: [] };
@@ -269,8 +272,8 @@ function configured(value: string | undefined): string | null {
   return trimmed || null;
 }
 
-function unverifiable(
-  diagnostic: Extract<MediaSourceProbeResultV1, { disposition: 'UNVERIFIABLE' }>['diagnostics'][number],
+export function unverifiableMediaSourceProbeResultV1(
+  diagnostic: MediaSourceProbeDiagnosticV1,
 ): MediaSourceProbeResultV1 {
   return { disposition: 'UNVERIFIABLE', observation: null, diagnostics: [diagnostic] };
 }
