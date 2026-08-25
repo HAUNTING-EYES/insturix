@@ -81,6 +81,11 @@ import {
   type ProjectVideoSourceTimeTransformV1,
   type SourcePresentationTimestampRebindV1,
 } from "./video-source-time-transform-v1";
+import {
+  retimeIsolatedVideoSourceRangeV1,
+  type VideoSourceRangeRetimeEffectV1,
+  type VideoSourceRangeRetimeSafeStopReasonV1,
+} from "./video-source-range-retime-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -133,18 +138,28 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
   | "APPLY_VIDEO_SPEED_RAMP"
+  | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
   | "REPLACE_PIPELINE_VIDEO_DELIVERY"
   | "CORRECT_VIDEO_ANALYSIS_DURATION"
   | "RECONCILE_PROJECT_DURATION";
 
-export interface ProjectTimelineRippleEffectV1 {
-  kind: "REMOVE_AND_SHIFT_LEFT";
-  removedFrameRange: TimelineFrameRangeV1;
-  shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
-  shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
-  deltaFrames: number;
-}
+export type ProjectTimelineRippleEffectV1 =
+  | {
+      kind: "REMOVE_AND_SHIFT_LEFT";
+      removedFrameRange: TimelineFrameRangeV1;
+      shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
+      shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
+      deltaFrames: number;
+    }
+  | {
+      kind: "RETIME_AND_SHIFT_LEFT";
+      retimedBeforeFrameRange: TimelineFrameRangeV1;
+      retimedAfterFrameRange: TimelineFrameRangeV1;
+      shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
+      shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
+      deltaFrames: number;
+    };
 
 /**
  * The local timeline footprint of a direct overlay mutation. Its union is the
@@ -244,6 +259,30 @@ export type ProjectVideoSpeedRampResultV1 =
   | {
       disposition: "SAFE_STOP";
       reason: ProjectVideoSpeedRampSafeStopReasonV1;
+      currentRevision: ProjectRevisionV1;
+    };
+
+export interface ProjectVideoSourceRangeRetimeCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  overlayId: number;
+  playbackRate: number;
+}
+
+export type ProjectVideoSourceRangeRetimeSafeStopReasonV1 =
+  | ProjectVideoSpeedRampSafeStopReasonV1
+  | VideoSourceRangeRetimeSafeStopReasonV1
+  | "SOURCE_EVENT_REBIND_UNSUPPORTED";
+
+export type ProjectVideoSourceRangeRetimeResultV1 =
+  | ({
+      disposition: "APPLIED";
+      sourceRangeRetimeEffect: VideoSourceRangeRetimeEffectV1;
+      sourceTimeTransform: ProjectVideoSourceTimeTransformV1;
+    } & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "SAFE_STOP";
+      reason: ProjectVideoSourceRangeRetimeSafeStopReasonV1;
       currentRevision: ProjectRevisionV1;
     };
 
@@ -5105,6 +5144,280 @@ export class ProjectService {
   }
 
   /**
+   * Atomically preserve one isolated video's complete source range while
+   * shortening its project duration and rippling later non-overlapping state.
+   * This bounded owner refuses mixed-track reconform instead of guessing it.
+   */
+  async applyVideoSourceRangeRetimeV1(
+    userId: string,
+    projectId: string,
+    input: ProjectVideoSourceRangeRetimeCommandV1,
+  ): Promise<ProjectVideoSourceRangeRetimeResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (input.actorKind === "UNKNOWN_LEGACY_CALLER"
+      || !Number.isSafeInteger(input.overlayId)
+      || input.overlayId < 0
+      || !Number.isFinite(input.playbackRate)
+      || input.playbackRate <= 1
+      || input.playbackRate > 4) {
+      throw new ProjectMutationWriteError(
+        "A source-range retime requires an explicit actor, stable overlay ID and playback rate above 1x through 4x.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before retrying.",
+      );
+    }
+
+    const currentOverlay = project.overlays?.find(
+      (overlay) => overlay.id === input.overlayId,
+    );
+    if (!currentOverlay || currentOverlay.type !== "video") {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "TARGET_VIDEO_NOT_FOUND",
+        currentRevision,
+      };
+    }
+    const assetId = currentOverlay.assetId;
+    if (typeof assetId !== "string" || !assetId.trim()) {
+      throw new ProjectMutationWriteError(
+        "A source-range retime requires one stable media asset identity.",
+      );
+    }
+    const sourceStartFrame = projectVideoSourceStartFrameV1(currentOverlay);
+    const explicitSourceEndFrame = currentOverlay.sourceEndFrame;
+    if (explicitSourceEndFrame !== undefined
+      && (!Number.isSafeInteger(explicitSourceEndFrame)
+        || explicitSourceEndFrame <= sourceStartFrame)) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_RANGE_MISMATCH",
+        currentRevision,
+      };
+    }
+    const sourceEndFrameExclusive = explicitSourceEndFrame
+      ?? sourceStartFrame + currentOverlay.durationInFrames;
+
+    const asset = await assetResolver.getAsset(assetId, userId);
+    if (!asset) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_ASSET_NOT_FOUND",
+        currentRevision,
+      };
+    }
+    const sourceBinding = resolveVerifiedVideoSourceTimeBindingV1(asset);
+    if (!sourceBinding) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+        currentRevision,
+      };
+    }
+    if (sourceBinding.assetId !== assetId) {
+      throw new ProjectMutationWriteError(
+        "The verified source-time binding does not match the overlay asset.",
+      );
+    }
+    if (sourceBinding.sourceCadence.kind !== "CFR") {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_EVENT_REBIND_UNSUPPORTED",
+        currentRevision,
+      };
+    }
+    const totalSourceFrames = Number(BigInt(sourceBinding.totalSourceFrameCount));
+    if (!Number.isSafeInteger(totalSourceFrames)
+      || sourceEndFrameExclusive > totalSourceFrames) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_HANDLES_INSUFFICIENT",
+        currentRevision,
+      };
+    }
+
+    const retime = retimeIsolatedVideoSourceRangeV1({
+      overlays: project.overlays || [],
+      projectDurationInFrames: project.durationInFrames,
+      overlayId: input.overlayId,
+      verifiedSourceStartFrame: sourceStartFrame,
+      verifiedSourceEndFrameExclusive: sourceEndFrameExclusive,
+      playbackRate: input.playbackRate,
+    });
+    if (retime.disposition === "SAFE_STOP") {
+      return {
+        disposition: "SAFE_STOP",
+        reason: retime.reason,
+        currentRevision,
+      };
+    }
+
+    const activeOverlappingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      {
+        startFrame: retime.effect.beforeTimelineRange.startFrame,
+        endFrame: retime.effect.beforeProjectDurationInFrames,
+      },
+    ));
+    if (activeOverlappingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        activeOverlappingLocks.map((lock) => lock.lockId),
+        "An active timeline range lock overlaps the source-range retime ripple tail.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const afterTarget = retime.overlays.find(
+      (overlay) => overlay.id === input.overlayId,
+    );
+    if (!afterTarget
+      || afterTarget.type !== "video"
+      || !Array.isArray(afterTarget.speedCurve)) {
+      throw new ProjectMutationWriteError(
+        "The source-range retime owner did not return its target renderer state.",
+      );
+    }
+    const validatedState = assertProjectVideoSpeedRampStateV1({
+      durationInFrames: afterTarget.durationInFrames,
+      speedCurve: afterTarget.speedCurve,
+      keyframeTracks: afterTarget.keyframeTracks ?? [],
+    });
+    const sourceTimeTransform = createProjectVideoSourceTimeTransformV1({
+      projectId,
+      overlayId: input.overlayId,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      projectFps: project.fps,
+      timelineStartFrame: afterTarget.from,
+      sourceStartFrame,
+      sourceEndFrameExclusive,
+      durationInFrames: afterTarget.durationInFrames,
+      speedCurve: validatedState.speedCurve,
+      sourceBinding,
+    });
+    const affectedOverlayRefs = (project.overlays || [])
+      .filter((overlay) => retime.effect.affectedOverlayIds.includes(overlay.id))
+      .map((overlay) => overlayReferenceForTimelineChangeV1(overlay))
+      .sort();
+    const writeRangeBefore = {
+      startFrame: retime.effect.beforeTimelineRange.startFrame,
+      endFrame: retime.effect.beforeProjectDurationInFrames,
+    };
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-video-source-retime_${nanoid(18)}`,
+      projectId,
+      operation: "RETIME_VIDEO_SOURCE_RANGE",
+      actorKind: input.actorKind,
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: [writeRangeBefore],
+      writeFrameRangesBefore: [writeRangeBefore],
+      affectedFrameRangesAfter: [{
+        startFrame: retime.effect.afterTimelineRange.startFrame,
+        endFrame: retime.effect.afterProjectDurationInFrames,
+      }],
+      affectedOverlayRefs,
+      changedPaths: ["overlays", "durationInFrames", "timelineRangeChangeReceipts"],
+      rangeObservation: "EXACT",
+      overlayTemporalChange: {
+        overlayRef: overlayReferenceForTimelineChangeV1(currentOverlay),
+        beforeFrameRange: retime.effect.beforeTimelineRange,
+        afterFrameRange: retime.effect.afterTimelineRange,
+        unionFrameRange: retime.effect.beforeTimelineRange,
+      },
+      timelineCoordinateTransform: null,
+      sourceTimeTransform,
+      splitChildren: [],
+      ripple: {
+        kind: "RETIME_AND_SHIFT_LEFT",
+        retimedBeforeFrameRange: retime.effect.beforeTimelineRange,
+        retimedAfterFrameRange: retime.effect.afterTimelineRange,
+        shiftedBeforeFrameRange: retime.effect.shiftedBeforeRange,
+        shiftedAfterFrameRange: retime.effect.shiftedAfterRange,
+        deltaFrames: retime.effect.deltaFrames,
+      },
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [writeRangeBefore],
+      },
+    };
+    const persistedOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(retime.overlays),
+      "project-service-video-source-range-retime-v1",
+    );
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(currentRevision),
+      },
+      {
+        $set: {
+          overlays: persistedOverlays,
+          durationInFrames: retime.effect.afterProjectDurationInFrames,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      mutationReceipt,
+      timelineChangeReceipt,
+      sourceRangeRetimeEffect: retime.effect,
+      sourceTimeTransform,
+    };
+  }
+
+  /**
    * Rebind a source event only while both the project revision and the media
    * owner's source-time binding still match the transform that was issued by
    * the retime write.
@@ -5141,7 +5454,8 @@ export class ProjectService {
       return { disposition: "UNVERIFIABLE", reason: "PROJECT_REVISION_STALE" };
     }
     const matchingReceipts = (project.timelineRangeChangeReceipts ?? []).filter(
-      (receipt) => receipt.operation === "APPLY_VIDEO_SPEED_RAMP"
+      (receipt) => (receipt.operation === "APPLY_VIDEO_SPEED_RAMP"
+          || receipt.operation === "RETIME_VIDEO_SOURCE_RANGE")
         && receipt.projectId === projectId
         && receipt.sourceTimeTransform?.transformSha256
           === input.sourceTimeTransform.transformSha256

@@ -244,6 +244,115 @@ describe('ProjectService video speed-ramp writer V1', () => {
       reason: 'PROJECT_REVISION_STALE',
     });
   });
+
+  it('atomically shortens an isolated source range, ripples later content and issues the V2 transform', async () => {
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16));
+    serviceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import('@/lib/editron/services/project-service');
+
+    const result = await projectService.applyVideoSourceRangeRetimeV1(
+      'user-1',
+      'project-1',
+      {
+        expectedRevision: revision(16),
+        actorKind: 'AGENT',
+        overlayId: 17,
+        playbackRate: 2,
+      },
+    );
+
+    expect(result.disposition).toBe('APPLIED');
+    if (result.disposition !== 'APPLIED') throw new Error('expected applied result');
+    expect(result.sourceTimeTransform).toMatchObject({
+      rendererMappingVersion: 'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2',
+      sourceStartFrame: 0,
+      sourceEndFrameExclusive: 120,
+      durationInFrames: 60,
+    });
+    const update = serviceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
+    expect(update.$set).toMatchObject({
+      durationInFrames: 180,
+      overlays: [
+        expect.objectContaining({ id: 17, from: 0, durationInFrames: 60, sourceEndFrame: 120 }),
+        expect.objectContaining({ id: 18, from: 60, durationInFrames: 120 }),
+      ],
+    });
+    expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
+      operation: 'RETIME_VIDEO_SOURCE_RANGE',
+      beforeProjectRevision: revision(16),
+      sourceTimeTransform: result.sourceTimeTransform,
+      ripple: {
+        kind: 'RETIME_AND_SHIFT_LEFT',
+        retimedBeforeFrameRange: { startFrame: 0, endFrame: 120 },
+        retimedAfterFrameRange: { startFrame: 0, endFrame: 60 },
+        shiftedBeforeFrameRange: { startFrame: 120, endFrame: 240 },
+        shiftedAfterFrameRange: { startFrame: 60, endFrame: 180 },
+        deltaFrames: -60,
+      },
+    });
+  });
+
+  it('safe-stops source-range retime on overlapping dialogue and VFR evidence', async () => {
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16, [{
+      id: 19, type: 'caption', captions: [], from: 90, durationInFrames: 20,
+      row: 2, left: 0, top: 0, width: 100, height: 50,
+      rotation: 0, isDragging: false, styles: {},
+    }]));
+    const { projectService } = await import('@/lib/editron/services/project-service');
+    await expect(projectService.applyVideoSourceRangeRetimeV1(
+      'user-1', 'project-1', {
+        expectedRevision: revision(16), actorKind: 'AGENT', overlayId: 17, playbackRate: 2,
+      },
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'OVERLAPPING_DEPENDENT_OVERLAY',
+    });
+    expect(serviceMocks.updateOne).not.toHaveBeenCalled();
+
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16));
+    serviceMocks.resolveSourceBinding.mockReturnValueOnce(binding({ sourceCadence: { kind: 'VFR' } }));
+    await expect(projectService.applyVideoSourceRangeRetimeV1(
+      'user-1', 'project-1', {
+        expectedRevision: revision(16), actorKind: 'AGENT', overlayId: 17, playbackRate: 2,
+      },
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'SOURCE_EVENT_REBIND_UNSUPPORTED',
+    });
+    expect(serviceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('rebinds an event only from the persisted source-range retime receipt', async () => {
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16));
+    serviceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import('@/lib/editron/services/project-service');
+    const applied = await projectService.applyVideoSourceRangeRetimeV1(
+      'user-1', 'project-1', {
+        expectedRevision: revision(16), actorKind: 'AGENT', overlayId: 17, playbackRate: 2,
+      },
+    );
+    if (applied.disposition !== 'APPLIED') throw new Error('expected applied result');
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(
+      17,
+      [],
+      applied.mutationReceipt.revision.compatibilityUpdatedAt,
+      {
+        overlays: [
+          sourceRangeVideo(17, 0, 60, 0, 120),
+          sourceRangeVideo(18, 60, 120, 120, 240),
+        ],
+        timelineRangeChangeReceipts: [applied.timelineChangeReceipt],
+        durationInFrames: 180,
+      },
+    ));
+
+    await expect(projectService.rebindVideoSourceEventAfterRetimeV1(
+      'user-1', 'project-1', {
+        sourceTimeTransform: applied.sourceTimeTransform,
+        sourcePresentationTimestampTicks: String(100 * 3003),
+      },
+    )).resolves.toMatchObject({
+      disposition: 'REBOUND', sourceFrameOrdinal: 100, projectFrame: 50,
+    });
+  });
 });
 
 function projectAtRevision(
@@ -278,6 +387,40 @@ function projectAtRevision(
       ...overlayOverrides,
     }],
     ...projectOverrides,
+  };
+}
+
+function sourceRangeProjectAtRevision(
+  value: number,
+  extraOverlays: Record<string, unknown>[] = [],
+  compatibilityUpdatedAt = revision(value).compatibilityUpdatedAt,
+  projectOverrides: Record<string, unknown> = {},
+) {
+  return {
+    projectId: 'project-1', userId: 'user-1', fps: 30,
+    projectRevision: value, updatedAt: new Date(compatibilityUpdatedAt),
+    durationInFrames: 240,
+    overlays: [
+      sourceRangeVideo(17, 0, 120, 0, 120),
+      sourceRangeVideo(18, 120, 120, 120, 240),
+      ...extraOverlays,
+    ],
+    ...projectOverrides,
+  };
+}
+
+function sourceRangeVideo(
+  id: number,
+  from: number,
+  durationInFrames: number,
+  sourceStartFrame: number,
+  sourceEndFrame: number,
+) {
+  return {
+    id, type: 'video', assetId: 'asset-1', content: '', from, durationInFrames,
+    sourceStartFrame, sourceEndFrame, videoStartTime: sourceStartFrame,
+    row: 0, left: 0, top: 0, width: 1920, height: 1080,
+    rotation: 0, isDragging: false, styles: {},
   };
 }
 
