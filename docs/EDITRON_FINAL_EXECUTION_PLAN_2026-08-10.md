@@ -306,6 +306,19 @@ changes.
   derivative-clear worker, PTS map, ProjectService source-binding/rebase,
   preview/render refresh, long-form hash or production certification.
 
+- **2026-08-25 exact source-PTS anchors.** Commit `177d56112` advances the
+  repository source for the existing read-only technical probe. For a newly
+  deployed and re-run probe, each audio/video stream can carry nullable,
+  exact-text `start_pts` and non-negative `duration_ts` anchors beside its
+  rational timebase; Python serializes integers as text so JavaScript cannot
+  round large ticks. Existing stored observations remain readable and a
+  malformed, numeric, fractional or negative-duration response stays null for
+  that anchor. No deployment occurred in this commit. These anchors are not a
+  PTS map, source range, CFR/VFR conclusion, proxy transform, ProjectService
+  coordinate binding, operation permission, or long-form certification. The
+  next media design must issue a separate cadence/source-PTS mapping artifact
+  only where its measured evidence can support one.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render

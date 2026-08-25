@@ -47,6 +47,12 @@ proxy/master identity, or production long-form certification.
    duration constants converted only from the supplied numeric render FPS and
    passes that FPS through the render route. It remains intentionally unable to
    represent rational, VFR, source-PTS, reel, or timecode identity.
+6. Commit `177d56112` updates repository source for the existing technical
+   probe to preserve per-stream `start_pts` and `duration_ts` as nullable exact
+   text beside the already-observed rational timebase. It has not been deployed
+   here, does not backfill historical observations, and deliberately does not
+   classify cadence or create a source-PTS mapping. A raw anchor therefore
+   remains technical evidence, not precise timeline eligibility.
 
 ## Existing owner boundaries to preserve
 
@@ -131,6 +137,18 @@ The relation explicitly has no PTS mapping. The invalidation plan is not yet a
 consumer: it clears no analysis, preview, render or delivery artifact and does
 not change ProjectService bindings. A new promotion clears stale relation and
 intent fields before its master qualification starts.
+
+Commit `177d56112` makes the next bounded repository-source advance: the
+read-only Modal probe requests `start_pts` and `duration_ts` and serializes
+valid integers as text before the TypeScript parser sees them. This prevents
+JavaScript precision loss for large tick values; the parser accepts only exact
+text, preserves a negative start PTS, rejects a negative duration, and records
+malformed/missing anchors as null. Existing stored technical observations are
+backward compatible because these fields are optional. No Modal deployment,
+historical backfill, PTS sidecar map, CFR/VFR classification, proxy transform,
+ProjectService binding, analysis invalidation consumer, or operation eligibility
+exists yet. The next design step is a source-cadence and PTS-mapping receipt
+that must distinguish measured mapping evidence from unavailable evidence.
 
 ## Verification boundary
 
