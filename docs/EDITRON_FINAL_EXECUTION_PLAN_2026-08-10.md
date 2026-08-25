@@ -417,14 +417,20 @@ changes.
   terminal source-cadence receipt only after exact qualified-source coverage
   and lifecycle-manifest readback. Its source-bound Mongo CAS rejects parallel
   V1/V2 state, stale expectations, source replacement and races. The focused
-  V1/V2 chain passes 38/38 with repository typecheck and quiet lint. This owner
-  remains unwired: no V2 private-artifact writer/deployed reader, continuous
-  scanner, signed durable mapper job, V2 clearing in the current source-
-  replacement writers, live Atlas/private-bucket proof, source/proxy transform
-  or ProjectService consumer exists. The next bounded slice is private V2
-  artifact persistence/readback plus complete V2 source invalidation; model
-  evaluation, DEP-02/DEP-03 and project routing remain later in the frozen
-  order.
+  V1/V2 chain passes 38/38 with repository typecheck and quiet lint. Commit
+  `b7b92ea68` adds the matching server-only R2 V2 artifact port: immutable
+  conditional writes plus bounded exact readback for both recoverable frame
+  batches and manifest indexes. It rejects forged references, wrong storage,
+  missing objects and altered existing bytes. Commit `713718566` additionally
+  restricts reads to the two deterministic V2 object-key grammars. Commit
+  `e4709d0c9` extends both
+  audited source-version writers--the qualification claim/completion path and
+  proxy-to-master transition--to clear the V2 record/hash pair atomically with
+  V1. The owner remains unwired: no continuous scanner, signed durable mapper
+  job, deployed private-bucket/live-Atlas proof, source/proxy transform or
+  ProjectService consumer exists. The next bounded slice is the signed durable
+  continuous presentation-order mapper; model evaluation, DEP-02/DEP-03 and
+  project routing remain later in the frozen order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute

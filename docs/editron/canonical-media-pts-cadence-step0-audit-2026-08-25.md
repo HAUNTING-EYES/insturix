@@ -207,16 +207,30 @@ parallel persisted V1 pair, malformed current state, stale expectation,
 changed source or lost race. Lease time is sampled after asynchronous evidence
 reads so a slow verification cannot complete under an expired claim.
 
-This is a real state/CAS owner but remains deliberately **unwired**. There is
-still no V2 private-artifact writer/deployed reader, continuous presentation-
-order scanner, signed durable mapper job, source-replacement clearing of the
-new V2 pair, live Atlas/private-bucket proof, source/proxy transform,
-ProjectService consumer or product source-time permission. Until those exist,
-no runtime caller may treat the optional V2 fields as a usable map. The next
-bounded phase is the private V2 artifact port plus complete V2 invalidation on
-the already-audited source-replacement writers; it is not a ProjectService,
-generated-composition, overlay, caption, transition, renderer, user-data or
-research-proxy change.
+Commit `b7b92ea68` adds the server-only R2 V2 artifact port. It writes both
+recoverable frame batches and manifest indexes with `If-None-Match: *`, rereads
+bounded bytes, and requires exact canonical content hashes on initial write and
+retry. It rejects GCS references on the R2 port, malformed/private-key escapes,
+forged expected sidecars, missing reads and altered existing bytes. The port
+shares the existing deployment-owned private-storage declaration; it does not
+prove that the declared bucket is privately deployed. Commit `713718566`
+narrows its reader to the exact V2 frame-batch and manifest-index object-key
+grammars, so a merely prefixed or traversal-shaped key is rejected before R2.
+
+Commit `e4709d0c9` completes V2 invalidation in the two audited source-version
+writers. Both qualification claim/completion writes and proxy-to-master
+promotion now clear `sourcePtsCadenceMapV2` and its state hash in the same
+atomic payload that clears V1 and changes source identity. A stale V2 map can
+therefore no longer survive those successful replacements.
+
+This is a real state/CAS owner plus a private artifact adapter, but remains
+deliberately **unwired**. There is still no continuous presentation-order
+scanner, signed durable mapper job, live Atlas/private-bucket proof,
+source/proxy transform, ProjectService consumer or product source-time
+permission. Until those exist, no runtime caller may treat the optional V2
+fields as a usable map. The next bounded phase is the signed durable continuous
+scanner; it is not a ProjectService, generated-composition, overlay, caption,
+transition, renderer, user-data or research-proxy change.
 
 The measured execution constraint is recorded in
 [media-source-pts-cadence-mapper-feasibility-2026-08-25.md](./media-source-pts-cadence-mapper-feasibility-2026-08-25.md).
@@ -249,6 +263,11 @@ repository ESLint pass for those commits.
 Commit `981b5f903` adds a further 5 adversarial V2 owner cases; the complete
 focused V1/V2 PTS chain passes 38/38, with repository TypeScript and quiet
 ESLint passing at that commit.
+Commit `b7b92ea68` adds 3 V2 private-artifact cases; its V1/V2 storage/owner
+focus passes 12/12. Commit `e4709d0c9` adds complete V2 invalidation to the two
+audited writers; their owner/invalidation focus passes 22/22. Full TypeScript
+passes with an 8 GB compiler heap after the default 4 GB process exhausted its
+heap, and repository quiet ESLint passes.
 It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
 a deployed worker/bucket binding, an invoked mapper or live persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
