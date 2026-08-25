@@ -192,7 +192,7 @@ export function warmupVjepa(): void {
     body: JSON.stringify({ video_url: '', segments: [] }),
     signal: AbortSignal.timeout(90_000), // 90s for cold start warmup
   }).then(() => {
-    console.log('[VjepaService] Warmup: container ready');
+    // Warmup completion is intentionally non-observable.
   }).catch(() => {
     // Non-fatal — container may still warm up from the actual request later
   });
@@ -231,7 +231,6 @@ export async function analyzeVideoWithVjepa(
     }
 
     const frameSampleCount = chooseVjepaFrameSampleCount(segments.length);
-    console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
     const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
     const failedBatchIndices: number[] = [];
@@ -258,7 +257,6 @@ export async function analyzeVideoWithVjepa(
       }
 
       allResults.push(...mapped);
-      console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
     }
 
     if (!allResults.length) return null;
@@ -266,10 +264,6 @@ export async function analyzeVideoWithVjepa(
     const totalMs = Date.now() - batchStartMs;
     const droppedSegmentCount = Math.max(0, segments.length - allResults.length);
     const partial = droppedSegmentCount > 0 || failedBatchIndices.length > 0;
-    console.log(
-      `[VjepaService] ${partial ? 'Partial' : 'All'} ${allResults.length}/${segments.length} segments analyzed in ${totalMs}ms ` +
-      `(avg significance: ${(allResults.reduce((sum, r) => sum + r.visualSignificance, 0) / allResults.length).toFixed(2)})`,
-    );
     if (partial) {
       console.warn(
         `[VjepaService] Partial V-JEPA coverage: dropped ${droppedSegmentCount}/${segments.length} segment(s); ` +
