@@ -178,6 +178,19 @@ changes.
   byte/source-version plus proxy/master and invalidation design—not a broad
   ingress migration.
 
+- **2026-08-25 immutable source-version contract.** Commit `c6e715d9e`
+  defines and tests a deterministic `MediaSourceVersionV1` for one existing
+  `MediaAsset` owner, binding owner scope, asset, media kind, server-measured
+  byte length, complete-byte SHA-256 and one stable provider observation. It
+  also defines a proxy/master relation that is explicitly
+  `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`, plus an invalidation *plan* that
+  requires later ProjectService review rather than mutating a project. The
+  contract has no persistence, hash worker, upload-route, proxy-swap, analysis
+  invalidation, renderer or ProjectService consumer yet. A client SHA string,
+  an R2 ETag, or a URL cannot issue this identity. The next ordered slice is a
+  server-side full-byte hash receipt bound to unchanged storage, persisted only
+  through the existing `MEDIA_ASSETS` owner.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render

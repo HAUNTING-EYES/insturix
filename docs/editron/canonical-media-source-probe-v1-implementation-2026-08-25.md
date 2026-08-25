@@ -85,15 +85,21 @@ metadata.
 
 ## Next ordered implementation
 
-1. Design and test immutable byte/source-version issuance, proxy/master mapping
-   and invalidation against the actual direct-upload and proxy-swap paths. The
-   provider observation is not a replacement for this phase.
-2. Deploy the bounded worker configuration only after environment review; no
+1. Commit `c6e715d9e` defines/tests the immutable source-version, proxy/master
+   relation and invalidation-plan contracts. It is intentionally not an issuer:
+   the next code phase must hash the full stored byte stream server-side, compare
+   storage version before/after, and persist only the resulting valid source
+   version through the existing `MEDIA_ASSETS` owner.
+2. Add the actual proxy/master persistence and operation-specific invalidation
+   application only after that hash issuance exists. The present relation is
+   deliberately not a PTS/timecode mapping and cannot authorize precise edit,
+   relink, conform, or swap behavior.
+3. Deploy the bounded worker configuration only after environment review; no
    deployment occurred in this code slice.
-3. Migrate the remaining direct-upload and proxy-swap ingress paths only through
+4. Migrate the remaining direct-upload and proxy-swap ingress paths only through
    that immutable byte/source-version and invalidation work rather than
    pretending a URL swap is the same source.
-4. Add PTS/cadence and then ProjectService source/record binding only after the
+5. Add PTS/cadence and then ProjectService source/record binding only after the
    immutable source-version phase.
 
 No second media registry, project owner, or timeline authority is introduced.

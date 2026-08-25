@@ -81,6 +81,17 @@ proxy/master identity, or production long-form certification.
    only after the identity chain exists.  The 4.5-hour research proxy does not
    prove this product pipeline.
 
+## Current bounded advancement
+
+Commit `c6e715d9e` contributes only the pure-contract portion of steps 1–3:
+one immutable byte-source-version shape, an explicitly unmapped proxy/master
+relation and invalidation intent. It rejects forged hashes, cross-owner/asset
+relations and byte-length disagreement with the provider observation. It does
+not hash a real object, persist any record, alter upload ingress, clear an
+analysis record, or modify ProjectService. The next implementation must use a
+server-side streaming hash whose before/after storage observations match; only
+then may the existing `MEDIA_ASSETS` owner persist an issued version.
+
 ## Verification boundary
 
 This audit does not claim a working production media spine, a raised upload
