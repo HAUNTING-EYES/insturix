@@ -299,6 +299,23 @@ changes.
   repository typecheck and quiet lint pass. This is not a migration of the
   finalizer's other metadata/lifecycle writers or rendered-mix proof.
 
+- **2026-08-25 pipeline-analysis lifecycle Step-0 current truth.** The
+  audited residual lifecycle writes are not one generic project-status problem:
+  single-asset intake, Video Analysis, TRIBE, batch orchestration, Assist
+  cancellation/rescue, stuck recovery and automatic Director handoff have
+  different owners and predicates. The exact boundary is
+  [pipeline-analysis-lifecycle-step0-audit-2026-08-25.md](./editron/pipeline-analysis-lifecycle-step0-audit-2026-08-25.md).
+  It confirms one immediate production admission gap: `from-asset` allows its
+  inline analysis branch whenever the publisher token is absent, without the
+  shared explicit-development predicate. The next bounded safety patch rejects
+  an incomplete QStash publisher/signing configuration before any credit,
+  project or worker work outside development. It does not migrate analysis
+  lifecycle/facts. That later migration is correctly blocked on the canonical
+  media/timebase spine: current analysis projections have no qualified
+  immutable master/proxy source identity, source PTS/timebase, run identity or
+  writer-issued source-bound receipt. A generic metadata/status owner remains
+  prohibited.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
