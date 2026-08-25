@@ -268,12 +268,14 @@ describe('Clickatron generation terminal-state contract', () => {
     expect(redisHarness.values.get('clickatron:idempotency:user-1:request-1')).toBe('session-committed');
   });
 
-  it('uses queued-only signature failure handling and ledger-aware refunds', () => {
+  it('does not let an unauthenticated variation request alter a queued job or refund', () => {
     const worker = readRepoFile('app/api/internal/workers/clickatron/variation/route.ts');
 
     expect(worker).toContain('async function markVariationFailedForJob');
     expect(worker).toContain('const claim = await claimJobForExecution');
-    expect(worker).toContain('const failed = await failQueuedJob(jobId');
+    expect(worker).toContain("export const POST = withInternalQStashWorkerAuth(handler, 'clickatron-variation');");
+    expect(worker).not.toContain('failQueuedJob');
+    expect(worker).not.toContain('SIGNATURE_VERIFICATION_FAILED');
     expect(worker).toContain('await refundClaimedJob(');
     expect(worker).toContain('originalTransactionId: ledger.transactionId');
   });
