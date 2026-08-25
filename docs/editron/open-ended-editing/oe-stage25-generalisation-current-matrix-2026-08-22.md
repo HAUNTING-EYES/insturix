@@ -60,11 +60,37 @@ sentinels, and binds the accepted HREF-01, RHC-01, resume and long-form
 receipts. It records zero provider inference, zero paid dispatch and zero
 canonical project mutation.
 
-Its promotion is deliberately narrow:
+Its promotion was deliberately narrow:
 `READY_FOR_PROVIDER_ACCESS_METADATA_AND_OFFICIAL_TOKEN_PREFLIGHT_NOT_INFERENCE`.
-Current provider route/pricing metadata and Google official `countTokens` for
-the exact Gemini requests remain unchecked. No paid 24-row execution is yet
-authorized.
+
+## Final generalisation provider-access checkpoint
+
+Commits `c1cf9e336` and `f2fac0c62` add the exact provider-access/pricing/token
+preflight and source-bound operator. The cached `.env.local.prod` production
+Google key was stale and the first `v1` attempt failed closed before inference.
+A fresh Vercel Production `GOOGLE_GENERATIVE_AI_API_KEY` returned exact model
+identity `models/gemini-3.7-flash`. Accepted execution
+`stage25-final-provider-preflight-f2fac0c62-v2` then passed 62/62 and records:
+
+- source commit `f2fac0c6218aa71eee16783d0fcebf0ee2f93667` with a clean
+  1,925-file Editron scope;
+- three exact provider model-metadata GETs;
+- eight Google official `countTokens` POSTs and 24 unique request captures;
+- zero inference calls, automatic retries, project reads, project mutations or
+  state effects;
+- readiness receipt
+  `5c3c1b185d4cbd751e8cf476d5332187b3e490c9c88831037bb354ac970bc212`;
+- provider receipt
+  `a41bb976d29219805ca379299ad70183b751cdcfc2f8f79351be7bd30ebb6295`;
+- request-capture set
+  `8106d1dff9c4adb24e5a91db32d93c7ad57c48856e6dc2fff71ca1f76eb8e241`;
+- `$1.86795795` initial-attempt upper bound and `$5.8056704` absolute
+  two-attempt ceiling.
+
+The exact promotion is
+`READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE`. No paid
+24-row execution is yet authorized, and this receipt does not establish model
+competence, route quality or product execution.
 
 ## Code-grounded evidence classification
 
@@ -140,21 +166,19 @@ source-bound long-form rows have completed under receipt `ad64ab8d...`; they
 must not be replayed. Their structural evaluation is complete, but must not be
 mistaken for editorial-quality validation.
 
-Stage 2.5 now requires, in this order:
+The provider-access step is closed. Stage 2.5 now requires, in this order:
 
-1. verify current provider model/route/pricing metadata and run Google official
-   `countTokens` for the exact frozen Gemini requests without inference;
-2. obtain a separate capped authorization before running the exact 24 paid
+1. obtain a separate capped authorization before running the exact 24 paid
    rows once, with no automatic transport retry;
-3. audit every returned success/failure and replay the evaluator at zero spend;
-4. turn successful route plans into bounded previews, including real
+2. audit every returned success/failure and replay the evaluator at zero spend;
+3. turn successful route plans into bounded previews, including real
    RHC-02/RHC-03/RHC-04 candidates, then collect blind quality,
    correction-time, latency and cost receipts;
-5. broaden the cut-specific ProjectService conflict/rebase/lock proof to other
+4. broaden the cut-specific ProjectService conflict/rebase/lock proof to other
    writers and live-store/multi-user conditions, and run separately authorized
    paid resume evidence only if the final decision requires it;
-6. continue the production-foundation work for real creative long-form media,
+5. continue the production-foundation work for real creative long-form media,
    semantic retrieval, live storage/index owners, mixed-rate consumers and
    production playback/render; and
-7. publish the frozen `GO`, `MODIFY` or `NO-GO` decision. A structural cohort
+6. publish the frozen `GO`, `MODIFY` or `NO-GO` decision. A structural cohort
    pass cannot authorize canonical ProjectService mutation by itself.

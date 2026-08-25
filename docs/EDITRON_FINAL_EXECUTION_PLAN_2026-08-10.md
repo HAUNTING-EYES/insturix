@@ -4725,11 +4725,17 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    native/generated/hybrid route tasks across Luna, Terra and Gemini 3.7
    Flash. Public model-visible rules, equivalent-good/known-bad/safe-stop
    sentinels, proof ceilings and source closure pass the zero-spend gate.
-3. Before inference, verify the exact current provider routes and pricing and
-   run Google official `countTokens` over the frozen Gemini requests. This
-   provider-access preflight may not alter task material, permit a retry or
-   dispatch inference.
-4. Run the exact 24 paid rows only under a separate capped authorization. Audit
+3. The source-bound provider-access preflight is complete at commit
+   `f2fac0c62`. Accepted execution
+   `stage25-final-provider-preflight-f2fac0c62-v2` passed 62/62 assertions,
+   verified the three exact model identities, ran Google official
+   `countTokens` over all eight frozen Gemini requests, captured all 24 initial
+   requests, and made zero inference calls, retries or project mutations. Its
+   only promotion is
+   `READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE`.
+4. Run the exact 24 paid rows only under a separate capped authorization. The
+   accepted preflight calculates `$1.86795795` as the initial-attempt upper
+   bound and `$5.8056704` as the absolute two-attempt ceiling. Audit
    every output and replay the evaluator at zero spend before drawing a model
    conclusion. A structural planning result is not product execution proof.
 5. Turn successful route plans into bounded previews. RHC-01 already has three
@@ -5105,14 +5111,29 @@ authorization are all present.
   It does not establish model competence, rendered RHC-02/RHC-03/RHC-04
   candidates, broad product rebase/lock coverage, real creative long-form
   quality, blind editor quality or Stage 2.5 `GO`.
-- The next executable action is therefore the no-inference provider-access
-  preflight: verify current provider model/route/pricing metadata and call
-  Google official `countTokens` for the exact frozen Gemini requests. Paid
-  inference remains a separate explicit capped authorization. If authorized,
-  the exact 24 rows run once, every success and failure is audited, existing
-  responses are replayed at zero spend, successful plans become bounded route
-  previews, and blind quality/correction-time/latency/cost evidence precedes
-  the final `GO`, `MODIFY` or `NO-GO` decision.
+- Commits `c1cf9e336` and `f2fac0c62` implement the exact provider-access,
+  pricing, token-count and source-binding gate without inference. The first
+  `v1` attempt correctly stopped because the cached `.env.local.prod`
+  `GOOGLE_GENERATIVE_AI_API_KEY` was invalid; it produced only a Vitest report
+  and no inference or project effect. A fresh Vercel Production snapshot
+  returned exact identity `models/gemini-3.7-flash`. Accepted execution
+  `stage25-final-provider-preflight-f2fac0c62-v2` then passed 62/62, performed
+  exactly three model-metadata GETs and eight official Google `countTokens`
+  POSTs, captured 24 unique initial requests, and recorded zero inference,
+  retry, project-read and project-mutation counts. Readiness receipt
+  `5c3c1b185d4cbd751e8cf476d5332187b3e490c9c88831037bb354ac970bc212`,
+  provider receipt
+  `a41bb976d29219805ca379299ad70183b751cdcfc2f8f79351be7bd30ebb6295`
+  and request-capture set
+  `8106d1dff9c4adb24e5a91db32d93c7ad57c48856e6dc2fff71ca1f76eb8e241`
+  bind source commit `f2fac0c6218aa71eee16783d0fcebf0ee2f93667`.
+  No secret is persisted. The initial-attempt upper bound is `$1.86795795`;
+  the absolute two-attempt ceiling is `$5.8056704`. Paid inference remains a
+  separate explicit capped authorization. If authorized, the exact 24 rows
+  run once, every success and failure is audited, existing responses are
+  replayed at zero spend, successful plans become bounded route previews, and
+  blind quality/correction-time/latency/cost evidence precedes the final
+  `GO`, `MODIFY` or `NO-GO` decision.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
