@@ -13,6 +13,8 @@ import {
   type MediaSourcePtsCadenceStoredObjectReaderV2,
 } from './media-source-pts-cadence-map-asset-state-v2';
 import type { MediaSourcePtsCadenceMapAssetStoreResultV2 } from './media-source-pts-cadence-map-asset-store-v2';
+import { renewMediaSourcePtsCadenceMapAssetClaimV2 }
+  from './media-source-pts-cadence-map-claim-renewal-v1';
 import {
   MEDIA_SOURCE_PTS_CADENCE_MANIFEST_INDEX_KIND_V2,
   serializeMediaSourcePtsCadenceManifestIndexV2,
@@ -75,6 +77,10 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
   artifactPort: MediaSourcePtsCadenceR2PrivateArtifactPortV2;
   lifecycleManifestReader: MediaSourcePtsCadenceStoredObjectReaderV2;
   stateOwner: MediaSourcePtsCadenceFinalizerStateOwnerV1;
+  lifecycle?: Readonly<{
+    heartbeat(): Promise<void>;
+    nextClaimExpiresAt(): Date;
+  }>;
 }): Promise<MediaSourcePtsCadenceScanFinalizerResultV1> {
   const request = assertMediaSourcePtsCadenceScanRequestV1(input.request);
   const scanResult = assertMediaSourcePtsCadenceScanResultV1(input.result);
@@ -84,6 +90,7 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
   if (input.manifestPolicy.policyVersion !== request.resourcePolicy.policyVersion) {
     return { disposition: 'REJECTED', reason: 'MANIFEST_POLICY_BINDING_MISMATCH' };
   }
+  await heartbeat(input);
   const asset = await input.stateOwner.load(input.assetId, input.userId);
   if (!asset) return { disposition: 'REJECTED', reason: 'ASSET_NOT_FOUND' };
   let state: MediaSourcePtsCadenceMapAssetStateV2 | null;
@@ -111,6 +118,12 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
     claimReady = true;
   }
   for (let scanBatchIndex = 0; scanBatchIndex < scanResult.batches.length; scanBatchIndex += 1) {
+    await heartbeat(input);
+    if (state && claimReady) {
+      const renewed = await renewClaim(input, state);
+      if ('failure' in renewed) return renewed.failure;
+      state = renewed.state;
+    }
     const promoted = await promoteMediaSourcePtsCadenceScanBatchV1({
       request,
       result: scanResult,
@@ -123,6 +136,7 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
       descriptorPort: input.descriptorPort,
       artifactPort: input.artifactPort,
     });
+    await heartbeat(input);
     sequence = promoted.nextShardSequence;
     ordinal = promoted.nextFrameOrdinal;
     if (!state) {
@@ -141,6 +155,7 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
       claimReady = true;
     }
     for (const batch of promoted.batches) {
+      await heartbeat(input);
       const shard = batch.serialization.payload.shard;
       entries.push({
         shardSequence: shard.shardSequence,
@@ -200,6 +215,9 @@ export async function finalizeMediaSourcePtsCadenceScanV1(input: {
   if (!state || !previousManifest || ordinal !== scanResult.totalFrameCount) {
     return { disposition: 'REJECTED', reason: 'FINALIZER_PROGRESS_INCOMPLETE' };
   }
+  const renewed = await renewClaim(input, state);
+  if ('failure' in renewed) return renewed.failure;
+  state = renewed.state;
   const lifecycleManifest = serializeMediaSourcePtsCadenceManifestSidecarV1({
     storage: 'R2_PRIVATE',
     mapBindingSha256: request.mapBindingSha256,
@@ -251,9 +269,42 @@ async function ensureClaim(
       : { failure: { disposition: 'BUSY' as const, activeClaimId: record.lifecycleV1.activeClaim.claimId } };
   }
   const claimed = claimMediaSourcePtsCadenceMapAssetRecordV2({
-    record, claimId: input.claimId, now, expiresAt: input.claimExpiresAt,
+    record, claimId: input.claimId, now, expiresAt: claimExpiresAt(input),
   });
   return persist(input, state.sourcePtsCadenceMapStateSha256V2, claimed);
+}
+
+async function renewClaim(
+  input: Parameters<typeof finalizeMediaSourcePtsCadenceScanV1>[0],
+  state: MediaSourcePtsCadenceMapAssetStateV2,
+): Promise<ClaimResultV1> {
+  await heartbeat(input);
+  const currentExpiry = state.sourcePtsCadenceMapV2.lifecycleV1.activeClaim?.expiresAt;
+  let renewed: Readonly<MediaSourcePtsCadenceMapAssetRecordV2>;
+  try {
+    renewed = renewMediaSourcePtsCadenceMapAssetClaimV2({
+      record: state.sourcePtsCadenceMapV2,
+      claimId: input.claimId,
+      now: input.now(),
+      expiresAt: claimExpiresAt(input),
+    });
+  } catch {
+    return { failure: { disposition: 'REJECTED', reason: 'CLAIM_RENEWAL_FAILED' } };
+  }
+  if (renewed.lifecycleV1.activeClaim?.expiresAt === currentExpiry) return { state };
+  return persist(input, state.sourcePtsCadenceMapStateSha256V2, renewed);
+}
+
+function heartbeat(
+  input: Parameters<typeof finalizeMediaSourcePtsCadenceScanV1>[0],
+): Promise<void> {
+  return input.lifecycle?.heartbeat() ?? Promise.resolve();
+}
+
+function claimExpiresAt(
+  input: Parameters<typeof finalizeMediaSourcePtsCadenceScanV1>[0],
+): Date {
+  return input.lifecycle?.nextClaimExpiresAt() ?? input.claimExpiresAt;
 }
 
 async function terminalizeUnverifiable(

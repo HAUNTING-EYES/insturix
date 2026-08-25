@@ -51,13 +51,15 @@ describe('media source PTS cadence scan finalizer V1', () => {
         },
       },
     });
-    expect(fixture.stateOwner.persist).toHaveBeenCalledTimes(5);
+    expect(fixture.stateOwner.persist).toHaveBeenCalledTimes(7);
+    expect(fixture.heartbeat).toHaveBeenCalledTimes(9);
     const writes = fixture.writeCount();
 
     const replay = await finalizeMediaSourcePtsCadenceScanV1(fixture.input);
     expect(replay).toMatchObject({ disposition: 'ALREADY_COMPLETE' });
     expect(fixture.writeCount()).toBe(writes);
-    expect(fixture.stateOwner.persist).toHaveBeenCalledTimes(5);
+    expect(fixture.stateOwner.persist).toHaveBeenCalledTimes(7);
+    expect(fixture.heartbeat).toHaveBeenCalledTimes(10);
   });
 
   it('refuses a foreign active claim before reading staging or writing canonical artifacts', async () => {
@@ -234,6 +236,7 @@ function finalizerFixture() {
   };
   const stateOwner = memoryStateOwner(asset);
   let clock = Date.parse('2026-08-25T00:00:00.000Z');
+  const heartbeat = vi.fn(async () => undefined);
   const input = {
     assetId: 'asset-1', userId: 'user-1', claimId: 'cadence-claim-finalizer',
     claimExpiresAt: new Date('2026-08-26T00:00:00.000Z'),
@@ -244,9 +247,13 @@ function finalizerFixture() {
     stagingReader, descriptorPort, artifactPort,
     lifecycleManifestReader: { read: async ({ objectKey }: { objectKey: string }) => readStored(objects, objectKey) },
     stateOwner,
+    lifecycle: {
+      heartbeat,
+      nextClaimExpiresAt: () => new Date(clock + 5 * 60 * 1000),
+    },
   };
   return {
-    asset, bootstrapShard, input, stagingReader, stateOwner,
+    asset, bootstrapShard, input, stagingReader, stateOwner, heartbeat,
     writeCount: () => descriptorPort.writeImmutableShard.mock.calls.length
       + descriptorPort.writeImmutableManifest.mock.calls.length
       + artifactPort.writeImmutableFrameBatch.mock.calls.length
