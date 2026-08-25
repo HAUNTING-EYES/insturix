@@ -1,7 +1,7 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 export const STAGE25_LONG_FORM_REAL_MEDIA_TRIAL_VERSION_V1 =
-  'EDITRON_OE_STAGE25_LONG_FORM_REAL_MEDIA_TRIAL_V1_1' as const;
+  'EDITRON_OE_STAGE25_LONG_FORM_REAL_MEDIA_TRIAL_V1_2' as const;
 export const STAGE25_LONG_FORM_REAL_MEDIA_DURATION_SECONDS_V1 = 16_200 as const;
 export const STAGE25_LONG_FORM_REAL_MEDIA_FRAME_COUNT_V1 = 485_515 as const;
 export const STAGE25_LONG_FORM_REAL_MEDIA_WINDOW_FRAMES_V1 = 60 as const;
@@ -185,6 +185,7 @@ function validateInput(input: Readonly<Stage25LongFormRealMediaTrialInputV1>): v
     || input.localArtifactCount !== input.ptsIndex.batchCount + 11) fail('TRIAL_COUNTS_INVALID');
   const ids = new Set<string>();
   const priorities = new Set<number>();
+  const stillHashes = new Set<string>();
   for (const window of input.windows) {
     if (ids.has(window.windowId) || priorities.has(window.priorityOrdinal)) fail('WINDOW_DUPLICATED');
     ids.add(window.windowId); priorities.add(window.priorityOrdinal);
@@ -200,11 +201,13 @@ function validateInput(input: Readonly<Stage25LongFormRealMediaTrialInputV1>): v
       || window.audio.sampleRate !== 48_000 || window.audio.channelCount !== 2) {
       fail('WINDOW_MEDIA_CONTRACT_INVALID');
     }
+    stillHashes.add(window.still.sha256);
     if (window.audio.sampleCount < 96_000 || window.audio.sampleCount > 96_200) {
       fail('WINDOW_AUDIO_DURATION_INVALID');
     }
   }
   if (![0, 1, 2].every((value) => priorities.has(value))) fail('WINDOW_PRIORITY_INVALID');
+  if (stillHashes.size !== input.windows.length) fail('WINDOW_VISUAL_EVIDENCE_NOT_DISTINCT');
   for (const value of Object.values(input.timings)) {
     if (!Number.isFinite(value) || value <= 0) fail('TIMING_INVALID');
   }

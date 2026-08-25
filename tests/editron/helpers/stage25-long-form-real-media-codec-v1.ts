@@ -19,9 +19,10 @@ export async function materializeStage25LongFormSourceV1(outputPath: string) {
   await run(ffmpegPath, [
     '-nostdin', '-hide_banner', '-loglevel', 'error', '-fflags', '+bitexact',
     '-f', 'lavfi', '-i', `color=c=0x111827:size=${WIDTH}x${HEIGHT}:rate=${RATE}:duration=${DURATION_SECONDS}`,
+    '-f', 'lavfi', '-i', `color=c=0xf59e0b:size=40x40:rate=${RATE}:duration=${DURATION_SECONDS}`,
     '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${DURATION_SECONDS}`,
-    '-vf', "drawbox=x='mod(t*25,120)':y='20+10*sin(t)':w=40:h=40:color=0xf59e0b:t=fill",
-    '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-filter_complex', "[0:v][1:v]overlay=x='mod(t*25,120)':y='20+10*sin(t)':shortest=1[v]",
+    '-map', '[v]', '-map', '2:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
     '-crf', '38', '-g', '300', '-keyint_min', '300', '-sc_threshold', '0',
     '-pix_fmt', 'yuv420p', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-colorspace', 'bt709', '-color_range', 'tv', '-c:a', 'aac', '-b:a', '24k',

@@ -86,6 +86,12 @@ describe('Stage 2.5 long-form actual-container trial V1', () => {
     accounting.localArtifactCount -= 1;
     expect(() => finalizeStage25LongFormRealMediaTrialV1(accounting))
       .toThrow('STAGE25_LONG_FORM_REAL_MEDIA_TRIAL_COUNTS_INVALID');
+
+    const staticWindows = validInput();
+    (staticWindows.windows[1].still as unknown as { sha256: string }).sha256 =
+      staticWindows.windows[0].still.sha256;
+    expect(() => finalizeStage25LongFormRealMediaTrialV1(staticWindows))
+      .toThrow('STAGE25_LONG_FORM_REAL_MEDIA_WINDOW_VISUAL_EVIDENCE_NOT_DISTINCT');
   });
 
   it('keeps the operator local and free of provider/project authority', () => {
