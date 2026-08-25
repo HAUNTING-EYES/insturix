@@ -170,8 +170,10 @@ describe("ProjectService pipeline video delivery V1", () => {
         deliveryReceipt: {
           deliveryId: DELIVERY_ID,
           replacementAssetId: "video-new",
+          requestedRevision: { value: 7 },
           beforeRevision: { value: 7 },
           afterRevision: { value: 8 },
+          rebase: "FRESH",
           changedPaths: [
             "overlays",
             "pipelineVideoDeliveryReceipts",
@@ -282,22 +284,29 @@ describe("ProjectService pipeline video delivery V1", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a stale revision before it can overwrite an otherwise matching target", async () => {
+  it("safely rebases over an unrelated revision when the exact target asset is unchanged", async () => {
     const base = projectFixture();
     const current = projectFixture(8, "2026-08-25T00:00:01.000Z");
     persistenceMocks.findOne.mockResolvedValueOnce(current);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
     const { projectService } = await import("@/lib/editron/services/project-service");
 
     await expect(projectService.commitPipelineVideoDeliveryV1(
       USER_ID,
       PROJECT_ID,
       videoCommand(base),
-    )).rejects.toMatchObject({
-      code: "PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT",
-      reason: "REVISION_CHANGED",
-      currentRevision: { value: 8 },
+    )).resolves.toMatchObject({
+      disposition: "APPLIED",
+      deliveryReceipt: {
+        requestedRevision: { value: 7 },
+        beforeRevision: { value: 8 },
+        afterRevision: { value: 9 },
+        rebase: "SAFE_REBASED_TARGET_UNCHANGED",
+      },
     });
-    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne.mock.calls[0]?.[0]).toMatchObject({
+      projectRevision: 8,
+    });
   });
 
   it("rejects a user-replaced target asset before any project write", async () => {
@@ -349,6 +358,39 @@ describe("ProjectService pipeline video delivery V1", () => {
         deliveryReceipt: { materialHash: winningReceipt.materialHash },
       });
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once after an unrelated CAS loss and preserves the latest target state", async () => {
+    const project = projectFixture();
+    const afterUnrelatedWrite = projectFixture(8, "2026-08-25T00:00:01.000Z", [
+      videoOverlay({ left: 42 }),
+    ]);
+    persistenceMocks.findOne
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce(afterUnrelatedWrite);
+    persistenceMocks.updateOne
+      .mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 })
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(project),
+    )).resolves.toMatchObject({
+      disposition: "APPLIED",
+      deliveryReceipt: {
+        requestedRevision: { value: 7 },
+        beforeRevision: { value: 8 },
+        rebase: "SAFE_REBASED_TARGET_UNCHANGED",
+      },
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(2);
+    expect(persistenceMocks.updateOne.mock.calls[1]?.[0]).toMatchObject({
+      projectRevision: 8,
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1]?.[1].$set["overlays.$[target]"])
+      .toMatchObject({ left: 42, assetId: "video-new" });
   });
 
   it("permits a provider without a native-audio receipt only when it claims no native audio", async () => {

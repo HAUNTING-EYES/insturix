@@ -376,12 +376,16 @@ export interface ProjectPipelineAudioDeliveryResultV1 {
 
 /**
  * A generated-video worker may replace only the precise media asset it was
- * asked to regenerate. Unlike audio attachment, this command deliberately
- * has no revision-drift rebase in V1.
+ * asked to regenerate. A revision drift may rebase only when that exact
+ * target overlay still has the exact asset the worker was asked to replace.
  */
 export interface ProjectPipelineVideoDeliveryCommandV1 extends PipelineVideoDeliveryMaterialV1 {
   expectedRevision: ProjectRevisionV1;
 }
+
+export type ProjectPipelineVideoDeliveryRebaseV1 =
+  | "FRESH"
+  | "SAFE_REBASED_TARGET_UNCHANGED";
 
 export interface ProjectPipelineVideoDeliveryReceiptV1 {
   schemaVersion: 1;
@@ -389,10 +393,12 @@ export interface ProjectPipelineVideoDeliveryReceiptV1 {
   materialHash: string;
   target: Readonly<PipelineVideoDeliveryMaterialV1["target"]>;
   replacementAssetId: string;
+  requestedRevision: ProjectRevisionV1;
   beforeRevision: ProjectRevisionV1;
   afterRevision: ProjectRevisionV1;
   mutationReceipt: ProjectMutationReceiptV1;
   timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
+  rebase: ProjectPipelineVideoDeliveryRebaseV1;
   changedPaths: readonly string[];
   proof: {
     required: true;
@@ -406,7 +412,6 @@ export type ProjectPipelineVideoDeliveryConflictReasonV1 =
   | "TARGET_NOT_FOUND"
   | "TARGET_NOT_VIDEO"
   | "TARGET_ASSET_CHANGED"
-  | "REVISION_CHANGED"
   | "CAS_LOST";
 
 export class ProjectPipelineVideoDeliveryConflictError extends Error {
@@ -3472,8 +3477,9 @@ export class ProjectService {
 
   /**
    * Replace exactly one previously identified generated-video overlay through
-   * ProjectService. A delivery never rebinds by a broad asset query and never
-   * rebases over another project revision: an editor change wins explicitly.
+   * ProjectService. A delivery never rebinds by a broad asset query. It may
+   * retry once after unrelated revision drift only when the exact target still
+   * has the exact source asset planned by the worker.
    */
   async commitPipelineVideoDeliveryV1(
     userId: string,
@@ -3488,11 +3494,12 @@ export class ProjectService {
     });
     const canonicalReplacement = clonePipelineVideoCanonicalValueV1(input.replacement);
     const db = await getDatabase();
-    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+    let current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
       { projectId, userId },
     )) as Project | null;
     if (!current) throw new ProjectNotFoundOrForbiddenError();
 
+    for (let attempt = 0; attempt < 2; attempt += 1) {
     const existing = findPipelineVideoDeliveryReceiptV1(current, input.deliveryId);
     if (existing) {
       if (existing.materialHash !== materialHash) {
@@ -3515,12 +3522,10 @@ export class ProjectService {
       canonicalTarget.expectedAssetId,
       beforeRevision,
     );
-    if (!sameProjectRevisionV1(input.expectedRevision, beforeRevision)) {
-      throw new ProjectPipelineVideoDeliveryConflictError(
-        beforeRevision,
-        "REVISION_CHANGED",
-      );
-    }
+    const rebase: ProjectPipelineVideoDeliveryRebaseV1 =
+      sameProjectRevisionV1(input.expectedRevision, beforeRevision)
+        ? "FRESH"
+        : "SAFE_REBASED_TARGET_UNCHANGED";
 
     const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
     if (!beforeFrameRange) {
@@ -3603,10 +3608,12 @@ export class ProjectService {
       materialHash,
       target: canonicalTarget,
       replacementAssetId: canonicalReplacement.assetId,
+      requestedRevision: structuredClone(input.expectedRevision),
       beforeRevision,
       afterRevision,
       mutationReceipt,
       timelineChangeReceipt,
+      rebase,
       changedPaths,
       proof: {
         required: true,
@@ -3677,19 +3684,21 @@ export class ProjectService {
     const conflictOverlay = afterConflict.overlays?.find(
       (overlay) => overlay.id === canonicalTarget.overlayId,
     );
-    if (!conflictOverlay) {
-      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_NOT_FOUND");
-    }
-    if (conflictOverlay.type !== "video") {
-      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_NOT_VIDEO");
-    }
-    if (conflictOverlay.assetId !== canonicalTarget.expectedAssetId) {
-      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "TARGET_ASSET_CHANGED");
-    }
-    if (!sameProjectRevisionV1(beforeRevision, conflictRevision)) {
-      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "REVISION_CHANGED");
+    assertPipelineVideoDeliveryTargetV1(
+      conflictOverlay,
+      canonicalTarget.expectedAssetId,
+      conflictRevision,
+    );
+    if (attempt === 0) {
+      current = afterConflict;
+      continue;
     }
     throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "CAS_LOST");
+    }
+
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery exhausted its bounded compare-and-swap attempts.",
+    );
   }
 
   /**
