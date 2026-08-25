@@ -36,11 +36,13 @@ silently filled from client metadata.
 The Modal endpoint has not been deployed. Deployment still requires the normal
 Modal token configuration plus an explicit allowlist for any non-R2/GCS storage
 host. The signed registration route now persists the bounded job and dispatches
-only a signed QStash worker. That worker independently verifies the persisted
-R2/GCS object, creates a short-lived server URL, and compare-and-set writes the
-result to the existing asset record. Missing queue/probe configuration or a
-storage failure remains explicitly pending/unverifiable; no unsigned or inline
-fallback exists.
+only a signed QStash worker. That worker reads provider object metadata before
+the remote probe, creates a short-lived server URL, probes it, reads provider
+metadata again, and compare-and-set writes a technical observation only when
+the same storage-version hash survived both reads. Missing queue/probe
+configuration, unavailable provider metadata, or an object changed during the
+probe remains explicitly pending/unverifiable; no unsigned or inline fallback
+exists.
 
 No project/timeline, renderer, analysis, or UI consumer treats this observation
 as a qualified source yet.
@@ -63,31 +65,34 @@ successful result is named `MEASURED_TECHNICAL`, deliberately not
 ## Provider storage-version observation foundation
 
 Commit `2234fbc18` adds a separate, deterministic observation of the concrete
-stored object behind that locator:
+stored object behind that locator. Commit `4d9a3f740` fails closed when a
+provider omits byte length, and commit `4912226e1` binds a successful technical
+probe to one matching before/after observation:
 
 - R2: authoritative `HeadObject` byte length plus opaque ETag;
 - GCS: authoritative metadata byte length plus immutable provider generation;
 - the observation hash binds the provider, object key, byte length and opaque
   provider token, but no URL or observation timestamp.
 
-This closes neither byte identity nor source qualification. An R2 ETag is not
-treated as a SHA-256 digest, and no code currently persists this observation
-on `MediaAsset`, invalidates old analysis, changes proxy swap behavior or
-allows ProjectService to consume it. Its sole current purpose is to give the
-next worker phase an exact before/after storage identity to compare around a
-remote probe. Missing/malformed metadata becomes `UNVERIFIABLE`; it never
-falls back to browser metadata.
+This closes neither byte identity nor canonical source qualification. An R2
+ETag is not treated as a SHA-256 digest. The existing qualification record can
+now retain this provider observation only alongside a `MEASURED_TECHNICAL`
+result whose before/after reads match. It still does not invalidate old
+analysis, change proxy-swap behavior, allow ProjectService to consume it, or
+identify identical bytes at different object keys. Missing/malformed metadata
+or a changed object becomes `UNVERIFIABLE`; it never falls back to browser
+metadata.
 
 ## Next ordered implementation
 
-1. Wire the signed qualification worker to persist this observation only after
-   a matching before/after storage read around the remote probe. A changed
-   object must end `UNVERIFIABLE`, not retain a technically measured result.
+1. Design and test immutable byte/source-version issuance, proxy/master mapping
+   and invalidation against the actual direct-upload and proxy-swap paths. The
+   provider observation is not a replacement for this phase.
 2. Deploy the bounded worker configuration only after environment review; no
    deployment occurred in this code slice.
-3. Migrate the remaining direct-upload and proxy-swap ingress paths through
-   immutable byte/source-version and invalidation work rather than pretending a
-   URL swap is the same source.
+3. Migrate the remaining direct-upload and proxy-swap ingress paths only through
+   that immutable byte/source-version and invalidation work rather than
+   pretending a URL swap is the same source.
 4. Add PTS/cadence and then ProjectService source/record binding only after the
    immutable source-version phase.
 

@@ -166,12 +166,17 @@ changes.
   `2234fbc18` adds one deterministic, URL-free observation of the exact
   storage object: R2 `HeadObject` ETag plus byte length, or GCS generation plus
   byte length. The observation is bound to the existing server-owned locator
-  and detects a simple replacement behind a stable key. It is intentionally
-  inert until the signed worker records and compares it around a probe. It is
-  **not** a byte digest, immutable canonical source version, proxy/master
-  mapping, invalidation chain, ProjectService source binding, deployment or
-  product permission. Provider metadata absence is `UNVERIFIABLE`; no client
-  URL, declared size, proxy flag or GCS mirror is substituted.
+  and detects a simple replacement behind a stable key. Commit `4d9a3f740`
+  fails closed when either provider omits byte length. Commit `4912226e1`
+  makes the signed worker read this observation before and after the remote
+  probe, persist it only when both hashes match, and discard otherwise measured
+  technical facts when the object changed. This is **not** a byte digest,
+  immutable canonical source version, proxy/master mapping, invalidation chain,
+  ProjectService source binding, deployment or product permission. Provider
+  metadata absence is `UNVERIFIABLE`; no client URL, declared size, proxy flag
+  or GCS mirror is substituted. The next ordered media slice is immutable
+  byte/source-version plus proxy/master and invalidation design—not a broad
+  ingress migration.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
