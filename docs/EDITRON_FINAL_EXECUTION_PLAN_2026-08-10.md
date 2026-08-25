@@ -286,6 +286,14 @@ changes.
   identity, rational/VFR timebases, or media invalidation. The next P0 writer
   remains the finalizer's synchronous BGM overlay append.
 
+- **2026-08-25 finalizer synchronous-BGM Step-0.**
+  [pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md](./editron/pipeline-finalize-sync-bgm-step0-audit-2026-08-25.md)
+  verifies that the existing `commitPipelineAudioDeliveryV1` is the sole
+  suitable owner: it already supplies CAS, replay identity, audio-only rebase,
+  writer receipt and unverified-mix proof status. The finalizer must supply a
+  pre-generation snapshot/binding and deterministic delivery ID, then remove
+  its raw BGM push; no second audio command or metadata migration is in scope.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
