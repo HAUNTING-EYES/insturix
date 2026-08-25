@@ -438,6 +438,18 @@ export function assertMediaSourcePtsCadenceMapCheckpointV1(
   return frozen(assertCheckpoint(value));
 }
 
+/** Public boundary for the existing MEDIA_ASSETS owner; it performs no I/O. */
+export function assertMediaSourcePtsCadenceMapRecordV1(
+  value: unknown,
+): Readonly<MediaSourcePtsCadenceMapRecordV1> {
+  return assertRecord(value);
+}
+
+/** Exact state identity for one validated cadence-map lifecycle record. */
+export function hashMediaSourcePtsCadenceMapRecordV1(value: unknown): string {
+  return hashEditronCanonicalJsonV1(assertRecord(value));
+}
+
 function assertActiveClaim(
   value: MediaSourcePtsCadenceMapRecordV1,
   claimId: string,

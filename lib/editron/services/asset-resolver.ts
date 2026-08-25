@@ -11,6 +11,7 @@ import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codeg
 import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
+import type { MediaSourcePtsCadenceMapRecordV1 } from './media-source-pts-cadence-map-lifecycle-v1';
 import type {
   MediaProxyMasterRelationV1,
   MediaSourceInvalidationPlanV1,
@@ -64,6 +65,10 @@ export interface MediaAsset {
   proxyMasterRelationV1?: Readonly<MediaProxyMasterRelationV1> | null;
   /** Media-owner invalidation intent; ProjectService separately owns project effects. */
   sourceInvalidationPlanV1?: Readonly<MediaSourceInvalidationPlanV1> | null;
+  /** Source-version-bound PTS/cadence lifecycle; absent until the media owner creates it. */
+  sourcePtsCadenceMapV1?: Readonly<MediaSourcePtsCadenceMapRecordV1> | null;
+  /** Exact canonical hash of `sourcePtsCadenceMapV1`, used only for owner CAS. */
+  sourcePtsCadenceMapStateSha256V1?: string | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */
