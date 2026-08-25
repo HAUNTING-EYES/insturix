@@ -135,7 +135,7 @@ changes.
   renderer fixed-30-fps duration policy only; it does not claim rational/VFR/
   timecode or long-form-media completion.
 
-- **2026-08-25 remote source-probe foundation.** The current bounded phase adds
+- **2026-08-25 remote source-probe foundation.** Commit `b312af4ff` adds
   a typed, read-only Modal `ffprobe` adapter and a deployment module. It
   measures only technical stream/container observations through a
   server-generated storage URL and returns `UNVERIFIABLE` for absent
