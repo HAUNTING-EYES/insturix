@@ -340,11 +340,13 @@ changes.
   provisional policy in the evidence-debt register. The next implementation
   is partially specified by commit `bece283e3`: a pure map lifecycle binds the
   verified bootstrap shard, source/technical/mapper identity, owner-supplied
-  lease, contiguous checkpoint and deterministic private sidecar key. It
-  produces only a full-verifier/CAS completion candidate and fails closed for
-  tampering, gaps, stale claims or public keys. It has no R2/GCS private
-  adapter, byte I/O, `MEDIA_ASSETS` field, worker, database compare-and-set or
-  terminal map result; it cannot promote a source to CFR/VFR. The next runtime
+  lease, contiguous checkpoint and deterministic private sidecar key. Commit
+  `ff27d6da6` closes its candidate-only state-shape gap: `COMPLETE` now needs
+  the active claim, exact candidate and hash-bound full-verifier receipt; it
+  still cannot perform that verification or promote a source to CFR/VFR. Both
+  contracts fail closed for tampering, gaps, stale claims or public keys. They
+  have no R2/GCS private adapter, byte I/O, `MEDIA_ASSETS` field, worker,
+  database compare-and-set or terminal map result. The next runtime
   implementation remains that existing-media-owner private port and
   source-version-bound claim/checkpoint/terminal CAS verifier.
 

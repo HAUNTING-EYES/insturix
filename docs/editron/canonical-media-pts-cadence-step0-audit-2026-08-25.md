@@ -137,22 +137,31 @@ completion candidate names the required full-coverage verifier and one
 or PTS gaps, stale claims, public/incorrect sidecar keys, terminal reuse,
 corrupt diagnostics and counter overflow fail closed.
 
+Commit `ff27d6da6` corrects the candidate-only gap in that pure contract. A
+successful `COMPLETE` terminal record now requires the active claim, exact
+candidate and a hash-bound completion receipt naming a full-coverage verifier
+and its policy. The envelope itself does not read a manifest or prove coverage;
+only a future private-sidecar reader and complete-coverage verifier may issue
+that input through the existing media owner's one compare-and-set transition.
+It remains neither a CFR/VFR conclusion nor a source/proxy mapping result.
+
 This is still a pure contract: there is no private R2/GCS adapter, actual
 sidecar byte write/read, `MEDIA_ASSETS` field, mapper worker, claim CAS,
 complete-manifest verifier or terminal map persistence. It intentionally
 cannot call a large map "measured" until a real qualified source passes the
 full verifier. The next runtime phase is therefore the existing media owner's
-private artifact port and source-version-bound claim/checkpoint CAS, not a
-ProjectService, generated-composition, overlay, caption, transition, renderer,
-user-data or research-proxy change.
+private artifact port and source-version-bound claim/checkpoint/terminal CAS,
+not a ProjectService, generated-composition, overlay, caption, transition,
+renderer, user-data or research-proxy change.
 
 ## Verification boundary
 
 This audit was initially grounded against `d4d3a9c7b` and rechecked through
 the pure verifier commit `426d3d09a` and lifecycle-contract commit
-`bece283e3`, including the signed qualification worker, `MEDIA_ASSETS`
+`bece283e3` plus terminal-contract correction `ff27d6da6`, including the
+signed qualification worker, `MEDIA_ASSETS`
 persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
-frame projections. Nineteen focused shard/lifecycle tests, TypeScript and
+frame projections. Twenty focused shard/lifecycle tests, TypeScript and
 repository ESLint pass for those commits. It does not establish a deployed
 Modal endpoint, an R2 private-artifact policy, a persisted PTS map,
 source-wide CFR/VFR support, source/proxy mapping, mixed-rate editing,
