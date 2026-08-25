@@ -142,9 +142,10 @@ changes.
   configuration or malformed/empty evidence. It deliberately does not issue a
   canonical source identity, byte digest, PTS map, CFR/VFR conclusion,
   proxy/master mapping, ProjectService receipt, or product permission. The
-  next media slice is a `MEDIA_ASSETS`-embedded qualification job/worker after
-  actual storage verification; no direct upload route is changed by this
-  foundation phase. The exact boundary is
+  next media slice is a signed qualification worker after actual storage
+  verification. The existing `MediaAsset` type now carries a source-bound
+  `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE` contract, but no
+  public upload route has been changed yet. The exact boundary is
   [canonical-media-source-probe-v1-implementation-2026-08-25.md](./editron/canonical-media-source-probe-v1-implementation-2026-08-25.md).
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the

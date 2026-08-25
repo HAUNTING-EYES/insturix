@@ -38,14 +38,27 @@ slice. Deployment requires the normal Modal token configuration plus an
 explicit allowlist for any non-R2/GCS storage host. Until that subsequent
 worker/ingress phase, no product path consumes this adapter.
 
+## Source-bound lifecycle contract
+
+The next bounded source-contract phase adds
+`MediaSourceQualificationRecordV1` as an optional field on the *existing*
+`MediaAsset` type. Its storage locator can only be the server-owned R2 key or
+GCS path of a user upload; it never accepts a browser URL, raw `assetId`, a
+public asset, or an unproven GCS mirror as an equivalent source.
+
+The lifecycle is `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`.
+Every claim and completion carries the deterministic hash of `(assetId,
+provider, objectKey)`, so a stale worker cannot apply an observation to a
+different source. A stale `PROBING` lease can retry after 15 minutes. Even a
+successful result is named `MEASURED_TECHNICAL`, deliberately not
+`QUALIFIED`.
+
 ## Next ordered implementation
 
-1. Introduce a `MEDIA_ASSETS`-embedded, source-bound qualification job record
-   with a stable storage locator and an explicit pending/unverifiable state.
-2. Dispatch the signed internal worker only after actual storage verification.
-3. Have that worker resolve a server-generated direct storage URL, call this
+1. Dispatch the signed internal worker only after actual storage verification.
+2. Have that worker resolve a server-generated direct storage URL, call this
    probe, and persist the measured observation with a job/revision receipt.
-4. Add a separate immutable byte/source-version and PTS/cadence phase before
+3. Add a separate immutable byte/source-version and PTS/cadence phase before
    any ProjectService source/record command consumes it.
 
 No second media registry, project owner, or timeline authority is introduced.
