@@ -16,6 +16,8 @@ import {
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
+import type { PipelineVideoProjectDeliveryRequestV1 } from '@/lib/editron/services/pipeline-video-project-delivery-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -39,6 +41,8 @@ interface VideoWorkerPayload {
   nextSceneImageUrl?: string;
   /** Sub-shot index within a montage scene (undefined for continuous scenes) */
   subShotIndex?: number;
+  /** Exact producer-snapshotted target for a post-generation ProjectService delivery. */
+  projectDelivery?: PipelineVideoProjectDeliveryRequestV1;
   /** Scene context for LLM prompt refinement (moved from route to worker for quality).
    *  If present, worker refines motionPrompt via LLM before generating video.
    *  If absent, motionPrompt is used as-is (backward compat). */
@@ -55,6 +59,20 @@ interface VideoWorkerPayload {
     /** Sound design description from script (ambient + spot SFX). Fed into Seedance
      *  audio layer to generate matching foley natively. Unused for non-Seedance models. */
     sfxDescription?: string;
+  };
+}
+
+interface VideoWorkerProjectDeliveryOutcome {
+  status: 'NOT_REQUESTED' | 'APPLIED' | 'ALREADY_APPLIED' | 'CONFLICT';
+  deliveryId?: string;
+  materialHash?: string;
+  requestedRevision?: ProjectRevisionV1;
+  beforeRevision?: ProjectRevisionV1;
+  afterRevision?: ProjectRevisionV1;
+  rebase?: 'FRESH' | 'SAFE_REBASED_TARGET_UNCHANGED';
+  conflict?: {
+    reason: string;
+    currentRevision?: ProjectRevisionV1;
   };
 }
 
@@ -170,13 +188,6 @@ async function handler(request: NextRequest) {
       userId,
     );
 
-    let storyboardBeforeVideoUpdate: Awaited<ReturnType<typeof getStoryboard>> = null;
-    try {
-      storyboardBeforeVideoUpdate = await getStoryboard(storyboardId, userId);
-    } catch (snapshotErr: any) {
-      console.warn(`[VideoWorker] Could not snapshot storyboard before video update: ${snapshotErr.message}`);
-    }
-
     await recordPipelineVideoProviderCost({
       payload,
       status: 'success',
@@ -281,110 +292,85 @@ async function handler(request: NextRequest) {
       );
     }
 
-    // Also update the Editron project overlay if this storyboard is linked to a project.
-    // Without this, video regen updates the storyboard but the editor still shows the old clip.
-    try {
-      const sb = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
-      const linkedProjectId = sb?.projectId;
-      if (linkedProjectId) {
-        // Find the video overlay for this scene (by matching assetId or from-frame position)
-        const scene = sb.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
-        const oldAssetId = scene?.videoAssetId;
-
-        // Register the new asset first
-        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-          { assetId: result.assetId },
-          {
-            $set: {
-              source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',
-              hasNativeAudio: result.hasNativeAudio || false,
-              ...(result.nativeAudioRights ? { audioRights: result.nativeAudioRights } : {}),
-              ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
-              updatedAt: new Date(),
-            },
-            $setOnInsert: {
-              assetId: result.assetId, userId, type: 'video',
-              filename: `${result.assetId}.mp4`,
-              gcsPath: result.gcsPath,
-              r2Key: (result as any).r2Key || result.assetId || null,
-              cachedUrl: result.videoUrl,
-              urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-              uploadedAt: new Date(),
-            },
-            ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-              $unset: {
-                ...(!result.nativeAudioRights ? { audioRights: '' } : {}),
-                ...(!result.generatedVideoReceipt ? { generatedVideoReceipt: '' } : {}),
-              },
-            } : {}),
+    // A project-linked regeneration receives its exact target from the
+    // producer. The worker never re-discovers a target through a broad asset
+    // query and never falls back to a raw project write.
+    let projectDelivery: VideoWorkerProjectDeliveryOutcome = { status: 'NOT_REQUESTED' };
+    if (payload.projectDelivery) {
+      await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+        { assetId: result.assetId },
+        {
+          $set: {
+            source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',
+            hasNativeAudio: result.hasNativeAudio || false,
+            ...(result.nativeAudioRights ? { audioRights: result.nativeAudioRights } : {}),
+            ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+            updatedAt: new Date(),
           },
-          { upsert: true },
-        );
-
-        // Update the overlay in the project that has the old assetId
-        if (oldAssetId) {
-          await db.collection('projects').updateOne(
-            { projectId: linkedProjectId, 'overlays.assetId': oldAssetId },
-            {
-              $set: {
-                'overlays.$.src': result.videoUrl,
-                'overlays.$.content': result.videoUrl,
-                'overlays.$.assetId': result.assetId,
-                'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
-                'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
-                ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
-                ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
-                updatedAt: new Date(),
-              },
-              ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-                $unset: {
-                  ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
-                  ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
-                },
-              } : {}),
+          $setOnInsert: {
+            assetId: result.assetId, userId, type: 'video',
+            filename: `${result.assetId}.mp4`,
+            gcsPath: result.gcsPath,
+            r2Key: (result as any).r2Key || result.assetId || null,
+            cachedUrl: result.videoUrl,
+            urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            uploadedAt: new Date(),
+          },
+          ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
+            $unset: {
+              ...(!result.nativeAudioRights ? { audioRights: '' } : {}),
+              ...(!result.generatedVideoReceipt ? { generatedVideoReceipt: '' } : {}),
             },
-          );
-          console.log(`[VideoWorker] Updated Editron project ${linkedProjectId} overlay: ${oldAssetId} → ${result.assetId}`);
-        }
-      }
-    } catch (projErr: any) {
-      // H4 FIX: Retry once on project overlay update failure before giving up
-      console.warn(`[VideoWorker] Project overlay update failed (attempt 1): ${projErr.message}`);
+          } : {}),
+        },
+        { upsert: true },
+      );
+
       try {
-        await new Promise(r => setTimeout(r, 1000)); // Brief delay before retry
-        const sb2 = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
-        const linkedProjectId2 = sb2?.projectId;
-        if (linkedProjectId2) {
-          const scene2 = sb2.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
-          const oldAssetId2 = scene2?.videoAssetId;
-          if (oldAssetId2) {
-            await db.collection('projects').updateOne(
-              { projectId: linkedProjectId2, 'overlays.assetId': oldAssetId2 },
-              {
-                $set: {
-                  'overlays.$.src': result.videoUrl,
-                  'overlays.$.content': result.videoUrl,
-                  'overlays.$.assetId': result.assetId,
-                  'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
-                  'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
-                  ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
-                  ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
-                  updatedAt: new Date(),
-                },
-                ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
-                  $unset: {
-                    ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
-                    ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
-                  },
-                } : {}),
-              },
-            );
-            console.log(`[VideoWorker] Project overlay update succeeded on retry`);
-          }
+        const { projectService } = await import('@/lib/editron/services/project-service');
+        const deliveryResult = await projectService.commitPipelineVideoDeliveryV1(
+          userId,
+          payload.projectDelivery.projectId,
+          {
+            expectedRevision: payload.projectDelivery.expectedRevision,
+            deliveryId: payload.projectDelivery.deliveryId,
+            target: payload.projectDelivery.target,
+            replacement: {
+              assetId: result.assetId,
+              sourceUrl: result.videoUrl,
+              durationMs: result.durationMs || (durationSeconds * 1000),
+              hasNativeAudio: result.hasNativeAudio || false,
+              audioRights: result.nativeAudioRights || null,
+              generatedVideoReceipt: result.generatedVideoReceipt || null,
+            },
+          },
+        );
+        const receipt = deliveryResult.deliveryReceipt;
+        projectDelivery = {
+          status: deliveryResult.disposition,
+          deliveryId: receipt.deliveryId,
+          materialHash: receipt.materialHash,
+          requestedRevision: receipt.requestedRevision,
+          beforeRevision: receipt.beforeRevision,
+          afterRevision: receipt.afterRevision,
+          rebase: receipt.rebase,
+        };
+      } catch (deliveryErr: any) {
+        if (deliveryErr?.code !== 'PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT') {
+          throw deliveryErr;
         }
-      } catch (retryErr: any) {
-        // Non-fatal after retry — user can still re-finalize
-        console.warn(`[VideoWorker] Project overlay update failed on retry (non-fatal): ${retryErr.message}`);
+        const conflictReason = typeof deliveryErr.reason === 'string'
+          ? deliveryErr.reason
+          : 'UNKNOWN';
+        projectDelivery = {
+          status: 'CONFLICT',
+          deliveryId: payload.projectDelivery.deliveryId,
+          conflict: {
+            reason: conflictReason,
+            ...(deliveryErr.currentRevision ? { currentRevision: deliveryErr.currentRevision } : {}),
+          },
+        };
+        console.warn(`[VideoWorker] Project delivery conflict for ${payload.projectDelivery.deliveryId}: ${conflictReason}`);
       }
     }
 
@@ -582,6 +568,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
           hasNativeAudio: result.hasNativeAudio || false,
           ...(result.nativeAudioRights ? { nativeAudioRights: result.nativeAudioRights } : {}),
           ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+          projectDelivery,
           completedAt: new Date(),
         },
       },
@@ -601,6 +588,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
       videoUrl: result.videoUrl,
       hasNativeAudio: result.hasNativeAudio || false,
       generatedVideoReceipt: result.generatedVideoReceipt,
+      projectDelivery,
     });
   } catch (error: any) {
     console.error('[VideoWorker] Error:', error.message);

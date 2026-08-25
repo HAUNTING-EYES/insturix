@@ -33,6 +33,10 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
 import { verifyPipelineVideoEnqueueInternalRequestV1 } from '@/lib/editron/security/pipeline-video-enqueue-internal-auth';
 import { resolvePipelineVideoWorkerDispatchPolicyV1 } from '@/lib/pipeline/video-worker-dispatch-policy';
+import {
+  resolvePipelineVideoProjectDeliveryTargetV1,
+  type PipelineVideoProjectDeliveryTargetV1,
+} from '@/lib/editron/services/pipeline-video-project-delivery-v1';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -257,6 +261,10 @@ export async function POST(
        *  OLD: Route refined prompts sequentially (~15s each, caused 504 timeout on 14+ scenes).
        *  NEW: Worker refines in its own 300s budget. Quality identical, no timeout. */
       refinementContext?: Record<string, any>;
+      /** Existing project asset to replace after generation, when this is a regeneration. */
+      expectedProjectAssetId?: string;
+      /** Exact producer snapshot for the worker's ProjectService delivery call. */
+      projectDeliveryTarget?: PipelineVideoProjectDeliveryTargetV1;
     }
 
     const sceneJobs: SceneJob[] = [];
@@ -337,6 +345,7 @@ export async function POST(
             imageUrl: subImageUrl,
             motionPrompt,
             durationSeconds: subDuration,
+            expectedProjectAssetId: sub.videoAssetId,
             refinementContext: useLLMRefinement ? {
               visualDescription: subVisual,
               narration: sub.narration || descriptor.narration,
@@ -392,6 +401,7 @@ export async function POST(
           // violating Rule 8N for any model that can do longer (Seedance 1.5: 12s,
           // Seedance 2.0: 15s). Now respects user's chosen model's duration grid.
           durationSeconds: actualSceneDur,
+          expectedProjectAssetId: scene.videoAssetId,
           nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
           refinementContext: useLLMRefinement ? {
             visualDescription: descriptor.visualDescription,
@@ -414,6 +424,49 @@ export async function POST(
         { success: false, error: 'No valid video jobs could be built for the selected scenes', creditCost: 0 },
         { status: 400 },
       );
+    }
+
+    // A finalized storyboard may regenerate an existing project clip. Resolve
+    // that clip once, before charging, into exactly one ProjectService target.
+    // Pre-finalize/legacy storyboard project IDs intentionally have no target:
+    // their later finalize operation owns project creation and insertion.
+    const linkedProjectId = (
+      typeof storyboard.projectId === 'string' && storyboard.projectId.startsWith('proj_')
+    ) ? storyboard.projectId : undefined;
+    if (linkedProjectId && sceneJobs.some((scene) => scene.expectedProjectAssetId)) {
+      let projectSnapshot: Awaited<ReturnType<
+        typeof import('@/lib/editron/services/project-service')['projectService']['loadProjectForMutation']
+      >>;
+      try {
+        const { projectService } = await import('@/lib/editron/services/project-service');
+        projectSnapshot = await projectService.loadProjectForMutation(userId, linkedProjectId);
+      } catch {
+        return NextResponse.json({
+          success: false,
+          error: 'The linked project is unavailable for safe video delivery.',
+          code: 'PROJECT_DELIVERY_PROJECT_UNAVAILABLE',
+        }, { status: 409 });
+      }
+
+      for (const scene of sceneJobs) {
+        const resolution = resolvePipelineVideoProjectDeliveryTargetV1({
+          projectId: linkedProjectId,
+          expectedRevision: projectSnapshot.revision,
+          expectedAssetId: scene.expectedProjectAssetId,
+          overlays: projectSnapshot.project.overlays,
+        });
+        if (resolution.kind === 'NOT_REQUIRED') continue;
+        if (resolution.kind !== 'RESOLVED') {
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} cannot be safely rebound to one project video overlay.`,
+            code: `PROJECT_DELIVERY_${resolution.kind}`,
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
+        scene.projectDeliveryTarget = resolution.target;
+      }
     }
 
     const workerDispatchPolicy = resolvePipelineVideoWorkerDispatchPolicyV1();
@@ -492,10 +545,21 @@ export async function POST(
     } as any);
 
     // Create job records (unique ID includes sub-shot index for montage scenes)
+    const jobIdForScene = (scene: SceneJob) => (
+      scene.subShotIndex !== undefined
+        ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
+        : `${batchId}_s${scene.sceneIndex}`
+    );
+    const projectDeliveryForScene = (scene: SceneJob) => {
+      if (!scene.projectDeliveryTarget) return undefined;
+      return {
+        ...scene.projectDeliveryTarget,
+        deliveryId: `video-delivery_${jobIdForScene(scene)}`,
+      };
+    };
+
     const jobDocs = sceneJobs.map(s => ({
-      _id: s.subShotIndex !== undefined
-        ? `${batchId}_s${s.sceneIndex}_sub${s.subShotIndex}`
-        : `${batchId}_s${s.sceneIndex}`,
+      _id: jobIdForScene(s),
       batchId,
       userId,
       storyboardId,
@@ -505,6 +569,7 @@ export async function POST(
       durationSeconds: s.durationSeconds,
       creditTransactionId,
       chargedCredits: chargedCreditsForJob(s.durationSeconds),
+      projectDelivery: projectDeliveryForScene(s),
       status: 'queued',
       createdAt: now,
       expiresAt,
@@ -527,9 +592,7 @@ export async function POST(
 
     // Helper to build job payload (same for development and QStash dispatch).
     const buildPayload = (scene: SceneJob) => ({
-      jobId: scene.subShotIndex !== undefined
-        ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
-        : `${batchId}_s${scene.sceneIndex}`,
+      jobId: jobIdForScene(scene),
       batchId,
       userId,
       storyboardId,
@@ -544,6 +607,7 @@ export async function POST(
       chargedCredits: chargedCreditsForJob(scene.durationSeconds),
       nextSceneImageUrl: scene.nextSceneImageUrl,
       refinementContext: scene.refinementContext,
+      projectDelivery: projectDeliveryForScene(scene),
     });
 
     if (workerDispatchPolicy.kind === 'DEVELOPMENT_FETCH') {
