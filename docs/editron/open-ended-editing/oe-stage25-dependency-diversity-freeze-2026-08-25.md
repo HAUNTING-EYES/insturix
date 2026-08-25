@@ -130,3 +130,49 @@ operator contract binds the callable's closed form and output, all six frozen
 sentinels execute at zero spend, and a successor readiness receipt is issued.
 No inference, render or canonical test-project mutation occurred in this
 callable phase.
+
+## DEP-03 zero-spend owner successor
+
+Commit `fa05fe4d8` adds the separately versioned successor that the frozen
+packet required. It deliberately leaves the original V2R9 task, output and
+expectations unchanged.
+
+- Public contract:
+  `EDITRON_OE_DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1_1`
+- Contract hash:
+  `5aa21f066ba5f8ac7cb39086da2cb7a6c48d0cf9ba20d907a0543037f75d40c8`
+- Current-source audit:
+  `dc49cd468507668853d19d92f3b4512749d7a0ffc38b97a0bf627c39fdbf1ee1`
+- Baseline semantic project state:
+  `99a9c4e510cb51bb326d2468c378c006caeebbf47e341206526bbb4132f69447`
+- Expected final semantic state:
+  `c5adbf7df5a8981fd7aaf29e9bd5000e5e40c8bc45c5365bcc0556b3eda01274`
+- Owner materialization:
+  `14efa0a6d21d2b97020f3943b5ea379c6e2b1c46d24e4c5112123bee8c2758e2`
+- Owner-derived successor receipt:
+  `fd2fb090abc47a8ef2bff474b427943df5bb1f537d1eb71c446207a3ef96d94a`
+
+The public contract exposes exactly the writer-issued mutation receipt,
+timeline receipt, retime/ripple effect and source-time transform. Its audit
+hash-binds the current chat caller, ProjectService mutation owner, pure
+source-range retime owner and downstream PTS-rebind owner. It also confirms the
+frozen V2R9 output still contains only `receipt`; historical evidence was not
+silently rewritten.
+
+All six DEP-03 sentinels now execute in the isolated owner. Both legal paths
+produce the same final semantic state: a source event at frame 100/PTS 300000
+rebinds to project frame 50 after a complete 2x retime, and the restrained
+shake is attached there rather than to the later spoken warning. A stale frame
+100 attempt is blocked, absent mapping is a zero-write safe stop, a forged map
+is rejected, and overlapping dialogue prevents the retime. The two formerly
+blocked good cases intentionally do not match the frozen expectations; DEP-03
+records 4/6 frozen matches and 6/6 successor matches.
+
+The complete owner receipt now covers 24/24 sentinels across all four tasks.
+Provider inference, render and canonical ProjectService mutation counts remain
+zero. Focused verification passes 51/51; repository typecheck and quiet ESLint
+pass. This proves synthetic current-edit mechanics only. It does not prove real
+event/dialogue evidence, canonical apply/reload, a receipt-bearing camera-shake
+writer, rendering, audiovisual quality, undo/replay, transitive current-source
+closure or model competence. Inference remains `NOT_READY_FOR_INFERENCE`; the
+next gate is the bounded native/generated/hybrid preview-candidate phase.

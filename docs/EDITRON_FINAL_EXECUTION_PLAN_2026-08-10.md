@@ -4943,7 +4943,32 @@ authorization are all present.
   repository typecheck remains blocked only by concurrent unstaged ThinkForge
   work. This commit does not alter the frozen V2R9 operator packet, materialize
   `HOLD-DEP-03`, prove a render or authorize inference. A separately versioned
-  public-contract successor and zero-spend sentinel receipt remain next.
+  public-contract successor and zero-spend sentinel receipt were therefore the
+  next bounded gate.
+- Commit `fa05fe4d8` closes that bounded DEP-03 gate without rewriting V2R9.
+  `EDITRON_OE_DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1_1` exposes the callable's
+  exact closed form and four outputs (`mutationReceipt`,
+  `timelineChangeReceipt`, `sourceRangeRetimeEffect`, `sourceTimeTransform`),
+  while a source audit proves the frozen V2R9 output remains receipt-only and
+  the current chat path contains no generic `updateOverlay` fallback. The new
+  synthetic owner replays the production retime, transform, PTS-rebind and
+  camera-shake form owners: source event frame 100 rebinds to project frame 50
+  after the 120-frame setup becomes 60 frames, and current-revision reread
+  reaches the same semantic state. Stale pre-retime coordinates, absent
+  mapping, forged transforms and dialogue overlap all fail with their distinct
+  unsafe/safe-stop/tamper dispositions. Materialization
+  `14efa0a6d21d2b97020f3943b5ea379c6e2b1c46d24e4c5112123bee8c2758e2`
+  and owner receipt
+  `fd2fb090abc47a8ef2bff474b427943df5bb1f537d1eb71c446207a3ef96d94a`
+  execute all 24 sentinels at zero inference, zero render and zero canonical
+  project mutation. Frozen DEP-03 history truthfully remains 4/6 matching;
+  the successor expectation is 6/6. Focused verification is 51/51, repository
+  typecheck and repository quiet ESLint pass. This is only
+  `ISOLATED_SYNTHETIC_CURRENT_EDIT_PROOF`: real source-event/dialogue quality,
+  canonical ProjectService apply/reload, camera-shake writer migration,
+  rendered audiovisual proof, undo/replay, transitive source closure and model
+  competence remain unproved. The next canonical Stage 2.5 slice is therefore
+  bounded native/generated/hybrid preview candidates—not provider dispatch.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
