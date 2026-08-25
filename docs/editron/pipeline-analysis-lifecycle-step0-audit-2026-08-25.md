@@ -61,6 +61,15 @@ signing pair before it materializes/charges the batch. This is a distinct
 batch-orchestration/financial fault, not evidence that the single-asset guard
 will solve the batch lane.
 
+Commit `5e9140c3b` closes that separate batch gap. Outside explicit
+development, the route now verifies the publisher/signing configuration before
+opening its database/credit path; both the batch re-dispatch and Director
+publication helpers recheck the same configuration, and the direct Director
+path is development-only. The handler regression proves a production/no-queue
+request performs no database, credit, project, or fetch work. The combined
+batch/single-asset/worker suite passes 42/42 with repository typecheck and
+quiet ESLint passing.
+
 ## Root cause and design boundary
 
 There is no existing canonical `PipelineAnalysisRun` owner. In particular:
@@ -88,24 +97,28 @@ without the source identity needed to validate them. Neither is allowed.
    any credit deduction, project creation, or inline analysis. This changes
    admission only; it does not move analysis facts, edit behavior, or project
    ownership.
-2. **Canonical media/timebase spine:** issue a qualified immutable source
+2. **Completed — batch queue admission:** commit `5e9140c3b` rejects missing
+   publisher/signing configuration before the batch database/credit path and
+   keeps direct Director execution development-only. This changes admission and
+   dispatch only; it does not alter batch lifecycle/fact ownership.
+3. **Canonical media/timebase spine:** issue a qualified immutable source
    receipt after the existing storage object is verified and probed; bind the
    master/proxy relationship, rational cadence/PTS, reel/timecode where
    present, and invalidation links. Unknowns remain explicit unqualified
    values. This must reuse existing media storage, not create another media
    registry.
-3. **Then a named ProjectService analysis-run family:** intake issues one
+4. **Then a named ProjectService analysis-run family:** intake issues one
    `analysisRunId` bound to the qualified source set, project revision, lane,
    analyzer-policy version and material hash. Narrow begin/advance/complete/
    fail commands validate that exact run and return ProjectService-issued
    receipts. They do not accept arbitrary fields or subsume Director,
    cancellation, credits, batch leases or media registration.
-4. **Source-bound facts follow separately:** each fact family declares the
+5. **Source-bound facts follow separately:** each fact family declares the
    source version/range, analysis sampling/timebase, analyzer/version,
    invalidation and proof disposition. Native-audio evidence is a separate
    exact-overlay command. Existing compatibility fields may be projected only
    after the source-bound record is written; they never become the new owner.
-5. **Recovery comes after run identity:** the cron must target an expired
+6. **Recovery comes after run identity:** the cron must target an expired
    run/lease with its exact ID and terminalize it through the named owner. It
    may not turn an `updatedAt` estimate into a blanket project failure.
 

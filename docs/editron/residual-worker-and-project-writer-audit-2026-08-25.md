@@ -79,6 +79,7 @@ mix proof.
 | Rank | Producer / fields | Current owner and consumer | Missing contract | Risk |
 | --- | --- | --- | --- | --- |
 | Closed P0 | Single-asset auto-edit queue admission in `from-asset/route.ts`. | Commit `c2eeafb1c` uses the shared QStash dispatch + explicit-development policy before credits/project creation. | It does not migrate the later lifecycle/fact writes. | Production missing-token or missing-signing-key configuration now fails with zero credit/project/analysis/Director work. |
+| Closed P0 | Batch auto-edit queue admission and Director fallback in `from-batch/route.ts`. | Commit `5e9140c3b` uses the same queue policy before database/credit work and keeps direct Director execution development-only. | It does not migrate batch orchestration, analysis facts, or project lifecycle writes. | Production configuration loss can no longer silently switch batch work to direct Director execution. |
 | P0-1 | Single-asset Video Analysis / TRIBE lifecycle and analysis completion writes (`from-asset/route.ts`; `video-analysis/route.ts:126-1336`; `tribe-analysis/route.ts:74-622`). | Intake, each worker, recovery and Director handoff write different pieces; Director subsequently reads selected facts. | No named analysis-run lifecycle, qualified source/version identity, writer-issued analysis receipt, or source-bound downstream handoff. Dev inline branches also have terminal raw writes. | Duplicate/stale deliveries can write over lifecycle state and derived evidence, then cause misleading downstream work. |
 | P1-1 | Video native-audio evidence at `video-analysis/route.ts:587-602`. | Worker derives it; audio planning and later rendering consume it. | No revision/CAS/receipt and the update targets all video overlays; its evidence uses numeric `30` fps. | Can overwrite timing-adjacent user state and gives downstream audio paths no freshness binding. |
 | P1-2 | Director facts (`unifiedDecisionBundle`, decision log, status/audit facts, V-JEPA audit and `qualityReview`) in `lib/editron/agent/director-agent.ts`. | Director derives facts; later quality/status readers consume selected subsets. | Project-wide raw updates are nonfatal, without user predicate, revision advancement or receipt. | Observer facts can be stale/lost and can disturb legacy `updatedAt` callers; they are not all timeline mutations. |
@@ -106,11 +107,16 @@ command merely to reduce the table count.
    (`c2eeafb1c`). Outside explicit development, `from-asset` requires the
    publisher token plus both signing keys before credits/project creation.
    This is admission only, not a lifecycle migration.
-5. **Next — audit and close the separate batch-dispatch configuration gap.**
-   Its current direct-Director fallback and signing-key admission check must
-   be handled with its batch/credit lifecycle, not copied from single-asset
-   intake.
-6. **Then — design lifecycle/analysis fact migration by named family after
+5. **Completed — close batch queue admission and direct-Director fallback**
+   (`5e9140c3b`). The same complete queue configuration is now required before
+   database/credit work outside development; the helper also fails closed if
+   configuration disappears during the request.
+6. **Next — implement the canonical media/timebase spine before source-bound
+   lifecycle/fact migration.** The current rich timebase contract is still
+   unwired; it must bind existing media storage to qualified master/proxy
+   source identity and measured technical metadata without adding a media
+   registry.
+7. **Then — design lifecycle/analysis fact migration by named family after
    qualified media identity exists.** Status, analysis provenance,
    native-audio evidence, Director observer facts, workflow leases and batch
    orchestration have different lifecycle, proof and invalidation rules. The

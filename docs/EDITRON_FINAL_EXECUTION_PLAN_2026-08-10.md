@@ -305,15 +305,15 @@ changes.
   cancellation/rescue, stuck recovery and automatic Director handoff have
   different owners and predicates. The exact boundary is
   [pipeline-analysis-lifecycle-step0-audit-2026-08-25.md](./editron/pipeline-analysis-lifecycle-step0-audit-2026-08-25.md).
-  Commit `c2eeafb1c` closes the single-asset admission gap: outside explicit
-  development, `from-asset` rejects an incomplete QStash publisher/signing
-  configuration before any credit, project or worker work. It does not migrate
-  analysis lifecycle/facts. The separately audited batch-dispatch fallback
-  remains open. The lifecycle/fact migration is correctly blocked on the
-  canonical media/timebase spine: current analysis projections have no
-  qualified immutable master/proxy source identity, source PTS/timebase, run
-  identity or writer-issued source-bound receipt. A generic metadata/status
-  owner remains prohibited.
+  Commit `c2eeafb1c` closes the single-asset admission gap, and
+  `5e9140c3b` closes the separate batch-dispatch/direct-Director gap: outside
+  explicit development, both reject an incomplete QStash publisher/signing
+  configuration before their project/credit work, and batch direct execution
+  remains development-only. Neither migrates analysis lifecycle/facts. The
+  next ordered foundation is the canonical media/timebase spine because current
+  analysis projections have no qualified immutable master/proxy source
+  identity, source PTS/timebase, run identity or writer-issued source-bound
+  receipt. A generic metadata/status owner remains prohibited.
 
 ## The desired experience, in plain words
 
