@@ -24,7 +24,12 @@ GPU:      NVIDIA T4 (16GB VRAM) — wav2vec2-large uses ~1.2GB fp16
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import modal
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # ─── Modal App ──────────────────────────────────────────────────────────────
 
@@ -128,12 +133,9 @@ class Wav2VecAnalyzer:
                 "happy", "neutral", "sad", "surprised",
             ]
 
-        print(f"[Wav2VecAnalyzer] Model loaded, labels={self.labels}")
-
     @modal.fastapi_endpoint(method="POST")
     def analyze(self, request: dict):
         import time
-        import numpy as np
 
         t0 = time.time()
 
@@ -145,8 +147,7 @@ class Wav2VecAnalyzer:
         # ── 1. Download + decode audio ─────────────────────────────────
         try:
             waveform, sr = _load_audio(audio_url)
-        except Exception as e:
-            print(f"[Wav2VecAnalyzer] Audio load failed: {e}")
+        except Exception:
             return {
                 "error": "audio_load_failed",
                 "segments": [],
@@ -199,14 +200,6 @@ class Wav2VecAnalyzer:
 
         completed_results = [result for result in results if result is not None]
         elapsed_ms = int((time.time() - t0) * 1000)
-        print(
-            f"[Wav2VecAnalyzer] {len(completed_results)}/{len(segments)} segments "
-            f"in {elapsed_ms}ms "
-            f"(avg emotion={np.mean([r['emotion_intensity'] for r in completed_results]):.2f})"
-            if completed_results
-            else f"[Wav2VecAnalyzer] 0/{len(segments)} usable segments in {elapsed_ms}ms"
-        )
-
         return {
             "segments": completed_results,
             "model_version": "wav2vec-2.0",
@@ -352,8 +345,7 @@ def _build_prosody_track(waveform: "np.ndarray", sr: int, origin_sample: int) ->
         rms = rms[:shared_length]
         rms_db = librosa.amplitude_to_db(rms, ref=1.0)
         f0[rms_db <= ENERGY_FLOOR_DB] = np.nan
-    except Exception as error:
-        print(f"[Wav2VecAnalyzer] Source pitch extraction degraded: {error}")
+    except Exception:
         f0 = np.full(len(rms), np.nan, dtype=np.float32)
     return {"rms": rms, "f0": f0, "origin_sample": origin_sample}
 
