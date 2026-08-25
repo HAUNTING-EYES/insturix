@@ -6,6 +6,10 @@ import {
 import { runStage25DependencyDiversitySentinelsV1 }
   from './stage25-dependency-diversity-sentinel-runner-v1';
 import {
+  auditDep03PublicSpeedRetimeContractV1,
+  DEP03_PUBLIC_SPEED_RETIME_CONTRACT_VERSION_V1,
+} from './stage25-dep03-public-speed-retime-contract-v1';
+import {
   auditDep02PublicOwnerContractV1,
   executeStage25DependencyDiversityOwnerScenarioV1,
   STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1,
@@ -18,7 +22,7 @@ type JsonRecord = Record<string, unknown>;
 type DerivedAxes = Stage25DependencyDiversitySentinelV1['expected'];
 
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_V1_2' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_SENTINEL_RECEIPT_V1_3' as const;
 
 /**
  * Independently validates owner artifacts and derives every score axis from
@@ -47,6 +51,8 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
       validateOwnerOutcome(outcome, task.taskId, sentinel.sentinelId);
       const actual = deriveAxes(outcome, taskMaterialization);
       const frozenExpectationMatched = same(actual, sentinel.expected);
+      const successorExpected = successorExpectedAxes(task.taskId, sentinel);
+      const successorExpectationMatched = same(actual, successorExpected);
       const result = {
         taskId: task.taskId,
         sentinelId: sentinel.sentinelId,
@@ -56,6 +62,8 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
         actual,
         frozenExpected: sentinel.expected,
         frozenExpectationMatched,
+        successorExpected,
+        successorExpectationMatched,
         operationAttemptCount: outcome.operationAttemptCount,
         unsafeAttemptCount: outcome.unsafeAttemptCount,
         ownerBlockedAttemptCount: outcome.ownerBlockedAttemptCount,
@@ -66,12 +74,8 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
       taskResults.push(result);
     }
 
-    const executable = task.taskId !== 'HOLD-DEP-03';
-    if (executable && taskResults.some(({ frozenExpectationMatched }) => !frozenExpectationMatched)) {
+    if (taskResults.some(({ successorExpectationMatched }) => !successorExpectationMatched)) {
       fail(`EXECUTABLE_TASK_SENTINEL_MISMATCH:${task.taskId}`);
-    }
-    if (!executable && taskResults.some(({ ownerDisposition }) => ownerDisposition !== 'PUBLIC_CONTRACT_GAP')) {
-      fail(`BLOCKED_TASK_EXECUTED:${task.taskId}`);
     }
     taskReceipts.push({
       taskId: task.taskId,
@@ -79,9 +83,9 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
       materializationDisposition: taskMaterialization.disposition,
       sentinelCount: taskResults.length,
       frozenExpectationMatchCount: taskResults.filter(({ frozenExpectationMatched }) => frozenExpectationMatched).length,
-      disposition: executable
-        ? 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS'
-        : 'NOT_READY_PUBLIC_SOURCE_TIME_MAP_GAP',
+      successorExpectationMatchCount: taskResults
+        .filter(({ successorExpectationMatched }) => successorExpectationMatched).length,
+      disposition: 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS',
     });
   }
 
@@ -94,9 +98,9 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
     materializationSha256: String(materialization.materializationSha256),
     taskReceipts,
     sentinelResults,
-    executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-04'] as const,
-    blockedTaskIds: ['HOLD-DEP-03'] as const,
-    assessment: 'PASS_ZERO_SPEND_OWNER_EXECUTION_WITH_PUBLIC_GAPS' as const,
+    executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-03', 'HOLD-DEP-04'] as const,
+    blockedTaskIds: [] as const,
+    assessment: 'PASS_ZERO_SPEND_OWNER_EXECUTION_NO_PUBLIC_CONTRACT_GAPS' as const,
     inferenceDisposition: 'NOT_READY_FOR_INFERENCE' as const,
     sourceClosureDisposition: 'BOUNDED_RUNTIME_IDENTITIES_NOT_TRANSITIVE_SOURCE_CLOSURE' as const,
     providerInferenceCallCount: 0 as const,
@@ -106,7 +110,9 @@ export async function runStage25DependencyDiversityOwnerSentinelsV1(
     whatHasNotBeenChecked: [
       'DEP02_LIVE_RIGHTS_AND_SOURCE_HANDLE_AUTHORITY',
       'DEP02_CANONICAL_PROJECTSERVICE_APPLY_RELOAD_RENDER',
-      'DEP03_PUBLIC_SOURCE_TIME_TRANSFORM',
+      'DEP03_CANONICAL_PROJECTSERVICE_APPLY_RELOAD_RENDER',
+      'DEP03_REAL_EVENT_OR_DIALOGUE_EVIDENCE_QUALITY',
+      'DEP03_CAMERA_SHAKE_PROJECTSERVICE_WRITER_MIGRATION',
       'TRANSITIVE_CURRENT_SOURCE_CLOSURE',
       'RENDERED_VISUAL_OR_AUDIO_PROOF',
       'CANONICAL_PROJECTSERVICE_APPLY_RELOAD',
@@ -149,8 +155,16 @@ function validateMaterialization(value: unknown): JsonRecord {
   }
   const dep03 = tasks.find(({ taskId }) => taskId === 'HOLD-DEP-03')
     ?? fail('DEP03_MATERIALIZATION_MISSING');
-  if (dep03.disposition !== 'NOT_EXECUTABLE_PUBLIC_SOURCE_TIME_MAP_GAP'
-    || dep03.proofCeiling !== 'NO_PROOF') fail('DEP03_GAP_INVALID');
+  const dep03Audit = auditDep03PublicSpeedRetimeContractV1();
+  if (dep03.disposition !== 'EXECUTABLE_ZERO_SPEND_OWNER'
+    || dep03.proofCeiling !== 'CURRENT_EDIT_PROOF'
+    || dep03.publicContractVersion !== DEP03_PUBLIC_SPEED_RETIME_CONTRACT_VERSION_V1
+    || !isSha256(dep03.baselineProjectStateSha256)
+    || !isSha256(dep03.expectedFinalSemanticStateSha256)
+    || record(dep03.ownerContractAudit, 'DEP03_OWNER_CONTRACT_AUDIT_INVALID').allChecksPass !== true
+    || hashCanonicalJsonV1(dep03.ownerContractAudit) !== hashCanonicalJsonV1(dep03Audit)) {
+    fail('DEP03_OWNER_CONTRACT_INVALID');
+  }
   return materialization;
 }
 
@@ -238,6 +252,17 @@ function deriveAxes(
     return axes('UNVERIFIABLE', 'FAIL', 'UNVERIFIABLE', 'NO_PROOF', 'NOT_APPLICABLE');
   }
   return fail(`OWNER_DISPOSITION_UNKNOWN:${outcome.sentinelId}`);
+}
+
+function successorExpectedAxes(
+  taskId: string,
+  sentinel: Stage25DependencyDiversitySentinelV1,
+): DerivedAxes {
+  if (taskId !== 'HOLD-DEP-03') return sentinel.expected;
+  if (sentinel.kind === 'KNOWN_GOOD' || sentinel.kind === 'EQUIVALENT_GOOD') {
+    return axes('PASS', 'PASS', 'PASS', 'CURRENT_EDIT_PROOF', 'NO_UNSAFE_ATTEMPT');
+  }
+  return sentinel.expected;
 }
 
 function axes(

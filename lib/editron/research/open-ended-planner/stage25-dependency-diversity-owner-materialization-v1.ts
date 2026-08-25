@@ -41,6 +41,17 @@ import type { ProviderNativeToolExecutionV2R }
   from './provider-native-tool-episode-v2r';
 import { v2rOperatorCatalogIdentity, v2rOperatorFieldSchema }
   from './operator-catalog-v2r';
+import {
+  auditDep03PublicSpeedRetimeContractV1,
+  DEP03_PUBLIC_SPEED_RETIME_CONTRACT_VERSION_V1,
+} from './stage25-dep03-public-speed-retime-contract-v1';
+import {
+  DEP03_BASELINE_PROJECT_STATE_SHA256_V1,
+  DEP03_EXPECTED_FINAL_SEMANTIC_STATE_SHA256_V1,
+  DEP03_ISOLATED_OWNER_AUTHORITY_V1,
+  DEP03_MATERIALIZED_EVIDENCE_V1,
+  executeStage25Dep03OwnerScenarioV1,
+} from './stage25-dependency-diversity-dep03-owner-v1';
 import { STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1 }
   from './stage25-dependency-diversity-holdout-v1';
 
@@ -51,9 +62,9 @@ type OwnerDisposition = 'EDIT_APPLIED' | 'ZERO_WRITE_SAFE_STOP'
 type ProofArtifactKind = 'CURRENT_EDIT_RECEIPT' | 'SAFE_STOP_RECEIPT' | 'NONE';
 
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1_2' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1_3' as const;
 export const STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_VERSION_V1 =
-  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_V1_2' as const;
+  'EDITRON_OE_STAGE25_DEPENDENCY_DIVERSITY_OWNER_OUTCOME_V1_3' as const;
 
 const FILTER_WRITER_AUTHORITY =
   'STAGE25_DEPENDENCY_DIVERSITY_FILTER_CLONE_WRITER_V1_1' as const;
@@ -132,6 +143,7 @@ const D02_FORM = materializeD02Form('LIST');
 const D02_EVIDENCE = materializeD02Evidence();
 const D04_EVIDENCE = materializeD04Evidence();
 const D02_OWNER_CONTRACT_AUDIT = auditDep02PublicOwnerContractV1();
+const D03_OWNER_CONTRACT_AUDIT = auditDep03PublicSpeedRetimeContractV1();
 const D01_EXPECTED_STATE = expectedD01TaskState();
 const D02_EXPECTED_STATE = expectedD02TaskState();
 const D04_EXPECTED_STATE = expectedD04TaskState();
@@ -178,13 +190,24 @@ const MATERIALIZATION_MATERIAL = {
     },
     {
       taskId: 'HOLD-DEP-03',
-      disposition: 'NOT_EXECUTABLE_PUBLIC_SOURCE_TIME_MAP_GAP' as const,
-      fixtureMaterialization: 'NOT_MATERIALIZED',
-      expectedFinalSemanticStateSha256: null,
-      publicContractGap: STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1.tasks
-        .find(({ taskId }) => taskId === 'HOLD-DEP-03')!.publicContractGap,
-      effectShape: 'BLOCKED_BEFORE_FIXTURE_OR_WRITER_MATERIALIZATION',
-      proofCeiling: 'NO_PROOF',
+      disposition: 'EXECUTABLE_ZERO_SPEND_OWNER' as const,
+      fixtureMaterialization: 'MATERIALIZED_DETERMINISTIC_PROJECT_AND_PUBLIC_EVIDENCE' as const,
+      expectedRevisionLabel: 'R16',
+      baselineProjectStateSha256: DEP03_BASELINE_PROJECT_STATE_SHA256_V1,
+      expectedFinalSemanticStateSha256: DEP03_EXPECTED_FINAL_SEMANTIC_STATE_SHA256_V1,
+      evidence: DEP03_MATERIALIZED_EVIDENCE_V1,
+      publicContractVersion: DEP03_PUBLIC_SPEED_RETIME_CONTRACT_VERSION_V1,
+      ownerContractAudit: D03_OWNER_CONTRACT_AUDIT,
+      ownerRefs: [
+        'lib/editron/agent/chat-visual-tools.ts#apply_speed_ramp',
+        'lib/editron/services/project-service.ts#applyVideoSourceRangeRetimeV1',
+        'lib/editron/services/video-source-range-retime-v1.ts#retimeIsolatedVideoSourceRangeV1',
+        'lib/editron/services/video-source-time-transform-v1.ts#createProjectVideoSourceTimeTransformV1',
+        'lib/editron/services/video-source-time-transform-v1.ts#rebindSourcePresentationTimestampV1',
+        'lib/editron/agent/chat-visual-tools.ts#applyCameraShakeToProject',
+      ],
+      effectShape: 'WRITER_SOURCE_TIME_TRANSFORM_THEN_REBOUND_DOWNSTREAM_EFFECT',
+      proofCeiling: 'CURRENT_EDIT_PROOF',
     },
     {
       taskId: 'HOLD-DEP-04',
@@ -206,7 +229,7 @@ const MATERIALIZATION_MATERIAL = {
     },
   ],
   fixtureEvidenceProvenance: {
-    taskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-04'] as const,
+    taskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-03', 'HOLD-DEP-04'] as const,
     status: 'DETERMINISTIC_SYNTHETIC_FIXTURES_ONLY' as const,
     evidenceQualityCeiling: 'STRUCTURAL_OWNER_MECHANICS_ONLY' as const,
     doesNotEstablish: [
@@ -215,6 +238,7 @@ const MATERIALIZATION_MATERIAL = {
       'REAL_AUDIO_EVIDENCE_QUALITY',
       'REAL_VISUAL_RIGHTS_AUTHORITY',
       'REAL_SOURCE_HANDLE_QUALITY',
+      'REAL_SOURCE_EVENT_OR_DIALOGUE_EVIDENCE_QUALITY',
       'REAL_EDITORIAL_QUALITY',
     ] as const,
   },
@@ -223,6 +247,9 @@ const MATERIALIZATION_MATERIAL = {
     identities: [
       FILTER_WRITER_AUTHORITY,
       REPLACEMENT_WRITER_AUTHORITY,
+      DEP03_ISOLATED_OWNER_AUTHORITY_V1,
+      DEP03_PUBLIC_SPEED_RETIME_CONTRACT_VERSION_V1,
+      'PROJECT_SERVICE_VIDEO_RETIME_WRITER_V1',
       'PROJECTSERVICE_ISOLATED_CUT_PROPOSAL_WRITER_V2R_1',
       'PROJECTSERVICE_ISOLATED_PROPOSAL_REVISION_ISSUER_V2R_1',
     ],
@@ -287,9 +314,12 @@ export async function executeStage25DependencyDiversityOwnerScenarioV1(
   }
   if (sentinelId === 'DEP02_PARTIAL_OR_DOUBLE_SWAP_REJECT') return runD02DoubleSwap(sentinelId);
   if (sentinelId === 'DEP02_FORGED_CANDIDATE_BINDING_REJECT') return runD02ForgedBinding(sentinelId);
-  if (sentinelId.startsWith('DEP03_')) return contractGapOutcome('HOLD-DEP-03', sentinelId,
-    String(STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1.tasks
-      .find(({ taskId }) => taskId === 'HOLD-DEP-03')!.publicContractGap));
+  if (sentinelId.startsWith('DEP03_')) {
+    return ownerOutcome({
+      taskId: 'HOLD-DEP-03', sentinelId,
+      ...executeStage25Dep03OwnerScenarioV1(sentinelId),
+    });
+  }
   if (sentinelId === 'DEP04_LATE_THEN_EARLY_ACCEPT') return runD04Good(sentinelId, 'LATE_THEN_EARLY');
   if (sentinelId === 'DEP04_EARLY_THEN_TRANSFORMED_LATE_EQUIVALENT') return runD04Equivalent(sentinelId);
   if (sentinelId === 'DEP04_STALE_UNSHIFTED_SECOND_RANGE_REJECT') return runD04Adversarial(sentinelId, 'STALE_RANGE');
@@ -1149,22 +1179,6 @@ function noWriteSafeStop(
     isolatedMutationCount: 0, finalSemanticStateSha256: null,
     observations: [{ reason, baseProjectStateSha256: projectStateSha256(buildProject(taskId)) }],
     trace: [{ stage: 'PUBLIC_EVIDENCE_GATE', disposition: 'ZERO_WRITE_SAFE_STOP', reason }],
-  });
-}
-
-function contractGapOutcome(
-  taskId: 'HOLD-DEP-02' | 'HOLD-DEP-03',
-  sentinelId: string,
-  contractGap: string,
-): Readonly<Stage25DependencyDiversityOwnerOutcomeV1> {
-  return ownerOutcome({
-    taskId, sentinelId, ownerDisposition: 'PUBLIC_CONTRACT_GAP',
-    proofArtifactKind: 'NONE', operationAttemptCount: 0, unsafeAttemptCount: 0,
-    ownerBlockedAttemptCount: 0, isolatedMutationCount: 0,
-    finalSemanticStateSha256: null, contractGap,
-    observations: [{ code: 'OWNER_NOT_MATERIALIZED', contractGap }],
-    trace: [{ stage: 'PUBLIC_CONTRACT_GATE', disposition: 'NOT_EXECUTABLE' }],
-    trustedReceipt: false,
   });
 }
 

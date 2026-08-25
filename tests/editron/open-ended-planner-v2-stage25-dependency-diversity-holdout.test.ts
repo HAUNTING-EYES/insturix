@@ -6,6 +6,10 @@ import {
   STAGE25_DEPENDENCY_DIVERSITY_TASK_IDS_V1,
 } from '@/lib/editron/research/open-ended-planner/stage25-dependency-diversity-holdout-v1';
 import {
+  auditDep03PublicSpeedRetimeContractV1,
+  DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1,
+} from '@/lib/editron/research/open-ended-planner/stage25-dep03-public-speed-retime-contract-v1';
+import {
   auditDep02PublicOwnerContractV1,
   executeStage25DependencyDiversityOwnerScenarioV1,
   STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1,
@@ -82,7 +86,7 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
       .toEqual(runStage25DependencyDiversitySentinelsV1(structuredClone(STAGE25_DEPENDENCY_DIVERSITY_HOLDOUT_FREEZE_V1)));
   });
 
-  it('materializes current public owners and preserves the remaining public gap', () => {
+  it('materializes all four current public owners without rewriting the frozen gap', () => {
     const tasks = STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1.tasks;
     expect(tasks.find(({ taskId }) => taskId === 'HOLD-DEP-01')).toMatchObject({
       disposition: 'EXECUTABLE_ZERO_SPEND_OWNER', proofCeiling: 'CURRENT_EDIT_PROOF',
@@ -94,7 +98,8 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
       disposition: 'EXECUTABLE_ZERO_SPEND_OWNER', proofCeiling: 'CURRENT_EDIT_PROOF',
     });
     expect(tasks.find(({ taskId }) => taskId === 'HOLD-DEP-03')).toMatchObject({
-      disposition: 'NOT_EXECUTABLE_PUBLIC_SOURCE_TIME_MAP_GAP', proofCeiling: 'NO_PROOF',
+      disposition: 'EXECUTABLE_ZERO_SPEND_OWNER', proofCeiling: 'CURRENT_EDIT_PROOF',
+      publicContractVersion: 'EDITRON_OE_DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1_1',
     });
     const dep02Audit = auditDep02PublicOwnerContractV1();
     expect(dep02Audit).toMatchObject({
@@ -112,6 +117,31 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
       presentationSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       outsideTargetStateSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
+    const dep03Audit = auditDep03PublicSpeedRetimeContractV1();
+    expect(dep03Audit).toMatchObject({
+      allChecksPass: true,
+      conclusion: 'PUBLIC_SUCCESSOR_AVAILABLE_FROZEN_V2R9_UNCHANGED',
+      checks: {
+        frozenV2R9OutputStillReceiptOnly: true,
+        successorOutputIsComplete: true,
+        chatUsesAtomicRetimeOwner: true,
+        chatReturnsTransformAndEffect: true,
+        chatDoesNotUseGenericOverlayWriter: true,
+        projectServiceIssuesTransform: true,
+        downstreamRebindOwnerPresent: true,
+      },
+    });
+    expect(DEP03_PUBLIC_SPEED_RETIME_CONTRACT_V1).toMatchObject({
+      operatorId: 'apply_speed_ramp',
+      support: { closedSemanticForm: 'ISOLATED_WHOLE_SOURCE_RANGE_CFR_FAST_RETIME_V1' },
+      output: {
+        fields: ['mutationReceipt', 'timelineChangeReceipt', 'sourceRangeRetimeEffect', 'sourceTimeTransform'],
+        required: ['mutationReceipt', 'timelineChangeReceipt', 'sourceRangeRetimeEffect', 'sourceTimeTransform'],
+      },
+      providerInferenceCallCount: 0,
+      renderCallCount: 0,
+      canonicalProjectMutationCount: 0,
+    });
     expect(STAGE25_DEPENDENCY_DIVERSITY_OWNER_MATERIALIZATION_V1).toMatchObject({
       fixtureEvidenceProvenance: {
         status: 'DETERMINISTIC_SYNTHETIC_FIXTURES_ONLY',
@@ -122,6 +152,7 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
           'REAL_AUDIO_EVIDENCE_QUALITY',
           'REAL_VISUAL_RIGHTS_AUTHORITY',
           'REAL_SOURCE_HANDLE_QUALITY',
+          'REAL_SOURCE_EVENT_OR_DIALOGUE_EVIDENCE_QUALITY',
           'REAL_EDITORIAL_QUALITY',
         ],
       },
@@ -153,25 +184,23 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
     });
   });
 
-  it('derives executable-task axes from owner outcomes while preserving public gaps', async () => {
+  it('derives successor axes from all four owner outcomes while preserving frozen history', async () => {
     const receipt = await runStage25DependencyDiversityOwnerSentinelsV1();
     expect(receipt).toMatchObject({
-      assessment: 'PASS_ZERO_SPEND_OWNER_EXECUTION_WITH_PUBLIC_GAPS',
+      assessment: 'PASS_ZERO_SPEND_OWNER_EXECUTION_NO_PUBLIC_CONTRACT_GAPS',
       inferenceDisposition: 'NOT_READY_FOR_INFERENCE',
-      executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-04'],
-      blockedTaskIds: ['HOLD-DEP-03'],
+      executedTaskIds: ['HOLD-DEP-01', 'HOLD-DEP-02', 'HOLD-DEP-03', 'HOLD-DEP-04'],
+      blockedTaskIds: [],
       providerInferenceCallCount: 0, renderCallCount: 0,
       canonicalProjectMutationCount: 0, stateEffects: [],
     });
     const taskReceipts = receipt.taskReceipts as JsonRecord[];
-    expect(taskReceipts.filter(({ taskId }) => taskId !== 'HOLD-DEP-03'))
-      .toEqual(expect.arrayContaining([
+    expect(taskReceipts).toEqual(expect.arrayContaining([
         expect.objectContaining({ taskId: 'HOLD-DEP-01', disposition: 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS', frozenExpectationMatchCount: 6 }),
         expect.objectContaining({ taskId: 'HOLD-DEP-02', disposition: 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS', frozenExpectationMatchCount: 6 }),
+        expect.objectContaining({ taskId: 'HOLD-DEP-03', disposition: 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS', frozenExpectationMatchCount: 4, successorExpectationMatchCount: 6 }),
         expect.objectContaining({ taskId: 'HOLD-DEP-04', disposition: 'PASS_EXECUTED_ZERO_SPEND_OWNER_SENTINELS', frozenExpectationMatchCount: 6 }),
       ]));
-    expect(taskReceipts.find(({ taskId }) => taskId === 'HOLD-DEP-03'))
-      .toMatchObject({ disposition: 'NOT_READY_PUBLIC_SOURCE_TIME_MAP_GAP' });
 
     const results = receipt.sentinelResults as JsonRecord[];
     expect(results.find(({ sentinelId }) => sentinelId === 'DEP01_AMBIGUOUS_CAST_SAFE_STOP_ACCEPT'))
@@ -204,14 +233,34 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
     expect(results.find(({ sentinelId }) => sentinelId === 'DEP02_FORGED_CANDIDATE_BINDING_REJECT'))
       .toMatchObject({ ownerDisposition: 'TAMPER_REJECTED', operationAttemptCount: 1,
         isolatedMutationCount: 0, actual: { benchmarkAssessment: 'UNVERIFIABLE' } });
+    expect(results.find(({ sentinelId }) => sentinelId === 'DEP03_MAPPING_REBIND_ACCEPT'))
+      .toMatchObject({ ownerDisposition: 'EDIT_APPLIED', operationAttemptCount: 2,
+        isolatedMutationCount: 2, frozenExpectationMatched: false,
+        successorExpectationMatched: true, actual: { benchmarkAssessment: 'PASS' } });
+    expect(results.find(({ sentinelId }) => sentinelId === 'DEP03_STALE_EVENT_FRAME_REJECT'))
+      .toMatchObject({ ownerDisposition: 'UNSAFE_ATTEMPT_BLOCKED', operationAttemptCount: 2,
+        isolatedMutationCount: 1, unsafeAttemptCount: 1,
+        actual: { benchmarkAssessment: 'FAIL' } });
+    expect(results.find(({ sentinelId }) => sentinelId === 'DEP03_MAPPING_UNAVAILABLE_SAFE_STOP_ACCEPT'))
+      .toMatchObject({ ownerDisposition: 'ZERO_WRITE_SAFE_STOP', operationAttemptCount: 0,
+        isolatedMutationCount: 0, actual: { benchmarkAssessment: 'PASS' } });
+    expect(results.find(({ sentinelId }) => sentinelId === 'DEP03_FORGED_TIME_MAP_REJECT'))
+      .toMatchObject({ ownerDisposition: 'TAMPER_REJECTED', operationAttemptCount: 2,
+        isolatedMutationCount: 1, actual: { benchmarkAssessment: 'UNVERIFIABLE' } });
+    expect(results.find(({ sentinelId }) => sentinelId === 'DEP03_DIALOGUE_OVERLAP_WRITE_REJECT'))
+      .toMatchObject({ ownerDisposition: 'UNSAFE_ATTEMPT_BLOCKED', operationAttemptCount: 1,
+        isolatedMutationCount: 0, unsafeAttemptCount: 1,
+        actual: { benchmarkAssessment: 'FAIL' } });
   });
 
   it('accepts equivalent dependency orders only when their final semantic state agrees', async () => {
-    const [exact, permuted, swap, swapEquivalent, lateFirst, transformedLate] = await Promise.all([
+    const [exact, permuted, swap, swapEquivalent, mapped, reread, lateFirst, transformedLate] = await Promise.all([
       executeStage25DependencyDiversityOwnerScenarioV1('DEP01_EXACT_THREE_ACCEPT'),
       executeStage25DependencyDiversityOwnerScenarioV1('DEP01_WRITER_PERMUTATIONS_EQUIVALENT'),
       executeStage25DependencyDiversityOwnerScenarioV1('DEP02_RESOLVED_SWAP_ACCEPT'),
       executeStage25DependencyDiversityOwnerScenarioV1('DEP02_LIST_SEARCH_DISCOVERY_EQUIVALENT'),
+      executeStage25DependencyDiversityOwnerScenarioV1('DEP03_MAPPING_REBIND_ACCEPT'),
+      executeStage25DependencyDiversityOwnerScenarioV1('DEP03_CURRENT_REVISION_REREAD_EQUIVALENT'),
       executeStage25DependencyDiversityOwnerScenarioV1('DEP04_LATE_THEN_EARLY_ACCEPT'),
       executeStage25DependencyDiversityOwnerScenarioV1('DEP04_EARLY_THEN_TRANSFORMED_LATE_EQUIVALENT'),
     ]);
@@ -219,6 +268,11 @@ describe('Stage 2.5 dependency-diversity no-spend freeze V1', () => {
     expect(permuted).toMatchObject({ operationAttemptCount: 18, isolatedMutationCount: 18 });
     expect(swapEquivalent.finalSemanticStateSha256).toBe(swap.finalSemanticStateSha256);
     expect(swapEquivalent).toMatchObject({ operationAttemptCount: 4, isolatedMutationCount: 4 });
+    expect(reread.finalSemanticStateSha256).toBe(mapped.finalSemanticStateSha256);
+    expect([mapped, reread]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationAttemptCount: 2, isolatedMutationCount: 2 }),
+      expect.objectContaining({ operationAttemptCount: 2, isolatedMutationCount: 2 }),
+    ]));
     expect(transformedLate.finalSemanticStateSha256).toBe(lateFirst.finalSemanticStateSha256);
     expect([lateFirst, transformedLate]).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationAttemptCount: 2, isolatedMutationCount: 2 }),
