@@ -10,6 +10,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import type {
+  Keyframe,
+  KeyframeTrack,
   Overlay,
   AspectRatio,
 } from "@/components/editron/editor/version-7.0.0/types";
@@ -71,6 +73,14 @@ import {
   pipelineVideoDeliveryMaterialHashV1,
   type PipelineVideoDeliveryMaterialV1,
 } from "./pipeline-video-project-delivery-v1";
+import {
+  assertProjectVideoSpeedRampStateV1,
+  createProjectVideoSourceTimeTransformV1,
+  rebindSourcePresentationTimestampV1,
+  resolveVerifiedVideoSourceTimeBindingV1,
+  type ProjectVideoSourceTimeTransformV1,
+  type SourcePresentationTimestampRebindV1,
+} from "./video-source-time-transform-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -122,6 +132,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
+  | "APPLY_VIDEO_SPEED_RAMP"
   | "DELETE_OVERLAY"
   | "REPLACE_PIPELINE_VIDEO_DELIVERY"
   | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -173,6 +184,9 @@ export interface ProjectTimelineRangeChangeReceiptV1 {
   rangeObservation: "EXACT" | "UNKNOWN_LEGACY_OVERLAY_TIMING";
   overlayTemporalChange: ProjectTimelineOverlayTemporalChangeV1 | null;
   timelineCoordinateTransform: TimelineRangeCutCoordinateTransformV1 | null;
+  /** Present only for a ProjectService-issued video retime write. Historical
+      receipts omit it; other current direct-overlay writes persist `null`. */
+  sourceTimeTransform?: ProjectVideoSourceTimeTransformV1 | null;
   splitChildren: readonly TimelineRangeCutSplitChildV1[];
   ripple: ProjectTimelineRippleEffectV1 | null;
   downstreamInvalidation: {
@@ -205,6 +219,45 @@ export interface ProjectTimelineRangeCutResultV1 {
   timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
   rebase: ProjectTimelineRangeCutRebaseV1;
 }
+
+export interface ProjectDirectOverlayMutationResultV1 {
+  mutationReceipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
+}
+
+export interface ProjectVideoSpeedRampCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  overlayId: number;
+  speedCurve: readonly Keyframe[];
+  keyframeTracks: readonly KeyframeTrack[];
+}
+
+export type ProjectVideoSpeedRampSafeStopReasonV1 =
+  | "SOURCE_ASSET_NOT_FOUND"
+  | "SOURCE_TIME_EVIDENCE_INCOMPLETE"
+  | "SOURCE_HANDLES_INSUFFICIENT";
+
+export type ProjectVideoSpeedRampResultV1 =
+  | ({ disposition: "APPLIED"; sourceTimeTransform: ProjectVideoSourceTimeTransformV1 }
+      & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "SAFE_STOP";
+      reason: ProjectVideoSpeedRampSafeStopReasonV1;
+      currentRevision: ProjectRevisionV1;
+    };
+
+export type ProjectVideoSourceEventRebindResultV1 =
+  | SourcePresentationTimestampRebindV1
+  | Readonly<{
+      disposition: "UNVERIFIABLE";
+      reason:
+        | "PROJECT_REVISION_STALE"
+        | "SOURCE_TIME_TRANSFORM_NOT_CURRENT"
+        | "OVERLAY_SOURCE_CHANGED"
+        | "SOURCE_ASSET_NOT_FOUND"
+        | "SOURCE_TIME_EVIDENCE_INCOMPLETE";
+    }>;
 
 /**
  * A derived-duration reconciliation reads the current canonical overlay
@@ -4866,6 +4919,270 @@ export class ProjectService {
   }
 
   /**
+   * Persist a form-owner-selected video speed ramp and its source-time
+   * transform in one ProjectService CAS. The caller supplies only renderer
+   * state and a project revision; ProjectService derives source identity and
+   * timing evidence from the current media asset.
+   */
+  async applyVideoSpeedRampV1(
+    userId: string,
+    projectId: string,
+    input: ProjectVideoSpeedRampCommandV1,
+  ): Promise<ProjectVideoSpeedRampResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (input.actorKind === "UNKNOWN_LEGACY_CALLER"
+      || !Number.isSafeInteger(input.overlayId)
+      || input.overlayId < 0) {
+      throw new ProjectMutationWriteError(
+        "A video speed-ramp write requires an explicit actor and stable numeric overlay ID.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+      {
+        projection: {
+          overlays: 1,
+          fps: 1,
+          projectRevision: 1,
+          updatedAt: 1,
+        },
+      },
+    )) as unknown as Pick<
+      Project,
+      "overlays" | "fps" | "projectRevision" | "updatedAt"
+    > | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const currentOverlay = project.overlays?.find(
+      (overlay) => overlay.id === input.overlayId,
+    );
+    if (!currentOverlay || currentOverlay.type !== "video") {
+      throw new ProjectMutationWriteError(
+        `Video overlay ${input.overlayId} was not found in project ${projectId}.`,
+      );
+    }
+    const assetId = (currentOverlay as { assetId?: unknown }).assetId;
+    if (typeof assetId !== "string" || !assetId.trim()) {
+      throw new ProjectMutationWriteError(
+        "A video speed ramp requires one stable media asset identity.",
+      );
+    }
+    const sourceStartFrame = projectVideoSourceStartFrameV1(currentOverlay);
+    const validatedState = assertProjectVideoSpeedRampStateV1({
+      durationInFrames: currentOverlay.durationInFrames,
+      speedCurve: input.speedCurve,
+      keyframeTracks: input.keyframeTracks,
+    });
+
+    const asset = await assetResolver.getAsset(assetId, userId);
+    if (!asset) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_ASSET_NOT_FOUND",
+        currentRevision,
+      };
+    }
+    const sourceBinding = resolveVerifiedVideoSourceTimeBindingV1(asset);
+    if (!sourceBinding) {
+      return {
+        disposition: "SAFE_STOP",
+        reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+        currentRevision,
+      };
+    }
+    if (sourceBinding.assetId !== assetId) {
+      throw new ProjectMutationWriteError(
+        "The verified source-time binding does not match the overlay asset.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    let sourceTimeTransform: ProjectVideoSourceTimeTransformV1;
+    try {
+      sourceTimeTransform = createProjectVideoSourceTimeTransformV1({
+        projectId,
+        overlayId: input.overlayId,
+        beforeProjectRevision: currentRevision,
+        afterProjectRevision: afterRevision,
+        projectFps: project.fps,
+        timelineStartFrame: currentOverlay.from,
+        sourceStartFrame,
+        durationInFrames: currentOverlay.durationInFrames,
+        speedCurve: validatedState.speedCurve,
+        sourceBinding,
+      });
+    } catch (error) {
+      if (error instanceof Error
+        && error.message === "VIDEO_SOURCE_TIME_TRANSFORM_SOURCE_HANDLES_INSUFFICIENT") {
+        return {
+          disposition: "SAFE_STOP",
+          reason: "SOURCE_HANDLES_INSUFFICIENT",
+          currentRevision,
+        };
+      }
+      throw error;
+    }
+
+    const updatedOverlay = withAtomicOverlayUpdateReceipt(
+      currentOverlay,
+      {
+        speedCurve: validatedState.speedCurve,
+        keyframeTracks: validatedState.keyframeTracks,
+      } as Partial<Overlay>,
+      {
+        source: "project-service-apply-video-speed-ramp-v1",
+        intent: "apply-video-speed-ramp",
+        reason: "verified video retime persisted through ProjectService",
+      },
+    );
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-video-retime_${nanoid(18)}`,
+      projectId,
+      operation: "APPLY_VIDEO_SPEED_RAMP",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: currentOverlay,
+      afterOverlay: updatedOverlay,
+      sourceTimeTransform,
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": input.overlayId,
+        ...projectRevisionPredicate(currentRevision),
+      },
+      {
+        $set: {
+          "overlays.$[elem]": updatedOverlay,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { arrayFilters: [{ "elem.id": input.overlayId }] },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      mutationReceipt,
+      timelineChangeReceipt,
+      sourceTimeTransform,
+    };
+  }
+
+  /**
+   * Rebind a source event only while both the project revision and the media
+   * owner's source-time binding still match the transform that was issued by
+   * the retime write.
+   */
+  async rebindVideoSourceEventAfterRetimeV1(
+    userId: string,
+    projectId: string,
+    input: Readonly<{
+      sourceTimeTransform: ProjectVideoSourceTimeTransformV1;
+      sourcePresentationTimestampTicks: string;
+    }>,
+  ): Promise<ProjectVideoSourceEventRebindResultV1> {
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+      {
+        projection: {
+          overlays: 1,
+          projectRevision: 1,
+          updatedAt: 1,
+          timelineRangeChangeReceipts: 1,
+        },
+      },
+    )) as unknown as Pick<
+      Project,
+      "overlays" | "projectRevision" | "updatedAt" | "timelineRangeChangeReceipts"
+    > | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(
+      input.sourceTimeTransform.afterProjectRevision,
+      currentRevision,
+    )) {
+      return { disposition: "UNVERIFIABLE", reason: "PROJECT_REVISION_STALE" };
+    }
+    const matchingReceipts = (project.timelineRangeChangeReceipts ?? []).filter(
+      (receipt) => receipt.operation === "APPLY_VIDEO_SPEED_RAMP"
+        && receipt.projectId === projectId
+        && receipt.sourceTimeTransform?.transformSha256
+          === input.sourceTimeTransform.transformSha256
+        && sameProjectRevisionV1(receipt.afterProjectRevision, currentRevision),
+    );
+    if (matchingReceipts.length !== 1
+      || !matchingReceipts[0]!.sourceTimeTransform) {
+      return {
+        disposition: "UNVERIFIABLE",
+        reason: "SOURCE_TIME_TRANSFORM_NOT_CURRENT",
+      };
+    }
+    // Resolve the transform from ProjectService-owned history. The caller's
+    // hash is an opaque lookup key, not permission to supply executable math.
+    const transform = matchingReceipts[0]!.sourceTimeTransform;
+    const currentOverlay = project.overlays.find(
+      (overlay) => String(overlay.id) === transform.overlayId,
+    );
+    const currentAssetId = (currentOverlay as { assetId?: unknown } | undefined)?.assetId;
+    if (typeof currentAssetId !== "string" || currentAssetId !== transform.assetId) {
+      return { disposition: "UNVERIFIABLE", reason: "OVERLAY_SOURCE_CHANGED" };
+    }
+    const asset = await assetResolver.getAsset(currentAssetId, userId);
+    if (!asset) {
+      return { disposition: "UNVERIFIABLE", reason: "SOURCE_ASSET_NOT_FOUND" };
+    }
+    const currentSourceBinding = resolveVerifiedVideoSourceTimeBindingV1(asset);
+    if (!currentSourceBinding) {
+      return {
+        disposition: "UNVERIFIABLE",
+        reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+      };
+    }
+    return rebindSourcePresentationTimestampV1(
+      transform,
+      currentSourceBinding,
+      input.sourcePresentationTimestampTicks,
+    );
+  }
+
+  /**
    * Update an overlay atomically
    */
   async updateOverlay(
@@ -6803,16 +7120,51 @@ function unionTimelineFrameRangesV1(
   };
 }
 
+function projectVideoSourceStartFrameV1(overlay: Overlay): number {
+  const shape = overlay as {
+    sourceStartFrame?: unknown;
+    videoStartTime?: unknown;
+  };
+  const sourceStartFrame = shape.sourceStartFrame;
+  const videoStartTime = shape.videoStartTime;
+  const values = [sourceStartFrame, videoStartTime].filter(
+    (value) => value !== undefined,
+  );
+  if (values.some((value) => (
+    typeof value !== "number"
+    || !Number.isSafeInteger(value)
+    || value < 0
+  ))) {
+    throw new ProjectMutationWriteError(
+      "Video source-start coordinates must be non-negative source-frame integers.",
+    );
+  }
+  if (sourceStartFrame !== undefined
+    && videoStartTime !== undefined
+    && sourceStartFrame !== videoStartTime) {
+    throw new ProjectMutationWriteError(
+      "Conflicting sourceStartFrame and videoStartTime coordinates cannot be retimed.",
+    );
+  }
+  return (sourceStartFrame ?? videoStartTime ?? 0) as number;
+}
+
 function createDirectOverlayTimelineChangeReceiptV1(input: {
   receiptId: string;
   projectId: string;
-  operation: "ADD_OVERLAY" | "UPDATE_OVERLAY" | "DELETE_OVERLAY";
+  operation:
+    | "ADD_OVERLAY"
+    | "UPDATE_OVERLAY"
+    | "APPLY_VIDEO_SPEED_RAMP"
+    | "DELETE_OVERLAY";
+  actorKind?: ProjectTimelineChangeActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
   afterProjectRevision: ProjectRevisionV1;
   committedAt: string;
   beforeOverlay: Overlay | null;
   afterOverlay: Overlay | null;
+  sourceTimeTransform?: ProjectVideoSourceTimeTransformV1 | null;
 }): ProjectTimelineRangeChangeReceiptV1 {
   const representativeOverlay = input.afterOverlay ?? input.beforeOverlay;
   if (!representativeOverlay) {
@@ -6834,13 +7186,15 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
   const rangeObservation = unionFrameRange
     ? "EXACT" as const
     : "UNKNOWN_LEGACY_OVERLAY_TIMING" as const;
+  const actorKind = input.actorKind ?? "UNKNOWN_LEGACY_CALLER";
+  assertProjectTimelineChangeActorKindV1(actorKind);
 
   return {
     schemaVersion: 1,
     receiptId: input.receiptId,
     projectId: input.projectId,
     operation: input.operation,
-    actorKind: "UNKNOWN_LEGACY_CALLER",
+    actorKind,
     coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
     fps: input.fps,
     beforeProjectRevision: input.beforeProjectRevision,
@@ -6859,6 +7213,7 @@ function createDirectOverlayTimelineChangeReceiptV1(input: {
       unionFrameRange,
     },
     timelineCoordinateTransform: null,
+    sourceTimeTransform: input.sourceTimeTransform ?? null,
     splitChildren: [],
     ripple: null,
     downstreamInvalidation: {

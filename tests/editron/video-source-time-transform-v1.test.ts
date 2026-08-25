@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import {
+  assertProjectVideoSpeedRampStateV1,
   createProjectVideoSourceTimeTransformV1,
   PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
   rebindSourcePresentationTimestampV1,
@@ -35,7 +36,7 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
         { timelineStartFrame: 150, timelineEndFrameExclusive: 190, playbackRate: 0.5, sourceStartFrame: 90, sourceEndFrameExclusive: 110 },
       ],
     });
-    expect(rebindSourcePresentationTimestampV1(transform, String(90 * 3003)))
+    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(90 * 3003)))
       .toEqual({
         disposition: 'REBOUND', sourcePresentationTimestampTicks: String(90 * 3003),
         sourceFrameOrdinal: 90, projectFrame: 150,
@@ -57,8 +58,14 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
       ],
       sourceBinding: binding(),
     });
-    expect(rebindSourcePresentationTimestampV1(base, String(2 * 3003)))
+    expect(rebindSourcePresentationTimestampV1(base, binding(), String(2 * 3003)))
       .toEqual({ disposition: 'UNVERIFIABLE', reason: 'SUBFRAME_PROJECT_POSITION' });
+
+    expect(rebindSourcePresentationTimestampV1(
+      base,
+      binding({ sourceVersionSha256: 'e'.repeat(64) }),
+      '3003',
+    )).toEqual({ disposition: 'UNVERIFIABLE', reason: 'SOURCE_BINDING_STALE' });
 
     const vfrBinding = binding({ sourceCadence: { kind: 'VFR' } });
     const vfr = createProjectVideoSourceTimeTransformV1({
@@ -70,7 +77,7 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
       speedCurve: [{ frame: 0, value: 1, easing: 'linear' }, { frame: 10, value: 1, easing: 'linear' }],
       sourceBinding: vfrBinding,
     });
-    expect(rebindSourcePresentationTimestampV1(vfr, '3003'))
+    expect(rebindSourcePresentationTimestampV1(vfr, vfrBinding, '3003'))
       .toEqual({ disposition: 'UNVERIFIABLE', reason: 'VFR_INDEX_REQUIRED' });
 
     expect(() => createProjectVideoSourceTimeTransformV1({
@@ -85,8 +92,40 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
 
     const forged = structuredClone(base) as any;
     forged.segments[0].playbackRate = 3;
-    expect(() => rebindSourcePresentationTimestampV1(forged, '3003'))
+    expect(() => rebindSourcePresentationTimestampV1(forged, binding(), '3003'))
       .toThrow('VIDEO_SOURCE_TIME_TRANSFORM_INVALID');
+  });
+
+  it('requires the stored speed track to match the renderer speed curve exactly', () => {
+    const speedCurve = [
+      { frame: 0, value: 1, easing: 'linear' as const },
+      { frame: 10, value: 0.5, easing: 'ease-in-out' as const },
+    ];
+    expect(assertProjectVideoSpeedRampStateV1({
+      durationInFrames: 20,
+      speedCurve,
+      keyframeTracks: [
+        { property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'linear' }] },
+        { property: 'speed', keyframes: speedCurve },
+      ],
+    })).toEqual({
+      speedCurve,
+      keyframeTracks: [
+        { property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'linear' }] },
+        { property: 'speed', keyframes: speedCurve },
+      ],
+    });
+    expect(() => assertProjectVideoSpeedRampStateV1({
+      durationInFrames: 20,
+      speedCurve,
+      keyframeTracks: [{
+        property: 'speed',
+        keyframes: [
+          { frame: 0, value: 1, easing: 'linear' },
+          { frame: 10, value: 2, easing: 'ease-in-out' },
+        ],
+      }],
+    })).toThrow('VIDEO_SPEED_RAMP_KEYFRAME_PARITY_INVALID');
   });
 });
 

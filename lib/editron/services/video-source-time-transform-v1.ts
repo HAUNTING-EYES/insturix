@@ -1,4 +1,7 @@
-import type { Keyframe } from '@/components/editron/editor/version-7.0.0/types';
+import type {
+  Keyframe,
+  KeyframeTrack,
+} from '@/components/editron/editor/version-7.0.0/types';
 import { computeSpeedSegments } from '@/lib/editron/utils/keyframe-math';
 
 import {
@@ -73,7 +76,7 @@ export type SourcePresentationTimestampRebindV1 = Readonly<
     }
   | {
       disposition: 'UNVERIFIABLE';
-      reason: 'VFR_INDEX_REQUIRED' | 'PTS_OUTSIDE_SOURCE' | 'PTS_NOT_FRAME_ALIGNED'
+      reason: 'SOURCE_BINDING_STALE' | 'VFR_INDEX_REQUIRED' | 'PTS_OUTSIDE_SOURCE' | 'PTS_NOT_FRAME_ALIGNED'
         | 'SOURCE_FRAME_NOT_PRESENT_AFTER_RETIME' | 'SUBFRAME_PROJECT_POSITION';
     }
 >;
@@ -174,10 +177,15 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
 
 export function rebindSourcePresentationTimestampV1(
   transform: ProjectVideoSourceTimeTransformV1,
+  currentSourceBinding: VerifiedVideoSourceTimeBindingV1,
   sourcePresentationTimestampTicks: string,
 ): SourcePresentationTimestampRebindV1 {
   assertTransform(transform);
+  const currentBinding = assertBinding(currentSourceBinding);
   const binding = transform.sourceBinding;
+  if (currentBinding.bindingSha256 !== binding.bindingSha256) {
+    return frozen({ disposition: 'UNVERIFIABLE' as const, reason: 'SOURCE_BINDING_STALE' as const });
+  }
   if (binding.sourceCadence.kind === 'VFR') {
     return frozen({ disposition: 'UNVERIFIABLE' as const, reason: 'VFR_INDEX_REQUIRED' as const });
   }
@@ -210,7 +218,60 @@ export function rebindSourcePresentationTimestampV1(
   });
 }
 
+/**
+ * Validates the persisted renderer state selected by the speed-ramp form
+ * owner. This function does not choose curve points, easing, or duration; it
+ * only prevents the writer from storing a speed track that contradicts the
+ * renderer's `speedCurve` input.
+ */
+export function assertProjectVideoSpeedRampStateV1(input: Readonly<{
+  durationInFrames: number;
+  speedCurve: readonly Keyframe[];
+  keyframeTracks: readonly KeyframeTrack[];
+}>): Readonly<{ speedCurve: Keyframe[]; keyframeTracks: KeyframeTrack[] }> {
+  const durationInFrames = positiveInteger(
+    input.durationInFrames,
+    'VIDEO_SOURCE_TIME_TRANSFORM_DURATION_INVALID',
+  );
+  const speedCurve = assertSpeedCurve(input.speedCurve, durationInFrames);
+  if (!Array.isArray(input.keyframeTracks)) {
+    throw new Error('VIDEO_SPEED_RAMP_KEYFRAME_TRACKS_INVALID');
+  }
+  const allowedProperties = new Set<KeyframeTrack['property']>([
+    'x', 'y', 'scale', 'opacity', 'rotation', 'speed', 'objectPositionX', 'objectPositionY',
+  ]);
+  const allowedEasings = new Set<Keyframe['easing']>([
+    'linear', 'ease-in', 'ease-out', 'ease-in-out', 'snap-out',
+  ]);
+  const keyframeTracks = input.keyframeTracks.map((track) => {
+    if (!track || !allowedProperties.has(track.property) || !Array.isArray(track.keyframes)) {
+      throw new Error('VIDEO_SPEED_RAMP_KEYFRAME_TRACKS_INVALID');
+    }
+    const trackKeyframes: readonly Keyframe[] = track.keyframes;
+    const keyframes = trackKeyframes.map((point: Keyframe, index: number) => {
+      if (!Number.isSafeInteger(point?.frame) || point.frame < 0
+        || point.frame >= durationInFrames || !Number.isFinite(point.value)
+        || !allowedEasings.has(point.easing)
+        || (index > 0 && point.frame <= trackKeyframes[index - 1]!.frame)) {
+        throw new Error('VIDEO_SPEED_RAMP_KEYFRAME_TRACKS_INVALID');
+      }
+      return { ...point };
+    });
+    return { property: track.property, keyframes };
+  });
+  const speedTracks = keyframeTracks.filter((track) => track.property === 'speed');
+  if (speedTracks.length !== 1
+    || hashEditronCanonicalJsonV1(speedTracks[0]!.keyframes)
+      !== hashEditronCanonicalJsonV1(speedCurve)) {
+    throw new Error('VIDEO_SPEED_RAMP_KEYFRAME_PARITY_INVALID');
+  }
+  return { speedCurve, keyframeTracks };
+}
+
 function assertBinding(value: VerifiedVideoSourceTimeBindingV1): VerifiedVideoSourceTimeBindingV1 {
+  // `bindingSha256` is an integrity hash, not a caller credential. Production
+  // safety depends on ProjectService deriving this value from the current
+  // MEDIA_ASSETS record rather than accepting a model-supplied binding.
   const unsigned = { ...value } as Record<string, unknown>;
   delete unsigned.bindingSha256;
   if (value.schemaVersion !== 1 || value.kind !== VIDEO_SOURCE_TIME_BINDING_KIND_V1
