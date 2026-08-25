@@ -147,21 +147,48 @@ creation or the queued response. Direct fetch is now development-only. Focused
 chat/ingress, video-generation and financial suites passed 23/23; repository
 typecheck and quiet ESLint passed.
 
-This is deliberately not a durable replay ledger, a video-worker delivery
-receipt, a ProjectService command, or a fix for a partial QStash publication.
-The incoming video worker's raw overlay write, raw quality-warning append and
-Director pending-field clear/unsigned handoff remain open P0 work.
+The ingress correction itself was deliberately not a durable replay ledger, a
+video-worker delivery receipt, a ProjectService command, or a fix for a
+partial QStash publication. The next bounded owner-contract phase is recorded
+below. The incoming video worker's raw overlay write, raw quality-warning
+append and Director pending-field clear/unsigned handoff remain open P0 work
+until that worker is actually migrated.
 
 The media-assets collection stays its existing owner. Director run lifecycle
 stays its existing ProjectService owner. This command must not create a second
 project store, checkpoint store, timeline, registry, dispatcher or proof
 authority.
 
+### Completed owner-contract phase — not runtime migration
+
+Commit `3d4852e46` introduces the narrow
+`ProjectService.commitPipelineVideoDeliveryV1` boundary and pure delivery
+material helper. It accepts only a worker-issued target `{ overlayId,
+expectedAssetId }`, an exact expected project revision, canonical replacement
+material and a delivery identity. It writes one exact overlay replacement with
+an idempotency receipt, a writer-issued after-revision, changed paths, an
+exact project-frame range effect and the explicit
+`UNVERIFIABLE / NO_RENDERED_VIDEO_PROOF` disposition.
+
+There is deliberately no V1 safe rebase: any project revision drift, missing
+target, non-video target or target asset change returns a structured conflict
+without a project write. Native-audio output requires matching generated-audio
+rights and FFmpeg probe evidence. A provider that produces neither native audio
+nor a generation receipt can land only with both fields absent; the command
+does not invent provenance.
+
+Focused ProjectService delivery/range tests passed 26/26, followed by
+repository typecheck and quiet ESLint. This commit **does not call the command
+from the worker**, does not remove the raw worker write, and does not migrate
+quality warnings or Director dispatch. Those remain the next separately tested
+runtime phases.
+
 ## Sequencing and non-claims
 
-The next implementation must first establish where a stable overlay id and
-expected source binding are produced at storyboard-finalization time. It must
-also locate the current durable dispatch/claim record before choosing whether a
+The next implementation must materialize the already-designed stable overlay
+id, expected source binding and expected revision at the worker producer, then
+make the worker call the owner command instead of the raw update. It must also
+locate the current durable dispatch/claim record before choosing whether a
 failed publication is represented on the project, batch, or existing Director
 run owner. Deleting the fallback alone is not sufficient because it would leave
 the cleared pending fields unrecoverable.

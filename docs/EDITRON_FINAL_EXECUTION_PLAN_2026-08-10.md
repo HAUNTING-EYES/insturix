@@ -160,6 +160,20 @@ changes.
   QStash-publication recovery, or its Director pending-field clear/unsigned
   downstream handoff; those remain the next pipeline-video P0 design/migration.
 
+- **2026-08-25 pipeline-video ProjectService owner contract — not wired.**
+  Commit `3d4852e46` creates the narrowly typed
+  `commitPipelineVideoDeliveryV1` path: one stable target overlay ID plus
+  expected prior asset, exact expected revision, canonical delivery material,
+  idempotency/material hash, writer-issued after-revision, exact local range
+  receipt and explicit `UNVERIFIABLE / NO_RENDERED_VIDEO_PROOF` result. It
+  refuses every revision drift rather than pretending a generated-video
+  replacement can safely rebase. It also refuses unproven native audio, while
+  preserving the truthful no-native-audio/no-receipt provider case. Focused
+  ProjectService delivery/range coverage passed 26/26, with repository
+  typecheck and quiet ESLint passing. This is **shared owner plumbing only**:
+  the live video worker still has its raw project update and does not call the
+  command; quality-warning persistence and Director dispatch are not included.
+
 ## The desired experience, in plain words
 
 1. A user opens a project and drops in footage, audio, a script, brand files,
