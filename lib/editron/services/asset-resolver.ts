@@ -12,6 +12,7 @@ import type { TranscriptionData } from './media/types';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
 import type { MediaSourceVersionV1 } from './media-source-version-v1';
+import { resolveActiveMediaR2StorageKeyV1 } from './media-proxy-master-transition-v1';
 
 export interface MediaAsset {
   _id?: any;
@@ -53,6 +54,8 @@ export interface MediaAsset {
    * non-qualified result, never a client or URL fallback.
    */
   sourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
+  /** Historical proxy identity retained only for a later qualified proxy/master relation. */
+  proxySourceVersionV1?: Readonly<MediaSourceVersionV1> | null;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
   /** Canonical source receipt for an embedded user-uploaded audio stream. */
@@ -313,15 +316,17 @@ export class AssetResolver {
       if (asset.type === 'sequence') continue;
       try {
         // CDN Worker URL is the canonical path for R2 assets.
-        // The assetId IS the R2 key — CDN Worker resolves it directly.
+        // A completed proxy promotion retains the proxy key in `r2Key` and
+        // selects its server-owned master through `originalR2Key`.
         // Old code: only used CDN if asset had gcsPath/r2Key/cachedUrl-with-CDN.
         // Bug: R2 assets registered by the worker had no r2Key field, so they fell
         // through to "existing non-GCS URL" which returned the expired presigned URL.
         // Guard: GCS-only assets (have gcsPath but no R2 key) must NOT go through CDN
         // Worker — the Worker only serves R2 objects, not GCS.
-        const isGcsOnly = !!asset.gcsPath && !asset.r2Key && !asset.cachedUrl?.includes(cdnBaseUrl);
+        const activeStorageKey = resolveActiveMediaR2StorageKeyV1(asset);
+        const isGcsOnly = !!asset.gcsPath && !activeStorageKey && !asset.cachedUrl?.includes(cdnBaseUrl);
         if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
-          const storageKey = asset.r2Key?.trim() || asset.assetId;
+          const storageKey = activeStorageKey || asset.assetId;
           assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${storageKey}`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
           assetMap.set(asset.assetId, asset.cachedUrl);
@@ -420,7 +425,7 @@ export class AssetResolver {
     // The Cloudflare Worker handles R2 caching + GCS fallback transparently.
     const cdnWorkerUrl = process.env.CDN_WORKER_URL;
     if (cdnWorkerUrl && asset.assetId) {
-      const storageKey = asset.r2Key?.trim() || asset.assetId;
+      const storageKey = resolveActiveMediaR2StorageKeyV1(asset) || asset.assetId;
       return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${storageKey}`;
     }
 

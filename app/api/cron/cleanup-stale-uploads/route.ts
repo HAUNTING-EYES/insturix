@@ -11,64 +11,66 @@
 
 import { NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
-import { r2FileExists, getR2PublicUrl } from '@/lib/editron/services/r2-service';
+import { runMediaProxyMasterTransitionV1 } from '@/lib/editron/services/media-proxy-master-transition-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (!cronSecret) {
+    return NextResponse.json({ success: false, error: 'CRON_SECRET_NOT_CONFIGURED' }, { status: 503 });
+  }
+  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ success: false, error: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   try {
     const db = await getDatabase();
 
     // Find proxy assets that might have completed originals
     const proxyAssets = await db
       .collection(COLLECTIONS.MEDIA_ASSETS)
-      .find({ isProxy: true })
+      .find({ isProxy: true }, { projection: { assetId: 1, userId: 1 } })
       .limit(50)
       .toArray();
 
     if (proxyAssets.length === 0) {
-      return NextResponse.json({ success: true, healed: 0, message: 'No proxy assets found' });
+      return NextResponse.json({ success: true, checked: 0, transitioned: 0, pendingQualification: 0, skipped: 0 });
     }
 
-    let healed = 0;
+    let transitioned = 0;
+    let pendingQualification = 0;
+    let skipped = 0;
+    let failures = 0;
 
     for (const asset of proxyAssets) {
-      // Check if the original R2 key exists (multipart completed successfully)
-      const originalKey = asset.originalR2Key;
-      if (!originalKey) continue;
-
-      const exists = await r2FileExists(originalKey);
-      if (!exists) continue;
-
-      // Original exists — swap the URL
-      const originalUrl = getR2PublicUrl(originalKey);
-      await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-        { assetId: asset.assetId },
-        {
-          $set: {
-            cachedUrl: originalUrl,
-            isProxy: false,
-          },
-        },
-      );
-
-      console.log(`[Cron] Auto-healed proxy: ${asset.assetId} → ${originalKey}`);
-      healed++;
+      if (typeof asset.assetId !== 'string' || typeof asset.userId !== 'string') {
+        skipped++;
+        continue;
+      }
+      try {
+        const result = await runMediaProxyMasterTransitionV1({ assetId: asset.assetId, userId: asset.userId });
+        if (result.disposition === 'TRANSITIONED') {
+          transitioned++;
+          if (result.qualification === 'PENDING') pendingQualification++;
+        } else if (result.disposition !== 'ALREADY_ACTIVE') {
+          skipped++;
+        }
+      } catch {
+        failures++;
+      }
     }
 
-    console.log(`[Cron] Cleanup complete: ${healed}/${proxyAssets.length} healed`);
-
     return NextResponse.json({
-      success: true,
+      success: failures === 0,
       checked: proxyAssets.length,
-      healed,
-    });
-  } catch (error: any) {
-    console.error('[Cron] Cleanup failed:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'Cleanup failed' },
-      { status: 500 },
-    );
+      transitioned,
+      pendingQualification,
+      skipped,
+      failures,
+    }, { status: failures === 0 ? 200 : 500 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'PROXY_MASTER_CLEANUP_FAILED' }, { status: 500 });
   }
 }
