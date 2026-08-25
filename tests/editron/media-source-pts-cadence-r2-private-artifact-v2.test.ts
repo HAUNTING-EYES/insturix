@@ -77,8 +77,15 @@ describe('MediaSourcePtsCadenceR2PrivateArtifactV2', () => {
     })).rejects.toThrow('MEDIA_SOURCE_PTS_CADENCE_R2_V2_CONTENT_MISMATCH');
     await expect(port.read({
       ...fixture.indexSidecar,
-      objectKey: `${fixture.indexSidecar.objectKey}-missing`,
+      objectKey: fixture.indexSidecar.objectKey.replace(
+        /[a-f0-9]{64}\.json$/,
+        `${'0'.repeat(64)}.json`,
+      ),
     })).rejects.toThrow('MEDIA_SOURCE_PTS_CADENCE_R2_V2_READ_FAILED');
+    await expect(port.read({
+      ...fixture.indexSidecar,
+      objectKey: 'private/editron/media-source-pts-cadence/v2/../../escaped.json',
+    })).rejects.toThrow('MEDIA_SOURCE_PTS_CADENCE_R2_V2_OBJECT_KEY_INVALID');
     await expect(port.read({
       ...fixture.indexSidecar,
       storage: 'GCS_PRIVATE',

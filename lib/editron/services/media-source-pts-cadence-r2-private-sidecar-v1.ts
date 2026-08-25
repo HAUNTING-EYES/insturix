@@ -54,6 +54,9 @@ type MediaSourcePtsCadencePrivateObjectReferenceV2 = Readonly<{
   contentSha256: string;
 }>;
 
+const MEDIA_SOURCE_PTS_CADENCE_R2_PRIVATE_OBJECT_KEY_V2 =
+  /^private\/editron\/media-source-pts-cadence\/v2\/[a-f0-9]{64}\/(?:frame-batches\/(?:0|[1-9]\d{0,15})\/[a-f0-9]{64}|manifest-indexes\/[a-f0-9]{64})\.json$/;
+
 export type MediaSourcePtsCadenceR2PrivateArtifactPortV2 = Readonly<{
   writeImmutableFrameBatch(input: Readonly<{
     serialization: MediaSourcePtsCadenceFrameBatchSerializationV2;
@@ -388,8 +391,7 @@ function assertPrivateObjectReferenceV2(
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V2_STORAGE_MISMATCH');
   }
   if (typeof candidate.objectKey !== 'string'
-    || !candidate.objectKey.startsWith('private/editron/media-source-pts-cadence/v2/')
-    || /[\u0000-\u001F\u007F]/.test(candidate.objectKey)) {
+    || !MEDIA_SOURCE_PTS_CADENCE_R2_PRIVATE_OBJECT_KEY_V2.test(candidate.objectKey)) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V2_OBJECT_KEY_INVALID');
   }
   const maximumByteLength = Math.max(
