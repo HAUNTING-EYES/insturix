@@ -136,3 +136,38 @@ This migration will not create a transactional outbox, retry driver, full
 finalize atomic transaction, render proof, generic range lock/rebase system,
 or completed Director run. It does not validate the inherited `G-01` creative
 profile beyond treating it as the existing bounded request value.
+
+## Completion record — 2026-08-25
+
+Implemented by commit `d2c5fb026`.
+
+`ProjectService.recordPipelineDirectorIntentV1` is now the sole owner of this
+pending signal. It accepts a bounded profile ID and exact ProjectService
+revision, reads and writes with both `projectId` and authenticated `userId`, and
+uses one conditional update to reject Assist projects, active Director runs,
+prepared dispatches, competing pending facts and stale revisions. It advances
+`projectRevision`, returns a writer-issued receipt, and treats only an identical
+pending `(profileId, userId)` state as idempotent. A lost CAS returns that exact
+winner only when the same eligibility conditions remain true; otherwise it
+throws a conflict. It never publishes QStash work or claims a Director run.
+
+The finalizer now calls `transitionProjectStatus` before taking its fresh
+mutation snapshot because that legacy status transition advances `updatedAt`.
+It then records the intent through ProjectService. The response returns
+`directorQueued: true` only for `RECORDED` or `ALREADY_RECORDED`, together with
+`directorQueueState: 'PENDING_PIPELINE_VIDEO_COMPLETION'`; this is an accepted
+intent, not worker delivery. All other dispositions and errors return false with
+a visible warning while preserving the finalized project.
+
+Verification:
+
+- focused ProjectService/finalizer/Director/audio suites: 39/39;
+- combined nearby safety suite after the persisted-JSON type repair: 52/52;
+- `pnpm exec tsc --noEmit` with `NODE_OPTIONS=--max-old-space-size=8192`;
+- `pnpm exec eslint . --quiet`.
+
+The exclusions in this audit remain open and must not be treated as migrated.
+In particular, reused-project metadata, storyboard/music-policy facts,
+synchronous BGM attachment and generic status ownership are distinct writer
+families. The later pipeline-video worker remains the sole preparation and
+publication path for the signed Director dispatch.

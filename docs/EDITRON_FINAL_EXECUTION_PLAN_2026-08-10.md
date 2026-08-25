@@ -223,21 +223,32 @@ changes.
   product consumer for `qualityWarnings` was found, and this does not calibrate
   the score, create retention/UI policy, prove visual/audio quality, migrate
   finalize's raw pending-signal producer, or add transactional recovery. Focused
-  ProjectService/video-delivery/Director regression coverage passed 22/22, with
-  repository typecheck and quiet ESLint passing.
+  ProjectService/video-delivery/Director regression coverage passed 22/22. Commit
+  `e371b3251` then corrected the persisted-JSON decoder type boundary and added a
+  malformed matching-warning regression; the combined safety bundle passes 52/52,
+  repository typecheck with `NODE_OPTIONS=--max-old-space-size=8192`, and quiet
+  ESLint.
 
-- **Next bounded safety slice is audited, not yet implemented.**
-  [pipeline-finalize-director-intent-step0-audit-2026-08-25.md](./editron/pipeline-finalize-director-intent-step0-audit-2026-08-25.md)
-  isolates the raw finalize producer of `pendingDirectorProfileId` and
-  `pendingDirectorUserId`. The live route currently catches a failed raw write
-  but still returns `directorQueued: true`, even though it only intends later
-  pipeline-video completion to prepare a signed Director dispatch. The next
-  narrow ProjectService command must exact-CAS that intent, be idempotent only
-  for the identical pending state, reject active/prepared/Assist/stale states,
-  issue a receipt and make the API result truthful. Reused-project metadata,
-  storyboard/music-policy facts, synchronous BGM attachment and generic status
-  tracking are explicitly separate writers and are not authorized by this
-  slice.
+- **2026-08-25 pipeline-finalize Director-intent migration.** Commit
+  `d2c5fb026` removes the raw finalize write of `pendingDirectorProfileId` and
+  `pendingDirectorUserId`. After the legacy `transitionProjectStatus` call (it
+  changes `updatedAt`), the finalizer obtains a fresh ProjectService mutation
+  snapshot and calls the narrow `recordPipelineDirectorIntentV1` owner. That
+  owner exact-CASes the authenticated project/user and expected revision,
+  rejects Assist, active-run, prepared-dispatch and competing-intent states,
+  replays only the identical pending intent, and publishes a writer receipt.
+  A stale or lost CAS has no broad rebase. `directorQueued` is now false unless
+  the intent was recorded or identically replayed; its accompanying
+  `directorQueueState: 'PENDING_PIPELINE_VIDEO_COMPLETION'` makes clear this is
+  not a signed-worker delivery. The later pipeline-video completion remains the
+  sole owner of `preparePipelineDirectorDispatchV1` and QStash publication.
+  Focused finalizer/ProjectService/Director/audio suites pass 39/39; repository
+  typecheck with `NODE_OPTIONS=--max-old-space-size=8192` and quiet ESLint pass.
+  This does not migrate reused-project metadata, storyboard/music-policy facts,
+  synchronous BGM attachment, generic status tracking, an outbox/retry driver,
+  or a full finalize transaction. The next safety action is a fresh
+  current-truth reissue of the residual raw-writer inventory before selecting
+  its next P0 owner migration.
 
 ## The desired experience, in plain words
 
