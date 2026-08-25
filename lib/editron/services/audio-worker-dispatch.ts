@@ -8,8 +8,11 @@
  * must not block project creation or the edit.
  */
 
+import { randomBytes } from 'node:crypto';
 import { Client } from '@upstash/qstash';
 import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
+
+const AUDIO_DELIVERY_ID_PATTERN = /^audio-delivery_[A-Za-z0-9_-]{18}$/;
 
 export interface AudioDispatchResult {
   version: 'audio-dispatch-result-v1';
@@ -17,6 +20,8 @@ export interface AudioDispatchResult {
   url: string;
   dispatched: boolean;
   method: 'qstash' | 'fetch' | 'none';
+  /** Stable identity carried unchanged by QStash retries. */
+  deliveryId?: string;
   messageId?: string;
   error?: string;
 }
@@ -44,6 +49,39 @@ function notDispatched(label: string, url: string, error: string): AudioDispatch
   };
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function createAudioDeliveryId(): string {
+  return `audio-delivery_${randomBytes(14).toString('base64url').slice(0, 18)}`;
+}
+
+function withAudioDeliveryIdentity(body: unknown): {
+  body: Record<string, unknown>;
+  deliveryId: string;
+} {
+  if (!isPlainRecord(body)) {
+    throw new Error('Audio worker payload must be a JSON object.');
+  }
+  const suppliedDeliveryId = body.audioDeliveryId;
+  if (
+    suppliedDeliveryId !== undefined
+    && (typeof suppliedDeliveryId !== 'string' || !AUDIO_DELIVERY_ID_PATTERN.test(suppliedDeliveryId))
+  ) {
+    throw new Error('Audio worker payload has an invalid audioDeliveryId.');
+  }
+  const deliveryId = typeof suppliedDeliveryId === 'string'
+    ? suppliedDeliveryId
+    : createAudioDeliveryId();
+  return {
+    body: { ...body, audioDeliveryId: deliveryId },
+    deliveryId,
+  };
+}
+
 /**
  * Enqueue an audio-worker job. Production requires the QStash publisher token and the
  * signing-key pair that the worker verifies. Local development may use a direct fetch.
@@ -62,9 +100,10 @@ export async function dispatchAudioJob(body: unknown, label: string): Promise<Au
   }
 
   try {
+    const delivery = withAudioDeliveryIdentity(body);
     if (qstashToken) {
       const qstash = new Client({ token: qstashToken, baseUrl: process.env.QSTASH_URL || undefined });
-      const result = await qstash.publishJSON({ url, body, retries: 2 });
+      const result = await qstash.publishJSON({ url, body: delivery.body, retries: 2 });
       const messageId = (result as any)?.messageId;
       console.log(`[AudioDispatch] ${label} dispatched via QStash: ${messageId || 'ok'}`);
       return {
@@ -73,6 +112,7 @@ export async function dispatchAudioJob(body: unknown, label: string): Promise<Au
         url,
         dispatched: true,
         method: 'qstash',
+        deliveryId: delivery.deliveryId,
         ...(messageId ? { messageId } : {}),
       };
     }
@@ -81,7 +121,7 @@ export async function dispatchAudioJob(body: unknown, label: string): Promise<Au
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(delivery.body),
     }).catch(() => {});
     console.log(`[AudioDispatch] ${label} dispatched via fetch (no QStash)`);
     return {
@@ -90,6 +130,7 @@ export async function dispatchAudioJob(body: unknown, label: string): Promise<Au
       url,
       dispatched: true,
       method: 'fetch',
+      deliveryId: delivery.deliveryId,
     };
   } catch (err: any) {
     const error = err?.message ?? String(err);
