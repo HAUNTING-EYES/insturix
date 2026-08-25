@@ -386,13 +386,19 @@ describe('chat mechanical tool contracts', () => {
     expect(filter.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
 
     const reframeDependencies = {
-      loadProject: vi.fn(async () => structuredClone(project) as Record<string, any>),
+      loadProjectForMutation: vi.fn(async () => ({
+        project: structuredClone(project) as Record<string, any>,
+        revision: {
+          schemaVersion: 1 as const,
+          value: 5,
+          compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+        },
+      })),
       loadAnalyses: vi.fn(async () => []),
       loadSourceRasters: vi.fn(async () => ({})),
-      saveProject: vi.fn(async (_userId: string, _projectId: string, next: Record<string, any>) => {
-        Object.assign(project, structuredClone(next));
+      saveProjectWithReceipt: vi.fn(async (input: { project: Record<string, any> }) => {
+        Object.assign(project, structuredClone(input.project));
       }),
-      updateProject: vi.fn(async () => {}),
     };
     const reframeTool = createChatVisualTools({
       userId: project.userId,
@@ -406,6 +412,17 @@ describe('chat mechanical tool contracts', () => {
     };
     expect(reframe.status).toBe('success');
     expect(reframe.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
+    expect(reframeDependencies.saveProjectWithReceipt).toHaveBeenCalledTimes(1);
+    expect(reframeDependencies.saveProjectWithReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 5,
+        compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+      },
+      projectUpdates: expect.objectContaining({
+        'intelligence.lastSubjectReframe': expect.any(Object),
+      }),
+    }));
   });
 
   it('copies only requested style properties and reports missing targets', async () => {

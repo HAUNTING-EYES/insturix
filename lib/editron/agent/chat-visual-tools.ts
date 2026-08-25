@@ -17,6 +17,7 @@ import {
   buildSubjectAwareReframePlan,
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
+import type { ProjectRevisionV1 } from "../services/project-service";
 import { resolveAtomicZoomForm } from "../services/zoom-form";
 import { evaluateAllTracks } from "../utils/keyframe-math";
 
@@ -91,11 +92,19 @@ interface CreateChatVisualToolsOptions {
 }
 
 export interface SubjectReframeDependencies {
-  loadProject(userId: string, projectId: string): Promise<Record<string, any> | null>;
+  loadProjectForMutation(userId: string, projectId: string): Promise<{
+    project: Record<string, any>;
+    revision: ProjectRevisionV1;
+  } | null>;
   loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
   loadSourceRasters(userId: string, assetIds: string[]): Promise<Record<string, { width: number; height: number }>>;
-  saveProject(userId: string, projectId: string, project: Record<string, any>): Promise<void>;
-  updateProject(userId: string, projectId: string, updates: Record<string, unknown>): Promise<void>;
+  saveProjectWithReceipt(input: {
+    userId: string;
+    projectId: string;
+    project: Record<string, any>;
+    expectedRevision: ProjectRevisionV1;
+    projectUpdates: Record<string, unknown>;
+  }): Promise<unknown>;
 }
 
 interface VisualMomentOptions {
@@ -1155,10 +1164,11 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     async (input: z.infer<typeof subjectReframeSchema>) => {
       try {
         const dependencies = subjectReframeDependencies ?? await createSubjectReframeDependencies();
-        const project = await dependencies.loadProject(userId, projectId);
-        if (!project) {
+        const snapshot = await dependencies.loadProjectForMutation(userId, projectId);
+        if (!snapshot) {
           return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
         }
+        const project = snapshot.project;
 
         const assetIds = Array.from(new Set(
           (Array.isArray(project.overlays) ? project.overlays : [])
@@ -1174,6 +1184,7 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
           userId,
           projectId,
           project,
+          expectedRevision: snapshot.revision,
           analyses,
           sourceRastersByAssetId,
           targetAspectRatio: input.targetAspectRatio,
@@ -1212,6 +1223,7 @@ export async function applySubjectReframeMutation(
     userId: string;
     projectId: string;
     project: Record<string, any>;
+    expectedRevision: ProjectRevisionV1;
     analyses: unknown[];
     sourceRastersByAssetId: Record<string, { width: number; height: number }>;
     targetAspectRatio: "16:9" | "9:16" | "1:1" | "4:5";
@@ -1232,17 +1244,20 @@ export async function applySubjectReframeMutation(
     return updates ? { ...overlay, ...updates } : overlay;
   });
   const auditReceipt = plan.projectUpdates["intelligence.lastSubjectReframe"];
-  await dependencies.saveProject(input.userId, input.projectId, {
-    ...input.project,
-    overlays,
-    aspectRatio: plan.projectUpdates.aspectRatio,
-    playerDimensions: plan.projectUpdates.playerDimensions,
+  await dependencies.saveProjectWithReceipt({
+    userId: input.userId,
+    projectId: input.projectId,
+    project: {
+      ...input.project,
+      overlays,
+      aspectRatio: plan.projectUpdates.aspectRatio,
+      playerDimensions: plan.projectUpdates.playerDimensions,
+    },
+    expectedRevision: input.expectedRevision,
+    projectUpdates: auditReceipt
+      ? { "intelligence.lastSubjectReframe": auditReceipt }
+      : {},
   });
-  if (auditReceipt) {
-    await dependencies.updateProject(input.userId, input.projectId, {
-      "intelligence.lastSubjectReframe": auditReceipt,
-    });
-  }
   return plan;
 }
 
@@ -1253,7 +1268,10 @@ async function createSubjectReframeDependencies(): Promise<SubjectReframeDepende
   ]);
   const db = await getDatabase();
   return {
-    loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<Record<string, any> | null>,
+    loadProjectForMutation: async (userId, projectId) => {
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      return { project: snapshot.project as unknown as Record<string, any>, revision: snapshot.revision };
+    },
     loadAnalyses: async (projectId, assetIds) => {
       if (assetIds.length === 0) return [];
       return db.collection(PROJECT_ASSET_ANALYSES_COLLECTION).find({
@@ -1276,8 +1294,13 @@ async function createSubjectReframeDependencies(): Promise<SubjectReframeDepende
           : [];
       }));
     },
-    saveProject: (userId, projectId, project) => projectService.saveProject(userId, projectId, project as any),
-    updateProject: (userId, projectId, updates) => projectService.updateProject(userId, projectId, updates),
+    saveProjectWithReceipt: ({ userId, projectId, project, expectedRevision, projectUpdates }) => (
+      projectService.saveProjectWithReceipt(userId, projectId, project as any, {
+        expectedRevision,
+        projectUpdates,
+        overlayAuthority: "server",
+      })
+    ),
   };
 }
 

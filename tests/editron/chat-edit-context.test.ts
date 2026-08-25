@@ -601,14 +601,18 @@ describe('chat edit context bundle', () => {
   });
 
   it('persists one subject-aware reframe mutation with focal tracks and its audit receipt', async () => {
-    const saveProject = async (_userId: string, _projectId: string, state: Record<string, any>) => {
-      savedProject = state;
-    };
-    const updateProject = async (_userId: string, _projectId: string, updates: Record<string, unknown>) => {
-      savedAudit = updates;
+    const saveProjectWithReceipt = async (input: {
+      project: Record<string, any>;
+      expectedRevision: { schemaVersion: 1; value: number; compatibilityUpdatedAt: string };
+      projectUpdates: Record<string, unknown>;
+    }) => {
+      savedProject = input.project;
+      savedAudit = input.projectUpdates;
+      savedRevision = input.expectedRevision;
     };
     let savedProject: Record<string, any> | null = null;
     let savedAudit: Record<string, unknown> | null = null;
+    let savedRevision: { schemaVersion: 1; value: number; compatibilityUpdatedAt: string } | null = null;
     const reframeProject = {
       projectId: 'proj-chat-reframe',
       fps: 30,
@@ -633,6 +637,11 @@ describe('chat edit context bundle', () => {
       userId: 'user-1',
       projectId: reframeProject.projectId,
       project: reframeProject,
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+      },
       analyses: [{
         projectId: reframeProject.projectId,
         assetId: 'asset-subject',
@@ -649,11 +658,17 @@ describe('chat edit context bundle', () => {
       sourceRastersByAssetId: { 'asset-subject': { width: 1920, height: 1080 } },
       targetAspectRatio: '9:16',
     }, {
-      loadProject: async () => reframeProject,
+      loadProjectForMutation: async () => ({
+        project: reframeProject,
+        revision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+        },
+      }),
       loadAnalyses: async () => [],
       loadSourceRasters: async () => ({ 'asset-subject': { width: 1920, height: 1080 } }),
-      saveProject,
-      updateProject,
+      saveProjectWithReceipt,
     });
 
     expect(plan).toMatchObject({ status: 'changed', subjectTrackedOverlayIds: [41] });
@@ -671,6 +686,11 @@ describe('chat edit context bundle', () => {
       })],
     });
     expect(savedAudit).toHaveProperty('intelligence.lastSubjectReframe');
+    expect(savedRevision).toEqual({
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-25T12:00:00.000Z',
+    });
   });
 
   it('covers audio moment search with registry metadata without importing Mongo-backed tools', () => {
