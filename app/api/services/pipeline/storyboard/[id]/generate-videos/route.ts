@@ -31,6 +31,8 @@ import {
 import { getActualVideoDuration } from '@/lib/pipeline/adapters/video-model-configs';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
+import { verifyPipelineVideoEnqueueInternalRequestV1 } from '@/lib/editron/security/pipeline-video-enqueue-internal-auth';
+import { resolvePipelineVideoWorkerDispatchPolicyV1 } from '@/lib/pipeline/video-worker-dispatch-policy';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -45,25 +47,44 @@ export async function POST(
 ) {
   try {
     const { id: storyboardId } = await params;
-    const body = await request.json();
+    const rawBody = await request.text();
+    let body: Record<string, unknown>;
+    try {
+      const parsedBody: unknown = JSON.parse(rawBody);
+      if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+        return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 });
+      }
+      body = parsedBody as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
 
-    // Auth: prefer Clerk session, fallback to userId in body (for internal AI tool calls).
-    // Rule 18N: fail-visible on real auth errors — a bare `catch {}` silently masked
-    // Clerk middleware misconfiguration / key rotation / network failures, leaving
-    // the caller with a confusing 401 "Unauthorized" instead of the real cause.
-    // Log the error but continue (body.userId fallback is the legitimate internal path).
+    // Browser calls use Clerk. The server-side chat caller has no browser
+    // cookie, so it must present the narrow, body-bound server signature.
     let userId: string | null = null;
     try {
       const authResult = await auth();
       userId = authResult.userId;
     } catch (authErr: any) {
-      console.warn(`[generate-videos] Clerk auth() threw: ${authErr?.message || authErr} — falling back to body.userId`);
-    }
-    if (!userId && body.userId) {
-      userId = body.userId;
+      console.warn(`[generate-videos] Clerk auth() threw: ${authErr?.message || authErr}`);
     }
     if (!userId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      const internalAuth = verifyPipelineVideoEnqueueInternalRequestV1(request.headers, rawBody);
+      if (internalAuth.disposition === 'NOT_CONFIGURED') {
+        return NextResponse.json({
+          success: false,
+          error: 'Internal video enqueue authentication is not configured',
+          code: internalAuth.disposition,
+        }, { status: 503 });
+      }
+      if (
+        internalAuth.disposition !== 'ACCEPTED'
+        || typeof body.userId !== 'string'
+        || !body.userId.trim()
+      ) {
+        return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      }
+      userId = body.userId.trim();
     }
     const {
       sceneIndices,
@@ -395,6 +416,15 @@ export async function POST(
       );
     }
 
+    const workerDispatchPolicy = resolvePipelineVideoWorkerDispatchPolicyV1();
+    if (workerDispatchPolicy.kind === 'NOT_CONFIGURED') {
+      return NextResponse.json({
+        success: false,
+        error: workerDispatchPolicy.message,
+        code: workerDispatchPolicy.code,
+      }, { status: 503 });
+    }
+
     const billableVideoSeconds = Math.round(
       sceneJobs.reduce((sum, scene) => sum + Math.max(scene.durationSeconds || 0, 0), 0) * 100,
     ) / 100;
@@ -493,14 +523,9 @@ export async function POST(
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const workerUrl = `${baseUrl}/api/internal/workers/pipeline/video`;
 
-    console.log(`[generate-videos] Worker URL: ${workerUrl}`);
-    console.log(`[generate-videos] QSTASH_TOKEN set: ${!!process.env.QSTASH_TOKEN}, QSTASH_URL: ${process.env.QSTASH_URL || '(default)'}`);
-
-    const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
-
     let enqueueErrors = 0;
 
-    // Helper to build job payload (same for dev, fetch-fallback, and QStash)
+    // Helper to build job payload (same for development and QStash dispatch).
     const buildPayload = (scene: SceneJob) => ({
       jobId: scene.subShotIndex !== undefined
         ? `${batchId}_s${scene.sceneIndex}_sub${scene.subShotIndex}`
@@ -521,7 +546,7 @@ export async function POST(
       refinementContext: scene.refinementContext,
     });
 
-    if (isDev) {
+    if (workerDispatchPolicy.kind === 'DEVELOPMENT_FETCH') {
       // In dev, call worker directly (fire-and-forget)
       for (const scene of sceneJobs) {
         fetch(workerUrl, {
@@ -530,19 +555,10 @@ export async function POST(
           body: JSON.stringify(buildPayload(scene)),
         }).catch(err => console.error(`[generate-videos] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message));
       }
-    } else if (!process.env.QSTASH_TOKEN) {
-      console.warn('[generate-videos] QSTASH_TOKEN not set, using fire-and-forget fetch');
-      for (const scene of sceneJobs) {
-        fetch(workerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPayload(scene)),
-        }).catch(err => console.error(`[generate-videos] Fetch dispatch failed for scene ${scene.sceneIndex}:`, err.message));
-      }
     } else {
       // Production: Use QStash
       const qstashClient = new Client({
-        token: process.env.QSTASH_TOKEN,
+        token: workerDispatchPolicy.qstashToken,
         baseUrl: process.env.QSTASH_URL || undefined,
       });
 

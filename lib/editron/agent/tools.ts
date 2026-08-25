@@ -67,6 +67,7 @@ import {
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
 import { buildKeyframeMutationPatch } from '../services/keyframe-mutation';
+import { createPipelineVideoEnqueueInternalHeadersV1 } from '../security/pipeline-video-enqueue-internal-auth';
 import {
   constrainChatOverlayPlacement,
   EDITRON_TITLE_SAFE_MARGIN,
@@ -4313,13 +4314,17 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Regenerate video clip
         if (input.target === 'video' || input.target === 'all') {
+          const videoRequestBody = JSON.stringify({
+            sceneIndices: [input.sceneIndex],
+            userId,
+          });
           const vidRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sceneIndices: [input.sceneIndex],
-              userId, // Passed for internal auth fallback
-            }),
+            headers: {
+              'Content-Type': 'application/json',
+              ...createPipelineVideoEnqueueInternalHeadersV1(videoRequestBody),
+            },
+            body: videoRequestBody,
           });
           const data = await readRegenerationResponse(vidRes);
           if (vidRes.ok) {

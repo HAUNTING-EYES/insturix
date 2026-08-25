@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { HumanMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -133,6 +134,12 @@ import { createTools } from '@/lib/editron/agent/tools';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import { projectService } from '@/lib/editron/services/project-service';
+import {
+  PIPELINE_VIDEO_ENQUEUE_INTERNAL_MAX_AGE_MS_V1,
+  createPipelineVideoEnqueueInternalHeadersV1,
+  verifyPipelineVideoEnqueueInternalRequestV1,
+} from '@/lib/editron/security/pipeline-video-enqueue-internal-auth';
+import { resolvePipelineVideoWorkerDispatchPolicyV1 } from '@/lib/pipeline/video-worker-dispatch-policy';
 
 const BASE_PROJECT = {
   projectId: 'proj_scene_style',
@@ -183,6 +190,7 @@ describe('chat scene and style tool contracts', () => {
     agentFixture.modelStep = 0;
     agentFixture.genericIntentExecutions = 0;
     agentFixture.project = structuredClone(BASE_PROJECT);
+    vi.stubEnv('MONOLITHIC_BACKEND_SECRET', 'test-only-monolith-secret');
     vi.spyOn(projectService, 'loadProject').mockResolvedValue(structuredClone(BASE_PROJECT) as any);
   });
 
@@ -224,8 +232,63 @@ describe('chat scene and style tool contracts', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ sceneIndices: [1], userId: 'user_scene_style' }),
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'x-editron-internal-issued-at': expect.stringMatching(/^\d+$/),
+          'x-editron-internal-signature': expect.stringMatching(/^sha256=[a-f0-9]{64}$/),
+        }),
       }),
     );
+  });
+
+  it('accepts only a fresh action-and-body-bound server request', () => {
+    const authEnv = { MONOLITHIC_BACKEND_SECRET: 'test-only-monolith-secret' };
+    const now = 1_700_000_000_000;
+    const body = JSON.stringify({ sceneIndices: [3], userId: 'user_1' });
+    const headers = createPipelineVideoEnqueueInternalHeadersV1(body, { nowMs: now, env: authEnv });
+
+    expect(verifyPipelineVideoEnqueueInternalRequestV1(headers, body, {
+      nowMs: now + 1_000,
+      env: authEnv,
+    })).toEqual({ disposition: 'ACCEPTED' });
+    expect(verifyPipelineVideoEnqueueInternalRequestV1(headers, body.replace('user_1', 'user_2'), {
+      nowMs: now + 1_000,
+      env: authEnv,
+    })).toEqual({ disposition: 'INVALID_SIGNATURE' });
+    expect(verifyPipelineVideoEnqueueInternalRequestV1(headers, body, {
+      nowMs: now + PIPELINE_VIDEO_ENQUEUE_INTERNAL_MAX_AGE_MS_V1 + 1,
+      env: authEnv,
+    })).toEqual({ disposition: 'EXPIRED' });
+    expect(verifyPipelineVideoEnqueueInternalRequestV1(headers, body, {
+      nowMs: now,
+      env: {},
+    })).toEqual({ disposition: 'NOT_CONFIGURED' });
+  });
+
+  it('allows direct video-worker calls only in development and binds the route to the policy', () => {
+    expect(resolvePipelineVideoWorkerDispatchPolicyV1({ NODE_ENV: 'development' }))
+      .toEqual({ kind: 'DEVELOPMENT_FETCH' });
+    expect(resolvePipelineVideoWorkerDispatchPolicyV1({ NODE_ENV: 'production' }))
+      .toMatchObject({ kind: 'NOT_CONFIGURED', code: 'QSTASH_TOKEN_REQUIRED' });
+    expect(resolvePipelineVideoWorkerDispatchPolicyV1({
+      NODE_ENV: 'production',
+      QSTASH_TOKEN: 'publisher-token',
+      QSTASH_CURRENT_SIGNING_KEY: 'current-key',
+    })).toMatchObject({ kind: 'NOT_CONFIGURED', code: 'QSTASH_SIGNING_KEYS_REQUIRED' });
+    expect(resolvePipelineVideoWorkerDispatchPolicyV1({
+      NODE_ENV: 'production',
+      QSTASH_TOKEN: 'publisher-token',
+      QSTASH_CURRENT_SIGNING_KEY: 'current-key',
+      QSTASH_NEXT_SIGNING_KEY: 'next-key',
+    })).toEqual({ kind: 'QSTASH', qstashToken: 'publisher-token' });
+
+    const route = readFileSync('app/api/services/pipeline/storyboard/[id]/generate-videos/route.ts', 'utf8');
+    expect(route).toContain('verifyPipelineVideoEnqueueInternalRequestV1');
+    expect(route).toContain('resolvePipelineVideoWorkerDispatchPolicyV1');
+    expect(route).not.toContain('if (!userId && body.userId)');
+    expect(route).not.toContain('QSTASH_TOKEN not set, using fire-and-forget fetch');
+    expect(route.indexOf('resolvePipelineVideoWorkerDispatchPolicyV1'))
+      .toBeLessThan(route.indexOf('CreditsService.hasCredits'));
   });
 
   it('reports completed storyboard image regeneration as a durable cross-resource receipt', async () => {
