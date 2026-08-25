@@ -1,5 +1,6 @@
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
 import {
+  isModalProxyEndpointV1,
   modalProxyAuthHeadersV1,
   readModalProxyAuthV1,
   type ModalProxyAuthEnvironmentV1,
@@ -105,7 +106,7 @@ export function isMediaSourceProbeConfiguredV1(
   environment: MediaSourceProbeEnvironmentV1 = process.env,
 ): boolean {
   return Boolean(
-    configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT)
+    isModalProxyEndpointV1(configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT))
     && readModalProxyAuthV1(environment),
   );
 }
@@ -122,7 +123,7 @@ export async function probeMediaSourceV1(
   const environment = dependencies.environment ?? process.env;
   const endpoint = configured(environment.EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT);
   const proxyAuth = readModalProxyAuthV1(environment);
-  if (!endpoint || !proxyAuth) {
+  if (!endpoint || !isModalProxyEndpointV1(endpoint) || !proxyAuth) {
     return unverifiableMediaSourceProbeResultV1('MEDIA_SOURCE_PROBE_NOT_CONFIGURED');
   }
 

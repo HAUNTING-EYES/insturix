@@ -17,6 +17,24 @@ export type ModalProxyAuthV1 = Readonly<{
   tokenSecret: string;
 }>;
 
+/**
+ * Modal proxy credentials must never be sent to an arbitrary configured host.
+ * Custom domains are intentionally unsupported until they have an explicit,
+ * separately reviewed trust policy.
+ */
+export function isModalProxyEndpointV1(endpoint: string | null | undefined): boolean {
+  if (!endpoint?.trim()) return false;
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && (url.hostname === 'modal.run' || url.hostname.endsWith('.modal.run'));
+  } catch {
+    return false;
+  }
+}
+
 /** Returns complete, trimmed proxy credentials or null; partial configuration fails closed. */
 export function readModalProxyAuthV1(
   environment: ModalProxyAuthEnvironmentV1 = process.env,

@@ -8,17 +8,26 @@ import {
   probeMediaSourceV1,
 } from '@/lib/editron/services/media-source-probe-v1';
 import {
+  isModalProxyEndpointV1,
   modalProxyAuthHeadersV1,
   readModalProxyAuthV1,
 } from '@/lib/editron/services/modal-proxy-auth-v1';
 
 const configuredEnvironment = {
-  EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
+  EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.modal.run',
   [EDITRON_MODAL_PROXY_AUTH_TOKEN_ID_ENV_V1]: 'proxy-id',
   [EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]: 'proxy-secret',
 };
 
 describe('MediaSourceProbeV1', () => {
+  it('sends proxy credentials only to an HTTPS Modal endpoint', () => {
+    expect(isModalProxyEndpointV1('https://probe.modal.run')).toBe(true);
+    expect(isModalProxyEndpointV1('https://modal.run')).toBe(true);
+    expect(isModalProxyEndpointV1('http://probe.modal.run')).toBe(false);
+    expect(isModalProxyEndpointV1('https://probe.example.test')).toBe(false);
+    expect(isModalProxyEndpointV1('not a URL')).toBe(false);
+  });
+
   it('reads only complete dedicated Modal proxy credentials', () => {
     expect(readModalProxyAuthV1(configuredEnvironment)).toEqual({
       tokenId: 'proxy-id',
@@ -43,9 +52,13 @@ describe('MediaSourceProbeV1', () => {
       [EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET_ENV_V1]: ' ',
     })).toBe(false);
     expect(isMediaSourceProbeConfiguredV1({
-      EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
+      EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.modal.run',
       MODAL_TOKEN_ID: 'api-token-is-not-proxy-auth',
       MODAL_TOKEN_SECRET: 'api-secret-is-not-proxy-auth',
+    })).toBe(false);
+    expect(isMediaSourceProbeConfiguredV1({
+      ...configuredEnvironment,
+      EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://probe.example.test',
     })).toBe(false);
   });
 
@@ -77,7 +90,7 @@ describe('MediaSourceProbeV1', () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain('presigned-secret');
-    expect(fetchImpl).toHaveBeenCalledWith('https://probe.example.test', expect.objectContaining({
+    expect(fetchImpl).toHaveBeenCalledWith('https://probe.modal.run', expect.objectContaining({
       headers: expect.objectContaining({
         'Modal-Key': 'proxy-id',
         'Modal-Secret': 'proxy-secret',
@@ -93,6 +106,19 @@ describe('MediaSourceProbeV1', () => {
       disposition: 'UNVERIFIABLE', observation: null,
       diagnostics: ['MEDIA_SOURCE_PROBE_NOT_CONFIGURED'],
     });
+
+    const foreignHostFetch = mockFetch(new Response(JSON.stringify(validResponse()), { status: 200 }));
+    await expect(probeMediaSourceV1('https://source.test/video.mp4', {
+      environment: {
+        ...configuredEnvironment,
+        EDITRON_MEDIA_SOURCE_PROBE_ENDPOINT: 'https://attacker.example.test',
+      },
+      fetchImpl: foreignHostFetch,
+    })).resolves.toEqual({
+      disposition: 'UNVERIFIABLE', observation: null,
+      diagnostics: ['MEDIA_SOURCE_PROBE_NOT_CONFIGURED'],
+    });
+    expect(foreignHostFetch).not.toHaveBeenCalled();
 
     await expect(probeMediaSourceV1('https://source.test/video.mp4', {
       environment: configuredEnvironment,
