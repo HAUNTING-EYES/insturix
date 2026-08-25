@@ -48,6 +48,11 @@ export interface Stage25FinalGeneralisationProviderCaptureV1 {
   initialAttemptCostUpperBoundUsd: number;
 }
 
+export interface Stage25FinalGeneralisationProviderBundleV1 {
+  receipt: Readonly<JsonRecord>;
+  captures: readonly Readonly<Stage25FinalGeneralisationProviderCaptureV1>[];
+}
+
 export async function preflightStage25FinalGeneralisationProvidersV1(input: {
   confirmedCohortSha256: string;
   operatorId: string;
@@ -144,7 +149,7 @@ export async function preflightStage25FinalGeneralisationProvidersV1(input: {
 export function assertStage25FinalGeneralisationProviderPreflightBundleV1(input: {
   receipt: Readonly<JsonRecord>;
   captures: readonly Readonly<Stage25FinalGeneralisationProviderCaptureV1>[];
-}) {
+}): Stage25FinalGeneralisationProviderBundleV1 {
   const receipt = input.receipt;
   const hash = text(receipt.receiptSha256);
   const { receiptSha256: _hash, ...material } = receipt;
