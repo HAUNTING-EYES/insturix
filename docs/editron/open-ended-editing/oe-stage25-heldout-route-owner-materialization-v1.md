@@ -99,3 +99,35 @@ database or ProjectService calls; did not mutate a project; did not render the
 three full RHC-01 candidates; and issued no route, quality, fidelity or product
 authorization. The next bounded slice remains the full candidate render and
 hash-bound blind-review pack.
+
+## Full RHC-01 render and blind pack — 2026-08-26
+
+Commit `0dcbe01c4` adds the full local execution owner and a three-candidate
+blind-review pack. Before rendering, the slice found and corrected a real
+candidate-state discrepancy: the native overlay plan changed to its
+full-screen continuation at frame 150 while its metadata claimed frame 180.
+Candidate contract V1.2 now binds that native 149-to-150 seam explicitly.
+
+Execution `rhc01-preview-0dcbe01c4-v1`, source-bound to `0dcbe01c4`, produced
+three playable 1080x1920, 30/1, 210-frame, silent H.264 previews. Receipt
+`312a112ffda3cdd63fb815bf9876d562ae82f8ede99a6753b2dd61c713e5cadb`
+and public-pack
+`cc3b15b7fed713f1decfe7c90d0702671ebbf5d150c32e3ba5cb8ca7d97b3852`
+both re-hash exactly. The public pack withholds route identity as A/B/C and
+records `UNAVAILABLE_SINGLE_REVIEWER` for independent agreement.
+
+The mechanics evidence is real but bounded. All three media probes pass; both
+generated programs compile and produce playable proxies; generated and hybrid
+entry frames match the bound following source within measured encode error;
+and the native path records its much larger layout-release delta for human
+judgment rather than silently calling it continuity. The contact sheets contain
+nonblank ordered states and no obvious raster corruption. No visual preference
+or route winner has been issued.
+
+Open proof remains explicit: the synthetic fixture is not production aesthetic
+or audio evidence; the native editor path cannot prove the exact declared font
+file was used; generated execution is a trusted local process rather than the
+production deny-all sandbox; transitive executable closure is unverified; and
+there was no ProjectService mutation. Focused contract verification is 11/11,
+repository typecheck and quiet ESLint pass. Human review is the next gate for
+this pack; the remaining Stage 2.5 engineering work can continue independently.

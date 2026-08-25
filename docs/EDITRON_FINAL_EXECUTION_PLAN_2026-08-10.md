@@ -4993,6 +4993,21 @@ authorization are all present.
   cloud, database or ProjectService call occurred, no canonical state changed,
   and no full RHC-01 candidate, blind review, route decision or production
   authorization exists yet.
+- Commit `0dcbe01c4` completes the bounded RHC-01 render/pack implementation.
+  It first corrects the native candidate's false frame-180 metadata to its real
+  frame-150 continuation seam and versions the candidate set as V1.2. Actual
+  local execution `rhc01-preview-0dcbe01c4-v1` then produces three exact
+  1080x1920, 30/1, 210-frame silent H.264 previews, contact sheets, boundary
+  measurements and a route-blinded A/B/C review pack. Execution receipt
+  `312a112ffda3cdd63fb815bf9876d562ae82f8ede99a6753b2dd61c713e5cadb`
+  and public-pack
+  `cc3b15b7fed713f1decfe7c90d0702671ebbf5d150c32e3ba5cb8ca7d97b3852`
+  re-hash exactly. Focused verification is 11/11 with repository typecheck and
+  quiet ESLint passing. This does not decide the route: human review is pending,
+  single-reviewer independence is unavailable, native exact-font binding and
+  transitive executable closure remain unverified, the generated path is a
+  trusted local process rather than the production sandbox, and provider,
+  cloud, database, ProjectService and canonical-mutation counts remain zero.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
