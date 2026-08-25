@@ -161,11 +161,16 @@ that accepts a map only if its source version, storage version, measured
 qualification observation and canonical state hash agree. It does not write a
 Mongo record, change a source, claim work or expose a consumer.
 
-There is still no mapper worker, claim CAS, complete-manifest verifier or
-terminal map persistence. It intentionally cannot call a large map "measured"
-until a real qualified source passes the full verifier. The next runtime phase
-is therefore the existing media owner's source-version-bound
-claim/checkpoint/terminal CAS, not a ProjectService,
+Commit `3ad3a1078` supplies the matching existing-media-owner Mongo adapter.
+It rereads the asset, rejects a partial/tampered current state or wrong expected
+state hash, verifies the next record against the live source/qualification,
+then performs a source-bound compare-and-set. The adapter is not called by a
+mapper and its injected-port suite is not a live Atlas write proof.
+
+There is still no mapper worker, complete-manifest verifier or terminal map
+persistence. It intentionally cannot call a large map "measured" until a real
+qualified source passes the full verifier. The next runtime phase is source-
+version-bound claim/checkpoint/terminal work, not a ProjectService,
 generated-composition, overlay, caption, transition, renderer, user-data or
 research-proxy change.
 
@@ -175,10 +180,10 @@ This audit was initially grounded against `d4d3a9c7b` and rechecked through
 the pure verifier commit `426d3d09a`, lifecycle-contract commit `bece283e3`,
 terminal-contract correction `ff27d6da6`, guarded private-sidecar adapter
 `173432a4c`, source worker hardening `f7da79e32` and asset-state boundary
-`822e9182e`, including the
+`822e9182e` plus Mongo CAS adapter `3ad3a1078`, including the
 signed qualification worker, `MEDIA_ASSETS`
 persistence, Modal probe, R2 adapter, proxy/master relation and legacy numeric
-frame projections. Twenty-seven focused shard/lifecycle/sidecar/asset-state
+frame projections. Thirty-one focused shard/lifecycle/sidecar/asset-state/CAS
 tests plus four worker denial tests, TypeScript and repository ESLint pass for
 those commits.
 It does not establish a deployed Modal endpoint, an R2 private-artifact policy,
