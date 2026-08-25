@@ -467,9 +467,21 @@ changes.
   `4d7039c6c` supplies a separate manifest-only private reader with bounded
   length/digest readback; it cannot read shard, V2 or staging keys and does not
   weaken the V2 namespace policy. Lifecycle checkpoint/finalization and the
-  source-bound `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms and the
-  ProjectService consumer also remain absent. Those owner-side steps are next;
-  model evaluation, DEP-02/DEP-03 and project routing remain later in the
+  source-bound `MEDIA_ASSETS` CAS call were still required at that checkpoint.
+  Commit `a40b0f33a` now composes those existing owners without introducing a
+  second registry: it rejects a foreign live lease before canonical artifact
+  writes, promotes exact signed staging batches, persists initialization,
+  claims and each verified checkpoint through the existing media-asset CAS,
+  rereads the V2 index, every frame batch and the V1 lifecycle manifest, and
+  persists the terminal source-cadence receipt only after exact source-wide
+  coverage. Replay of a completed binding performs no artifact or state write;
+  resource-policy mismatch and CAS loss fail closed. The five-file owner
+  cluster passes 17/17 with repository typecheck and quiet lint. This is still
+  an unwired server boundary: no durable Editron worker invokes it, no runtime
+  R2/config factory or scan-dispatch trigger is connected, and no Modal/R2 or
+  Atlas deployment proof was created. Source/proxy transforms and the
+  ProjectService consumer also remain absent. Durable signed worker wiring is
+  next; DEP-02/DEP-03, project routing and model evaluation remain later in the
   frozen order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
