@@ -6,13 +6,13 @@ compares decisions against the known-good run (proj_ZyF9IKnLsk5U).
 
 Usage:
   # After deploying: modal deploy finetune_and_deploy.py
-  python test_endpoint.py --endpoint https://YOUR--gemma-editorial-editorialclassifier-classify.modal.run
+  EDITRON_MODAL_PROXY_AUTH_TOKEN_ID=... EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET=... \
+    python test_endpoint.py --endpoint https://YOUR--gemma-editorial-editorialclassifier-classify.modal.run
 
   # Or test against a specific project
   python test_endpoint.py --project proj_ZyF9IKnLsk5U --endpoint URL
 """
 
-import json
 import os
 import sys
 import argparse
@@ -45,7 +45,7 @@ def get_segments_from_mongo(project_id: str) -> list[dict]:
     return segments
 
 
-def call_endpoint(endpoint: str, segments: list[dict], token_id: str = "", token_secret: str = "") -> dict:
+def call_endpoint(endpoint: str, segments: list[dict], modal_key: str = "", modal_secret: str = "") -> dict:
     """Call the Modal endpoint."""
     payload = {
         "segments": [
@@ -54,9 +54,14 @@ def call_endpoint(endpoint: str, segments: list[dict], token_id: str = "", token
         ]
     }
 
-    headers = {"Content-Type": "application/json"}
-    if token_id and token_secret:
-        headers["Authorization"] = f"Token {token_id}:{token_secret}"
+    if not modal_key or not modal_secret:
+        print("EDITRON_MODAL_PROXY_AUTH_TOKEN_ID and EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET are required")
+        sys.exit(1)
+    headers = {
+        "Content-Type": "application/json",
+        "Modal-Key": modal_key,
+        "Modal-Secret": modal_secret,
+    }
 
     print(f"Sending {len(segments)} segments to {endpoint}...")
     response = requests.post(endpoint, json=payload, headers=headers, timeout=300)
@@ -72,15 +77,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", default="proj_ZyF9IKnLsk5U", help="MongoDB project ID")
     parser.add_argument("--endpoint", required=True, help="Modal endpoint URL")
-    parser.add_argument("--token-id", default=os.environ.get("MODAL_TOKEN_ID", ""))
-    parser.add_argument("--token-secret", default=os.environ.get("MODAL_TOKEN_SECRET", ""))
+    parser.add_argument("--modal-key", default=os.environ.get("EDITRON_MODAL_PROXY_AUTH_TOKEN_ID", ""))
+    parser.add_argument("--modal-secret", default=os.environ.get("EDITRON_MODAL_PROXY_AUTH_TOKEN_SECRET", ""))
     args = parser.parse_args()
 
     # Get segments
     segments = get_segments_from_mongo(args.project)
 
     # Call endpoint
-    result = call_endpoint(args.endpoint, segments, args.token_id, args.token_secret)
+    result = call_endpoint(args.endpoint, segments, args.modal_key, args.modal_secret)
 
     # Show results
     decisions = result.get("decisions", [])
