@@ -1,8 +1,9 @@
 # Pipeline analysis lifecycle and source-binding Step-0 audit
 
 Date: 2026-08-25  
-Status: `CURRENT_SOURCE_AUDIT_COMPLETE`; no lifecycle or analysis-fact writer
-has been migrated by this document.
+Status: `CURRENT_SOURCE_AUDIT_COMPLETE`; commit `c2eeafb1c` closes the
+single-asset production queue-admission gap. No lifecycle or analysis-fact
+writer has been migrated by this document.
 
 ## Purpose and method
 
@@ -47,13 +48,11 @@ and `isInternalWorkerInlineFallbackAllowed()`: an inline fallback is lawful
 only in explicit development, while production dispatch requires the publisher
 token and both rotation signing keys.
 
-`from-asset` does not yet use that complete predicate. It rejects missing
-signing keys only when `QSTASH_TOKEN` happens to be present. If the publisher
-token is absent, it creates/charges the project and follows its inline
-analysis/Director branch regardless of production mode. That is a deployment
-fault changing execution topology after user/credit state begins. It is a
-separate, small P0 guard and must be fixed before changing the analysis
-lifecycle.
+Commit `c2eeafb1c` makes `from-asset` use the complete predicate before credit
+deduction or project creation. Outside explicit development, a missing
+publisher token or either signing key now returns `503`; development retains
+the explicit inline path. Its handler-level regression proves no credit,
+project, analysis, or Director call occurs in the production/no-token case.
 
 `from-batch` has a different situation: its external ingress rejects a missing
 publisher token, but its `dispatchDirector` helper still directly executes the
@@ -84,11 +83,11 @@ without the source identity needed to validate them. Neither is allowed.
 
 ## Ordered repair boundary
 
-1. **Immediate bounded security patch:** outside explicit development,
-   `from-asset` must require `isInternalQStashDispatchConfigured()` before any
-   credit deduction, project creation, or inline analysis. Its development
-   path remains explicit. This changes queue admission only; it does not move
-   analysis facts, edit behavior, or project ownership.
+1. **Completed — single-asset queue admission:** commit `c2eeafb1c` requires
+   `isInternalQStashDispatchConfigured()` outside explicit development before
+   any credit deduction, project creation, or inline analysis. This changes
+   admission only; it does not move analysis facts, edit behavior, or project
+   ownership.
 2. **Canonical media/timebase spine:** issue a qualified immutable source
    receipt after the existing storage object is verified and probed; bind the
    master/proxy relationship, rational cadence/PTS, reel/timecode where
