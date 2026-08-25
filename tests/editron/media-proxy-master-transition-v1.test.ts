@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  mediaProxyMasterTransitionSetV1,
   resolveActiveMediaR2StorageKeyV1,
   transitionMediaProxyMasterV1,
   type MediaProxyMasterTransitionAssetV1,
@@ -33,6 +34,8 @@ describe('MediaProxyMasterTransitionV1', () => {
         cachedUrl: 'https://cdn.test/asset/master-r2-key',
         originalR2Key: 'master-r2-key',
         sourceVersionV1: null,
+        sourcePtsCadenceMapV1: null,
+        sourcePtsCadenceMapStateSha256V1: null,
         proxySourceVersionV1: expect.objectContaining({
           sourceVersionSha256: memory.proxySourceVersion.sourceVersionSha256,
         }),
@@ -86,6 +89,8 @@ describe('MediaProxyMasterTransitionV1', () => {
     expect(memory.replace).toHaveBeenCalledWith(expect.objectContaining({
       next: expect.objectContaining({
         sourceVersionV1: null,
+        sourcePtsCadenceMapV1: null,
+        sourcePtsCadenceMapStateSha256V1: null,
         proxySourceVersionV1: null,
         proxyMasterRelationV1: null,
         sourceInvalidationPlanV1: null,
@@ -101,6 +106,19 @@ describe('MediaProxyMasterTransitionV1', () => {
       r2Key: 'proxy-r2-key', originalR2Key: 'master-r2-key', isProxy: false,
     })).toBe('master-r2-key');
     expect(resolveActiveMediaR2StorageKeyV1({ r2Key: 'legacy-r2-key' })).toBe('legacy-r2-key');
+  });
+
+  it('clears any proxy-bound cadence state in the production persistence payload', async () => {
+    const memory = inMemory();
+    await transitionMediaProxyMasterV1({ assetId: 'asset-a', userId: 'user-a' }, memory.ports);
+    const next = memory.replace.mock.calls[0]?.[0]?.next;
+    expect(next).toBeDefined();
+    expect(mediaProxyMasterTransitionSetV1(next!)).toMatchObject({
+      isProxy: false,
+      sourceVersionV1: null,
+      sourcePtsCadenceMapV1: null,
+      sourcePtsCadenceMapStateSha256V1: null,
+    });
   });
 
   it('keeps both interactive and cron callers on the shared server-owned transition', () => {
@@ -124,7 +142,12 @@ function inMemory(options: {
   dispatched?: boolean;
 } = {}) {
   const proxySourceVersion = sourceVersion();
-  const asset = options.asset ?? { ...proxyAsset(), sourceVersionV1: proxySourceVersion };
+  const asset = options.asset ?? {
+    ...proxyAsset(),
+    sourceVersionV1: proxySourceVersion,
+    sourcePtsCadenceMapV1: { stale: 'proxy-map' },
+    sourcePtsCadenceMapStateSha256V1: 'b'.repeat(64),
+  };
   const upload = options.upload === undefined
     ? { assetId: 'asset-a', userId: 'user-a', status: 'completed', r2Key: 'master-r2-key' }
     : options.upload;

@@ -33,6 +33,8 @@ export type MediaProxyMasterTransitionAssetV1 = {
   originalR2Key?: unknown;
   isProxy?: unknown;
   sourceVersionV1?: unknown;
+  sourcePtsCadenceMapV1?: unknown;
+  sourcePtsCadenceMapStateSha256V1?: unknown;
 };
 
 export type CompletedMediaMultipartUploadV1 = {
@@ -40,6 +42,18 @@ export type CompletedMediaMultipartUploadV1 = {
   userId?: unknown;
   status?: unknown;
   r2Key?: unknown;
+};
+
+export type MediaProxyMasterTransitionNextV1 = {
+  cachedUrl: string;
+  originalR2Key: string;
+  sourceQualificationV1: MediaSourceQualificationRecordV1;
+  sourceVersionV1: null;
+  sourcePtsCadenceMapV1: null;
+  sourcePtsCadenceMapStateSha256V1: null;
+  proxySourceVersionV1: Readonly<MediaSourceVersionV1> | null;
+  proxyMasterRelationV1: null;
+  sourceInvalidationPlanV1: null;
 };
 
 export type MediaProxyMasterTransitionPortsV1 = {
@@ -50,15 +64,7 @@ export type MediaProxyMasterTransitionPortsV1 = {
     assetId: string;
     userId: string;
     expectedProxyR2Key: string;
-    next: {
-      cachedUrl: string;
-      originalR2Key: string;
-      sourceQualificationV1: MediaSourceQualificationRecordV1;
-      sourceVersionV1: null;
-      proxySourceVersionV1: Readonly<MediaSourceVersionV1> | null;
-      proxyMasterRelationV1: null;
-      sourceInvalidationPlanV1: null;
-    };
+    next: MediaProxyMasterTransitionNextV1;
   }): Promise<boolean>;
   dispatch(message: MediaSourceQualificationDispatchMessageV1): Promise<{ dispatched: boolean }>;
   getPublicReadUrl(r2Key: string): string;
@@ -180,6 +186,8 @@ export async function transitionMediaProxyMasterV1(
       originalR2Key: masterR2Key,
       sourceQualificationV1: qualification.record,
       sourceVersionV1: null,
+      sourcePtsCadenceMapV1: null,
+      sourcePtsCadenceMapStateSha256V1: null,
       proxySourceVersionV1,
       proxyMasterRelationV1: null,
       sourceInvalidationPlanV1: null,
@@ -247,18 +255,7 @@ export async function runMediaProxyMasterTransitionV1(
     replace: async ({ assetId, userId, expectedProxyR2Key, next }) => {
       const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId, userId, isProxy: true, r2Key: expectedProxyR2Key },
-        {
-          $set: {
-            cachedUrl: next.cachedUrl,
-            originalR2Key: next.originalR2Key,
-            isProxy: false,
-            sourceQualificationV1: next.sourceQualificationV1,
-            sourceVersionV1: null,
-            proxySourceVersionV1: next.proxySourceVersionV1,
-            proxyMasterRelationV1: null,
-            sourceInvalidationPlanV1: null,
-          },
-        },
+        { $set: mediaProxyMasterTransitionSetV1(next) },
       );
       return result.matchedCount === 1;
     },
@@ -266,6 +263,28 @@ export async function runMediaProxyMasterTransitionV1(
     getPublicReadUrl: getR2PublicUrl,
     now: () => new Date(),
   });
+}
+
+/**
+ * The sole persistent payload for a proxy-to-master source replacement.
+ * Source-bound observations are cleared before fresh qualification, so an old
+ * proxy map cannot be read as master evidence.
+ */
+export function mediaProxyMasterTransitionSetV1(
+  next: MediaProxyMasterTransitionNextV1,
+): Record<string, unknown> {
+  return {
+    cachedUrl: next.cachedUrl,
+    originalR2Key: next.originalR2Key,
+    isProxy: false,
+    sourceQualificationV1: next.sourceQualificationV1,
+    sourceVersionV1: null,
+    sourcePtsCadenceMapV1: null,
+    sourcePtsCadenceMapStateSha256V1: null,
+    proxySourceVersionV1: next.proxySourceVersionV1,
+    proxyMasterRelationV1: null,
+    sourceInvalidationPlanV1: null,
+  };
 }
 
 function validProxySourceVersion(input: {
