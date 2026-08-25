@@ -454,11 +454,19 @@ changes.
   count/digest and canonical batch payload. It returns no source URL and has no
   public-bucket fallback. This is still an unwired adapter, not a scan dispatch,
   deployed endpoint/bucket, durable Editron worker, asset write or cadence
-  result. V2 artifact conversion, lifecycle checkpoint/finalization and the
-  source-bound `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms
-  and the ProjectService consumer also remain absent. Those owner-side steps
-  are next; model evaluation, DEP-02/DEP-03 and project routing remain later in
-  the frozen order.
+  result. Commit `e9aaad644` adds the next owner-side promotion boundary. It
+  independently matches each reread staging batch to the complete scan summary
+  and qualified source/map identity, rebuilds existing V1 shard descriptors and
+  recoverable V2 frame payloads, and writes them through the existing private
+  artifact ports. If V2 canonical bytes exceed the declared limit, it splits
+  only at measured frame boundaries while preserving exact ordinals and PTS.
+  Source, result, staging, progression or policy mismatch fails before a
+  canonical artifact write. It still does not advance the lifecycle or mutate
+  an asset. Lifecycle checkpoint/finalization and the source-bound
+  `MEDIA_ASSETS` CAS call remain required. Source/proxy transforms and the
+  ProjectService consumer also remain absent. Those owner-side steps are next;
+  model evaluation, DEP-02/DEP-03 and project routing remain later in the
+  frozen order.
 
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
