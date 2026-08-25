@@ -415,6 +415,47 @@ export class DurableWorkflowJobStoreV1 {
     throw new DurableWorkflowJobLeaseLostErrorV1('DURABLE_JOB_COMPLETE_LEASE_LOST');
   }
 
+  /**
+   * Releases a healthy externally waiting job without spending a failure
+   * attempt. The current delivery was claimed, so exactly that decrement is
+   * restored; transport or execution failures must use retryOrDeadLetter.
+   */
+  async deferUntil(input: Readonly<{
+    jobId: string;
+    leaseToken: string;
+    resumeCursor: Readonly<Record<string, unknown>>;
+    resumeAt: Date;
+    now?: Date;
+  }>): Promise<void> {
+    const now = input.now ?? new Date();
+    const collection = await this.collectionProvider();
+    const current = await requireActiveLease(
+      collection, input.jobId, input.leaseToken, now,
+    );
+    if (current.cancelRequestedAt) {
+      throw new DurableWorkflowJobTransitionErrorV1('DURABLE_JOB_CANCEL_REQUESTED');
+    }
+    const update = await collection.updateOne(
+      activeLeaseFilter(input.jobId, input.leaseToken, now),
+      {
+        $set: {
+          status: 'retry_wait',
+          retryCursor: cloneJsonRecord(input.resumeCursor),
+          nextAttemptAt: requireFutureDate(input.resumeAt, now, 'RESUME_AT'),
+          error: null,
+          leaseToken: null,
+          leaseOwnerId: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        },
+        $inc: { remainingAttempts: 1 },
+      },
+    );
+    if (update.matchedCount !== 1) {
+      throw new DurableWorkflowJobLeaseLostErrorV1('DURABLE_JOB_DEFER_LEASE_LOST');
+    }
+  }
+
   async retryOrDeadLetter(input: Readonly<{
     jobId: string;
     leaseToken: string;

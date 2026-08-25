@@ -247,6 +247,56 @@ describe('DurableWorkflowJobStoreV1', () => {
     })).resolves.toBe('dead_letter');
   });
 
+  it('defers healthy external waiting without consuming a failure attempt', async () => {
+    const { store } = setup();
+    const created = await store.createOrGet(createInput({
+      idempotencyKey: 'healthy-wait-job', maxAttempts: 2,
+    }), START);
+    const first = await store.claim({
+      jobId: created.job.jobId, workerId: 'worker-a', now: START,
+    });
+    if (first.kind !== 'claimed') throw new Error('expected healthy wait claim');
+    await store.saveResumeState({
+      jobId: created.job.jobId,
+      leaseToken: first.leaseToken,
+      expectedSequence: 0,
+      state: {
+        schemaId: 'EXTERNAL_WAIT_V1',
+        stateSha256: hashDurableWorkflowJobJsonV1({ callId: 'call-a' }),
+        payload: { callId: 'call-a' },
+      },
+      now: at(10),
+    });
+    await store.deferUntil({
+      jobId: created.job.jobId,
+      leaseToken: first.leaseToken,
+      resumeCursor: { externalState: 'PENDING' },
+      resumeAt: at(1_000),
+      now: at(20),
+    });
+
+    await expect(store.getAuthorized({
+      jobId: created.job.jobId, tenantId: 'tenant-1', userId: 'user-1',
+    })).resolves.toMatchObject({
+      status: 'retry_wait',
+      attemptCount: 1,
+      remainingAttempts: 2,
+      error: null,
+      retryCursor: { externalState: 'PENDING' },
+      resumeState: { sequence: 1, payload: { callId: 'call-a' } },
+    });
+    await expect(store.claim({
+      jobId: created.job.jobId, workerId: 'worker-b', now: at(999),
+    })).resolves.toMatchObject({ kind: 'skipped', reason: 'retry_not_due' });
+    const resumed = await store.claim({
+      jobId: created.job.jobId, workerId: 'worker-b', now: at(1_000),
+    });
+    expect(resumed).toMatchObject({
+      kind: 'claimed',
+      job: { attemptCount: 2, remainingAttempts: 1 },
+    });
+  });
+
   it('settles once, preserves proof disposition and lists only recoverable work', async () => {
     const { store } = setup();
     const active = await store.createOrGet(createInput({ idempotencyKey: 'complete-job' }), START);
