@@ -615,6 +615,23 @@ changes.
   and the frozen `HOLD-DEP-03` isolated sentinel has not yet been reissued
   against this owner.
 
+  Commit `a022bfeb2` repairs the first renderer/source-accounting prerequisite
+  exposed while attempting that reissue. Video overlays can now carry explicit
+  inclusive `sourceStartFrame` and exclusive `sourceEndFrame` bounds. The
+  shared `computeSpeedSegments` owner accepts that verified source-frame budget,
+  and both browser/server video playback and timeline-cut source accounting use
+  it. Source-bound splits and tail trims retain exact source ends. Legacy
+  overlays without explicit bounds keep the previous conservative duration
+  budget, so this does not silently widen old playback. This closes the defect
+  where a source-preserving shortened 2x retime was capped back toward 1x merely
+  because its composition duration was shorter than its source span. Focused
+  retime/cut verification passes 27/27 and the five changed paths pass quiet
+  ESLint. Repository typecheck was attempted but is currently blocked only by
+  concurrent unstaged ThinkForge script-narration/physical-capture work; those
+  paths were neither edited nor staged here. This remains a prerequisite, not
+  a DEP-03 closeout: ProjectService still needs an atomic duration/ripple write,
+  exact effect receipt and adversarial owner reissue before inference.
+
 - **2026-08-25 ordered-foundation closeouts.** Commit `800f2f543` makes the
   live chapter renderer derive its 15-minute admission threshold, 2.5-minute
   target and 30-second minimum from the supplied numeric render FPS; the render
