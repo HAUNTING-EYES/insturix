@@ -242,7 +242,12 @@ export async function readGcsObjectVersionObservationV1(
     const generation = typeof metadata.generation === 'string'
       ? metadata.generation.trim()
       : '';
-    if (!Number.isSafeInteger(byteLength) || byteLength <= 0 || !generation) return null;
+    if (
+      typeof byteLength !== 'number'
+      || !Number.isSafeInteger(byteLength)
+      || byteLength <= 0
+      || !generation
+    ) return null;
     return { byteLength, generation };
   } catch (err: unknown) {
     console.warn('[GCS] object-version observation failed:', err instanceof Error ? err.message : err);

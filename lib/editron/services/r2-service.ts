@@ -374,7 +374,12 @@ export async function readR2ObjectVersionObservationV1(
     const eTag = typeof response.ETag === 'string'
       ? response.ETag.trim().replace(/^"|"$/g, '')
       : '';
-    if (!Number.isSafeInteger(byteLength) || byteLength <= 0 || !eTag) return null;
+    if (
+      typeof byteLength !== 'number'
+      || !Number.isSafeInteger(byteLength)
+      || byteLength <= 0
+      || !eTag
+    ) return null;
     return { byteLength, eTag };
   } catch (err: unknown) {
     console.warn('[R2] object-version observation failed:', err instanceof Error ? err.message : err);
