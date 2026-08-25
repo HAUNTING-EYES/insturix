@@ -189,6 +189,19 @@ changes.
   URL, so canonical-media provenance, URL origin/redirect/byte/expiry policy,
   and storage-owner-issued handles remain open.
 
+- **2026-08-25 Wav2Vec source-auth correction.** Step-0 commit `be538d723`
+  removed worker debug/raw-error diagnostics before commit `f0ccf4dbe` changed
+  the repository source boundary. The Modal endpoint now requires proxy auth;
+  the client sends only dedicated, host-bound proxy credentials, rejects
+  arbitrary/HTTP endpoint configuration before fetch, and validates remote
+  segment payloads before emitting vocal facts. Generic `MODAL_TOKEN_*` values
+  cannot authorize this path; raw source/request error text is not logged.
+  Existing one-source batched segment analysis is unchanged. Focused
+  Wav2Vec/Music tests pass 13/13, Python compile/static analysis, TypeScript
+  checking and quiet ESLint pass. No endpoint deployment or environment change
+  was made. The worker still receives a caller-provided temporary URL rather
+  than a canonical-media source handle.
+
 - **2026-08-25 source-qualification lifecycle.** Commit `7595ddbdd` adds a
   source-bound `PENDING -> PROBING -> MEASURED_TECHNICAL | UNVERIFIABLE`
   lifecycle as an optional field on the existing `MediaAsset` type. It accepts
