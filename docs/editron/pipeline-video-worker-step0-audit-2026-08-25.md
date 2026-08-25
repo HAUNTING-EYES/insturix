@@ -161,7 +161,7 @@ authority.
 
 ### Completed owner-contract phase — not runtime migration
 
-Commit `3d4852e46` introduces the narrow
+Commit `3d4852e46`, corrected by `6ea12538a`, introduces the narrow
 `ProjectService.commitPipelineVideoDeliveryV1` boundary and pure delivery
 material helper. It accepts only a worker-issued target `{ overlayId,
 expectedAssetId }`, an exact expected project revision, canonical replacement
@@ -170,14 +170,20 @@ an idempotency receipt, a writer-issued after-revision, changed paths, an
 exact project-frame range effect and the explicit
 `UNVERIFIABLE / NO_RENDERED_VIDEO_PROOF` disposition.
 
-There is deliberately no V1 safe rebase: any project revision drift, missing
-target, non-video target or target asset change returns a structured conflict
-without a project write. Native-audio output requires matching generated-audio
-rights and FFmpeg probe evidence. A provider that produces neither native audio
-nor a generation receipt can land only with both fields absent; the command
-does not invent provenance.
+The owner now permits one **target-preserving** retry, not a broad project
+rebase. It records the producer's `requestedRevision`, the actual
+`beforeRevision` used for the write, and `FRESH` or
+`SAFE_REBASED_TARGET_UNCHANGED`. A stale delivery may apply only when the exact
+overlay ID is still a video and still has the exact expected source asset; the
+replacement is rebuilt from that current overlay so unrelated user changes are
+preserved. A missing target, non-video target, target asset change, duplicate
+delivery with different material, or second CAS loss returns a structured
+no-write failure. Native-audio output requires matching generated-audio rights
+and FFmpeg probe evidence. A provider that produces neither native audio nor a
+generation receipt can land only with both fields absent; the command does not
+invent provenance.
 
-Focused ProjectService delivery/range tests passed 26/26, followed by
+Focused ProjectService delivery/range tests passed 27/27, followed by
 repository typecheck and quiet ESLint. This commit **does not call the command
 from the worker**, does not remove the raw worker write, and does not migrate
 quality warnings or Director dispatch. Those remain the next separately tested
