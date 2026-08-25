@@ -460,6 +460,44 @@ export interface ProjectDirectorMutationLeaseV1 {
 }
 
 /**
+ * A ProjectService-issued handoff token for the pipeline-video completion
+ * worker. It is deliberately project state, not a second queue or job owner:
+ * the token keeps the original pending signal durable until the signed
+ * Director worker atomically claims it.
+ */
+export interface ProjectPipelineDirectorDispatchV1 {
+  schemaVersion: 1;
+  batchId: string;
+  profileId: string;
+  dispatchToken: string;
+  preparedAt: string;
+}
+
+export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  batchId: string;
+}
+
+export type ProjectPipelineDirectorDispatchPrepareResultV1 =
+  | {
+      disposition: "PREPARED";
+      dispatch: ProjectPipelineDirectorDispatchV1;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_PREPARED";
+      dispatch: ProjectPipelineDirectorDispatchV1;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "NOT_ELIGIBLE" };
+
+export interface ProjectDirectorRunClaimOptionsV1 {
+  /** Required only when ProjectService prepared a pipeline-video dispatch. */
+  pipelineDirectorDispatchToken?: string;
+}
+
+/**
  * A bounded, lease-owned progress update for one active Director execution.
  * Progress is project state, so worker callbacks must submit it through the
  * same compare-and-swap and receipt protocol as every other project write.
@@ -772,8 +810,13 @@ export interface Project {
   directorLockAt?: Date | string;
   directorLockToken?: string;
   /** Durable automatic-Director lifecycle identity. Distinct from the short
-      writer lease, which is intentionally cleared by the final editor save. */
+       writer lease, which is intentionally cleared by the final editor save. */
   directorRunToken?: string;
+  /** Pipeline-finalize signal, retained until the signed Director worker claims it. */
+  pendingDirectorProfileId?: string;
+  pendingDirectorUserId?: string;
+  /** ProjectService-issued signed-worker handoff; it is never a queue authority. */
+  pipelineDirectorDispatch?: ProjectPipelineDirectorDispatchV1;
 }
 
 export interface ProjectListItem {
@@ -1987,6 +2030,171 @@ export class ProjectService {
   }
 
   /**
+   * Makes a pipeline-video completion eligible for one signed Director-worker
+   * claim without erasing the original finalize signal. QStash publication is
+   * intentionally outside this mutation. If publication fails, the same
+   * dispatch token remains recoverable; only a matching worker claim consumes
+   * the signal.
+   */
+  async preparePipelineDirectorDispatchV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineDirectorDispatchPrepareCommandV1,
+  ): Promise<ProjectPipelineDirectorDispatchPrepareResultV1> {
+    assertProjectPipelineDirectorDispatchPrepareCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const pendingProfileId = projectOptionalNonEmptyStringFieldV1(
+      current,
+      "pendingDirectorProfileId",
+    );
+    const pendingUserId = projectOptionalNonEmptyStringFieldV1(
+      current,
+      "pendingDirectorUserId",
+    );
+    const rawExistingDispatch = projectRecordValueV1(current, "pipelineDirectorDispatch");
+    const existingDispatch = readProjectPipelineDirectorDispatchV1(rawExistingDispatch);
+    if (rawExistingDispatch !== undefined && !existingDispatch) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+    if (existingDispatch) {
+      if (
+        existingDispatch.batchId === input.batchId
+        && pendingProfileId === existingDispatch.profileId
+        && pendingUserId === userId
+        && projectRecordValueV1(current, "autoEditStatus") === "directing_queued"
+        && projectRecordValueV1(current, "directorRunToken") === undefined
+      ) {
+        return {
+          disposition: "ALREADY_PREPARED",
+          dispatch: structuredClone(existingDispatch),
+          currentRevision,
+        };
+      }
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+    if (
+      !pendingProfileId
+      || !isBoundedNonEmptyStringV1(pendingProfileId, 200)
+      || pendingUserId !== userId
+      || projectRecordValueV1(current, "directorRunToken") !== undefined
+      || !isPipelineDirectorDispatchPreparationEligibleStatusV1(
+        projectRecordValueV1(current, "autoEditStatus"),
+      )
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const committedAt = new Date();
+    const dispatch: ProjectPipelineDirectorDispatchV1 = {
+      schemaVersion: 1,
+      batchId: input.batchId,
+      profileId: pendingProfileId,
+      dispatchToken: `pipeline_director_dispatch_${nanoid(20)}`,
+      preparedAt: committedAt.toISOString(),
+    };
+    const preparedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        pendingDirectorProfileId: pendingProfileId,
+        pendingDirectorUserId: userId,
+        directorRunToken: { $exists: false },
+        pipelineDirectorDispatch: { $exists: false },
+        editMode: { $ne: "assist" },
+        $and: [
+          projectRevisionPredicate(input.expectedRevision),
+          {
+            $or: [
+              { autoEditStatus: { $exists: false } },
+              { autoEditStatus: "analysis_complete" },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          autoEditStatus: "directing_queued",
+          pipelineDirectorDispatch: dispatch,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+
+    if (!preparedProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+      const latestDispatch = readProjectPipelineDirectorDispatchV1(
+        projectRecordValueV1(latest, "pipelineDirectorDispatch"),
+      );
+      if (
+        latestDispatch
+        && latestDispatch.batchId === input.batchId
+        && latestDispatch.profileId === pendingProfileId
+        && projectOptionalNonEmptyStringFieldV1(latest, "pendingDirectorProfileId")
+          === pendingProfileId
+        && projectOptionalNonEmptyStringFieldV1(latest, "pendingDirectorUserId") === userId
+        && projectRecordValueV1(latest, "autoEditStatus") === "directing_queued"
+        && projectRecordValueV1(latest, "directorRunToken") === undefined
+      ) {
+        return {
+          disposition: "ALREADY_PREPARED",
+          dispatch: structuredClone(latestDispatch),
+          currentRevision: projectRevisionFor(latest),
+        };
+      }
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const revision = projectRevisionFor(preparedProject);
+    const returnedDispatch = readProjectPipelineDirectorDispatchV1(
+      projectRecordValueV1(preparedProject, "pipelineDirectorDispatch"),
+    );
+    if (
+      revision.value !== input.expectedRevision.value + 1
+      || revision.compatibilityUpdatedAt !== committedAt.toISOString()
+      || projectRecordValueV1(preparedProject, "autoEditStatus") !== "directing_queued"
+      || !returnedDispatch
+      || returnedDispatch.dispatchToken !== dispatch.dispatchToken
+      || returnedDispatch.batchId !== dispatch.batchId
+      || returnedDispatch.profileId !== dispatch.profileId
+    ) {
+      throw new ProjectMutationWriteError(
+        "Pipeline Director dispatch preparation did not return its exact writer-issued state.",
+      );
+    }
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return {
+      disposition: "PREPARED",
+      dispatch: structuredClone(returnedDispatch),
+      receipt,
+    };
+  }
+
+  /**
    * Claims one automatic Director lifecycle through the canonical project
    * writer. The durable run token remains after the Director's short writer
    * lease is cleared by its final save, so later completion/failure can prove
@@ -1995,7 +2203,22 @@ export class ProjectService {
   async claimDirectorRunV1(
     userId: string,
     projectId: string,
+    options: ProjectDirectorRunClaimOptionsV1 | undefined = undefined,
   ): Promise<ProjectDirectorRunClaimResultV1> {
+    if (
+      options !== undefined
+      && (
+        !isPlainRecord(options)
+        || (
+          options.pipelineDirectorDispatchToken !== undefined
+          && !isProjectPipelineDirectorDispatchTokenV1(
+            options.pipelineDirectorDispatchToken,
+          )
+        )
+      )
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
     const db = await getDatabase();
     const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
       projectId,
@@ -2004,6 +2227,21 @@ export class ProjectService {
     if (!current) return { disposition: "PROJECT_NOT_FOUND" };
     if (isAssistProjectRecordV1(current)) {
       return { disposition: "ASSIST_PROJECT", project: structuredClone(current) };
+    }
+    const suppliedDispatchToken = options?.pipelineDirectorDispatchToken;
+    const rawPipelineDispatch = projectRecordValueV1(current, "pipelineDirectorDispatch");
+    const pipelineDispatch = readProjectPipelineDirectorDispatchV1(rawPipelineDispatch);
+    if (
+      (rawPipelineDispatch !== undefined && !pipelineDispatch)
+      || (pipelineDispatch !== null && (
+        suppliedDispatchToken !== pipelineDispatch.dispatchToken
+        || projectOptionalNonEmptyStringFieldV1(current, "pendingDirectorProfileId")
+          !== pipelineDispatch.profileId
+        || projectOptionalNonEmptyStringFieldV1(current, "pendingDirectorUserId") !== userId
+      ))
+      || (pipelineDispatch === null && suppliedDispatchToken !== undefined)
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
     }
     if (
       !isDirectorRunClaimableStatusV1(projectRecordValueV1(current, "autoEditStatus"))
@@ -2015,6 +2253,34 @@ export class ProjectService {
     const beforeRevision = projectRevisionFor(current);
     const claimedAt = new Date();
     const runToken = `director_run_${nanoid(20)}`;
+    const pipelineClaimPredicate = pipelineDispatch
+      ? {
+          "pipelineDirectorDispatch.schemaVersion": 1,
+          "pipelineDirectorDispatch.batchId": pipelineDispatch.batchId,
+          "pipelineDirectorDispatch.profileId": pipelineDispatch.profileId,
+          "pipelineDirectorDispatch.dispatchToken": pipelineDispatch.dispatchToken,
+          "pipelineDirectorDispatch.preparedAt": pipelineDispatch.preparedAt,
+          pendingDirectorProfileId: pipelineDispatch.profileId,
+          pendingDirectorUserId: userId,
+        }
+      : {};
+    const claimUpdate = {
+      $set: {
+        autoEditStatus: "directing",
+        directorRunToken: runToken,
+        updatedAt: claimedAt,
+      },
+      ...(pipelineDispatch
+        ? {
+            $unset: {
+              pendingDirectorProfileId: "",
+              pendingDirectorUserId: "",
+              pipelineDirectorDispatch: "",
+            },
+          }
+        : {}),
+      $inc: { projectRevision: 1 },
+    };
     const claimedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
       {
         projectId,
@@ -2023,15 +2289,9 @@ export class ProjectService {
         editMode: { $ne: "assist" },
         autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
         directorRunToken: { $exists: false },
+        ...pipelineClaimPredicate,
       },
-      {
-        $set: {
-          autoEditStatus: "directing",
-          directorRunToken: runToken,
-          updatedAt: claimedAt,
-        },
-        $inc: { projectRevision: 1 },
-      },
+      claimUpdate,
       { returnDocument: "after", includeResultMetadata: false },
     )) as Project | null;
 
@@ -4489,6 +4749,21 @@ function assertProjectDirectorProgressCommandV1(
   assertProjectRevision(input.expectedRevision);
 }
 
+function assertProjectPipelineDirectorDispatchPrepareCommandV1(
+  input: ProjectPipelineDirectorDispatchPrepareCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.batchId, 200)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Pipeline Director dispatch preparation must carry one exact project revision and batch identity.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
 function assertProjectDirectorRunCompletionCommandV1(
   projectId: string,
   input: ProjectDirectorRunCompletionCommandV1,
@@ -4547,6 +4822,38 @@ function assertProjectDirectorRunFailureCommandV1(
 
 function isProjectDirectorRunTokenV1(value: unknown): value is string {
   return typeof value === "string" && /^director_run_[A-Za-z0-9_-]{20}$/.test(value);
+}
+
+function isProjectPipelineDirectorDispatchTokenV1(value: unknown): value is string {
+  return typeof value === "string"
+    && /^pipeline_director_dispatch_[A-Za-z0-9_-]{20}$/.test(value);
+}
+
+function readProjectPipelineDirectorDispatchV1(
+  value: unknown,
+): ProjectPipelineDirectorDispatchV1 | null {
+  if (
+    !isPlainRecord(value)
+    || value.schemaVersion !== 1
+    || !isBoundedNonEmptyStringV1(value.batchId, 200)
+    || !isBoundedNonEmptyStringV1(value.profileId, 200)
+    || !isProjectPipelineDirectorDispatchTokenV1(value.dispatchToken)
+    || !isBoundedNonEmptyStringV1(value.preparedAt, 100)
+    || !isValidDateValueV1(value.preparedAt)
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    batchId: value.batchId,
+    profileId: value.profileId,
+    dispatchToken: value.dispatchToken,
+    preparedAt: new Date(value.preparedAt).toISOString(),
+  };
+}
+
+function isPipelineDirectorDispatchPreparationEligibleStatusV1(value: unknown): boolean {
+  return value === undefined || value === "analysis_complete";
 }
 
 function isDirectorRunClaimableStatusV1(value: unknown): boolean {

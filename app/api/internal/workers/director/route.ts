@@ -47,6 +47,8 @@ interface DirectorWorkerPayload {
   pacingFeel?: string;
   musicPreference?: string;
   editorialPreferences?: EditorialPreferences;
+  /** Required only for the ProjectService-issued pipeline-video handoff. */
+  pipelineDirectorDispatchToken?: string;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -82,12 +84,19 @@ async function handler(request: NextRequest) {
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
       motionGraphics, pacingFeel, musicPreference, editorialPreferences: payloadEditorialPreferences,
+      pipelineDirectorDispatchToken,
     } = payload;
     if (!projectId || !userId) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    const runClaim = await projectService.claimDirectorRunV1(userId, projectId);
+    const runClaim = await projectService.claimDirectorRunV1(
+      userId,
+      projectId,
+      pipelineDirectorDispatchToken === undefined
+        ? undefined
+        : { pipelineDirectorDispatchToken },
+    );
     if (runClaim.disposition === 'PROJECT_NOT_FOUND' || runClaim.disposition === 'NOT_ELIGIBLE') {
       console.log(`[DirectorWorker] Skipping ${projectId}: Director run claim is ${runClaim.disposition}.`);
       return NextResponse.json({ success: true, skipped: true, reason: 'already_processed' });

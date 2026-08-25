@@ -16,6 +16,7 @@ import {
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
+import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
 import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import type { PipelineVideoProjectDeliveryRequestV1 } from '@/lib/editron/services/pipeline-video-project-delivery-v1';
 
@@ -701,10 +702,10 @@ async function updateBatchStatus(batchId: string): Promise<void> {
     { $set: { status, updatedAt: new Date() } },
   );
 
-  // ─── Dispatch Director Agent when ALL videos are done ──────────
-  // Only runs once (when done count first reaches totalScenes).
-  // Reads pendingDirectorProfileId stored by finalize route.
-  // Gets projectId from storyboard (not batch — batch doesn't always have it).
+  // ─── Prepare + dispatch Director Agent when ALL videos are done ──────────
+  // ProjectService retains the finalize signal until the signed Director worker
+  // has atomically claimed it. The batch only records delivery observations;
+  // it never owns or clears project dispatch state.
   const resolvedProjectId = batch.projectId
     || (batch.storyboardId ? (await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any)?.projectId : null);
 
@@ -717,50 +718,107 @@ async function updateBatchStatus(batchId: string): Promise<void> {
       console.warn(`[VideoWorker] Failed to refresh project status for ${resolvedProjectId}:`, statusErr.message);
     }
 
-    try {
-      const project = await db.collection('projects').findOne({ projectId: resolvedProjectId }) as any;
-      let profileId = project?.pendingDirectorProfileId;
-      const userId = project?.pendingDirectorUserId || project?.userId;
-
-      // D-016: Profile detection removed — signal system drives editing decisions.
-      // Finalize always stores 'G-01'. This fallback covers DB write failures.
-      if (!profileId) {
-        profileId = 'G-01';
-        console.log(`[VideoWorker] No pendingDirectorProfileId — using G-01 (signal-driven, D-016)`);
-      }
-
-      // Clear pending flag so Director doesn't run twice
-      await db.collection('projects').updateOne(
-        { projectId: resolvedProjectId },
-        { $unset: { pendingDirectorProfileId: '', pendingDirectorUserId: '' } },
+    const recordDirectorDispatch = async (
+      disposition: string,
+      details: Record<string, unknown> = {},
+    ) => {
+      const observedAt = new Date();
+      await db.collection('pipeline_video_batches').updateOne(
+        { _id: batchId } as any,
+        {
+          $set: {
+            directorDispatch: {
+              schemaVersion: 1,
+              disposition,
+              observedAt: observedAt.toISOString(),
+              ...details,
+            },
+            updatedAt: observedAt,
+          },
+        },
       );
+    };
+    const userId = typeof batch.userId === 'string' && batch.userId.trim()
+      ? batch.userId.trim()
+      : null;
+    const qstashToken = process.env.QSTASH_TOKEN?.trim();
+    const directorBaseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL?.trim();
 
-      const directorUrl = (() => {
-        const base = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-        return `${base}/api/services/editron/director/execute`;
-      })();
+    if (!userId) {
+      await recordDirectorDispatch('NOT_DISPATCHED_MISSING_BATCH_OWNER');
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: batch userId is missing.`);
+      return;
+    }
+    if (!qstashToken || !isInternalQStashWorkerAuthConfigured()) {
+      await recordDirectorDispatch('NOT_DISPATCHED_WORKER_AUTH_CONFIGURATION', {
+        missingQStashToken: !qstashToken,
+        missingSigningKeys: !isInternalQStashWorkerAuthConfigured(),
+      });
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: signed QStash delivery is not configured.`);
+      return;
+    }
+    if (!directorBaseUrl) {
+      await recordDirectorDispatch('NOT_DISPATCHED_DIRECTOR_WORKER_URL');
+      console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: no deployed worker URL is configured.`);
+      return;
+    }
 
-      if (process.env.QSTASH_TOKEN) {
-        const { Client } = await import('@upstash/qstash');
-        const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
-        await qstash.publishJSON({
-          url: directorUrl,
-          body: { projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true },
-          retries: 1,
-        });
-        console.log(`[VideoWorker] Batch ${batchId} complete (${status}) — Director dispatched for ${resolvedProjectId} (profile: ${profileId})`);
-      } else {
-        fetch(directorUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: resolvedProjectId, editProfileId: profileId, userId, _internal: true }),
-        }).catch(() => {});
-        console.log(`[VideoWorker] Batch ${batchId} complete — Director dispatched via fetch for ${resolvedProjectId} (profile: ${profileId})`);
+    try {
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const snapshot = await projectService.loadProjectForMutation(userId, resolvedProjectId);
+      const prepared = await projectService.preparePipelineDirectorDispatchV1(
+        userId,
+        resolvedProjectId,
+        {
+          expectedRevision: snapshot.revision,
+          batchId,
+        },
+      );
+      if (prepared.disposition !== 'PREPARED' && prepared.disposition !== 'ALREADY_PREPARED') {
+        await recordDirectorDispatch(`NOT_DISPATCHED_${prepared.disposition}`);
+        console.warn(`[VideoWorker] Batch ${batchId} Director handoff was not eligible: ${prepared.disposition}.`);
+        return;
       }
-    } catch (dirErr: any) {
-      console.error(`[VideoWorker] Director dispatch failed after batch ${batchId} complete:`, dirErr.message);
+
+      const { Client } = await import('@upstash/qstash');
+      const publication = await new Client({
+        token: qstashToken,
+        baseUrl: process.env.QSTASH_URL || undefined,
+      }).publishJSON({
+        url: `${directorBaseUrl}/api/internal/workers/director`,
+        body: {
+          projectId: resolvedProjectId,
+          userId,
+          profileId: prepared.dispatch.profileId,
+          pipelineDirectorDispatchToken: prepared.dispatch.dispatchToken,
+        },
+        retries: 1,
+      });
+      const messageId = typeof (publication as { messageId?: unknown }).messageId === 'string'
+        ? (publication as { messageId: string }).messageId
+        : null;
+      await recordDirectorDispatch('PUBLISHED_SIGNED_DIRECTOR_WORKER', {
+        messageId,
+        prepareDisposition: prepared.disposition,
+      });
+      console.log(
+        `[VideoWorker] Batch ${batchId} complete (${status}) — signed Director handoff published for ${resolvedProjectId}.`,
+      );
+    } catch (dirErr: unknown) {
+      try {
+        await recordDirectorDispatch('PUBLISH_FAILED_RETRYABLE');
+      } catch (recordErr: unknown) {
+        console.error(
+          `[VideoWorker] Batch ${batchId} failed to record Director dispatch failure:`,
+          recordErr instanceof Error ? recordErr.message : recordErr,
+        );
+      }
+      console.error(
+        `[VideoWorker] Director dispatch failed after batch ${batchId} complete:`,
+        dirErr instanceof Error ? dirErr.message : dirErr,
+      );
     }
   }
 }
