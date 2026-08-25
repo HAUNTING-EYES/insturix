@@ -2,11 +2,11 @@
 
 ## Boundary and status
 
-This is the mandatory cleanup audit before a structural change to
+This began as the mandatory cleanup audit before a structural change to
 `app/api/internal/workers/pipeline/audio/route.ts`. The route is over the
-AGENTS.md structural-refactor threshold. This audit does not migrate an audio
-writer, introduce a new ProjectService command, alter a project, or authorize
-model inference.
+AGENTS.md structural-refactor threshold. The active-ingress result is recorded
+below; it does not authorize model inference, a new project owner, or a
+generic worker wrapper.
 
 The only confirmed dead local contract in the worker is its declared and
 destructured `storyboardId`: the two current dispatch producers include it, but
@@ -24,12 +24,12 @@ audio outcome. No import was found unused.
 | --- | --- |
 | Producers | `app/api/services/pipeline/storyboard/[id]/finalize/route.ts` dispatches BGM and SFX independently after project creation. `lib/editron/agent/director-agent.ts` dispatches BGM for the Director path. |
 | Decision/form owners | BGM eligibility and coverage are owned by `bgm-conditioning-contract` and `music-coverage-runtime`; BGM generation by `bgm-service`; beat measurement by `music-beat-grid`; cut movement by the pure `alignCutsToBeatsWithEvidence` form owner; SFX candidate generation by `sfx-service`. |
-| Current mutation owner | None for canonical project state. The worker writes Mongo `projects` directly. |
-| Direct state writes | Pipeline warnings; BGM coverage facts; BGM/SFX `sound` overlays; a later full `overlays` replacement after beat alignment; `updatedAt`. Generated asset records are separately upserted in `MEDIA_ASSETS`. |
+| Current mutation owner | `ProjectService.commitPipelineAudioDeliveryV1` is the only active worker path for canonical BGM/SFX project state. |
+| Direct state writes | The worker has no direct `projects` collection access. It loads a ProjectService mutation snapshot and delivers `ATTACHED`, `SKIPPED`, or `FAILED` material through the owner. Generated asset records are separately upserted in `MEDIA_ASSETS`. |
 | Existing downstream consumers | Project overlays are read by the editor/renderer family and audio quality/chat services. `_workerAdded` is specifically preserved by `ProjectService.saveProject`; it is not a writer-issued receipt or concurrency guarantee. |
-| Proof truth | The worker returns a transport response and warnings. It emits no canonical ProjectService revision, receipt, undo/replay binding, scoped effect, render proof, or audible-mix proof. |
+| Proof truth | Every delivered terminal outcome returns a writer-issued revision/receipt and explicit proof disposition. An attached sound remains `UNVERIFIABLE` until rendered audio/mix proof exists. |
 
-## Concrete production race
+## Historical production race and active closure
 
 The BGM and SFX jobs are intentionally enqueued separately and can run in
 parallel. The BGM flow:
@@ -38,17 +38,27 @@ parallel. The BGM flow:
 2. reads the whole project overlay array to run beat alignment; then
 3. writes that entire in-memory array back with `$set`.
 
-If SFX appends an overlay after BGM's read and before BGM's whole-array write,
-the BGM write drops that SFX overlay. `_workerAdded` protects against one class
-of browser-save loss; it does not close this worker-to-worker race.
+If SFX appended an overlay after BGM's read and before BGM's whole-array write,
+the BGM write dropped that SFX overlay. `_workerAdded` protects against one
+class of browser-save loss; it did not close this worker-to-worker race.
+
+The active route no longer performs either project write. It reads one
+ProjectService-issued snapshot, attaches its planning binding and retry-stable
+delivery identity, then calls `commitPipelineAudioDeliveryV1`. The owner reads
+the current CAS snapshot. A stale delivery can only rebase across audio-only
+changes; a visual change returns a structured conflict. BGM beat alignment is
+recomputed from that fresh owner snapshot, while SFX uses the owner’s append
+path. Therefore the old full-array replacement cannot erase a concurrent SFX
+append.
 
 The route's non-development missing-signing-key branch rejects instead of
 falling through to a raw handler. The newer dispatcher correction in
 `6382641ce` separately prevents callers from claiming a production enqueue
 when publisher/signing configuration is absent. Neither fact makes the writer
-safe.
+safe on its own; the active ProjectService migration above is what closes the
+project-write race.
 
-## ProjectService owner materialization (current branch; not wired)
+## ProjectService owner materialization and active ingress migration
 
 The next structural phase was kept specific to pipeline-audio delivery: it did
 not wrap the route in a generic metadata writer or reuse the research planner.
@@ -73,19 +83,29 @@ timeline binding and delivery identity, and makes one CAS-owned project write.
 - Warnings travel through the same command. Asset registration remains a
   separately classified media-asset write, not project/timeline authority.
 
-Focused contract tests cover stable binding, fresh SFX delivery, exact replay,
-changed material, audio-only rebase, visual-change refusal, and BGM CAS retry
-preserving concurrent SFX. The owner and adjacent revision/save suites pass
-55/55, with repository typecheck and focused quiet ESLint passing.
+The worker ingress now requires a valid `audio-delivery_*` identity before it
+loads a project or invokes a provider. The dispatcher creates that identity
+before QStash publication, so a QStash retry keeps the same body. The route
+propagates owner conflicts as `409`, records terminal `FAILED` outcomes when
+it can do so safely, and records policy or coverage vetoes as `SKIPPED`
+without fabricating an audio overlay or coverage plan.
 
-This is **owner materialization only**. The active worker route still writes
-`projects` directly, so there is no active writer migration claim yet.
+Focused contract tests cover stable binding, fresh SFX delivery, exact replay,
+changed material, audio-only rebase, visual-change refusal, BGM CAS retry
+preserving concurrent SFX, signed worker identity, active BGM/SFX ingress,
+policy skips, terminal failures, and owner conflicts. The focused boundary
+suite passes 90/90; repository typecheck and quiet ESLint pass.
+
+This is a completed **pipeline-audio canonical project-writer migration**. It
+does not mean that media assets, rendering, audio analysis, or all audio
+callers have become one owner.
 
 ## Non-claims and next proof
 
-This work does not wire the legacy route, repair the split beat-analysis
-callers, certify the audio mix, migrate media-asset registration, or complete
-the Stage 1 writer audit. The next bounded phase must replace raw project
-writes in the worker with this owner and prove the active signed ingress,
-warning outcomes, duplicate QStash delivery, asset/warning failure separation,
-and zero-write blocked dispositions.
+This work does not repair the split beat-analysis callers, certify the audio
+mix, make media-asset registration transactional with a project receipt, or
+complete the Stage 1 writer audit. A provider asset can therefore be registered
+before a later ProjectService conflict; it is reusable media state, not a
+timeline mutation, and it must not be presented as a completed edit. The next
+bounded phase returns to the canonical media/timebase/evidence spine, while
+the remaining worker-audit entries stay explicit in the master plan.

@@ -102,17 +102,25 @@ changes.
   migration, not a migration of legacy Director fact writes, stuck recovery,
   Assist rescue, range collaboration or generic reconciliation.
   No Stage 2.5 paid dispatch is authorized by this audit.
-- The next legacy writer is the pipeline-audio worker. Commit `6382641ce`
-  already makes its production dispatch fail closed when QStash publisher or
-  signing configuration is absent. The current branch now materializes the
-  narrow `ProjectService.commitPipelineAudioDeliveryV1` owner described in
-  [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md): it has exact delivery-material idempotency, a non-audio timeline
-  binding, audio-only safe rebase, BGM fresh-snapshot CAS retry, writer-issued
-  receipt, and explicit `UNVERIFIABLE` attached-audio proof. Its focused owner
-  and adjacent revision/save suites pass 55/55 with repository typecheck and
-  focused quiet ESLint. This is `NOT_WIRED`: the active worker still performs
-  raw BGM/SFX project writes. The next bounded phase is its ingress migration
-  and active-path adversarial proof, not a generic worker wrapper.
+- The pipeline-audio worker migration is complete on the active worker path.
+  Commit `6382641ce` already makes production dispatch fail closed when QStash
+  publisher or signing configuration is absent; `1853c308a` binds the
+  retry-stable `audio-delivery_*` identity before publication. The active route
+  now requires that identity, obtains a ProjectService mutation snapshot, and
+  calls the narrow `ProjectService.commitPipelineAudioDeliveryV1` owner
+  described in [audio-worker-step0-audit-2026-08-25.md](./editron/audio-worker-step0-audit-2026-08-25.md).
+  It has exact delivery-material idempotency, a non-audio timeline binding,
+  audio-only safe rebase, BGM fresh-snapshot CAS retry, writer-issued receipt,
+  and explicit `UNVERIFIABLE` attached-audio proof. The route has no direct
+  `projects` collection access, no post-read full-overlay replacement, and no
+  fallback after an owner conflict. Its active ingress tests cover BGM, SFX,
+  policy skip, terminal failure, missing identity and stale visual-binding
+  conflict; the cross-boundary suite passes 90/90 with repository typecheck
+  and quiet ESLint. This is a completed pipeline-audio **project writer**
+  migration, not a claim of audio render/mix proof, transactional media assets,
+  unified beat analysis, range collaboration, or migration of other legacy
+  writers. The next ordered foundation is the canonical media/timebase/evidence
+  spine, followed by the remaining Stage 2.5 generalisation evidence.
 
 ## The desired experience, in plain words
 
