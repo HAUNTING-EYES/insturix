@@ -40,6 +40,7 @@ image = (
 )
 private_storage_secret = modal.Secret.from_name("editron-media-source-pts-private-r2")
 SAFE_CALL_ID = re.compile(r"^fc-[A-Za-z0-9_-]{8,128}$")
+SAFE_SUBMISSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$")
 SAFE_ACCOUNT_ID = re.compile(r"^[a-f0-9]{32}$", re.IGNORECASE)
 SAFE_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 FRAME_SCAN_TIMEOUT_SECONDS = 86_400
@@ -126,7 +127,15 @@ async def submit_source_pts_scan(request: fastapi.Request):
     except Exception:
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_REQUEST_INVALID"})
     try:
-        validated = validate_scan_request(body)
+        if not isinstance(body, dict) or sorted(body) != [
+            "kind", "request", "schemaVersion", "submissionId",
+        ] or body.get("schemaVersion") != 1 \
+                or body.get("kind") != "EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMISSION_V1" \
+                or not isinstance(body.get("submissionId"), str) \
+                or not SAFE_SUBMISSION_ID.fullmatch(body["submissionId"]):
+            raise ScanInputError("SCAN_SUBMISSION_INVALID")
+        submission_id = body["submissionId"]
+        validated = validate_scan_request(body["request"])
         _verify_mapper_contract(validated)
         if not is_allowed_media_source_url(
             validated["source_url"], "EDITRON_MEDIA_PTS_ALLOWED_HOST_SUFFIXES",
@@ -139,7 +148,8 @@ async def submit_source_pts_scan(request: fastapi.Request):
     except ScanStorageError:
         return JSONResponse(status_code=503, content={"ok": False, "error": "SCAN_STORAGE_NOT_CONFIGURED"})
     call = await map_source_pts.spawn.aio(validated)
-    return {"ok": True, "mapBindingSha256": validated["mapBindingSha256"],
+    return {"ok": True, "submissionId": submission_id,
+            "mapBindingSha256": validated["mapBindingSha256"],
             "functionCallId": call.object_id}
 
 
@@ -152,17 +162,23 @@ async def poll_source_pts_scan(request: fastapi.Request):
         body = await request.json()
     except Exception:
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_POLL_INVALID"})
-    if not isinstance(body, dict) or sorted(body) != ["functionCallId", "mapBindingSha256"]:
+    if not isinstance(body, dict) or sorted(body) != [
+        "functionCallId", "mapBindingSha256", "submissionId",
+    ]:
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_POLL_INVALID"})
     call_id, binding = body.get("functionCallId"), body.get("mapBindingSha256")
+    submission_id = body.get("submissionId")
     if not isinstance(call_id, str) or not SAFE_CALL_ID.fullmatch(call_id):
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_POLL_INVALID"})
     if not isinstance(binding, str) or not re.fullmatch(r"[a-f0-9]{64}", binding):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_POLL_INVALID"})
+    if not isinstance(submission_id, str) or not SAFE_SUBMISSION_ID.fullmatch(submission_id):
         return JSONResponse(status_code=400, content={"ok": False, "error": "SCAN_POLL_INVALID"})
     try:
         result = await modal.FunctionCall.from_id(call_id).get.aio(timeout=0)
     except TimeoutError:
         return JSONResponse(status_code=202, content={"ok": True, "status": "PENDING",
+                                                       "submissionId": submission_id,
                                                        "mapBindingSha256": binding})
     except modal.exception.OutputExpiredError:
         return JSONResponse(status_code=410, content={"ok": False, "error": "SCAN_RESULT_EXPIRED"})
@@ -171,7 +187,8 @@ async def poll_source_pts_scan(request: fastapi.Request):
     if not isinstance(result, dict) or result.get("kind") != RESULT_KIND \
             or result.get("mapBindingSha256") != binding:
         return JSONResponse(status_code=502, content={"ok": False, "error": "SCAN_RESULT_BINDING_INVALID"})
-    return {"ok": True, "status": "TERMINAL", "mapBindingSha256": binding, "result": result}
+    return {"ok": True, "status": "TERMINAL", "submissionId": submission_id,
+            "mapBindingSha256": binding, "result": result}
 
 
 def _ffprobe_version() -> str:

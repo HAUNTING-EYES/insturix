@@ -26,6 +26,8 @@ import {
 
 export const MEDIA_SOURCE_PTS_CADENCE_SCAN_REQUEST_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_SCAN_REQUEST_V1' as const;
+export const MEDIA_SOURCE_PTS_CADENCE_SCAN_SUBMISSION_KIND_V1 =
+  'EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMISSION_V1' as const;
 export const EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT_ENV_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT' as const;
 export const EDITRON_MEDIA_SOURCE_PTS_SCAN_POLL_ENDPOINT_ENV_V1 =
@@ -35,6 +37,7 @@ const MAX_SUBMIT_RESPONSE_BYTES = 64 * 1024;
 const MAX_POLL_RESPONSE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const FUNCTION_CALL_ID = /^fc-[A-Za-z0-9_-]{8,128}$/;
+const SUBMISSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 export type MediaSourcePtsCadenceScanMapBindingV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1;
@@ -54,7 +57,14 @@ export type MediaSourcePtsCadenceScanRequestV1 = Readonly<{
   resourcePolicy: MediaSourcePtsCadenceScanResourcePolicyV1;
   source_url: string;
 }>;
+export type MediaSourcePtsCadenceScanSubmissionV1 = Readonly<{
+  schemaVersion: 1;
+  kind: typeof MEDIA_SOURCE_PTS_CADENCE_SCAN_SUBMISSION_KIND_V1;
+  submissionId: string;
+  request: MediaSourcePtsCadenceScanRequestV1;
+}>;
 export type MediaSourcePtsCadenceScanJobV1 = Readonly<{
+  submissionId: string;
   functionCallId: string;
   mapBindingSha256: string;
 }>;
@@ -96,6 +106,18 @@ export function createMediaSourcePtsCadenceScanRequestV1(input: {
   });
 }
 
+export function createMediaSourcePtsCadenceScanSubmissionV1(input: Readonly<{
+  submissionId: string;
+  request: MediaSourcePtsCadenceScanRequestV1;
+}>): MediaSourcePtsCadenceScanSubmissionV1 {
+  return freezeMediaSourcePtsCadenceScanV1({
+    schemaVersion: 1,
+    kind: MEDIA_SOURCE_PTS_CADENCE_SCAN_SUBMISSION_KIND_V1,
+    submissionId: assertSubmissionId(input.submissionId),
+    request: assertMediaSourcePtsCadenceScanRequestV1(input.request),
+  });
+}
+
 export function isMediaSourcePtsCadenceScanTransportConfiguredV1(
   environment: ModalProxyAuthEnvironmentV1 = process.env,
 ): boolean {
@@ -103,13 +125,13 @@ export function isMediaSourcePtsCadenceScanTransportConfiguredV1(
 }
 
 export async function submitMediaSourcePtsCadenceScanV1(
-  request: MediaSourcePtsCadenceScanRequestV1,
+  submission: MediaSourcePtsCadenceScanSubmissionV1,
   dependencies: TransportDependenciesV1 = {},
 ): Promise<MediaSourcePtsCadenceScanSubmitResultV1> {
   const environment = dependencies.environment ?? process.env;
   const config = configuration(environment);
   if (!config) return unverifiable('SCAN_TRANSPORT_NOT_CONFIGURED');
-  const validated = assertMediaSourcePtsCadenceScanRequestV1(request);
+  const validated = assertSubmission(submission);
   const response = await post(config.submitEndpoint, validated, config.headers, dependencies);
   if (!response) return unverifiable('SCAN_TRANSPORT_REQUEST_FAILED');
   if (!response.ok) return unverifiable('SCAN_TRANSPORT_HTTP_FAILURE');
@@ -118,16 +140,21 @@ export async function submitMediaSourcePtsCadenceScanV1(
   if (payload === null) return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
   try {
     const record = assertScanRecordV1(payload, 'SCAN_TRANSPORT_RESPONSE_INVALID');
-    assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256', 'ok'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
+    assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256', 'ok', 'submissionId'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
     if (record.ok !== true
-      || assertScanSha256V1(record.mapBindingSha256, 'SCAN_TRANSPORT_RESPONSE_INVALID') !== validated.mapBindingSha256
+      || record.submissionId !== validated.submissionId
+      || assertScanSha256V1(record.mapBindingSha256, 'SCAN_TRANSPORT_RESPONSE_INVALID') !== validated.request.mapBindingSha256
       || typeof record.functionCallId !== 'string'
       || !FUNCTION_CALL_ID.test(record.functionCallId)) {
       return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
     }
     return freezeMediaSourcePtsCadenceScanV1({
       disposition: 'ACCEPTED',
-      job: { functionCallId: record.functionCallId, mapBindingSha256: validated.mapBindingSha256 },
+      job: {
+        submissionId: validated.submissionId,
+        functionCallId: record.functionCallId,
+        mapBindingSha256: validated.request.mapBindingSha256,
+      },
     });
   } catch {
     return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
@@ -153,15 +180,17 @@ export async function pollMediaSourcePtsCadenceScanV1(
   try {
     const record = assertScanRecordV1(payload, 'SCAN_TRANSPORT_RESPONSE_INVALID');
     if (response.status === 202) {
-      assertScanExactKeysV1(record, ['mapBindingSha256', 'ok', 'status'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
+      assertScanExactKeysV1(record, ['mapBindingSha256', 'ok', 'status', 'submissionId'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
       if (record.ok !== true || record.status !== 'PENDING'
+        || record.submissionId !== validatedJob.submissionId
         || record.mapBindingSha256 !== validatedJob.mapBindingSha256) {
         return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
       }
       return freezeMediaSourcePtsCadenceScanV1({ disposition: 'PENDING', job: validatedJob });
     }
-    assertScanExactKeysV1(record, ['mapBindingSha256', 'ok', 'result', 'status'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
+    assertScanExactKeysV1(record, ['mapBindingSha256', 'ok', 'result', 'status', 'submissionId'], 'SCAN_TRANSPORT_RESPONSE_INVALID');
     if (record.ok !== true || record.status !== 'TERMINAL'
+      || record.submissionId !== validatedJob.submissionId
       || record.mapBindingSha256 !== validatedJob.mapBindingSha256) {
       return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
     }
@@ -228,14 +257,39 @@ function assertMapBinding(value: unknown): MediaSourcePtsCadenceScanMapBindingV1
 
 function assertJob(value: unknown): MediaSourcePtsCadenceScanJobV1 {
   const record = assertScanRecordV1(value, 'SCAN_JOB_INVALID');
-  assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256'], 'SCAN_JOB_INVALID');
+  assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256', 'submissionId'], 'SCAN_JOB_INVALID');
   if (typeof record.functionCallId !== 'string' || !FUNCTION_CALL_ID.test(record.functionCallId)) {
     throw new Error('SCAN_JOB_INVALID');
   }
   return freezeMediaSourcePtsCadenceScanV1({
+    submissionId: assertSubmissionId(record.submissionId),
     functionCallId: record.functionCallId,
     mapBindingSha256: assertScanSha256V1(record.mapBindingSha256, 'SCAN_JOB_INVALID'),
   });
+}
+
+function assertSubmission(value: unknown): MediaSourcePtsCadenceScanSubmissionV1 {
+  const record = assertScanRecordV1(value, 'SCAN_SUBMISSION_INVALID');
+  assertScanExactKeysV1(
+    record,
+    ['kind', 'request', 'schemaVersion', 'submissionId'],
+    'SCAN_SUBMISSION_INVALID',
+  );
+  if (record.schemaVersion !== 1
+    || record.kind !== MEDIA_SOURCE_PTS_CADENCE_SCAN_SUBMISSION_KIND_V1) {
+    throw new Error('SCAN_SUBMISSION_INVALID');
+  }
+  return createMediaSourcePtsCadenceScanSubmissionV1({
+    submissionId: assertSubmissionId(record.submissionId),
+    request: assertMediaSourcePtsCadenceScanRequestV1(record.request),
+  });
+}
+
+function assertSubmissionId(value: unknown): string {
+  if (typeof value !== 'string' || !SUBMISSION_ID.test(value.trim())) {
+    throw new Error('SCAN_SUBMISSION_ID_INVALID');
+  }
+  return value.trim();
 }
 
 function assertBoundPolicy(value: unknown, binding: MediaSourcePtsCadenceScanMapBindingV1) {

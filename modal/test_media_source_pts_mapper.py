@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 import media_source_pts_scan_core as scan_core
-from media_source_pts_mapper import _verify_mapper_contract
+from media_source_pts_mapper import SAFE_SUBMISSION_ID, _verify_mapper_contract
 from media_source_pts_scan_core import (
     BATCH_KIND,
     MAP_KIND,
@@ -156,6 +156,12 @@ def test_mapper_runtime_rejects_forged_mapper_and_policy_identity():
         _verify_mapper_contract(validate_scan_request(policy_forged))
 
 
+def test_submission_identity_is_bounded_and_does_not_enter_scan_material():
+    assert SAFE_SUBMISSION_ID.fullmatch("mpts-job_123:attempt.1")
+    assert not SAFE_SUBMISSION_ID.fullmatch("bad submission")
+    assert "submissionId" not in validate_scan_request(request_fixture())
+
+
 def test_private_r2_retry_rereads_exact_bytes_and_rejects_tampering():
     client = FakeS3()
     body = b'{"exact":true}'
@@ -189,6 +195,7 @@ def test_source_url_policy_rejects_private_dns_and_mapper_never_seeks_chunks():
     assert "map_source_pts.spawn.aio(validated)" in source
     assert source.count("requires_proxy_auth=True") == 2
     assert "modal.FunctionCall.from_id(call_id).get.aio(timeout=0)" in source
+    assert '"submissionId": submission_id' in source
 
 
 def request_fixture(max_frames: int = 100) -> dict:

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createMediaSourcePtsCadenceScanR2ReaderV1 } from '@/lib/editron/services/media-source-pts-cadence-scan-r2-reader-v1';
 import {
   createMediaSourcePtsCadenceScanRequestV1,
+  createMediaSourcePtsCadenceScanSubmissionV1,
   isMediaSourcePtsCadenceScanTransportConfiguredV1,
   pollMediaSourcePtsCadenceScanV1,
   submitMediaSourcePtsCadenceScanV1,
@@ -41,33 +42,44 @@ describe('media source PTS scan transport V1', () => {
 
   it('submits the secret URL but returns only the durable binding and job ID', async () => {
     const request = requestFixture();
+    const submission = submissionFixture(request);
     const fetchImpl = vi.fn(async () => jsonResponse({
       ok: true,
+      submissionId: submission.submissionId,
       mapBindingSha256: request.mapBindingSha256,
       functionCallId: 'fc-12345678',
     })) as unknown as typeof fetch;
 
-    const result = await submitMediaSourcePtsCadenceScanV1(request, { environment, fetchImpl });
+    const result = await submitMediaSourcePtsCadenceScanV1(submission, { environment, fetchImpl });
 
     expect(result).toEqual({
       disposition: 'ACCEPTED',
-      job: { functionCallId: 'fc-12345678', mapBindingSha256: request.mapBindingSha256 },
+      job: {
+        submissionId: submission.submissionId,
+        functionCallId: 'fc-12345678',
+        mapBindingSha256: request.mapBindingSha256,
+      },
     });
     expect(JSON.stringify(result)).not.toContain('presigned-secret');
     expect(fetchImpl).toHaveBeenCalledWith(
       environment.EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT,
       expect.objectContaining({
         headers: expect.objectContaining({ 'Modal-Key': 'proxy-id', 'Modal-Secret': 'proxy-secret' }),
-        body: JSON.stringify(request),
+        body: JSON.stringify(submission),
       }),
     );
   });
 
   it('polls pending and terminal results without accepting a forged binding', async () => {
     const request = requestFixture();
-    const job = { functionCallId: 'fc-12345678', mapBindingSha256: request.mapBindingSha256 };
+    const job = {
+      submissionId: 'mpts-submission-a',
+      functionCallId: 'fc-12345678',
+      mapBindingSha256: request.mapBindingSha256,
+    };
     const pending = vi.fn(async () => jsonResponse({
-      ok: true, status: 'PENDING', mapBindingSha256: request.mapBindingSha256,
+      ok: true, status: 'PENDING', submissionId: job.submissionId,
+      mapBindingSha256: request.mapBindingSha256,
     }, 202)) as unknown as typeof fetch;
     await expect(pollMediaSourcePtsCadenceScanV1(job, { environment, fetchImpl: pending }))
       .resolves.toEqual({ disposition: 'PENDING', job });
@@ -75,6 +87,7 @@ describe('media source PTS scan transport V1', () => {
     const terminal = vi.fn(async () => jsonResponse({
       ok: true,
       status: 'TERMINAL',
+      submissionId: job.submissionId,
       mapBindingSha256: request.mapBindingSha256,
       result: scanResultFixture(request.mapBindingSha256),
     })) as unknown as typeof fetch;
@@ -84,16 +97,32 @@ describe('media source PTS scan transport V1', () => {
     const forged = vi.fn(async () => jsonResponse({
       ok: true,
       status: 'PENDING',
+      submissionId: job.submissionId,
       mapBindingSha256: 'f'.repeat(64),
     }, 202)) as unknown as typeof fetch;
     await expect(pollMediaSourcePtsCadenceScanV1(job, { environment, fetchImpl: forged }))
       .resolves.toEqual({ disposition: 'UNVERIFIABLE', diagnostic: 'SCAN_TRANSPORT_RESPONSE_INVALID' });
+
+    const forgedSubmission = vi.fn(async () => jsonResponse({
+      ok: true,
+      status: 'PENDING',
+      submissionId: 'mpts-submission-forged',
+      mapBindingSha256: request.mapBindingSha256,
+    }, 202)) as unknown as typeof fetch;
+    await expect(pollMediaSourcePtsCadenceScanV1(job, {
+      environment,
+      fetchImpl: forgedSubmission,
+    })).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      diagnostic: 'SCAN_TRANSPORT_RESPONSE_INVALID',
+    });
   });
 
   it('does not send credentials to an untrusted host and bounds response bytes', async () => {
     const request = requestFixture();
+    const submission = submissionFixture(request);
     const fetchImpl = vi.fn() as unknown as typeof fetch;
-    await expect(submitMediaSourcePtsCadenceScanV1(request, {
+    await expect(submitMediaSourcePtsCadenceScanV1(submission, {
       environment: { ...environment, EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT: 'https://evil.test' },
       fetchImpl,
     })).resolves.toEqual({
@@ -106,6 +135,7 @@ describe('media source PTS scan transport V1', () => {
       headers: { 'Content-Length': String(17 * 1024 * 1024) },
     })) as unknown as typeof fetch;
     await expect(pollMediaSourcePtsCadenceScanV1({
+      submissionId: submission.submissionId,
       functionCallId: 'fc-12345678', mapBindingSha256: request.mapBindingSha256,
     }, { environment, fetchImpl: oversized })).resolves.toEqual({
       disposition: 'UNVERIFIABLE', diagnostic: 'SCAN_TRANSPORT_RESPONSE_TOO_LARGE',
@@ -113,6 +143,7 @@ describe('media source PTS scan transport V1', () => {
 
     const malformed = vi.fn(async () => new Response('{broken', { status: 200 })) as unknown as typeof fetch;
     await expect(pollMediaSourcePtsCadenceScanV1({
+      submissionId: submission.submissionId,
       functionCallId: 'fc-12345678', mapBindingSha256: request.mapBindingSha256,
     }, { environment, fetchImpl: malformed })).resolves.toEqual({
       disposition: 'UNVERIFIABLE', diagnostic: 'SCAN_TRANSPORT_RESPONSE_INVALID',
@@ -169,6 +200,13 @@ function requestFixture() {
       maxFrameRecords: 100,
     },
     sourceUrl: 'https://tenant.r2.cloudflarestorage.com/source.mov?signature=presigned-secret',
+  });
+}
+
+function submissionFixture(request = requestFixture()) {
+  return createMediaSourcePtsCadenceScanSubmissionV1({
+    submissionId: 'mpts-submission-a',
+    request,
   });
 }
 
