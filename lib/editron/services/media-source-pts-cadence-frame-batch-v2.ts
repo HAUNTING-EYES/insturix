@@ -98,12 +98,7 @@ export function parseMediaSourcePtsCadenceFrameBatchV2(
   } catch {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_FRAME_BATCH_JSON_INVALID');
   }
-  let normalized: Readonly<MediaSourcePtsCadenceFrameBatchPayloadV2>;
-  try {
-    normalized = assertMediaSourcePtsCadenceFrameBatchPayloadV2(parsed);
-  } catch (error) {
-    throw error;
-  }
+  const normalized = assertMediaSourcePtsCadenceFrameBatchPayloadV2(parsed);
   if (canonicalizeEditronJsonV1(normalized) !== canonicalJson) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_FRAME_BATCH_JSON_NON_CANONICAL');
   }
