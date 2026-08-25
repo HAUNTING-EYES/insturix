@@ -4969,6 +4969,17 @@ authorization are all present.
   rendered audiovisual proof, undo/replay, transitive source closure and model
   competence remain unproved. The next canonical Stage 2.5 slice is therefore
   bounded native/generated/hybrid preview candidates—not provider dispatch.
+- Commit `ca197f370` begins that route-candidate phase with exact RHC-01 state.
+  It issues three route-neutral, hash-bound representations against the same
+  frozen task: a native overlay plan, an RHC-specific verified generated
+  program, and a generated-island/native-continuation hybrid with explicit
+  source-frame and 30/1 timebase handoff. The generated program does not reuse
+  or relabel DEV-02. All three remain `NOT_RENDERED`, `UNJUDGED` and
+  `NOT_AUTHORIZED`; zero provider calls, render calls, canonical project writes
+  or state effects occurred. Focused verification is 27/27 with repository
+  typecheck and quiet ESLint passing. The next bounded slice is actual fixture
+  byte materialization and existing-owner proxy rendering for these three
+  candidates; route quality and product execution remain unproved.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older

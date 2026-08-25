@@ -54,3 +54,25 @@ ProjectService product mutation, rendering, correction time, latency or cost.
 4. Compose explicit timebase, audio and boundary handoffs for hybrid arms.
 5. Bind actual proxy outputs to target/preservation proof and the blind-quality
    receipt before drawing a route conclusion.
+
+## RHC-01 candidate-state successor — 2026-08-26
+
+Commit `ca197f370` materializes exact editable candidate state for one frozen
+target without changing this historical safe-stop receipt. `RHC-01` now has:
+
+- a native Editron overlay plan with independent source and text objects;
+- an RHC-specific generated-composition program that passes the existing
+  program verifier;
+- a hybrid generated-island/native-continuation form with an explicit 30/1
+  timebase and source-frame boundary handoff.
+
+All three bind the same frozen task hash, source identities, target predicates
+and preservation predicates. They remain `NOT_RENDERED`, `UNJUDGED` and
+`NOT_AUTHORIZED`; provider calls, render calls and canonical project writes are
+zero. The generated programs are human-authored fixtures, not model evidence,
+and the fixture's silent 1080x1920 30/1 scope is not a universal product claim.
+
+Focused route/candidate verification is 27/27; repository typecheck and quiet
+ESLint pass. Next: materialize exact fixture bytes, render each candidate
+through the existing native/generated owners, prove the declared boundary, and
+only then issue a blind-review pack.
