@@ -29,6 +29,13 @@ rerun, provider call or reordered implementation. The latest canonical queue
 must be updated in the same bounded phase whenever its evidence or next action
 changes.
 
+Cross-session takeover must also read
+[EDITRON_CODEX_HANDOVER_2026-08-26.md](./editron/open-ended-editing/EDITRON_CODEX_HANDOVER_2026-08-26.md).
+It binds the exact active worktree/HEAD, the append-only Codex transcript
+identity, the final paid-cohort correction chain and the remaining Stage 2.5
+order. The handover is a map; code, receipts and this current queue remain
+authoritative when facts conflict.
+
 ### Safety / project-authority implementation record - 2026-08-25
 
 - Commit `f0e12d438` moves the live chat `cut_section` call through the single
