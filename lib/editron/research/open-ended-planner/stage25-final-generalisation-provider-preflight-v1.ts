@@ -23,7 +23,9 @@ type JsonRecord = Record<string, unknown>;
 type RouteEntry = ReturnType<typeof providerNativeCohortRoutesV2R>[number];
 
 export const STAGE25_FINAL_GENERALISATION_PROVIDER_PREFLIGHT_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROVIDER_PREFLIGHT_V1_1' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROVIDER_PREFLIGHT_V1_2' as const;
+export const STAGE25_FINAL_GENERALISATION_GOOGLE_OUTPUT_TOKEN_LIMIT_V1 =
+  65_536 as const;
 
 const PRICING_EVIDENCE = deepFreezeV1([
   price('OPENAI_LUNA', 'gpt-5.6-luna', 0.20, 0.02, 0.25, 1.20,
@@ -45,6 +47,7 @@ export interface Stage25FinalGeneralisationProviderCaptureV1 {
   boundedInputTokens: number;
   tokenCountMethod: string;
   countResponseSha256: string | null;
+  maxBillableGeneratedTokensPerAttempt: number;
   initialAttemptCostUpperBoundUsd: number;
 }
 
@@ -82,6 +85,8 @@ export async function preflightStage25FinalGeneralisationProvidersV1(input: {
       ?? fail(`TASK_MISSING:${row.rowId}`);
     const route = routes.find(({ route: candidate }) =>
       candidate.routeId === row.route.routeId) ?? fail(`ROUTE_MISSING:${row.rowId}`);
+    const routeMetadata = metadata.find(({ routeId }) =>
+      routeId === row.route.routeId) ?? fail(`MODEL_METADATA_MISSING:${row.rowId}`);
     const request = await captureStage25FinalGeneralisationInitialRequestV1({
       route: row.route, task,
     });
@@ -102,8 +107,11 @@ export async function preflightStage25FinalGeneralisationProvidersV1(input: {
       rowId: row.rowId, taskId: row.taskId, routeId: row.route.routeId,
       provider: row.route.provider, model: row.route.model,
       requestSha256: request.requestHash, ...count,
+      maxBillableGeneratedTokensPerAttempt:
+        routeMetadata.maxBillableGeneratedTokensPerAttempt,
       initialAttemptCostUpperBoundUsd: upperBoundCost(
-        count.boundedInputTokens, STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1,
+        count.boundedInputTokens,
+        routeMetadata.maxBillableGeneratedTokensPerAttempt,
         route,
       ),
     });
@@ -132,7 +140,7 @@ export async function preflightStage25FinalGeneralisationProvidersV1(input: {
     initialAttemptCostUpperBoundUsd: round(captures.reduce(
       (sum, capture) => sum + capture.initialAttemptCostUpperBoundUsd, 0,
     )),
-    absoluteTwoAttemptMaxSpendUsd: absoluteMaxSpend(routes),
+    absoluteTwoAttemptMaxSpendUsd: absoluteMaxSpend(routes, metadata),
     secretsPersisted: false as const,
     projectReads: 0 as const, projectMutations: 0 as const,
     dispatchAuthorized: false as const,
@@ -166,6 +174,10 @@ export function assertStage25FinalGeneralisationProviderPreflightBundleV1(input:
     || checks.length !== 24 || metadata.length !== 3 || input.captures.length !== 24
     || new Set(input.captures.map(({ rowId }) => rowId)).size !== 24
     || new Set(metadata.map(({ routeId }) => text(routeId))).size !== 3
+    || !validModelMetadata(metadata)
+    || input.captures.some((capture) => capture.maxBillableGeneratedTokensPerAttempt
+      !== metadata.find(({ routeId }) => routeId === capture.routeId)
+        ?.maxBillableGeneratedTokensPerAttempt)
     || number(calls.modelMetadataGets) !== 3 || number(calls.googleCountTokensPosts) !== 8
     || number(calls.pricingDocumentNetworkCalls) !== 0 || number(calls.inferenceCalls) !== 0
     || receipt.googleCredentialSource !== 'GOOGLE_GENERATIVE_AI_API_KEY'
@@ -173,7 +185,7 @@ export function assertStage25FinalGeneralisationProviderPreflightBundleV1(input:
     || !/^[A-Za-z0-9._-]{1,128}$/.test(text(receipt.operatorId))
     || number(receipt.initialAttemptCostUpperBoundUsd) < 0
     || number(receipt.absoluteTwoAttemptMaxSpendUsd)
-      !== absoluteMaxSpend(providerNativeCohortRoutesV2R())
+      !== absoluteMaxSpend(providerNativeCohortRoutesV2R(), metadata)
     || receipt.dispatchAuthorized !== false || number(receipt.projectReads) !== 0
     || number(receipt.projectMutations) !== 0 || receipt.secretsPersisted !== false
     || !Array.isArray(receipt.stateEffects) || receipt.stateEffects.length !== 0
@@ -194,8 +206,21 @@ async function verifyModel(entry: RouteEntry, key: string, fetchImpl: typeof fet
   const identity = route.provider === 'openai' ? text(body.id) : text(body.name);
   const expected = route.provider === 'openai' ? route.model : `models/${route.model}`;
   if (!response.ok || identity !== expected) fail(`MODEL_ACCESS_FAILED:${route.routeId}:${response.status}`);
+  const outputTokenLimit = route.provider === 'google'
+    ? number(body.outputTokenLimit) : STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1;
+  if (!Number.isSafeInteger(outputTokenLimit)
+    || outputTokenLimit < STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1
+    || (route.provider === 'google'
+      && outputTokenLimit !== STAGE25_FINAL_GENERALISATION_GOOGLE_OUTPUT_TOKEN_LIMIT_V1)) {
+    fail(`MODEL_OUTPUT_LIMIT_DRIFT:${route.routeId}`);
+  }
   return { routeId: route.routeId, requestedModel: route.model,
     returnedModelIdentity: identity, responseStatus: response.status,
+    providerOutputTokenLimit: outputTokenLimit,
+    maxBillableGeneratedTokensPerAttempt: outputTokenLimit,
+    generatedTokenBoundMethod: route.provider === 'google'
+      ? 'GOOGLE_MODELS_GET_OUTPUT_TOKEN_LIMIT_V1'
+      : 'OPENAI_REQUEST_MAX_OUTPUT_TOKENS_INCLUDES_REASONING_V1',
     responseSha256: hashCanonicalJsonV1(body) };
 }
 
@@ -243,12 +268,17 @@ function assertRequest(request: { provider: string; body: JsonRecord; endpoint: 
     fail(`REQUEST_DRIFT:${rowId}`);
   }
 }
-function absoluteMaxSpend(routes: readonly RouteEntry[]): number {
+function absoluteMaxSpend(
+  routes: readonly RouteEntry[],
+  metadata: readonly Readonly<JsonRecord>[],
+): number {
   return round(STAGE25_FINAL_GENERALISATION_COHORT_V1.rows.reduce((sum, row) => {
     const route = routes.find(({ route: value }) => value.routeId === row.route.routeId)
       ?? fail(`ROUTE_MISSING:${row.rowId}`);
+    const routeMetadata = metadata.find(({ routeId }) => routeId === row.route.routeId)
+      ?? fail(`MODEL_METADATA_MISSING:${row.rowId}`);
     return sum + 2 * upperBoundCost(STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1,
-      STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1, route);
+      number(routeMetadata.maxBillableGeneratedTokensPerAttempt), route);
   }, 0));
 }
 function upperBoundCost(input: number, output: number, route: RouteEntry): number {
@@ -261,6 +291,29 @@ function price(routeId: string, model: string, input: number, cached: number,
   return { routeId, model, verifiedAt: '2026-08-26', validThrough, source,
     pricing: { inputUsdPerMillion: input, cachedInputUsdPerMillion: cached,
       cacheWriteUsdPerMillion: write, outputUsdPerMillion: output } };
+}
+function validModelMetadata(metadata: readonly JsonRecord[]): boolean {
+  const expected = new Map<string, Readonly<{
+    model: string; bound: number; method: string;
+  }>>(providerNativeCohortRoutesV2R().map(({ route }) => [
+    route.routeId, {
+      model: route.model,
+      bound: route.provider === 'google'
+        ? STAGE25_FINAL_GENERALISATION_GOOGLE_OUTPUT_TOKEN_LIMIT_V1
+        : STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1,
+      method: route.provider === 'google'
+        ? 'GOOGLE_MODELS_GET_OUTPUT_TOKEN_LIMIT_V1'
+        : 'OPENAI_REQUEST_MAX_OUTPUT_TOKENS_INCLUDES_REASONING_V1',
+    },
+  ]));
+  return metadata.every((entry) => {
+    const route = expected.get(text(entry.routeId));
+    return route !== undefined
+      && entry.requestedModel === route.model
+      && number(entry.providerOutputTokenLimit) === route.bound
+      && number(entry.maxBillableGeneratedTokensPerAttempt) === route.bound
+      && entry.generatedTokenBoundMethod === route.method;
+  });
 }
 async function safeJson(response: Response): Promise<unknown> {
   const body = await response.text();

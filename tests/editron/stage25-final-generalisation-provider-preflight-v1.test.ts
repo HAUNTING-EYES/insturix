@@ -36,7 +36,7 @@ describe('Stage 2.5 final generalisation provider preflight V1', () => {
           cacheWriteUsdPerMillion: 0.75, outputUsdPerMillion: 3.75 },
       }),
     ]);
-    expect(result.receipt.absoluteTwoAttemptMaxSpendUsd).toBe(5.8056704);
+    expect(result.receipt.absoluteTwoAttemptMaxSpendUsd).toBe(9.2463104);
   });
 
   it('checks three model identities and eight official Google token counts without inference', async () => {
@@ -46,6 +46,12 @@ describe('Stage 2.5 final generalisation provider preflight V1', () => {
     expect(new Set(result.captures.map(({ rowId }) => rowId)).size).toBe(24);
     expect(result.captures.filter(({ provider }) => provider === 'openai')).toHaveLength(16);
     expect(result.captures.filter(({ provider }) => provider === 'google')).toHaveLength(8);
+    expect(result.captures.filter(({ provider }) => provider === 'openai')
+      .every(({ maxBillableGeneratedTokensPerAttempt }) =>
+        maxBillableGeneratedTokensPerAttempt === 8_192)).toBe(true);
+    expect(result.captures.filter(({ provider }) => provider === 'google')
+      .every(({ maxBillableGeneratedTokensPerAttempt }) =>
+        maxBillableGeneratedTokensPerAttempt === 65_536)).toBe(true);
     expect(result.receipt).toMatchObject({
       networkCalls: { modelMetadataGets: 3, googleCountTokensPosts: 8,
         pricingDocumentNetworkCalls: 0, inferenceCalls: 0 },
@@ -88,6 +94,10 @@ describe('Stage 2.5 final generalisation provider preflight V1', () => {
       fetchImpl: async (url, init) => String(url).endsWith('/gpt-5.6-luna')
         ? json({ id: 'wrong-model' }) : mockFetch(url, init),
     })).rejects.toThrow('MODEL_ACCESS_FAILED:OPENAI_LUNA');
+    await expect(run(async (url, init) => String(url).endsWith('/gemini-3.7-flash')
+      ? json({ name: 'models/gemini-3.7-flash', outputTokenLimit: 8_192 })
+      : mockFetch(url, init)))
+      .rejects.toThrow('MODEL_OUTPUT_LIMIT_DRIFT:GOOGLE_FLASH');
   });
 
   it('rejects provider count failure and token overflow', async () => {
@@ -135,6 +145,7 @@ async function mockFetch(url: URL | RequestInfo, _init?: RequestInit): Promise<R
   if (target.endsWith('/gpt-5.6-terra')) return json({ id: 'gpt-5.6-terra' });
   if (target.endsWith('/gemini-3.7-flash')) return json({
     name: 'models/gemini-3.7-flash', version: 'gemini-3.7-flash',
+    inputTokenLimit: 1_048_576, outputTokenLimit: 65_536,
   });
   if (target.endsWith(':countTokens')) return json({ totalTokens: 20_000 });
   return json({ error: 'unexpected network endpoint' }, 500);
