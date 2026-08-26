@@ -156,7 +156,8 @@ export function finalizeStage25GeneralisationRowV1(
     if (input.modelDecision === null || input.schemaValid === null
       || input.firstPassStructuralValid === null || input.finalStructuralValid === null
       || input.publicRuleCoveragePass === null || input.evidenceDisciplinePass === null
-      || input.outcomeClass === null || input.ownerSafety === 'NOT_EXECUTED'
+      || (input.modelDecision === 'PASS' && input.outcomeClass === null)
+      || input.ownerSafety === 'NOT_EXECUTED'
       || input.responseSha256 === null || input.ownerReceiptSha256 === null) {
       fail('EVALUATED_ROW_INCOMPLETE');
     }

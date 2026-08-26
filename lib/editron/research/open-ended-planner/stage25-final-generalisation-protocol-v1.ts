@@ -7,7 +7,10 @@ import {
 } from './provider-native-tool-catalog-v2r';
 import {
   runProviderNativeToolEpisodeV2R,
+  type ProviderNativeEpisodeReceiptV2R,
   type ProviderNativeEpisodeContextV2R,
+  type ProviderNativeInvokeResponseV2R,
+  type ProviderNativeRuntimeGuardV2R,
 } from './provider-native-tool-episode-v2r';
 import type {
   ProviderNativeRouteV2R,
@@ -37,6 +40,21 @@ export interface Stage25FinalGeneralisationPublicTaskV1 {
   preservationRules: readonly string[];
   taskPacketSha256: string;
 }
+
+export interface Stage25FinalGeneralisationCorrectionV1 {
+  sourceReceiptSha256: string;
+  previousSubmission: unknown;
+  publicDiagnostics: readonly string[];
+}
+
+const PROVIDER_INSTRUCTIONS_V1 = [
+  'This is a planning and route-qualification submission; no editing operation is callable in this request.',
+  'Call finish_editron_research_episode with one complete proposal or an honest null proposal.',
+  'Use exact selectableOperatorIds from the supplied completeCapabilityDirectory; do not invent aliases, ports, receipts or compiler nodes.',
+  'All scored rules are in activeTarget.publicTask and activeTarget.publicRuleIds; there are no hidden required operations or timings.',
+  'Current owner evidence limits what may be called available. Research preview availability is not product certification.',
+  'A safe stop must propose no mutations and must name the public missing evidence, owner, fixture or capability.',
+] as const;
 
 export function buildStage25FinalGeneralisationContextV1(
   task: Readonly<Stage25FinalGeneralisationPublicTaskV1>,
@@ -180,33 +198,77 @@ export function buildStage25FinalGeneralisationFinishSchemaV1(
   return closed({ ...common, proposal: { anyOf: [proposal, { type: 'null' }] } });
 }
 
+export async function runStage25FinalGeneralisationProviderEpisodeV1(input: {
+  route: Readonly<ProviderNativeRouteV2R>;
+  task: Readonly<Stage25FinalGeneralisationPublicTaskV1>;
+  invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
+    => Promise<ProviderNativeInvokeResponseV2R>;
+  runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
+  correction?: Readonly<Stage25FinalGeneralisationCorrectionV1>;
+}): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
+  const finishSchema = buildStage25FinalGeneralisationFinishSchemaV1(input.task.lane);
+  const context = input.correction
+    ? correctionContext(input.task, input.correction)
+    : buildStage25FinalGeneralisationContextV1(input.task);
+  return runProviderNativeToolEpisodeV2R({
+    route: input.route,
+    context,
+    eligibleOperatorIds: [],
+    finishInputSchema: finishSchema,
+    toolSetFactory: () => buildProviderNativeControlOnlyToolSetV2R(finishSchema),
+    additionalInstructions: [
+      ...PROVIDER_INSTRUCTIONS_V1,
+      ...(input.correction ? [
+        'This is the sole authorized schema/protocol correction. Use only the prior submission and public diagnostics supplied in projectState.authorizedCorrection; do not add task facts or change the requested creative intent.',
+      ] : []),
+    ],
+    invoke: input.invoke,
+    ...(input.runtimeGuard ? { runtimeGuard: input.runtimeGuard } : {}),
+    executeIsolated: async () => fail('CONTROL_ONLY_EXECUTOR_MUST_NOT_RUN'),
+  });
+}
+
 export async function captureStage25FinalGeneralisationInitialRequestV1(input: {
   route: Readonly<ProviderNativeRouteV2R>;
   task: Readonly<Stage25FinalGeneralisationPublicTaskV1>;
 }): Promise<Readonly<SerializedProviderNativeTurnV2R>> {
   let captured: Readonly<SerializedProviderNativeTurnV2R> | undefined;
-  const finishSchema = buildStage25FinalGeneralisationFinishSchemaV1(input.task.lane);
-  await runProviderNativeToolEpisodeV2R({
+  await runStage25FinalGeneralisationProviderEpisodeV1({
     route: input.route,
-    context: buildStage25FinalGeneralisationContextV1(input.task),
-    eligibleOperatorIds: [],
-    finishInputSchema: finishSchema,
-    toolSetFactory: () => buildProviderNativeControlOnlyToolSetV2R(finishSchema),
-    additionalInstructions: [
-      'This is a planning and route-qualification submission; no editing operation is callable in this request.',
-      'Call finish_editron_research_episode with one complete proposal or an honest null proposal.',
-      'Use exact selectableOperatorIds from the supplied completeCapabilityDirectory; do not invent aliases, ports, receipts or compiler nodes.',
-      'All scored rules are in activeTarget.publicTask and activeTarget.publicRuleIds; there are no hidden required operations or timings.',
-      'Current owner evidence limits what may be called available. Research preview availability is not product certification.',
-      'A safe stop must propose no mutations and must name the public missing evidence, owner, fixture or capability.',
-    ],
+    task: input.task,
     invoke: async (request) => {
       captured = request;
       return { status: 418, body: { zeroSpendCapture: true } };
     },
-    executeIsolated: async () => fail('ZERO_SPEND_EXECUTOR_MUST_NOT_RUN'),
   });
   return captured ?? fail('REQUEST_CAPTURE_MISSING');
+}
+
+function correctionContext(
+  task: Readonly<Stage25FinalGeneralisationPublicTaskV1>,
+  correction: Readonly<Stage25FinalGeneralisationCorrectionV1>,
+): Readonly<ProviderNativeEpisodeContextV2R> {
+  if (!/^[a-f0-9]{64}$/.test(correction.sourceReceiptSha256)
+    || !correction.publicDiagnostics.length
+    || correction.publicDiagnostics.length > 64
+    || new Set(correction.publicDiagnostics).size !== correction.publicDiagnostics.length
+    || correction.publicDiagnostics.some((entry) => !entry.trim() || entry.length > 2_000)) {
+    fail('CORRECTION_INVALID');
+  }
+  const base = buildStage25FinalGeneralisationContextV1(task);
+  return deepFreezeV1({
+    ...base,
+    episodeId: `${base.episodeId}:schema-protocol-correction-1`,
+    projectState: {
+      ...base.projectState,
+      authorizedCorrection: {
+        authority: 'PUBLIC_SCHEMA_OR_PROTOCOL_ONLY_NO_NEW_TASK_FACTS',
+        sourceReceiptSha256: correction.sourceReceiptSha256,
+        previousSubmission: correction.previousSubmission,
+        publicDiagnostics: [...correction.publicDiagnostics],
+      },
+    },
+  });
 }
 
 function assertTask(task: Readonly<Stage25FinalGeneralisationPublicTaskV1>): void {
