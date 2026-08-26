@@ -18,9 +18,9 @@ import { STAGE25_HELDOUT_ROUTE_FREEZE_V1 }
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_FINAL_GENERALISATION_COHORT_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_COHORT_V1_1' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_COHORT_V1_2' as const;
 export const STAGE25_FINAL_GENERALISATION_COHORT_ID_V1 =
-  'stage25-final-generalisation-v1' as const;
+  'stage25-final-generalisation-v1-2' as const;
 
 const ALL_OPERATOR_IDS = records(V2R_OPERATOR_CATALOG.operators)
   .map(({ operatorId }) => String(operatorId));
@@ -166,7 +166,18 @@ Stage25FinalGeneralisationPublicTaskV1 {
   return deepFreezeV1({ ...input, taskPacketSha256: hashCanonicalJsonV1(input) });
 }
 function policy(groups: readonly JsonRecord[], precedence: readonly (readonly [string, string])[], chain: boolean) {
-  return { requiredOperatorGroups: groups, requiredPrecedence: precedence.map(([before, after]) => ({ before, after })), allEvidenceBeforeFirstWriter: true, eachWriterAfterFirstConsumesPriorWriterReceipt: chain, unknownOperatorsForbidden: true };
+  return {
+    requiredOperatorGroups: groups,
+    requiredPrecedence: precedence.map(([predecessorOperatorId, successorOperatorId]) => ({
+      predecessorOperatorId,
+      successorOperatorId,
+    })),
+    precedenceSemantics:
+      'Each predecessorOperatorId node must be an ancestor of every applicable successorOperatorId node; serialized JSON key order is irrelevant.',
+    allEvidenceBeforeFirstWriter: true,
+    eachWriterAfterFirstConsumesPriorWriterReceipt: chain,
+    unknownOperatorsForbidden: true,
+  };
 }
 function count(operatorId: string, exactCount: number): JsonRecord {
   return { groupId: operatorId, operatorIds: [operatorId], minimumCount: exactCount, maximumCount: exactCount };

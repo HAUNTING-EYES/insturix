@@ -21,6 +21,10 @@ import { finalizeStage25GeneralisationRowV1 }
 
 type JsonRecord = Record<string, unknown>;
 const TOKEN_BOUND_VERSION = 'EDITRON_STAGE25_FINAL_GENERALISATION_RUNTIME_INPUT_BOUND_V1_1';
+const PROVIDER_OR_RESOURCE_TERMINALS = new Set([
+  'PROVIDER_RATE_LIMIT', 'PROVIDER_TIMEOUT', 'PROVIDER_REFUSAL', 'PROVIDER_ERROR',
+  'RESOURCE_BUDGET_EXHAUSTED', 'RESOURCE_ACCOUNTING_UNVERIFIABLE',
+]);
 
 export function createStage25FinalGeneralisationRuntimeGuardV1(input: {
   authorization: Readonly<Stage25FinalGeneralisationPaidAuthorizationV1>;
@@ -66,7 +70,8 @@ export function finalizeStage25FinalGeneralisationScorecardRowV1(input: {
 }) {
   const final = input.attempts.at(-1)!;
   const evaluation = final.evaluation;
-  const infrastructure = !final.responseSha256 || !evaluation;
+  const infrastructure = !final.responseSha256 || !evaluation
+    || PROVIDER_OR_RESOURCE_TERMINALS.has(final.episode?.terminal.disposition ?? '');
   const base = {
     rowId: input.rowId, taskId: input.task.taskId, taskLane: input.task.lane,
     providerRouteId: input.routeId, repairCount: input.attempts.length - 1,

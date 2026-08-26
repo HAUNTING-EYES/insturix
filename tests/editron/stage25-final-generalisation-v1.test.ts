@@ -10,6 +10,10 @@ import type { Stage25FinalGeneralisationPublicTaskV1 }
   from '@/lib/editron/research/open-ended-planner/stage25-final-generalisation-protocol-v1';
 import { finalizeStage25GeneralisationRowV1 }
   from '@/lib/editron/research/open-ended-planner/stage25-generalisation-scorecard-v1';
+import { finalizeStage25FinalGeneralisationScorecardRowV1 }
+  from '@/lib/editron/research/open-ended-planner/stage25-final-generalisation-paid-runner-support-v1';
+import type { ProviderNativeEpisodeReceiptV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
 import { runStage25FinalGeneralisationZeroSpendPreflightV1 }
   from '@/lib/editron/research/open-ended-planner/stage25-final-generalisation-zero-spend-preflight-v1';
 
@@ -29,6 +33,14 @@ describe('Stage 2.5 final generalisation cohort V1', () => {
       .toEqual(new Set(['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH']));
     expect(JSON.stringify(cohort)).not.toContain('QWEN');
     expect(cohort.dispatchAuthorized).toBe(false);
+    expect(cohort.cohortId).toBe('stage25-final-generalisation-v1-2');
+    const policies = cohort.tasks.filter(({ lane }) => lane === 'DEPENDENCY_PLAN')
+      .map(({ publicTask }) => record(publicTask.publicMachinePolicy));
+    expect(policies.every((policy) => String(policy.precedenceSemantics)
+      .includes('predecessorOperatorId'))).toBe(true);
+    expect(policies.flatMap((policy) => records(policy.requiredPrecedence))
+      .every((rule) => Object.keys(rule).sort().join(',')
+        === 'predecessorOperatorId,successorOperatorId')).toBe(true);
   });
 
   it('captures all initial requests with zero network and no editing tools callable', async () => {
@@ -120,6 +132,33 @@ describe('Stage 2.5 final generalisation cohort V1', () => {
       task: { ...task, taskPacketSha256: '0'.repeat(64) },
       submission: routeSubmission(task, 'NATIVE'),
     })).toThrow(/TASK_HASH_INVALID/);
+  });
+
+  it('never scores a resource-terminal response as a model failure', () => {
+    const task = getTask('HOLD-DEP-02');
+    const evaluation = evaluateStage25FinalGeneralisationSubmissionV1({
+      task, submission: dependencySubmission(task, 'list_user_assets'),
+    });
+    const scorecard = finalizeStage25FinalGeneralisationScorecardRowV1({
+      rowId: 'HOLD-DEP-02:GOOGLE_FLASH', task, routeId: 'GOOGLE_FLASH',
+      attempts: [{
+        attempt: 1, correction: false, observation: 'RESPONSE_OBSERVED',
+        dispatchReceiptSha256: '1'.repeat(64),
+        responseReceiptSha256: '2'.repeat(64),
+        requestSha256: '3'.repeat(64), responseSha256: '4'.repeat(64),
+        episode: { terminal: {
+          disposition: 'RESOURCE_ACCOUNTING_UNVERIFIABLE',
+          reasonCodes: ['ACTUAL_OUTPUT_EXCEEDS_REQUEST_LIMIT'],
+          evidenceIds: [], summary: 'Resource accounting was not verifiable.',
+        } } as unknown as ProviderNativeEpisodeReceiptV2R,
+        evaluation, latencyMs: 10, spentNanoUsd: 1_000,
+      }],
+    });
+
+    expect(scorecard.providerOutcome).toBe('PROVIDER_INFRASTRUCTURE');
+    expect(scorecard.assessment).toBe('NOT_EVALUATED_PROVIDER_INFRASTRUCTURE');
+    expect(scorecard.responseSha256).toBeNull();
+    expect(scorecard.modelDecision).toBeNull();
   });
 });
 

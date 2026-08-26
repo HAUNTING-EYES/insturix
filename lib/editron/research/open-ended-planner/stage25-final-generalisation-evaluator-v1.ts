@@ -7,7 +7,7 @@ import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_FINAL_GENERALISATION_EVALUATOR_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_EVALUATOR_V1_1' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_EVALUATOR_V1_2' as const;
 
 export interface Stage25FinalGeneralisationEvaluationV1 {
   version: typeof STAGE25_FINAL_GENERALISATION_EVALUATOR_VERSION_V1;
@@ -218,10 +218,14 @@ function validateOperatorGroups(nodes: JsonRecord[], groups: JsonRecord[], diagn
 }
 function validatePrecedence(nodes: JsonRecord[], rules: JsonRecord[], graph: Map<string, Set<string>>, diagnostics: string[]): void {
   for (const rule of rules) {
-    const before = nodes.filter(({ selectedOperatorId }) => selectedOperatorId === rule.before);
-    const after = nodes.filter(({ selectedOperatorId }) => selectedOperatorId === rule.after);
+    const predecessorOperatorId = String(rule.predecessorOperatorId);
+    const successorOperatorId = String(rule.successorOperatorId);
+    const before = nodes.filter(({ selectedOperatorId }) =>
+      selectedOperatorId === predecessorOperatorId);
+    const after = nodes.filter(({ selectedOperatorId }) =>
+      selectedOperatorId === successorOperatorId);
     if (after.some((later) => !before.some((earlier) => reachable(String(later.nodeId), String(earlier.nodeId), graph)))) {
-      diagnostics.push(`PRECEDENCE_INVALID:${String(rule.before)}:${String(rule.after)}`);
+      diagnostics.push(`PRECEDENCE_INVALID:${predecessorOperatorId}:${successorOperatorId}`);
     }
   }
 }

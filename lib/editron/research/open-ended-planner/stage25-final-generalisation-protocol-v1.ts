@@ -20,7 +20,7 @@ import type {
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_FINAL_GENERALISATION_PROTOCOL_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROTOCOL_V1_1' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROTOCOL_V1_2' as const;
 export const STAGE25_FINAL_GENERALISATION_PRESENTATION_SEED_V1 =
   'editron-stage25-final-generalisation-20260826' as const;
 export const STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1 = 64_000 as const;
@@ -52,6 +52,7 @@ const PROVIDER_INSTRUCTIONS_V1 = [
   'Call finish_editron_research_episode with one complete proposal or an honest null proposal.',
   'Use exact selectableOperatorIds from the supplied completeCapabilityDirectory; do not invent aliases, ports, receipts or compiler nodes.',
   'All scored rules are in activeTarget.publicTask and activeTarget.publicRuleIds; there are no hidden required operations or timings.',
+  'Each requiredPrecedence entry is directional: predecessorOperatorId must execute before successorOperatorId. Canonical JSON key order has no execution meaning.',
   'Current owner evidence limits what may be called available. Research preview availability is not product certification.',
   'A safe stop must propose no mutations and must name the public missing evidence, owner, fixture or capability.',
 ] as const;
