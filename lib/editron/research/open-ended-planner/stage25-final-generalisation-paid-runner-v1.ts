@@ -95,7 +95,7 @@ export async function runStage25FinalGeneralisationPaidCohortV1(input: {
         attempts.push(unknownAttempt(saved.dispatch));
         break;
       }
-      if (!saved && attempt > durable.attempts.length + 1) {
+      if (!saved && attempt > attempts.length + 1) {
         fail(`ATTEMPT_GAP:${rowId}`);
       }
       const result = await runAttempt({ input, authorization, scope, task, routeEntry,
