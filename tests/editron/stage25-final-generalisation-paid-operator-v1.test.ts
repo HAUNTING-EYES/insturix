@@ -172,7 +172,7 @@ async function operatorFixture() {
 
 function passingReport() {
   const counts = new Map<string, number>([
-    ['tests/editron/stage25-final-generalisation-v1.test.ts', 10],
+    ['tests/editron/stage25-final-generalisation-v1.test.ts', 11],
     ['tests/editron/stage25-generalisation-scorecard-v1.test.ts', 6],
     ['tests/editron/open-ended-planner-v2-stage25-dependency-diversity-holdout.test.ts', 19],
     ['tests/editron/stage25-heldout-route-owner-materialization-v1.test.ts', 7],
@@ -204,7 +204,11 @@ async function preflightFetch(target: URL | RequestInfo): Promise<Response> {
   const url = String(target);
   if (url.endsWith('/gpt-5.6-luna')) return json({ id: 'gpt-5.6-luna' });
   if (url.endsWith('/gpt-5.6-terra')) return json({ id: 'gpt-5.6-terra' });
-  if (url.endsWith('/gemini-3.7-flash')) return json({ name: 'models/gemini-3.7-flash' });
+  if (url.endsWith('/gemini-3.7-flash')) return json({
+    name: 'models/gemini-3.7-flash',
+    inputTokenLimit: 1_048_576,
+    outputTokenLimit: 65_536,
+  });
   if (url.endsWith(':countTokens')) return json({ totalTokens: 20_000 });
   return json({ error: 'unexpected endpoint' }, 500);
 }

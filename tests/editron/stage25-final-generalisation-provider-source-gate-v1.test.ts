@@ -40,7 +40,7 @@ describe('Stage 2.5 final provider source gate V1', () => {
     const receipt = finalizeStage25FinalGeneralisationProviderSourceGateV1(base());
     expect(receipt).toMatchObject({
       authority: 'SOURCE_BOUND_PROVIDER_ACCESS_PREFLIGHT_NO_INFERENCE',
-      testCounts: { total: 73, passed: 73, failed: 0 },
+      testCounts: { total: 74, passed: 74, failed: 0 },
       readiness: 'READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE',
       paidProviderDispatchAuthorized: false,
       providerInferenceCallCount: 0,
@@ -71,7 +71,7 @@ describe('Stage 2.5 final provider source gate V1', () => {
     expect(() => finalizeStage25FinalGeneralisationProviderSourceGateV1(missing))
       .toThrow('TEST_REPORT_INVALID');
     const failed = mutableBase();
-    report(failed).numPassedTests = 72 as never;
+    report(failed).numPassedTests = 73 as never;
     expect(() => finalizeStage25FinalGeneralisationProviderSourceGateV1(failed))
       .toThrow('TEST_REPORT_INVALID');
     const retried = mutableBase();
@@ -127,7 +127,7 @@ function mutableBase(): Mutable<Stage25FinalProviderSourceGateInputV1> {
   return structuredClone(base()) as Mutable<Stage25FinalProviderSourceGateInputV1>;
 }
 function passingReport() {
-  const counts = [10, 6, 19, 7, 5, 5, 5, 5, 4, 4, 3];
+  const counts = [11, 6, 19, 7, 5, 5, 5, 5, 4, 4, 3];
   return { success: true, numTotalTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numPassedTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,

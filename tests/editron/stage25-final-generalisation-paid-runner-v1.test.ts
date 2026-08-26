@@ -190,12 +190,16 @@ async function preflightFetch(target: URL | RequestInfo): Promise<Response> {
   const url = String(target);
   if (url.endsWith('/gpt-5.6-luna')) return json({ id: 'gpt-5.6-luna' });
   if (url.endsWith('/gpt-5.6-terra')) return json({ id: 'gpt-5.6-terra' });
-  if (url.endsWith('/gemini-3.7-flash')) return json({ name: 'models/gemini-3.7-flash' });
+  if (url.endsWith('/gemini-3.7-flash')) return json({
+    name: 'models/gemini-3.7-flash',
+    inputTokenLimit: 1_048_576,
+    outputTokenLimit: 65_536,
+  });
   if (url.endsWith(':countTokens')) return json({ totalTokens: 20_000 });
   return json({ error: 'unexpected endpoint' }, 500);
 }
 function passingReport() {
-  const counts = [10, 6, 19, 7, 5, 5, 5, 5, 4, 4, 3];
+  const counts = [11, 6, 19, 7, 5, 5, 5, 5, 4, 4, 3];
   return { success: true, numTotalTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numPassedTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
