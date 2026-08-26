@@ -78,6 +78,12 @@ export interface ProviderNativeRuntimeBudgetLimitsV2R {
   maxSelectedOperations: number;
   maxCandidatesPerOperation: number;
   maxCumulativeOutputTokens: number;
+  /**
+   * Maximum billable generated tokens for one provider invocation. Providers
+   * may report hidden reasoning/thought tokens separately from the visible
+   * response constrained by `maxOutputTokens`.
+   */
+  maxBillableGeneratedTokensPerInvoke?: number;
   maxInputTokensPerTurn: number;
   absoluteMaxSpendNanoUsd: number;
 }
@@ -112,6 +118,7 @@ type PendingRequest = Readonly<{
   requestHash: string;
   inputTokensUpperBound: number;
   maxOutputTokens: number;
+  maxBillableGeneratedTokens: number;
   reservedWorstCaseNanoUsd: number;
 }>;
 
@@ -162,6 +169,7 @@ implements ProviderNativeRuntimeGuardV2R {
   private readonly guardIdentity: string;
   private readonly inputTokenBoundVersion: string;
   private readonly pricing: Readonly<ProviderNativeRuntimeBudgetPricingV2R>;
+  private readonly maxBillableGeneratedTokensPerInvoke: number | null;
   private readonly countInputTokens: (
     request: Readonly<SerializedProviderNativeTurnV2R>,
   ) => Promise<Readonly<ProviderNativeRuntimeInputTokenBoundV2R>>;
@@ -195,6 +203,13 @@ implements ProviderNativeRuntimeGuardV2R {
       'RUNTIME_TOKEN_BOUND_VERSION_INVALID',
     );
     this.limits = normalizeRuntimeLimits(input.limits);
+    this.maxBillableGeneratedTokensPerInvoke =
+      this.limits.maxBillableGeneratedTokensPerInvoke === undefined
+        ? null
+        : positiveInteger(
+            this.limits.maxBillableGeneratedTokensPerInvoke,
+            'RUNTIME_MAX_GENERATED_TOKENS_PER_INVOKE_INVALID',
+          );
     this.pricing = normalizeRuntimePricing(input.pricing);
     this.countInputTokens = input.countInputTokens;
   }
@@ -390,9 +405,15 @@ implements ProviderNativeRuntimeGuardV2R {
     }
     const remaining = this.limits.maxCumulativeOutputTokens - this.totalOutputTokens;
     if (remaining < 64) return this.budgetDenial('CUMULATIVE_OUTPUT_BUDGET_EXHAUSTED', input);
+    const configuredGeneratedLimit =
+      this.maxBillableGeneratedTokensPerInvoke ?? input.configuredMaxOutputTokens;
     return this.allow('BEFORE_TURN', {
       turn: input.turn, remainingOutputTokens: remaining,
-    }, Math.min(input.configuredMaxOutputTokens, remaining));
+    }, Math.min(
+      input.configuredMaxOutputTokens,
+      remaining,
+      configuredGeneratedLimit,
+    ));
   }
 
   async beforeInvoke(input: Readonly<{
@@ -423,13 +444,27 @@ implements ProviderNativeRuntimeGuardV2R {
       });
     }
     const pricing = this.pricing;
+    const remainingGeneratedTokens =
+      this.limits.maxCumulativeOutputTokens - this.totalOutputTokens;
+    const maxBillableGeneratedTokens = Math.min(
+      this.maxBillableGeneratedTokensPerInvoke ?? input.maxOutputTokens,
+      remainingGeneratedTokens,
+    );
+    if (input.maxOutputTokens > maxBillableGeneratedTokens) {
+      return this.budgetDenial('RESPONSE_LIMIT_EXCEEDS_GENERATED_TOKEN_BUDGET', {
+        turn: input.turn,
+        requestHash: input.request.requestHash,
+        maxOutputTokens: input.maxOutputTokens,
+        maxBillableGeneratedTokens,
+      });
+    }
     const worstInputRate = Math.max(
       pricing.normalInputNanoUsdPerToken,
       pricing.cacheWriteNanoUsdPerToken,
     );
     const reservedWorstCaseNanoUsd = safeRuntimeCostSum([
       [bound.inputTokensUpperBound, worstInputRate],
-      [input.maxOutputTokens, pricing.outputNanoUsdPerToken],
+      [maxBillableGeneratedTokens, pricing.outputNanoUsdPerToken],
     ]);
     const projectedSpendNanoUsd = reservedWorstCaseNanoUsd === null
       ? null : safeRuntimeSum([this.spentNanoUsd, reservedWorstCaseNanoUsd]);
@@ -451,12 +486,15 @@ implements ProviderNativeRuntimeGuardV2R {
       requestHash: input.request.requestHash,
       inputTokensUpperBound: bound.inputTokensUpperBound,
       maxOutputTokens: input.maxOutputTokens,
+      maxBillableGeneratedTokens,
       reservedWorstCaseNanoUsd,
     };
     return this.allow('BEFORE_INVOKE', {
       turn: input.turn, requestHash: input.request.requestHash,
       inputTokensUpperBound: bound.inputTokensUpperBound,
       tokenCountMethod: bound.method, tokenCountEvidenceSha256: bound.evidenceSha256,
+      maxOutputTokens: input.maxOutputTokens,
+      maxBillableGeneratedTokens,
       reservedWorstCaseNanoUsd,
     });
   }
@@ -534,8 +572,12 @@ implements ProviderNativeRuntimeGuardV2R {
     if (usage.inputTokens > pending.inputTokensUpperBound) {
       return this.accountingDenial('ACTUAL_INPUT_EXCEEDS_PREFLIGHT_BOUND', audit);
     }
-    if (usage.outputTokens + usage.thoughtTokens > pending.maxOutputTokens) {
-      return this.accountingDenial('ACTUAL_OUTPUT_EXCEEDS_REQUEST_LIMIT', audit);
+    if (usage.outputTokens > pending.maxOutputTokens) {
+      return this.accountingDenial('ACTUAL_RESPONSE_EXCEEDS_REQUEST_LIMIT', audit);
+    }
+    if (usage.outputTokens + usage.thoughtTokens
+      > pending.maxBillableGeneratedTokens) {
+      return this.accountingDenial('ACTUAL_GENERATED_TOKENS_EXCEED_AUTHORIZED_BOUND', audit);
     }
     if (this.totalOutputTokens > this.limits.maxCumulativeOutputTokens) {
       return this.budgetDenial('CUMULATIVE_OUTPUT_BUDGET_EXCEEDED', audit);
@@ -670,7 +712,7 @@ implements ProviderNativeRuntimeGuardV2R {
     this.pendingRequest = null;
     const nextOutputTokens = safeRuntimeSum([
       this.totalOutputTokens,
-      pending.maxOutputTokens,
+      pending.maxBillableGeneratedTokens,
     ]);
     const nextSpendNanoUsd = safeRuntimeSum([
       this.spentNanoUsd,
@@ -678,7 +720,7 @@ implements ProviderNativeRuntimeGuardV2R {
     ]);
     const nextReservedOutputTokens = safeRuntimeSum([
       this.conservativeReservedOutputTokens,
-      pending.maxOutputTokens,
+      pending.maxBillableGeneratedTokens,
     ]);
     const nextReservedNanoUsd = safeRuntimeSum([
       this.conservativeReservedNanoUsd,
@@ -700,7 +742,9 @@ implements ProviderNativeRuntimeGuardV2R {
       requestHash: pending.requestHash,
       inputTokensUpperBound: pending.inputTokensUpperBound,
       accountingMode: 'CONSERVATIVE_WORST_CASE_RESERVATION',
-      accountedOutputTokens: pending.maxOutputTokens,
+      maxOutputTokens: pending.maxOutputTokens,
+      maxBillableGeneratedTokens: pending.maxBillableGeneratedTokens,
+      accountedOutputTokens: pending.maxBillableGeneratedTokens,
       accountedCostNanoUsd: pending.reservedWorstCaseNanoUsd,
       cumulativeOutputTokens: this.totalOutputTokens,
       cumulativeSpentNanoUsd: this.spentNanoUsd,
@@ -896,11 +940,24 @@ function pendingRequestFromIntent(
   intentInput: Readonly<ProviderNativeDurableDispatchIntentV2R>,
 ): PendingRequest {
   const intent = assertProviderNativeDurableDispatchIntentV2R(intentInput);
+  const reservationEvent = records(intent.reservation.runtimeGuardAudit)
+    .find((event) => event.phase === 'BEFORE_INVOKE'
+      && event.status === 'ALLOW'
+      && event.turn === intent.dispatch.turn
+      && event.requestHash === intent.dispatch.requestHash);
+  const maxBillableGeneratedTokens = reservationEvent
+    ? positiveInteger(
+        reservationEvent.maxBillableGeneratedTokens
+          ?? intent.dispatch.maxOutputTokens,
+        'DURABLE_MAX_GENERATED_TOKENS_INVALID',
+      )
+    : intent.dispatch.maxOutputTokens;
   return {
     turn: intent.dispatch.turn,
     requestHash: intent.dispatch.requestHash,
     inputTokensUpperBound: intent.reservation.inputTokensUpperBound,
     maxOutputTokens: intent.dispatch.maxOutputTokens,
+    maxBillableGeneratedTokens,
     reservedWorstCaseNanoUsd: intent.reservation.reservedWorstCaseNanoUsd,
   };
 }
@@ -1170,6 +1227,10 @@ function validTokenBound(
 function normalizeRuntimeLimits(
   value: Readonly<ProviderNativeRuntimeBudgetLimitsV2R>,
 ): Readonly<ProviderNativeRuntimeBudgetLimitsV2R> {
+  const maxCumulativeOutputTokens = positiveInteger(
+    value.maxCumulativeOutputTokens,
+    'RUNTIME_MAX_OUTPUT_TOKENS_INVALID',
+  );
   return deepFreezeV1({
     maxProviderTurns: positiveInteger(value.maxProviderTurns, 'RUNTIME_MAX_TURNS_INVALID'),
     maxSelectedOperations: positiveInteger(
@@ -1180,10 +1241,13 @@ function normalizeRuntimeLimits(
       value.maxCandidatesPerOperation,
       'RUNTIME_MAX_CANDIDATES_INVALID',
     ),
-    maxCumulativeOutputTokens: positiveInteger(
-      value.maxCumulativeOutputTokens,
-      'RUNTIME_MAX_OUTPUT_TOKENS_INVALID',
-    ),
+    maxCumulativeOutputTokens,
+    ...(value.maxBillableGeneratedTokensPerInvoke === undefined ? {} : {
+      maxBillableGeneratedTokensPerInvoke: positiveInteger(
+        value.maxBillableGeneratedTokensPerInvoke,
+        'RUNTIME_MAX_GENERATED_TOKENS_PER_INVOKE_INVALID',
+      ),
+    }),
     maxInputTokensPerTurn: positiveInteger(
       value.maxInputTokensPerTurn,
       'RUNTIME_MAX_INPUT_TOKENS_INVALID',
