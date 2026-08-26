@@ -96,3 +96,39 @@ rendered comparisons, and blind editor review.
 5. Run all sentinels and the full zero-inference preflight before requesting any
    new paid calls.
 
+## Correction status and successor preflight
+
+The audit corrections are now implemented without changing the immutable paid
+run:
+
+- `857debf9a` reissues the precedence and scorecard contracts with explicit
+  `predecessorOperatorId` / `successorOperatorId` semantics and a distinct
+  provider/resource non-evaluation class.
+- `ddfea7795` separates the visible response-token limit from the total
+  billable generated-token limit, including provider thinking tokens.
+- `e8a801d01` binds Google’s provider-reported `65,536` output-token ceiling and
+  the OpenAI `8,192` generated-token ceiling into the source-bound preflight.
+- `f0211af58` reissues the future paid-authorization contract with an absolute
+  two-attempt ceiling of `$9.2463104`; the historical `$5.8056704`
+  confirmation cannot authorize the corrected cohort identity.
+- `601beb86d` reissues the source gate as V1.5 with the authoritative 74-test
+  readiness cohort.
+
+Current-HEAD zero-inference execution
+`stage25-final-provider-preflight-601beb86d-v2` passed 74/74 tests, performed
+three model-metadata GETs and eight official Google `countTokens` POSTs, and
+made zero inference calls and zero canonical project mutations. It binds:
+
+| Item | Value |
+| --- | --- |
+| Source commit | `601beb86df068abb7f479b94a860dc4cab419495` |
+| Readiness receipt | `19c7d43214e769e59a0e524761857b59b1c95444c85f8511bbe2622d7c182d72` |
+| Provider receipt | `f89c304af96a5c7cdc6ee98668d3fee93ec7f717ed9e35f12960c31bca1dac96` |
+| Request-capture set | `d2f13a41dbd51add78de9c42cd9002fd7c5bb0117e493148a33f652778107342` |
+| Initial-attempt upper bound | `$3.5900052` |
+| Absolute two-attempt ceiling | `$9.2463104` |
+
+Its exact promotion is
+`READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE`. It does
+not authorize a rerun, establish model ranking, render a route candidate, or
+close Stage 2.5. No secret appears in the receipt or request-capture artifacts.

@@ -20,10 +20,10 @@ This document supersedes the implementation ordering in the earlier
 reconciliation document.  It retains IF1 and all valuable Phase 2C work; it
 does not approve a new parallel runtime.
 
-## Live execution pointer - 2026-08-25
+## Live execution pointer - 2026-08-26
 
 The authoritative current Stage 2.5 queue is the section titled **Canonical
-current Stage 2.5 execution queue - 2026-08-25** below. Earlier Stage 2.5
+current Stage 2.5 execution queue - 2026-08-26** below. Earlier Stage 2.5
 "next" instructions are retained as dated history and do not authorize a
 rerun, provider call or reordered implementation. The latest canonical queue
 must be updated in the same bounded phase whenever its evidence or next action
@@ -4693,7 +4693,7 @@ Exactly two non-scored provider inference calls occurred in the closed pilot.
 No project read/mutation, media write, scored-row execution or production
 promotion occurred.
 
-## Canonical current Stage 2.5 execution queue - 2026-08-25
+## Canonical current Stage 2.5 execution queue - 2026-08-26
 
 This section supersedes every earlier Stage 2.5 "next" instruction in this
 document, including the stale table-row instruction to authorize or rerun the
@@ -4725,19 +4725,25 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    native/generated/hybrid route tasks across Luna, Terra and Gemini 3.7
    Flash. Public model-visible rules, equivalent-good/known-bad/safe-stop
    sentinels, proof ceilings and source closure pass the zero-spend gate.
-3. The source-bound provider-access preflight is complete at commit
-   `f2fac0c62`. Accepted execution
-   `stage25-final-provider-preflight-f2fac0c62-v2` passed 62/62 assertions,
-   verified the three exact model identities, ran Google official
-   `countTokens` over all eight frozen Gemini requests, captured all 24 initial
-   requests, and made zero inference calls, retries or project mutations. Its
-   only promotion is
-   `READY_FOR_EXPLICIT_CAPPED_24_ROW_PAID_AUTHORIZATION_NOT_INFERENCE`.
-4. Run the exact 24 paid rows only under a separate capped authorization. The
-   accepted preflight calculates `$1.86795795` as the initial-attempt upper
-   bound and `$5.8056704` as the absolute two-attempt ceiling. Audit
-   every output and replay the evaluator at zero spend before drawing a model
-   conclusion. A structural planning result is not product execution proof.
+3. The exact 24-row paid cohort completed once under its historical
+   `$5.8056704` authorization. It used 32 dispatches, cost `$1.022770625`, made
+   no project read or mutation, and reproduced from its immutable responses at
+   zero network cost. The audited result is seven valid structural passes,
+   nine valid owner-supported safe stops, two genuine failures, five
+   precedence-confounded rows and one provider/resource non-evaluation. It
+   supports no model ranking, rendered-quality claim or paid rerun. The full
+   reconciliation is
+   [oe-stage25-final-paid-cohort-audit-2026-08-26.md](./editron/open-ended-editing/oe-stage25-final-paid-cohort-audit-2026-08-26.md).
+4. The benchmark-integrity corrections are complete through `601beb86d`.
+   Current-HEAD zero-inference execution
+   `stage25-final-provider-preflight-601beb86d-v2` passed 74/74, verified the
+   three provider model identities, made three metadata GETs and eight Google
+   `countTokens` POSTs, and made zero inference calls or project mutations.
+   Receipt `19c7d43214e769e59a0e524761857b59b1c95444c85f8511bbe2622d7c182d72`
+   binds a `$3.5900052` initial-attempt upper bound and `$9.2463104` absolute
+   two-attempt ceiling. The old confirmation does not authorize this corrected
+   identity; no new paid cohort is currently authorized or required to proceed
+   to route-candidate product evidence.
 5. Turn successful route plans into bounded previews. RHC-01 already has three
    rendered research candidates; RHC-02 through RHC-04 still require real
    owner/fixture candidates. Keep the filmstrip island generated and the
@@ -5134,6 +5140,23 @@ authorization are all present.
   replayed at zero spend, successful plans become bounded route previews, and
   blind quality/correction-time/latency/cost evidence precedes the final
   `GO`, `MODIFY` or `NO-GO` decision.
+- The exact historical 24-row cohort subsequently completed once as
+  `stage25-final-paid-4438d1a41-v1`: 32 dispatches, 32 responses,
+  `$1.022770625` spend, no automatic transport retry and zero project reads or
+  mutations. Audit commit `75d290712` corrects the raw headline to seven valid
+  structural passes, nine valid owner-supported safe stops, two genuine
+  failures, five precedence-confounded rows and one provider/resource
+  non-evaluation. Commits `857debf9a`, `ddfea7795`, `e8a801d01`, `f0211af58`
+  and `601beb86d` then reissue the ambiguous contracts, separate visible from
+  billable generated tokens, bind provider-native ceilings, and require a new
+  authorization identity. Current-HEAD zero-inference execution
+  `stage25-final-provider-preflight-601beb86d-v2` passed 74/74 with three
+  metadata GETs, eight Google `countTokens` calls, zero inference and zero
+  canonical project mutation. Readiness receipt
+  `19c7d43214e769e59a0e524761857b59b1c95444c85f8511bbe2622d7c182d72`
+  records a `$9.2463104` two-attempt ceiling but does not authorize a rerun.
+  Stage 2.5 therefore proceeds to bounded RHC-02/RHC-03/RHC-04 candidates and
+  rendered/editor evidence, not another automatic paid cohort.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
