@@ -130,7 +130,7 @@ async function evidence() {
 }
 
 function passingReport() {
-  const counts = [10, 6, 19, 7, 5, 5, 5, 5, 4, 4];
+  const counts = [10, 6, 19, 7, 5, 5, 5, 5, 4, 4, 3];
   return { success: true,
     numTotalTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numPassedTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,

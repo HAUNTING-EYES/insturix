@@ -11,15 +11,16 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_FINAL_GENERALISATION_PROVIDER_SOURCE_GATE_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROVIDER_SOURCE_GATE_V1_2' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PROVIDER_SOURCE_GATE_V1_3' as const;
 export const STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_FILES_V1 = [
   ...STAGE25_FINAL_GENERALISATION_SOURCE_BOUND_TEST_FILES_V1,
   'tests/editron/stage25-final-generalisation-provider-preflight-v1.test.ts',
   'tests/editron/stage25-final-generalisation-provider-source-gate-v1.test.ts',
   'tests/editron/stage25-final-generalisation-paid-authorization-v1.test.ts',
   'tests/editron/stage25-final-generalisation-paid-runner-v1.test.ts',
+  'tests/editron/stage25-final-generalisation-paid-operator-v1.test.ts',
 ] as const;
-export const STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1 = 70 as const;
+export const STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1 = 73 as const;
 export const STAGE25_FINAL_GENERALISATION_PROVIDER_CREDENTIAL_NAMES_V1 = [
   ...STAGE25_FINAL_GENERALISATION_CREDENTIAL_NAMES_V1,
   'GOOGLE_GENERATIVE_AI_API_KEY',
