@@ -195,7 +195,7 @@ async function preflightFetch(target: URL | RequestInfo): Promise<Response> {
   return json({ error: 'unexpected endpoint' }, 500);
 }
 function passingReport() {
-  const counts = [10, 6, 19, 7, 5, 5, 5, 5];
+  const counts = [10, 6, 19, 7, 5, 5, 5, 5, 4, 4];
   return { success: true, numTotalTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numPassedTests: STAGE25_FINAL_GENERALISATION_PROVIDER_TEST_COUNT_V1,
     numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
