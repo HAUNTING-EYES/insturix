@@ -24,7 +24,7 @@ const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 const VITEST_CLI = require.resolve('vitest/vitest.mjs');
 const VITEST_PACKAGE = require.resolve('vitest/package.json');
-const SOURCE_SCOPES = [
+export const STAGE25_FINAL_PROVIDER_SOURCE_SCOPES_V1 = [
   'lib/editron', 'tests/editron', 'components/editron', 'package.json', 'pnpm-lock.yaml',
 ] as const;
 
@@ -36,7 +36,7 @@ export async function runStage25FinalProviderPreflightOperatorV1(input: {
   productionEnvironmentFile?: string;
   executionSuffix?: string;
 }) {
-  const source = await sourceIdentity(input.workspaceRoot);
+  const source = await stage25FinalProviderSourceIdentityV1(input.workspaceRoot);
   if (source.relevantStatusEntries.length) fail('SOURCE_SCOPE_DIRTY');
   const suffix = input.executionSuffix ?? 'v1';
   if (!/^v[1-9]\d*$/.test(suffix)) fail('EXECUTION_SUFFIX_INVALID');
@@ -116,14 +116,15 @@ async function loadCredentials(input: {
     ),
   };
 }
-async function sourceIdentity(workspaceRoot: string) {
+export async function stage25FinalProviderSourceIdentityV1(workspaceRoot: string) {
   const commitSha = await git(workspaceRoot, ['rev-parse', 'HEAD']);
   const treeSha = await git(workspaceRoot, ['rev-parse', 'HEAD^{tree}']);
   const relevantStatusEntries = lines(await git(workspaceRoot, [
-    'status', '--porcelain=v1', '--untracked-files=all', '--', ...SOURCE_SCOPES,
+    'status', '--porcelain=v1', '--untracked-files=all', '--',
+    ...STAGE25_FINAL_PROVIDER_SOURCE_SCOPES_V1,
   ]));
   const tracked = lines(await git(workspaceRoot, [
-    'ls-files', '-s', '--', ...SOURCE_SCOPES,
+    'ls-files', '-s', '--', ...STAGE25_FINAL_PROVIDER_SOURCE_SCOPES_V1,
   ]));
   if (!tracked.length) fail('SOURCE_SCOPE_EMPTY');
   return { commitSha, treeSha, relevantScopeSha256: hashCanonicalJsonV1(tracked),
