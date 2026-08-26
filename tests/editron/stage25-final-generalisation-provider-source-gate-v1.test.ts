@@ -143,7 +143,11 @@ async function mockFetch(url: URL | RequestInfo): Promise<Response> {
   const target = String(url);
   if (target.endsWith('/gpt-5.6-luna')) return json({ id: 'gpt-5.6-luna' });
   if (target.endsWith('/gpt-5.6-terra')) return json({ id: 'gpt-5.6-terra' });
-  if (target.endsWith('/gemini-3.7-flash')) return json({ name: 'models/gemini-3.7-flash' });
+  if (target.endsWith('/gemini-3.7-flash')) return json({
+    name: 'models/gemini-3.7-flash',
+    inputTokenLimit: 1_048_576,
+    outputTokenLimit: 65_536,
+  });
   if (target.endsWith(':countTokens')) return json({ totalTokens: 20_000 });
   return json({ error: 'unexpected endpoint' }, 500);
 }

@@ -19,11 +19,11 @@ type JsonRecord = Record<string, unknown>;
 const AUTHORIZATION_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
 export const STAGE25_FINAL_GENERALISATION_PAID_AUTHORIZATION_VERSION_V1 =
-  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PAID_AUTHORIZATION_V1_1' as const;
+  'EDITRON_OE_STAGE25_FINAL_GENERALISATION_PAID_AUTHORIZATION_V1_2' as const;
 export const STAGE25_FINAL_GENERALISATION_PAID_CONFIRMATION_V1 =
-  'CONFIRM STAGE25 FINAL 24 ROW PAID COHORT MAX $5.8056704 NO AUTOMATIC TRANSPORT RETRY' as const;
-export const STAGE25_FINAL_GENERALISATION_MAX_SPEND_USD_V1 = '5.8056704' as const;
-export const STAGE25_FINAL_GENERALISATION_MAX_SPEND_NANO_USD_V1 = 5_805_670_400 as const;
+  'CONFIRM STAGE25 FINAL V1-2 24 ROW PAID COHORT MAX $9.2463104 NO AUTOMATIC TRANSPORT RETRY' as const;
+export const STAGE25_FINAL_GENERALISATION_MAX_SPEND_USD_V1 = '9.2463104' as const;
+export const STAGE25_FINAL_GENERALISATION_MAX_SPEND_NANO_USD_V1 = 9_246_310_400 as const;
 
 export interface Stage25FinalGeneralisationPaidApprovalV1 {
   operatorId: string;
@@ -157,7 +157,8 @@ function assertReadiness(
     || provider.receiptSha256 !== bundle.receipt.receiptSha256
     || provider.requestCaptureSetSha256 !== bundle.receipt.requestCaptureSetSha256
     || provider.cohortSha256 !== STAGE25_FINAL_GENERALISATION_COHORT_V1.cohortSha256
-    || provider.absoluteTwoAttemptMaxSpendUsd !== 5.8056704
+    || provider.absoluteTwoAttemptMaxSpendUsd
+      !== Number(STAGE25_FINAL_GENERALISATION_MAX_SPEND_USD_V1)
     || calls.modelMetadataGets !== 3 || calls.googleCountTokensPosts !== 8
     || calls.inferenceCalls !== 0
     || !Array.isArray(receipt.stateEffects) || receipt.stateEffects.length !== 0
@@ -203,8 +204,13 @@ function expectedRows(
       initialBoundedInputTokens: capture.boundedInputTokens,
       maximumInputTokensPerAttempt: STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1,
       maximumOutputTokensPerAttempt: STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1,
+      maximumBillableGeneratedTokensPerAttempt:
+        capture.maxBillableGeneratedTokensPerAttempt,
       maximumProviderAttempts: 2 as const, automaticTransportRetries: 0 as const,
-      absoluteMaxRowSpendNanoUsd: maximumRowSpendNanoUsd(route),
+      absoluteMaxRowSpendNanoUsd: maximumRowSpendNanoUsd(
+        route,
+        capture.maxBillableGeneratedTokensPerAttempt,
+      ),
     };
     return deepFreezeV1({ ...material,
       rowAuthorizationSha256: hashCanonicalJsonV1(material) });
@@ -219,12 +225,18 @@ function expectedRows(
 
 function maximumRowSpendNanoUsd(
   entry: ReturnType<typeof providerNativeCohortRoutesV2R>[number],
+  maxBillableGeneratedTokensPerAttempt: number,
 ): number {
+  if (!Number.isSafeInteger(maxBillableGeneratedTokensPerAttempt)
+    || maxBillableGeneratedTokensPerAttempt
+      < STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1) {
+    fail('GENERATED_TOKEN_BOUND_INVALID');
+  }
   const inputRate = Math.max(entry.pricing.inputUsdPerMillion,
     entry.pricing.cacheWriteUsdPerMillion);
   const perAttemptUsd = (
     STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1 * inputRate
-    + STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1
+    + maxBillableGeneratedTokensPerAttempt
       * entry.pricing.outputUsdPerMillion
   ) / 1_000_000;
   const result = Math.round(perAttemptUsd * 2 * 1_000_000_000);

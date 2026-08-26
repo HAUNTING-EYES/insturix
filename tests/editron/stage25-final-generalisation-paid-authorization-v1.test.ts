@@ -36,6 +36,14 @@ describe('Stage 2.5 final generalisation paid authorization V1', () => {
     expect(setup.authorization.authorizedRows).toHaveLength(24);
     expect(new Set(setup.authorization.authorizedRows
       .map(({ rowId }) => rowId))).toHaveLength(24);
+    expect(setup.authorization.authorizedRows
+      .filter(({ provider }) => provider === 'openai')
+      .every(({ maximumBillableGeneratedTokensPerAttempt }) =>
+        maximumBillableGeneratedTokensPerAttempt === 8_192)).toBe(true);
+    expect(setup.authorization.authorizedRows
+      .filter(({ provider }) => provider === 'google')
+      .every(({ maximumBillableGeneratedTokensPerAttempt }) =>
+        maximumBillableGeneratedTokensPerAttempt === 65_536)).toBe(true);
   });
 
   it('rejects an altered confirmation, ceiling, identity or expiry', async () => {
@@ -145,7 +153,8 @@ async function mockFetch(url: URL | RequestInfo): Promise<Response> {
   if (target.endsWith('/gpt-5.6-luna')) return json({ id: 'gpt-5.6-luna' });
   if (target.endsWith('/gpt-5.6-terra')) return json({ id: 'gpt-5.6-terra' });
   if (target.endsWith('/gemini-3.7-flash')) {
-    return json({ name: 'models/gemini-3.7-flash' });
+    return json({ name: 'models/gemini-3.7-flash',
+      inputTokenLimit: 1_048_576, outputTokenLimit: 65_536 });
   }
   if (target.endsWith(':countTokens')) return json({ totalTokens: 20_000 });
   return json({ error: 'unexpected endpoint' }, 500);

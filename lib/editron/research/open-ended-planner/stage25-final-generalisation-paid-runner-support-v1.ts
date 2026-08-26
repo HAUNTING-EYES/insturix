@@ -34,10 +34,17 @@ export function createStage25FinalGeneralisationRuntimeGuardV1(input: {
   attempt: 1 | 2;
 }) {
   const ceiling = stage25FinalGeneralisationPerAttemptCeilingV1(input.scope);
+  const generatedTokenCeiling = Number(
+    input.scope.maximumBillableGeneratedTokensPerAttempt,
+  );
+  if (!Number.isSafeInteger(generatedTokenCeiling)
+    || generatedTokenCeiling < STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1) {
+    fail('GENERATED_TOKEN_CEILING_INVALID');
+  }
   const bound = input.attempt === 1 ? input.capture.boundedInputTokens
     : STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1;
   return new ProviderNativeRuntimeBudgetControllerV2R({
-    guardKind: 'EDITRON_STAGE25_FINAL_GENERALISATION_RUNTIME_GUARD_V1_1',
+    guardKind: 'EDITRON_STAGE25_FINAL_GENERALISATION_RUNTIME_GUARD_V1_2',
     guardIdentitySha256: hashCanonicalJsonV1({
       authorization: input.authorization.authorizationSha256,
       row: input.scope.rowAuthorizationSha256, attempt: input.attempt,
@@ -45,7 +52,8 @@ export function createStage25FinalGeneralisationRuntimeGuardV1(input: {
     authorizationSha256: input.authorization.authorizationSha256,
     inputTokenBoundVersion: TOKEN_BOUND_VERSION,
     limits: { maxProviderTurns: 1, maxSelectedOperations: 1, maxCandidatesPerOperation: 1,
-      maxCumulativeOutputTokens: STAGE25_FINAL_GENERALISATION_MAX_OUTPUT_TOKENS_V1,
+      maxCumulativeOutputTokens: generatedTokenCeiling,
+      maxBillableGeneratedTokensPerInvoke: generatedTokenCeiling,
       maxInputTokensPerTurn: STAGE25_FINAL_GENERALISATION_MAX_INPUT_TOKENS_V1,
       absoluteMaxSpendNanoUsd: ceiling },
     pricing: {
