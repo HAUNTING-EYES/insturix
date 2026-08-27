@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import * as tfdb from "@/lib/thinkforge/services/db";
+import { projectService } from "@/lib/editron/services/project-service";
 import type { StudioArtifact, StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 export const runtime = "nodejs";
@@ -66,7 +67,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     }
   }
 
-  /* Editron project → reel artifact (stage mounts the real editor) */
+  /* Editron project → reel artifact (stage mounts the real editor).
+   * Verified against the project list — never fabricate a reel for an
+   * unknown id (a scratch session id must stay a 404, not a phantom edit). */
+  let projectName: string | null = null;
+  try {
+    const list = await projectService.listProjects(userId, 1, 100, "updatedAt");
+    projectName = (list.projects ?? []).find((p) => p.projectId === id)?.name ?? null;
+  } catch {
+    projectName = null;
+  }
+  if (projectName === null) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
   const artifact: StudioArtifact = {
     id: `art_ed_${id}`,
     kind: "reel",
@@ -79,7 +92,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   };
   const deliverable: StudioDeliverable = {
     id,
-    title: "Edit",
+    title: projectName,
     brandId: "unbranded",
     orgId: null,
     campaignId: null,
