@@ -4705,8 +4705,10 @@ promotion occurred.
 This section supersedes every earlier Stage 2.5 "next" instruction in this
 document, including the stale table-row instruction to authorize or rerun the
 completed nine-row cohort. The benchmark-integrity detour is closed. Stage 2.5
-itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
-`GO`.
+has now exited with `FROZEN_MODIFY_DECISION_ISSUED`; this is neither production
+`GO` nor `NO-GO`. Stage 3 production model-driven mutation remains
+`BLOCKED_NOT_AUTHORIZED` until the recorded modifications are proved and a new
+gate explicitly permits it.
 
 ### Closed work that must not be repeated
 
@@ -4719,7 +4721,7 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    unseen holdouts" are closed historical work. New evidence must use genuinely
    new tasks and identities.
 
-### Active exit evidence, in order
+### Completed exit evidence, in order
 
 1. HREF-01's sole project-owner full-video, dense-motion and audio judgment is
    packaged as qualified receipt `f699348094d84079765115556b9b9746ef6a51eccdc79ff7fddecf49ee992d88`.
@@ -4788,13 +4790,18 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    RHC-04 measured hands-on correction remains `NOT_PERFORMED`, and complete
    render billing remains unavailable. Technical worker latency is preserved
    separately and is not relabelled as editor correction time.
-10. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
-   production model-driven mutation may begin only after that gate permits it.
+10. **Frozen exit decision published: `MODIFY`.** Commit `69739ed55` and
+    canonical receipt `a03a8ac2d618188ce4c9990b2308f240fada8d760f5b365a57592306309a25c8`
+    bind all eleven accepted evidence identities and the exact historical
+    result classifications. Stage 3 remains `BLOCKED_NOT_AUTHORIZED`; the
+    optional successor whole-editing episode was not run because it was neither
+    authorized nor decision-critical.
 
-### Parallel execution contract
+### Parallel execution contract (historical Stage 2.5 exit boundary)
 
-Parallel work begins now, but parallelism does not create parallel authorities.
-The following read-only or isolated-spec lanes may proceed concurrently:
+During the now-closed Stage 2.5 exit work, parallelism did not create parallel
+authorities. The following read-only or isolated-spec lanes were eligible to
+proceed concurrently:
 
 - HREF-01 artifact/review packaging;
 - new dependency/invalidation task discovery;
@@ -6035,10 +6042,51 @@ inference, embeddings and canonical project reads/mutations are zero.
 
 This is the honest queue-item-9 result, not a failed model/edit or a hidden
 human judgment. A later qualified reviewer may complete the contracts, but
-Stage 2.5 already has sufficient blocker evidence to publish `MODIFY` without
-waiting or spending. Queue item 10's frozen decision is next; the optional
-successor whole-editing episode remains not authorized and not
-decision-critical.
+this evidence supplied the blocker premises for the published `MODIFY` without
+waiting or spending. The optional successor whole-editing episode remains not
+authorized and not decision-critical.
+
+**Stage 2.5 frozen exit decision (2026-08-28):** commit `69739ed55` adds the
+single frozen-decision owner, read-only evidence operator and adversarial test
+closure. Execution `stage25-frozen-decision-69739ed55-v1` ran from a clean
+`lib/editron` plus `tests/editron` source scope at that commit, revalidated all
+eleven canonical evidence bindings and passed all 17 owner tests. Repository
+typecheck and full quiet ESLint pass. Canonical receipt
+`a03a8ac2d618188ce4c9990b2308f240fada8d760f5b365a57592306309a25c8`
+has receipt-file SHA-256
+`25e3af375be55dea4fb9bf1dc833cad53cb55109d35af29e0d3459dc86a5f4c0`.
+Provider inference calls, provider spend, canonical project reads and canonical
+project mutations are all zero.
+
+The frozen decision is `MODIFY`, with status
+`FROZEN_MODIFY_DECISION_ISSUED`. It is not `GO`: realistic long-form product
+proof, qualified blind RHC-01 through RHC-04 human judgments, measured RHC-04
+hands-on correction, complete render/provider cost accounting and broad
+operation-precondition enforcement in every real ProjectService mutation owner
+remain incomplete. It is not `NO-GO`: bounded native/generated/hybrid rendered
+feasibility exists, the bounded ProjectService conflict/lock/rebase gate passes,
+zero-spend resume mechanics pass, and the identified gaps are repairable while
+failing closed.
+
+The historical paid cohort remains immutable. Its five ambiguous-precedence
+rows are permanently `CONFOUNDED / UNVERIFIABLE` and excluded from model
+scoring; they are never promoted or retroactively rescored. The one Gemini
+provider/resource interruption remains `UNVERIFIABLE`, neither pass nor
+failure. The two genuine preservation/audio-ordering failures remain real
+failures, and production mutation owners must block those unsafe orderings
+before any write. No historical rerun occurred or is authorized.
+
+Before another production-readiness decision, Editron must enforce evidence,
+revision, range, lock, rights and invalidation prerequisites across every real
+mutation owner; complete private PTS, rational mixed-rate/VFR and discontinuity
+consumption; prove rights-cleared multi-hour retrieval accuracy and live
+proxy/master/render/delivery recovery; collect qualified route-blind RHC human
+reviews; run a fresh isolated measured RHC-04 correction session; and bind
+complete local/cloud render plus any separately authorized provider cost
+accounting. The optional successor whole-editing episode is recorded as
+`NOT_RUN_NOT_AUTHORIZED_AND_NOT_DECISION_CRITICAL`. Stage 2.5 is therefore
+closed with `MODIFY`, while Stage 3 production model-driven mutation remains
+blocked pending a future explicitly permitted gate.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
