@@ -5645,6 +5645,61 @@ remain for the later human-quality phase. The next bounded task in the frozen
 order is RHC-03 media/owner reconciliation and materialization; no inference is
 authorized or needed for that step.
 
+**RHC-03 media/owner reconciliation and materialization Phase A
+(2026-08-27):** commits `de26f8170` and exact-contrast correction `d196c9800`
+replace the historical owner-absent
+observation for this candidate with current, source-bound evidence without
+changing the frozen task or its
+`560623d9895a005e54b015a95433d9e6fee292a9dad5f4d18dbb6413d40571ab`
+identity. The fixture binds repository AV source `d95dd77f...` at 60/1,
+selects exact source frames `[300,2100)` at every second frame into a 900-frame
+1920x1080 30/1 authored wide, and derives one 150-frame action artifact from
+authored-wide frames `[450,600)`. `rhc03-action-left` and
+`rhc03-action-right` remain independent editable source slots but intentionally
+bind the same temporal bytes; distinct generated crop bindings provide the two
+views, so both consume local frame `n` of the same action phase rather than
+depending on approximate timestamps.
+
+The native timeline owns the exact 30-second production-audio baseline:
+48 kHz stereo PCM, 1,440,000 samples per channel, candidate audio mutation
+forbidden. Entry is project 450 -> generated 0 -> authored-wide 450; generated
+149 corresponds to authored-wide 599; project 600 returns to authored-wide
+600. Noto Sans Regular/400 is bound by exact file and SFNT `OS/2`
+`usWeightClass` evidence. The centered `SYNC` label is an editable generated
+control. Its 40 px default and measured 20.17:1 white-on-near-black contrast,
+4-percent panel
+margins and conservative subject-separated centre gap bind the current
+creative-knowledge-graph safe-zone, callout-size and WCAG constraints. The
+graph edge to absent node `technique:layout.split_screen` is recorded as
+dangling and is not treated as an implemented form owner.
+
+Current owner execution now distinguishes the three routes. The generic
+isolated `add_overlay` writer accepts both muted native video forms and issues
+chained proposal revisions while leaving the canonical ProjectService fixture
+unchanged, but it rejects arbitrary `Noto Sans` file identity at the live form
+schema; native therefore remains
+`CAPABILITY_GAP:NATIVE_EXACT_FONT_FILE_BINDING_UNAVAILABLE`. The RHC-03
+generated program passes the existing verifier with independently editable
+view, label, colour, size, gutter and background controls, but generated-only
+still lacks playable production-audio ownership. Hybrid alone is
+`READY_FOR_RENDER`: the existing generated-program adapter projects it into a
+pending ProjectService draft with explicit timebase/audio/boundary handoffs and
+zero canonical mutation. This is shared downstream plumbing, not product
+dispatcher convergence.
+
+The first local execution failed closed before evidence because its FFmpeg
+filter graph omitted the video/audio-chain separator; it also exposed a
+parallel-failure cleanup race. The accepted implementation separates the
+chains and materializes deterministically in sequence. Focused evidence passes
+4/4; the surrounding program/overlay/generated-proposal owner set passes
+30/30; repository typecheck and quiet ESLint pass. Source hashes are media
+materializer `8248369d...`, route qualification `65b0cb03...`, generated
+fixture `167bedf6...` and focused test `82f44234...`. RHC-03 remains
+`NOT_RENDERED` and `HUMAN_QUALITY_UNJUDGED`. The next bounded slice is the
+exact current deny-all sandbox render followed by stereo PCM, synchronized
+source-frame, label-bounds and return-boundary proof; no model inference is
+authorized or required.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
