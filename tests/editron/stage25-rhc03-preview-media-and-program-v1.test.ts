@@ -131,6 +131,7 @@ describe('Stage 2.5 RHC03 media, program, and owner qualification V1', () => {
         defaultFontSizePx: 40,
         minimumFontSizePx: 36,
         minimumContrastRatio: 4.5,
+        defaultContrastRatio: 20.17,
       },
       danglingKnowledgeGraphEdgeExcluded: 'technique:layout.split_screen',
     });

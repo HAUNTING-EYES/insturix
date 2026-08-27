@@ -105,7 +105,7 @@ export function buildRhc03GeneratedCompositionFixtureV1(
       foreground: '#FFFFFF' as const,
       background: '#05070A' as const,
       minimumContrastRatio: 4.5,
-      defaultContrastRatio: 20.05,
+      defaultContrastRatio: 20.17,
       renderedGlyphBoundsProof: 'REQUIRED_AFTER_RENDER' as const,
     },
     knowledgeGraphBindings: [
