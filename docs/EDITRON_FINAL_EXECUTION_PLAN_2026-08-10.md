@@ -5540,6 +5540,49 @@ fixture successor `516bef51...`, verifier `2717db9a...`, and focused test
 `NOT_RENDERED` and `UNJUDGED`, and the next bounded phase remains the isolated
 ProjectService proposal adapter before the first still-branch sandbox render.
 
+**RHC-02 isolated hybrid proposal-adapter Phase 6 (2026-08-27):** the verified
+RHC-02 V2 program now has one pure projection into the existing strict
+`ProjectGeneratedCompositionDraftV1` schema. The adapter re-runs the generated
+program verifier, copies the already-owned form without resolving layout or
+style, maps both stills to `IMAGE/STATIC`, verifies the content hashes of the
+two bound source-rights receipts, carries Noto Sans Regular/400, preserves
+project `[300,390)` and composition `[0,90)`, and carries both native-audio cue
+handoffs. Numeric control bounds are copied; the authored title receives only
+an exact-value-length safety ceiling, explicitly not a new creative choice.
+Accepted draft hash is
+`f0eb5a241cf52728b71b3229295f30fa349b94bbf82dbd9d2da4e9d5cb92843e`,
+source-rights set hash is
+`aeb63e119bb3d4ca818781914b136617924511ba0319c162658bc0c8a1f2a68b`,
+and adapter receipt is
+`2a18583574f189ab2fe31b2b5f177f07d724a3ece460a2fa3ca0f449db288a3d`.
+
+A closure-bound isolated owner then simulates the PENDING half of
+`prepareProjectGeneratedCompositionV1` on the existing ProjectService proposal
+clone. It requires the exact current proposal revision and normalized project
+state hash, all program/source/evidence/rights/blueprint/runtime/draft hashes,
+and the complete evidence-fact set. It explicitly records the program's logical
+`R1` binding beside ProjectService revision
+`project-revision-v1:7817769e...` and base-state hash `0a735ecc...`; it also
+rejects forged bindings, missing evidence, bad project geometry/rate/range,
+duplicate insert, stale base token and another generated composition
+overlapping the target. Replay deterministically reproduces the same PENDING
+state token and writer revision.
+
+Accepted isolated operation hash is `149293ec...`; proposal receipt
+`334a3f4943aeb67ff2c60c40fdc628e1f0fa08b8c0ff2f7725cfacfde215ba3e`
+records sole changed path `$.generatedCompositions[0]`, final proposal-state
+hash `b9aba524...` and `canonicalUnchanged=true`. The canonical project hash is
+`0a735ecc...` both before and after. The receipt names the real ProjectService
+prepare/finalize owners but truthfully records `canonicalMutationOwnerCalled=false`
+and `lifecycleStage=PENDING_PROPOSAL_ONLY`; no database write, final proof
+promotion, product dispatcher registration or architecture convergence is
+claimed. The focused owner set passes 13/13, the surrounding eight-file
+lifecycle/clone/RHC regression passes 82/82, and repository typecheck plus
+quiet ESLint pass. Source hashes are adapter `c0e66acf...`, isolated owner
+`22555065...` and test `c17ae6a4...`. RHC-02 remains `NOT_RENDERED` and
+`UNJUDGED`; the next bounded phase is its first current still-branch sandbox
+render followed by native-audio and boundary composition proof.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
