@@ -9,6 +9,7 @@
 import type { StudioArtifact, StudioStageFocus } from "@/lib/studio/contracts/objects";
 import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
 import { ReelEmbed } from "./reel-embed";
+import { StageIframe } from "./stage-iframe";
 
 const CAP_COLOR: Record<string, string> = {
   script: "var(--c-write)",
@@ -171,6 +172,9 @@ function ScriptView({ artifact }: { artifact: StudioArtifact }) {
 }
 
 function CanvasView({ artifact }: { artifact: StudioArtifact }) {
+  if (studioRealTurnsEnabled && artifact.sourceRef.engine === "clickatron") {
+    return <StageIframe href={`/dashboard/clickatron/lab/${artifact.sourceRef.externalId}`} label="canvas lab" />;
+  }
   const done = artifact.status === "done" ? 6 : 3;
   return (
     <>
@@ -223,7 +227,11 @@ function ScheduleView() {
   );
 }
 
-function AnalyzeView() {
+function AnalyzeView({ artifact }: { artifact: StudioArtifact }) {
+  if (studioRealTurnsEnabled && artifact.sourceRef.engine === "alyzitron" && artifact.sourceRef.externalId) {
+    const taskId = artifact.sourceRef.externalId.includes(",") ? artifact.sourceRef.externalId.split(",")[0] : artifact.sourceRef.externalId;
+    return <StageIframe href={`/dashboard/alyzitron/report/${taskId}`} label="analysis report" />;
+  }
   return (
     <>
       <div className="stu-chips">
@@ -303,7 +311,7 @@ export function StageHost({
           {focused?.kind === "script" && <ScriptView artifact={focused} />}
           {(focused?.kind === "thumbnail" || focused?.kind === "image_canvas" || focused?.kind === "carousel") && <CanvasView artifact={focused} />}
           {focused?.kind === "schedule" && <ScheduleView />}
-          {focused?.kind === "analysis" && <AnalyzeView />}
+          {focused?.kind === "analysis" && <AnalyzeView artifact={focused} />}
           {focused && !["reel", "script", "thumbnail", "image_canvas", "carousel", "schedule", "analysis"].includes(focused.kind) && (
             <FallbackView artifact={focused} />
           )}

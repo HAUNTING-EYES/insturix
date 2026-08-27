@@ -29,9 +29,9 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 |---|---|
 | script (real content) | DONE — engine markdown renders |
 | reel (real editor embed) | DONE — boot guard + missing-state; live mount needs real project |
-| canvas | MOCK (static grid) — real lab embed OPEN |
-| schedule | MOCK (static week) — real CalOS embed OPEN |
-| analyze | MOCK (static scorecard) — real report embed OPEN |
+| canvas | BRIDGED — real lab embeds in stage (same-origin iframe) |
+| schedule | BRIDGED — real calendar embeds in stage |
+| analyze | BRIDGED — real report embeds in stage (task id from sourceRef) |
 
 ## Feature absorption (per disposition matrix §3)
 | Surface | Status |
