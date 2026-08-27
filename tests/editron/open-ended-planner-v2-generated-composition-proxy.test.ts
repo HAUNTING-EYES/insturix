@@ -6,10 +6,12 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 
-import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { hashCanonicalJsonV1, sha256TextV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { resolveGeneratedPanelGeometryV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-api-v1';
 import { parseGeneratedCompositionAvcMetadataV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-avc-metadata-v1';
 import { parseGeneratedCompositionPlayableProxyObservationV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1';
+import { hashGeneratedCompositionSourceBundleV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-program-v1';
+import { verifyGeneratedCompositionProgramV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1';
 import {
   renderGeneratedCompositionProxyInsideSandboxV1,
   renderTrustedGeneratedCompositionProxyV1,
@@ -122,6 +124,58 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     }
   });
 
+  it('renders a hash-bound still source and rejects unsafe visual-source substitutions', async () => {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-gcp-still-v1-'));
+    try {
+      const fixture = await materializedStillFixture(scratch);
+      expect(verifyGeneratedCompositionProgramV1(fixture.input)).toMatchObject({
+        disposition: 'CONTRACT_PASS', diagnostics: [],
+      });
+      const receipt = await renderTrustedGeneratedCompositionProxyV1(fixture.input, {
+        workspaceRoot: path.join(scratch, 'render'), proofFrames: [0],
+      });
+      expect(receipt).toMatchObject({
+        composition: { width: 120, height: 80, fps: 30, durationInFrames: 180 },
+        proof: { contract: 'PASS', materializedInputs: 'PASS', compile: 'PASS' },
+      });
+      expect(await fs.readFile(path.join(receipt.workspaceDir, 'Root.tsx'), 'utf8'))
+        .toContain('"mediaKind":"STILL_IMAGE"');
+      const stats = await sharp(receipt.stills[0].path).stats();
+      expect(stats.channels[0].mean).toBeCloseTo(18, 0);
+      expect(stats.channels[1].mean).toBeCloseTo(52, 0);
+      expect(stats.channels[2].mean).toBeCloseTo(86, 0);
+
+      const audio = structuredClone(fixture.input) as any;
+      audio.evidencePack.facts.find((fact: any) => fact.assetId === 'dev02-wide').mediaKind = 'AUDIO';
+      audio.program.projectBinding.evidencePackHash = hashCanonicalJsonV1(audio.evidencePack);
+      expect(verifyGeneratedCompositionProgramV1(audio).diagnostics)
+        .toContain('SOURCE_MEDIA_KIND_UNSUPPORTED:source-wide');
+
+      const invalidRange = structuredClone(fixture.input) as any;
+      invalidRange.program.sourceSlots[0].sourceRange.endExclusive = '2';
+      expect(verifyGeneratedCompositionProgramV1(invalidRange).diagnostics)
+        .toContain('STILL_IMAGE_SOURCE_RANGE_INVALID:source-wide');
+
+      const disguisedPath = path.join(scratch, 'still.gif');
+      await fs.copyFile(fixture.stillPath, disguisedPath);
+      await expect(renderTrustedGeneratedCompositionProxyV1({
+        ...fixture.input,
+        materializedInputs: { assetPaths: { 'dev02-wide': disguisedPath }, fontPaths: {} },
+      }, { workspaceRoot: path.join(scratch, 'bad-extension'), proofFrames: [0] }))
+        .rejects.toThrow('input extension is unsupported');
+
+      const driftPath = path.join(scratch, 'drift.png');
+      await sharp({ create: { width: 120, height: 80, channels: 3, background: '#654321' } }).png().toFile(driftPath);
+      await expect(renderTrustedGeneratedCompositionProxyV1({
+        ...fixture.input,
+        materializedInputs: { assetPaths: { 'dev02-wide': driftPath }, fontPaths: {} },
+      }, { workspaceRoot: path.join(scratch, 'hash-drift'), proofFrames: [0] }))
+        .rejects.toThrow('asset hash drift');
+    } finally {
+      await fs.rm(scratch, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it('accepts only an exact, silent, BT.709 H.264 media observation', () => {
     const expected = { width: 1080, height: 1920, frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180 };
     const observation = {
@@ -186,6 +240,48 @@ async function materializedFixture(scratch: string) {
       expectedProgramHash: hashCanonicalJsonV1(program),
       expectedSourceBundleHash: program.sourceBundleHash,
       materializedInputs: { assetPaths: { 'dev02-wide': widePath, 'dev02-close': closePath }, fontPaths: { 'font-noto-sans-v27-regular': fontPath } },
+    },
+  };
+}
+
+async function materializedStillFixture(scratch: string) {
+  const stillPath = path.join(scratch, 'still.png');
+  await sharp({ create: { width: 120, height: 80, channels: 3, background: '#123456' } }).png().toFile(stillPath);
+  const stillHash = hashBytes(await fs.readFile(stillPath));
+  const evidencePack = structuredClone(DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1) as any;
+  const identity = evidencePack.facts.find((fact: any) => fact.assetId === 'dev02-wide');
+  Object.assign(identity, { assetVersion: `sha256:${stillHash}`, mediaKind: 'STILL_IMAGE', extent: { start: '0', endExclusive: '1' } });
+  const sourceWindows = evidencePack.facts.find((fact: any) => fact.kind === 'ALLOWED_SOURCE_WINDOWS');
+  sourceWindows.windows.find((window: any) => window.assetId === 'dev02-wide').ranges = [{ start: '0', endExclusive: '1' }];
+  const canvas = evidencePack.facts.find((fact: any) => fact.kind === 'CANVAS');
+  Object.assign(canvas, { width: '120', height: '80' });
+  const source = `import React from 'react';
+import { AssetSlot, CompositionStage, Panel } from '@editron/generated-composition-api/v1';
+export const GeneratedComposition = () => (
+  <CompositionStage background="#000000" gutter={0}>
+    <Panel layerId="panel-still" bounds={{ left: 0, top: 0, width: 1, height: 1 }} translateY={0}>
+      <AssetSlot slotId="source-wide" sourceFrame={0} crop="centre" />
+    </Panel>
+  </CompositionStage>
+);`;
+  const sourceBundle = structuredClone(DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1) as any;
+  sourceBundle.files = [{ path: 'GeneratedComposition.tsx', source, sha256: sha256TextV1(source) }];
+  const program = structuredClone(DEV02_GENERATED_COMPOSITION_PROGRAM_V1) as any;
+  Object.assign(program.canvas, { width: 120, height: 80 });
+  program.sourceSlots = [{ ...program.sourceSlots[0], assetVersion: `sha256:${stillHash}`, sourceRange: { start: '0', endExclusive: '1' } }];
+  program.fontSlots = []; program.textSlots = []; program.exposedParameters = [];
+  program.declaredLayers = [{ layerId: 'panel-still', kind: 'SOURCE_PANEL', sourceSlotId: 'source-wide', zIndex: 10 }];
+  program.projectBinding.evidencePackHash = hashCanonicalJsonV1(evidencePack);
+  program.sourceBundleHash = hashGeneratedCompositionSourceBundleV1(sourceBundle);
+  return {
+    stillPath,
+    input: {
+      program, sourceBundle, evidencePack,
+      referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
+      supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1,
+      expectedProgramHash: hashCanonicalJsonV1(program),
+      expectedSourceBundleHash: program.sourceBundleHash,
+      materializedInputs: { assetPaths: { 'dev02-wide': stillPath }, fontPaths: {} },
     },
   };
 }

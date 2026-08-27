@@ -5165,6 +5165,117 @@ authorization are all present.
   Stage 2.5 therefore proceeds to bounded RHC-02/RHC-03/RHC-04 candidates and
   rendered/editor evidence, not another automatic paid cohort.
 
+**RHC-01 native timebase correction (2026-08-26):** a current-HEAD grounding
+audit found that the native candidate helper writes
+`videoStartTime = sourceStartFrame / 30`, while the existing editor render
+consumer passes `sourceStartFrame ?? videoStartTime` directly to Remotion's
+frame-based `startFrom`. The wider timeline code also treats `videoStartTime`
+as frames. The accepted RHC-01 artifact therefore rendered its declared
+frame-150 native continuation from source frame 5. A fresh bounded byte check
+corroborates the control flow: native project frame 150 has normalized image
+diff `0.00856532` from source frame 5 and `0.02555497` from the receipt's
+declared source frame 150. The immutable receipt remains useful for local
+render/pack mechanics, but its native `sourceIdentityProof` and native
+timebase/boundary interpretation are reclassified as unverified; this check
+does not invalidate the separately assembled generated and hybrid paths.
+RHC-02 must bind frame-domain source offsets through `sourceStartFrame`, retain
+an unchanged audio baseline across its visual-only target, and prove rendered
+audio preservation rather than inheriting RHC-01's silent-preview assumptions.
+No route decision, product execution, paid rerun or Stage 2.5 closure follows
+from this correction.
+
+**RHC-02 route-contract Phase 1 (2026-08-27):** current-owner reconciliation
+now freezes the exact RHC-02 identity, rights, 30/1 project/composition/source
+mapping, immutable dialogue-plus-room-tone baseline and entry/exit frame
+handoffs. The target remains absolute project range `[300,390)`, mapped to
+composition `[0,90)` inside proof window `[270,420)`; return frame 390 binds
+interview source frame 390, and candidate visual operations may not mutate
+audio or state outside the target. The native route has exact bounded
+`add_overlay` inputs and existing `ProjectService.addOverlay` mutation
+ownership, but remains a capability gap because the live form is not extracted
+behind the isolated revision-issued dispatcher and native text rendering cannot
+prove the exact font file. The generated API's current `AssetSlot` is a muted
+`OffthreadVideo` owner, its proxy materializer accepts only MP4 sources and the
+sandbox receipt requires playable audio `ABSENT`; it therefore cannot relabel
+the two supplied still images or satisfy RHC-02 audio preservation as a pure
+generated route. Hybrid now has explicit timebase, native-audio and boundary
+handoffs. Existing `ProjectService.prepareProjectGeneratedCompositionV1` and
+`finalizeProjectGeneratedCompositionV1` remain the real product mutation
+owners; the missing link is an isolated proposal adapter plus a truthful
+generated still-image source owner, not a second island writer. All three route
+states remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and
+`NOT_AUTHORIZED`, with zero provider, render, database or canonical mutation
+calls. Focused RHC-02 plus historical owner-safe-stop verification passes
+14/14, with repository typecheck and quiet ESLint passing. This phase does not
+materialize media bytes, execute a candidate or change the frozen historical
+cohort. The next bounded phase must extend the generic generated-composition
+source contract/runtime/proxy for hash-bound still images; later phases must
+extract the live native form owner behind the isolated dispatcher, bind exact
+font use, materialize AV bytes, issue the RHC-specific program and render only
+the actually qualified native/hybrid routes.
+
+**RHC-02 generated still-source Phase 2 (2026-08-27):** the generic
+generated-composition verifier, runtime API and proxy materializer now admit a
+true hash-bound `STILL_IMAGE` visual source without adding a second media-kind
+field to `GeneratedCompositionProgramV1`. `SOURCE_MEDIA_IDENTITY` remains the
+kind authority; an explicit still must use the virtual source range `[0,1)`,
+while immutable legacy generated-composition evidence without `mediaKind` is
+treated as video only when its already-validated source slot spans multiple
+frames. The proxy still independently requires `.mp4` for that legacy video
+case. Explicit audio/unknown kinds and one-frame untyped sources fail contract
+verification. The runtime's existing `AssetSlot` remains the sole visual-source
+form: it uses Remotion `Img` for stills and preserves the prior muted
+`OffthreadVideo` path for video.
+
+Materialization accepts only local regular, non-symlink PNG/JPEG/WebP files,
+compares their bytes with the program-bound `sha256:` asset version, decodes
+their real format/dimensions and rejects multi-page/animated input before
+bundling. A focused real Remotion proof rendered the exact 120x80 PNG pixels;
+the same test rejects audio-as-visual, an invalid still range, an unsupported
+extension and asset-byte hash drift. Focused proxy verification passes 5/5;
+the generated-program/proxy/RHC-01/RHC-02/H03/owner regression set passes
+33/33; sandbox contract and runner tests pass 6/6; repository typecheck and
+quiet ESLint pass. Current source hashes are verifier
+`9707e4f05a74ee719ce5de8770082924ffdda09ea6c2e7074f4e61a7fb3348c4`, API
+`ee2468e25c67987e466abaee1e1ef18b0e7caa08c48875b8c52b66ee0382e4bc`, proxy
+`afd7c992b7665f6d6a6afe655465d5d5e3b26ab5b430dc994af2633f75797c12`
+and focused test
+`6f1a0fc6ab5009af1e598c1af221011dc6f6d30a973396a0c44003e0b94498c2`.
+
+This source change deliberately invalidates the old DEV-02 V2 capability's
+`bc61a906...` API implementation binding. Its historical sandbox receipt and
+capability record remain immutable and must not be rewritten; the research
+proxy chain's current-hash assertion remains red until a separately versioned
+successor is genuinely sandbox-qualified against API hash `ee2468e25...`.
+That invalidation does not revoke its historical bounded evidence and does not
+authorize an RHC-02 execution. RHC-02 still lacks a task-specific verified
+program, materialized media/font/audio bytes, the isolated revision-issued
+proposal adapter, a current deny-all sandbox capability, native exact-font
+proof and rendered PCM/boundary/human-quality evidence. Its routes therefore
+remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`.
+The next bounded phase remains extraction of the existing live native overlay
+form behind the isolated revision-issued dispatcher; the generated route must
+receive a new sandbox capability before its later RHC-specific program can run.
+
+**Codex transcript grounding checkpoint (2026-08-27):** the required
+predecessor session JSONL was processed sequentially to its actual EOF without
+printing or persisting raw message bodies. The immutable read covered 215,121
+records and 1,233,175,410 bytes, from timestamp
+`2026-08-09T08:16:11.569Z` through `2026-08-26T15:55:45.793Z`, with zero JSON
+parse failures. Bounded chunk endpoints were line/byte `55,503/269,352,259`,
+`101,161/538,258,997`, `147,011/806,696,179`,
+`190,780/1,075,341,535` and `215,121/1,233,175,410`; their respective byte
+hashes were `b19cfc7f180ce6f80bcf1c67eb03412a1ffc7c11731efabd615094a7eb36a525`,
+`05af5cd691569836f9c7eed6e0c31cd11d16ec86300fa31b526853d1321a51d1`,
+`092a4616c306bd7999f3b6ad03933e385f3dac2bfbd89db0c3f08e1031d1bbb6`,
+`f2a1aa2b485ff74744a963a2e21b098f5a8c092dafc3c264920c71fd40ecfffd`
+and `2a8c8e98b0e3c0ab14c00716ff7e7d17b692e22c9e6bc824c2eb391ca053ddb4`.
+A credential-safe classifier recorded only role/timestamp/type counts and
+controlled decision-category positions. It corroborated, but does not outrank,
+the handover, this ledger, current receipts or code. The durable resume point is
+therefore exact EOF; no claim is made that the raw 1.23 GB transcript remains
+inside model context.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
