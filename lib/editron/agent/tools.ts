@@ -9,10 +9,7 @@ import {
 import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
-  OverlayType as EditorOverlayType,
   HtmlGenerationMetadata,
-  CaptionOverlay,
-  ClipOverlay,
 } from "@/components/editron/editor/version-7.0.0/types";
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
@@ -27,7 +24,6 @@ import {
   findBestRow,
   resolveCoordinates,
   getDefaultSize,
-  hasCollisionOnRow,
   OverlayType,
   ExistingOverlay,
 } from "../core/physics";
@@ -38,14 +34,12 @@ import {
   classifyWordTimings,
   buildFancyCaptionPrompt,
   injectFancyCaptionTiming,
-  type WordTiming,
 } from "../utils/html-generator-utils";
 
 import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
-import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
+import { formatSecondsToHHMMSS, framesToSeconds } from "../utils/analysis";
 import { extractEditDNA, loadProfile } from "../services/style-transfer-service";
-import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
 import {
@@ -2342,7 +2336,7 @@ EXAMPLE PROMPTS:
         const project = await loadProject();
         const fps = project.fps || 30;
         
-        const { getTranscription, getWordsInRange } = await import('../services/media');
+        const { getTranscription } = await import('../services/media');
         
         if (input.mode === 'timeline') {
           // Get all video overlays sorted by timeline position
@@ -2763,9 +2757,8 @@ Optionally apply a new style while refreshing.`,
   });
 
   const closeGaps = tool(
-    async (rawInput: z.infer<typeof closeGapsSchema>) => {
+    async () => {
       try {
-        const input = coerceInput(rawInput);
         const project = await loadProject();
         
         // Get all video clips sorted by timeline position
@@ -3874,7 +3867,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         const input = coerceInput(rawInput);
         const project = await loadProject();
         const fps = project.fps || 30;
-        const canvas = getCanvasDimensions(project);
 
         // Find video overlays and their corresponding text/narration
         const videoOverlays = project.overlays
@@ -3884,12 +3876,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         if (videoOverlays.length === 0) {
           return JSON.stringify({ status: 'error', message: 'No video clips found to add motion graphics to' });
         }
-
-        // Find voiceover/caption overlays for narration context
-        const voOverlays = project.overlays.filter((o: any) =>
-          o.type === 'sound' && (o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_')),
-        );
-        const captionOverlays = project.overlays.filter((o: any) => o.type === 'caption');
 
         // Look up storyboard for scene narration text
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
@@ -4603,7 +4589,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
       try {
         const input = coerceInput(rawInput);
 
-        let { assetId, videoOverlayId, videoUrl, sourceName } = input;
+        const { assetId, videoUrl, sourceName } = input;
+        let { videoOverlayId } = input;
         if (!assetId && !videoOverlayId && !videoUrl) {
           const project = await loadProject();
           const projectVideos = project.overlays.filter((overlay: any) => overlay.type === 'video');
