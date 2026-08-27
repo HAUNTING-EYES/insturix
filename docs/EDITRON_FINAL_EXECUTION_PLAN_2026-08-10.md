@@ -4781,7 +4781,13 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    private PTS storage, rational mixed-rate/VFR consumption, proxy/master
    relink, production visual playback/delivery or hosted recovery. Those gaps
    carry into the frozen decision rather than being relabelled as passes.
-9. Collect blind rendered quality, correction-time, latency and cost receipts.
+9. **Review inputs and technical telemetry bound; human evidence result is
+   `MODIFY`.** Route-blinded public artifacts and four task-specific contracts
+   now exist through the shared blind-review owner. No qualified submission
+   exists, so RHC-01 through RHC-04 remain `UNVERIFIABLE` for human quality;
+   RHC-04 measured hands-on correction remains `NOT_PERFORMED`, and complete
+   render billing remains unavailable. Technical worker latency is preserved
+   separately and is not relabelled as editor correction time.
 10. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
    production model-driven mutation may begin only after that gate permits it.
 
@@ -5987,8 +5993,52 @@ semantic accuracy, private PTS storage, rational mixed-rate/VFR consumption,
 discontinuity/epoch handling, live proxy/master invalidation, production visual
 playback/render/delivery/recovery and provider-native multimodal accounting
 remain explicit blockers. Queue item 9's human quality/correction/latency/cost
-evidence is next; the paid successor episode remains unauthorized and is not
-decision-critical while these blockers already require `MODIFY`.
+evidence was therefore evaluated next; the paid successor episode remained
+unauthorized and non-decision-critical because these blockers already required
+`MODIFY`.
+
+**Stage 2.5 human quality/correction/latency/cost evidence gate
+(2026-08-28):** commit `6071c0857` adds one availability finalizer, a one-shot
+local operator and adversarial tests while retaining
+`BlindQualityReviewContractV1` as the only scoring/submission owner. The
+operator reads no sealed RHC-01 route key, copies only eleven public review
+files, withholds explicit native/generated/hybrid identities, and creates four
+task-specific contracts. The packet binds the frozen public briefs and
+predicates plus the existing creative-knowledge constraints for manual
+override, safe zones, room-tone continuity, screen-direction continuity,
+text/graphic separation and hard-cut audio continuity. It prescribes no new
+render form.
+
+Execution `stage25-human-quality-6071c0857-v1` ran from relevant-clean source
+commit `6071c0857ece9b6d83620886b845edcbe774140e`. The shared review-contract and
+new evidence suites pass 35/35; repository typecheck and full quiet ESLint also
+pass. Reviewer packet
+`a9a2a109d75921d62aa9ab6ef0b09c7b6b995026488999cbe646ccae80155df1`
+has file SHA-256
+`f1f718aad4a72281a6dbaa24ac6f5641257ced870ca74c29e8bc14c48dd13eb5`;
+the contract-set file SHA-256 is
+`543579d9d41df75f2ba485028c5d433d6099439f8243d5214f447af900c68129`.
+
+Canonical evidence receipt
+`d50fc077f2c20abc16d57877e18fcabc3de79a58e299a0c5f572f2b180de426a`
+and receipt-file SHA-256
+`1ea150c8bd8317fb4489aed1d920be5530c7b389233909a66f14437a144d342e`
+bind four exact technical receipts and zero qualified human-review receipts.
+Its disposition is
+`MODIFY_HUMAN_QUALITY_CORRECTION_EVIDENCE_INCOMPLETE`, with proof ceiling
+`HASH_BOUND_PLAYABLE_REVIEW_INPUTS_AND_TECHNICAL_TELEMETRY_ONLY`. RHC-02,
+RHC-03 and both RHC-04 worker wall times remain measured technical telemetry;
+RHC-01 render latency was not recorded. No task has a human aesthetic verdict,
+RHC-04 has no measured hands-on correction session, local compute/provider
+billing is incomplete, and independent agreement is unavailable. Provider
+inference, embeddings and canonical project reads/mutations are zero.
+
+This is the honest queue-item-9 result, not a failed model/edit or a hidden
+human judgment. A later qualified reviewer may complete the contracts, but
+Stage 2.5 already has sufficient blocker evidence to publish `MODIFY` without
+waiting or spending. Queue item 10's frozen decision is next; the optional
+successor whole-editing episode remains not authorized and not
+decision-critical.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
