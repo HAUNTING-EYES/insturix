@@ -5754,6 +5754,41 @@ therefore advances only to
 `NOT_CLAIMED`, no model inference or historical cohort rerun occurred, and the
 next ordered slice is RHC-04 materialization/rendering.
 
+**RHC-04 results-card materialization and route qualification Phase A
+(2026-08-27):** commit `9080e5629` materializes four exact repository-owned
+closeups, one regular Noto Sans font plus rights receipts, and one editable
+six-second generated-program source bundle. The initial program binds
+`60%`/`rhc04-closeup-60` at `[0,45)`, `30%`/`rhc04-closeup-30` at `[45,90)`
+and the final `10%` closeup at `[90,180)`. The bounded correction keeps the
+same source bundle, canvas, font and outer pairings while changing only the
+middle number to `35%`, its source binding to `rhc04-correction-source`, and
+the final hold from 90 to 75 frames; the corrected final state therefore begins
+at frame 105. Human hands-on correction time remains
+`MEASURED_HANDS_ON_REQUIRED_NOT_YET_PERFORMED` and is not inferred from this
+mechanical proof.
+
+Current owner observation accepts all three native still-image proposals on an
+isolated revision-issued ProjectService clone, but the native text form cannot
+bind the exact licensed font file and remains
+`CAPABILITY_GAP:NATIVE_EXACT_FONT_FILE_BINDING_UNAVAILABLE`. Generated-only is
+`READY_FOR_RENDER` through the existing verifier and generated-composition
+ProjectService adapter. Hybrid is `NOT_APPLICABLE` for this frozen task because
+there is no separate native audio, continuation, mask, tracking or timeline
+contribution; adding an empty native lane would still be generated-only. This
+is route qualification, not dispatcher convergence or a rendered-quality
+claim.
+
+Focused materialization/program/correction evidence passes 4/4; the surrounding
+generated verifier, proxy, ProjectService state/owner and RHC-03 suites pass
+52/52; repository typecheck and full quiet ESLint pass. Exact source hashes are
+media materializer `d915ee4d...`, generated fixture `d3706de5...`, route
+qualification `5d4bfe6e...` and focused test `76371157...`. RHC-04 remains
+`NOT_RENDERED` and `HUMAN_QUALITY_UNJUDGED`. The next bounded slice is two
+deny-all sandbox renders (initial and corrected), isolated ProjectService
+`INSERT`/passing-state/`REVISE` proof, exact rendered unaffected-state
+comparison and technical latency/cost accounting; no model inference is
+authorized or required.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
