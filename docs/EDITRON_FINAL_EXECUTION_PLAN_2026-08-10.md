@@ -5789,6 +5789,65 @@ deny-all sandbox renders (initial and corrected), isolated ProjectService
 comparison and technical latency/cost accounting; no model inference is
 authorized or required.
 
+**RHC-04 deny-all generated correction render Phase B (2026-08-27):** commit
+`d430f613f` adds the paired rendered-frame measurement owner, dual-sandbox
+receipt owner, live runner and focused proof without changing the generated
+form resolver, sandbox authority or canonical ProjectService writers. The
+focused end-to-end proof passes 2/2; the surrounding media, local-evidence,
+generated-state and isolated-owner suites pass 41/41; repository typecheck and
+full quiet ESLint pass. Exact source hashes are rendered correction measurement
+`419ad05d...`, orchestration `1399096a...`, live runner `35874f58...` and
+focused test `1e35deec...`.
+
+The real Vercel executions used the already-qualified snapshot
+`snap_FuRFrHL9WE4IgNXjhWjMxeWZP9mW` at commit
+`eb896ffbd8927621a77c4bd4073dad2a1119876d`, exact API `ee2468e2...` and
+worker `4d392654...`, with `DENY_ALL` networking, empty sandbox environment,
+no project mutation, non-persistence and host-attested deletion. Initial
+request `6aa7aa60...`, host receipt `a161b907...`, proxy receipt `ae0f823b...`
+and localized evidence `1dea8769...` bind the 31,465 ms initial render;
+corrected request `85a8f510...`, host receipt `596e0be5...`, proxy receipt
+`03436194...` and localized evidence `5957e2ea...` bind the 31,609 ms corrected
+render. The playable proxies are `f4addc94...` and `177dc398...`. Canonical
+RHC-04 receipt `17e102ae2af9eb8350a704e775de9734f0881bc010c0354996bbda5da322ab0e`
+binds rendered visual receipt `970f9566...`; all 28 recorded artifacts and both
+localized receipts re-hash exactly. The fresh one-use OIDC file was deleted and
+verified absent after execution.
+
+Decoded RGB frame identity is exact within each static interval and across the
+bounded correction. Initial frames 0/44 are one exact `60%` state, 45/89 one
+exact `30%` state and 90/104/105/179 one exact `10%` state. Corrected frames
+0/44 retain the exact initial `60%` bytes, 45/89/90/104 share the new exact
+`35%` state, and 105/179 retain the exact initial `10%` bytes. Thus frames
+0, 44, 105 and 179 are byte-identical across versions while frames 45, 89, 90
+and 104 are materially changed. All 16 frame measurements pass source-pixel,
+glyph-bound, safe-zone, minimum-font and conservative 4.5:1 contrast gates.
+These are objective technical measurements, not an aesthetic judgment.
+
+The existing isolated generated-composition proposal owner accepts the initial
+`INSERT`, and schema verification accepts a render/proof-bound passing-state
+projection. A stale-token `REVISE` returns
+`PROJECTSERVICE_ISOLATED_GENERATED_COMPOSITION_BASE_STATE_CONFLICT` with the
+working state unchanged. The exact-base `REVISE` succeeds, preserves the active
+initial state exactly and changes only `$.generatedCompositions[0].candidateState`;
+the declared source/control delta remains middle source, middle number and
+final hold, while source bundle, canvas, project range, font, `60%` binding and
+`10%` binding remain exact. A corrected passing-state projection also validates.
+This is not canonical lifecycle convergence: neither
+`prepareProjectGeneratedCompositionV1` nor
+`finalizeProjectGeneratedCompositionV1` was called, both canonical snapshots
+remain unchanged and canonical writes remain zero.
+
+RHC-04 therefore advances only to
+`PASS_TECHNICAL_RENDERED_GENERATED_CORRECTION_UNJUDGED`. Native remains an
+exact-font-binding capability gap and hybrid remains not applicable for this
+task. Human hands-on correction time is still pending, provider billing is
+unverifiable from the sandbox receipt, and aesthetic quality is unjudged. No
+model inference or historical paid-cohort rerun occurred; Stage 2.5 remains
+`MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered slice is the
+real ProjectService stale-edit, overlap, lock and safe-rebase gate from queue
+item 6, before any optional paid resume inference.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
