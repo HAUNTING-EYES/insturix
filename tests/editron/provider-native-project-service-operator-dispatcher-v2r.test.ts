@@ -34,6 +34,64 @@ describe('provider-native ProjectService operator dispatcher V2R', () => {
     expect(project.durationInFrames).toBe(90);
   });
 
+  it('delegates an explicit overlay form to the isolated overlay owner', async () => {
+    const project = fixtureProject();
+    const result = await createProviderNativeProjectServiceOperatorDispatcherV2R({
+      profile: 'RHC02_OVERLAY_RESEARCH_V1',
+    })
+      .execute({
+        tenantId: 'tenant-a', userId: 'user-a', projectId: 'project-a',
+        project, baseRevision: REVISION, currentProjectRevision: PROJECT_REVISION,
+        call: {
+          operatorId: 'add_overlay', turn: 1,
+          arguments: {
+            projectId: 'project-a', expectedProjectRevision: PROJECT_REVISION,
+            type: 'image', assetId: 'rhc02-still-a', start: 30, duration: 30,
+            row: 1, x: 0, y: 0, width: 640, height: 720,
+            styles: { objectFit: 'cover', opacity: 1 },
+            evidenceIds: ['EV-RHC02-STILL-A'],
+          },
+        },
+      });
+
+    expect(result).toMatchObject({
+      disposition: 'OK',
+      output: { receipt: { proof: { overlayId: 2, overlayType: 'image' } } },
+    });
+    expect(project.overlays[1]).toMatchObject({
+      id: 2,
+      type: 'image',
+      assetId: 'rhc02-still-a',
+      left: 64,
+      top: 36,
+      width: 576,
+      height: 648,
+    });
+  });
+
+  it('reproduces the pre-overlay owner profile only when explicitly pinned', async () => {
+    const result = await createProviderNativeProjectServiceOperatorDispatcherV2R({
+      profile: 'PRE_OVERLAY_OWNER_MATERIALIZATION_V1',
+    }).execute({
+      tenantId: 'tenant-a', userId: 'user-a', projectId: 'project-a',
+      project: fixtureProject(), baseRevision: REVISION,
+      currentProjectRevision: PROJECT_REVISION,
+      call: {
+        operatorId: 'add_overlay', turn: 1,
+        arguments: { projectId: 'project-a' },
+      },
+    });
+
+    expect(result).toMatchObject({
+      disposition: 'UNVERIFIABLE',
+      output: {
+        code: 'PROJECTSERVICE_ISOLATED_DISPATCH_OPERATOR_UNSUPPORTED',
+        requestedOperatorId: 'add_overlay',
+        supportedOperatorIds: ['cut_section', 'set_keyframes'],
+      },
+    });
+  });
+
   it('fails unknown operations closed instead of falling through to keyframes', async () => {
     const dispatcher = createProviderNativeProjectServiceOperatorDispatcherV2R();
     const input = {
@@ -64,6 +122,8 @@ function fixtureProject(): Project {
     projectId: 'project-a', userId: 'user-a', name: 'Dispatcher fixture',
     overlays: [{
       id: 1, type: 'video', from: 0, durationInFrames: 120,
+      row: 0, left: 0, top: 0, width: 1280, height: 720,
+      rotation: 0, isDragging: false,
       sourceStartFrame: 0, styles: { opacity: 1 },
       content: 'https://example.invalid/source.mp4',
     } as unknown as Project['overlays'][number]],

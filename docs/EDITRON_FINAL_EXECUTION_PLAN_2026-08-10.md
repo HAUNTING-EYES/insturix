@@ -5337,6 +5337,29 @@ checkpoint, so the immutable historical safe-stop still reproduces and no
 route is promoted. Phase 3C must register it and issue a versioned successor to
 the old owner observation rather than rewriting that historical receipt.
 
+**RHC-02 isolated dispatcher registration Phase 3C (2026-08-27):** the sole
+ProjectService-clone dispatcher now exposes the overlay proposal owner only
+through explicit profile `RHC02_OVERLAY_RESEARCH_V1`. Its default product
+profile still advertises and dispatches only the reviewed `cut_section` and
+focal-scale `set_keyframes` owners; therefore this research registration does
+not silently broaden paid/product Plan execution or its cut-specific outcome
+proof. A separately named pre-overlay profile pins the exact old operator set
+for `Stage25HeldoutRouteOwnerMaterializationReceiptV1`, whose seven tests still
+reproduce the historical unsupported-overlay safe-stop instead of rewriting
+it. The RHC profile delegates a real explicit image form to the new owner,
+while both profiles reject unknown operations without fallthrough. Dispatcher,
+overlay-owner, historical-observation, product-root and editorial-product-route
+verification passes 27/27; repository typecheck and quiet ESLint pass. Current
+hashes are dispatcher
+`30e10c0f5e95f4807f53bfb2b2cf1c279e3ad4571cb8e58bf29dfc146754923b`,
+dispatcher test
+`66e501795909083cc388f41f9ba5fc52d628c185a3039e8dd73a3f9d354df12b`
+and pinned historical materializer
+`0059f8dc4e76e5a704b9af797cb93fd0dde5a06f256a2e5c8c456a090d221f6e`.
+This registers a research proposal path, not a rendered route or canonical
+ProjectService mutation. Phase 3D must issue a new current owner-observation
+receipt and rebind RHC-02's candidate truth without changing the V1 safe-stop.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has

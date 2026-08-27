@@ -20,7 +20,7 @@ import { createProviderNativeProjectServiceCloneOwnerV2R }
 import { projectProposalStateV2R } from './project-service-proposal-state-v2r';
 import {
   createProviderNativeProjectServiceOperatorDispatcherV2R,
-  PROVIDER_NATIVE_PROJECT_SERVICE_OPERATOR_IDS_V2R,
+  PROVIDER_NATIVE_PROJECT_SERVICE_PRE_OVERLAY_OPERATOR_IDS_V2R,
 } from './provider-native-project-service-operator-dispatcher-v2r';
 import type { Project, ProjectRevisionV1 }
   from '../../services/project-service';
@@ -185,7 +185,9 @@ async function observeNativeOwner(taskId: string): Promise<NativeOwnerObservatio
         return { project: structuredClone(canonical), revision: structuredClone(revision) };
       },
     },
-    isolatedOperatorOwner: createProviderNativeProjectServiceOperatorDispatcherV2R(),
+    isolatedOperatorOwner: createProviderNativeProjectServiceOperatorDispatcherV2R({
+      profile: 'PRE_OVERLAY_OWNER_MATERIALIZATION_V1',
+    }),
   });
   const resolved = await owner.resolveFresh!({
     tenantId: 'stage25-route-owner-probe',
@@ -215,7 +217,9 @@ async function observeNativeOwner(taskId: string): Promise<NativeOwnerObservatio
     operatorDispatcherOwnerRef: 'provider-native-project-service-operator-dispatcher-v2r.ts#createProviderNativeProjectServiceOperatorDispatcherV2R' as const,
     canonicalLoaderFixture: 'IN_MEMORY_READ_ONLY_PROJECT_SNAPSHOT' as const,
     requestedOperatorId: 'add_overlay' as const,
-    supportedOperatorIds: [...PROVIDER_NATIVE_PROJECT_SERVICE_OPERATOR_IDS_V2R],
+    supportedOperatorIds: [
+      ...PROVIDER_NATIVE_PROJECT_SERVICE_PRE_OVERLAY_OPERATOR_IDS_V2R,
+    ],
     ownerDisposition: execution.disposition,
     ownerCode: String(output.code),
     proposalReceiptSha256: proposal.receiptSha256,
