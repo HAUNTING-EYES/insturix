@@ -124,7 +124,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
 
     serviceMocks.resolveSourceBinding.mockReturnValueOnce(binding({
       totalSourceFrameCount: '30',
-      sourceEndExclusivePresentationTimestampTicks: String(30 * 3003),
+      sourceEndExclusivePresentationTimestampTicks: String(30 * 3000),
     }));
     await expect(projectService.applyVideoSpeedRampV1(
       'user-1',
@@ -134,6 +134,38 @@ describe('ProjectService video speed-ramp writer V1', () => {
       disposition: 'SAFE_STOP',
       reason: 'SOURCE_HANDLES_INSUFFICIENT',
       currentRevision: revision(16),
+    });
+    expect(serviceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('safe-stops before writing for mixed, VFR, and fractional project rates', async () => {
+    serviceMocks.findOne.mockResolvedValue(projectAtRevision(16));
+    const { projectService } = await import('@/lib/editron/services/project-service');
+
+    serviceMocks.resolveSourceBinding.mockReturnValueOnce(binding({
+      sourceCadence: { kind: 'CFR', durationTicks: '3003' },
+      sourceEndExclusivePresentationTimestampTicks: String(300 * 3003),
+    }));
+    await expect(projectService.applyVideoSpeedRampV1(
+      'user-1', 'project-1', speedRampCommand(),
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'SOURCE_PROJECT_RATE_MISMATCH',
+    });
+
+    serviceMocks.resolveSourceBinding.mockReturnValueOnce(binding({
+      sourceCadence: { kind: 'VFR' },
+    }));
+    await expect(projectService.applyVideoSpeedRampV1(
+      'user-1', 'project-1', speedRampCommand(),
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'SOURCE_EVENT_REBIND_UNSUPPORTED',
+    });
+
+    serviceMocks.findOne.mockResolvedValueOnce(projectAtRevision(16, {}, undefined, { fps: 29.97 }));
+    await expect(projectService.applyVideoSpeedRampV1(
+      'user-1', 'project-1', speedRampCommand(),
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'PROJECT_RATIONAL_TIMEBASE_REQUIRED',
     });
     expect(serviceMocks.updateOne).not.toHaveBeenCalled();
   });
@@ -198,7 +230,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
       'project-1',
       {
         sourceTimeTransform: applied.sourceTimeTransform,
-        sourcePresentationTimestampTicks: String(50 * 3003),
+        sourcePresentationTimestampTicks: String(50 * 3000),
       },
     )).resolves.toMatchObject({
       disposition: 'REBOUND',
@@ -220,7 +252,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
           ...applied.sourceTimeTransform,
           transformSha256: 'f'.repeat(64),
         },
-        sourcePresentationTimestampTicks: String(50 * 3003),
+        sourcePresentationTimestampTicks: String(50 * 3000),
       },
     )).resolves.toEqual({
       disposition: 'UNVERIFIABLE',
@@ -237,7 +269,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
       'project-1',
       {
         sourceTimeTransform: applied.sourceTimeTransform,
-        sourcePresentationTimestampTicks: String(50 * 3003),
+        sourcePresentationTimestampTicks: String(50 * 3000),
       },
     )).resolves.toEqual({
       disposition: 'UNVERIFIABLE',
@@ -292,7 +324,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
     });
   });
 
-  it('safe-stops source-range retime on overlapping dialogue and VFR evidence', async () => {
+  it('safe-stops source-range retime on overlap and unsupported source rates', async () => {
     serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16, [{
       id: 19, type: 'caption', captions: [], from: 90, durationInFrames: 20,
       row: 2, left: 0, top: 0, width: 100, height: 50,
@@ -316,6 +348,19 @@ describe('ProjectService video speed-ramp writer V1', () => {
       },
     )).resolves.toMatchObject({
       disposition: 'SAFE_STOP', reason: 'SOURCE_EVENT_REBIND_UNSUPPORTED',
+    });
+
+    serviceMocks.findOne.mockResolvedValueOnce(sourceRangeProjectAtRevision(16));
+    serviceMocks.resolveSourceBinding.mockReturnValueOnce(binding({
+      sourceCadence: { kind: 'CFR', durationTicks: '3003' },
+      sourceEndExclusivePresentationTimestampTicks: String(300 * 3003),
+    }));
+    await expect(projectService.applyVideoSourceRangeRetimeV1(
+      'user-1', 'project-1', {
+        expectedRevision: revision(16), actorKind: 'AGENT', overlayId: 17, playbackRate: 2,
+      },
+    )).resolves.toMatchObject({
+      disposition: 'SAFE_STOP', reason: 'SOURCE_PROJECT_RATE_MISMATCH',
     });
     expect(serviceMocks.updateOne).not.toHaveBeenCalled();
   });
@@ -347,7 +392,7 @@ describe('ProjectService video speed-ramp writer V1', () => {
     await expect(projectService.rebindVideoSourceEventAfterRetimeV1(
       'user-1', 'project-1', {
         sourceTimeTransform: applied.sourceTimeTransform,
-        sourcePresentationTimestampTicks: String(100 * 3003),
+        sourcePresentationTimestampTicks: String(100 * 3000),
       },
     )).resolves.toMatchObject({
       disposition: 'REBOUND', sourceFrameOrdinal: 100, projectFrame: 50,
@@ -454,9 +499,9 @@ function binding(
     mapBindingSha256: 'c'.repeat(64),
     terminalReceiptSha256: 'd'.repeat(64),
     sourceTimebase: { numerator: '1', denominator: '90000' },
-    sourceCadence: { kind: 'CFR' as const, durationTicks: '3003' },
+    sourceCadence: { kind: 'CFR' as const, durationTicks: '3000' },
     sourceStartPresentationTimestampTicks: '0',
-    sourceEndExclusivePresentationTimestampTicks: String(300 * 3003),
+    sourceEndExclusivePresentationTimestampTicks: String(300 * 3000),
     totalSourceFrameCount: '300',
     ...overrides,
   };

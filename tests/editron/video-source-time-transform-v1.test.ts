@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import {
   assertProjectVideoSpeedRampStateV1,
+  classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
   PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
   rebindSourcePresentationTimestampV1,
@@ -37,9 +38,9 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
         { timelineStartFrame: 150, timelineEndFrameExclusive: 190, playbackRate: 0.5, sourceStartFrame: 90, sourceEndFrameExclusive: 110 },
       ],
     });
-    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(90 * 3003)))
+    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(90 * 3000)))
       .toEqual({
-        disposition: 'REBOUND', sourcePresentationTimestampTicks: String(90 * 3003),
+        disposition: 'REBOUND', sourcePresentationTimestampTicks: String(90 * 3000),
         sourceFrameOrdinal: 90, projectFrame: 150,
         transformSha256: transform.transformSha256,
       });
@@ -59,17 +60,19 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
       ],
       sourceBinding: binding(),
     });
-    expect(rebindSourcePresentationTimestampV1(base, binding(), String(2 * 3003)))
+    expect(rebindSourcePresentationTimestampV1(base, binding(), String(2 * 3000)))
       .toEqual({ disposition: 'UNVERIFIABLE', reason: 'SUBFRAME_PROJECT_POSITION' });
 
     expect(rebindSourcePresentationTimestampV1(
       base,
       binding({ sourceVersionSha256: 'e'.repeat(64) }),
-      '3003',
+      '3000',
     )).toEqual({ disposition: 'UNVERIFIABLE', reason: 'SOURCE_BINDING_STALE' });
 
     const vfrBinding = binding({ sourceCadence: { kind: 'VFR' } });
-    const vfr = createProjectVideoSourceTimeTransformV1({
+    expect(classifyVerifiedVideoSourceRateCompatibilityV1(vfrBinding, 30))
+      .toEqual({ disposition: 'UNSUPPORTED', reason: 'VFR_INDEX_REQUIRED' });
+    expect(() => createProjectVideoSourceTimeTransformV1({
       projectId: 'project-1', overlayId: 17,
       beforeProjectRevision: revision(16, '2026-08-26T00:00:00.000Z'),
       afterProjectRevision: revision(17, '2026-08-26T00:00:01.000Z'),
@@ -77,9 +80,7 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
       durationInFrames: 20,
       speedCurve: [{ frame: 0, value: 1, easing: 'linear' }, { frame: 10, value: 1, easing: 'linear' }],
       sourceBinding: vfrBinding,
-    });
-    expect(rebindSourcePresentationTimestampV1(vfr, vfrBinding, '3003'))
-      .toEqual({ disposition: 'UNVERIFIABLE', reason: 'VFR_INDEX_REQUIRED' });
+    })).toThrow('VIDEO_SOURCE_TIME_TRANSFORM_VFR_INDEX_REQUIRED');
 
     expect(() => createProjectVideoSourceTimeTransformV1({
       projectId: 'project-1', overlayId: 17,
@@ -93,8 +94,29 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
 
     const forged = structuredClone(base) as any;
     forged.segments[0].playbackRate = 3;
-    expect(() => rebindSourcePresentationTimestampV1(forged, binding(), '3003'))
+    expect(() => rebindSourcePresentationTimestampV1(forged, binding(), '3000'))
       .toThrow('VIDEO_SOURCE_TIME_TRANSFORM_INVALID');
+  });
+
+  it('fails closed when the source cadence cannot be addressed exactly by the project timebase', () => {
+    const mixedRateBinding = binding({
+      sourceCadence: { kind: 'CFR', durationTicks: '3003' },
+      sourceEndExclusivePresentationTimestampTicks: String(200 * 3003),
+    });
+
+    expect(classifyVerifiedVideoSourceRateCompatibilityV1(mixedRateBinding, 30))
+      .toEqual({ disposition: 'UNSUPPORTED', reason: 'SOURCE_PROJECT_RATE_MISMATCH' });
+    expect(classifyVerifiedVideoSourceRateCompatibilityV1(binding(), 29.97))
+      .toEqual({ disposition: 'UNSUPPORTED', reason: 'PROJECT_RATIONAL_TIMEBASE_REQUIRED' });
+    expect(() => createProjectVideoSourceTimeTransformV1({
+      projectId: 'project-1', overlayId: 17,
+      beforeProjectRevision: revision(16, '2026-08-26T00:00:00.000Z'),
+      afterProjectRevision: revision(17, '2026-08-26T00:00:01.000Z'),
+      projectFps: 30, timelineStartFrame: 0, sourceStartFrame: 0,
+      durationInFrames: 20,
+      speedCurve: [{ frame: 0, value: 1, easing: 'linear' }],
+      sourceBinding: mixedRateBinding,
+    })).toThrow('VIDEO_SOURCE_TIME_TRANSFORM_SOURCE_PROJECT_RATE_MISMATCH');
   });
 
   it('rebinds through a shortened composition using its explicit source span', () => {
@@ -120,9 +142,9 @@ describe('ProjectVideoSourceTimeTransformV1', () => {
         { timelineStartFrame: 59, timelineEndFrameExclusive: 60, playbackRate: 2, sourceStartFrame: 118, sourceEndFrameExclusive: 120 },
       ],
     });
-    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(100 * 3003)))
+    expect(rebindSourcePresentationTimestampV1(transform, binding(), String(100 * 3000)))
       .toEqual({
-        disposition: 'REBOUND', sourcePresentationTimestampTicks: String(100 * 3003),
+        disposition: 'REBOUND', sourcePresentationTimestampTicks: String(100 * 3000),
         sourceFrameOrdinal: 100, projectFrame: 50,
         transformSha256: transform.transformSha256,
       });
@@ -171,9 +193,9 @@ function binding(
     sourcePtsMapStateSha256: 'b'.repeat(64), mapBindingSha256: 'c'.repeat(64),
     terminalReceiptSha256: 'd'.repeat(64),
     sourceTimebase: { numerator: '1', denominator: '90000' },
-    sourceCadence: { kind: 'CFR' as const, durationTicks: '3003' },
+    sourceCadence: { kind: 'CFR' as const, durationTicks: '3000' },
     sourceStartPresentationTimestampTicks: '0',
-    sourceEndExclusivePresentationTimestampTicks: String(200 * 3003),
+    sourceEndExclusivePresentationTimestampTicks: String(200 * 3000),
     totalSourceFrameCount: '200',
     ...overrides,
   };

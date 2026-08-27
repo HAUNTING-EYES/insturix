@@ -82,9 +82,61 @@ export type SourcePresentationTimestampRebindV1 = Readonly<
   | {
       disposition: 'UNVERIFIABLE';
       reason: 'SOURCE_BINDING_STALE' | 'VFR_INDEX_REQUIRED' | 'PTS_OUTSIDE_SOURCE' | 'PTS_NOT_FRAME_ALIGNED'
-        | 'SOURCE_FRAME_NOT_PRESENT_AFTER_RETIME' | 'SUBFRAME_PROJECT_POSITION';
+        | 'SOURCE_FRAME_NOT_PRESENT_AFTER_RETIME' | 'SUBFRAME_PROJECT_POSITION'
+        | 'PROJECT_RATIONAL_TIMEBASE_REQUIRED' | 'SOURCE_PROJECT_RATE_MISMATCH';
     }
 >;
+
+export type VerifiedVideoSourceRateCompatibilityV1 = Readonly<
+  | { disposition: 'COMPATIBLE_SAME_RATE_CFR' }
+  | {
+      disposition: 'UNSUPPORTED';
+      reason:
+        | 'VFR_INDEX_REQUIRED'
+        | 'PROJECT_RATIONAL_TIMEBASE_REQUIRED'
+        | 'SOURCE_PROJECT_RATE_MISMATCH';
+    }
+>;
+
+/**
+ * The legacy renderer addresses source media in project-frame units. It can
+ * therefore consume only CFR media whose exact source cadence equals the
+ * integer project rate. Mixed/VFR media needs the later rational PTS/proxy
+ * consumer; treating its frame ordinal as a project frame would accumulate
+ * timing drift while looking superficially valid.
+ */
+export function classifyVerifiedVideoSourceRateCompatibilityV1(
+  binding: VerifiedVideoSourceTimeBindingV1,
+  projectFps: number,
+): VerifiedVideoSourceRateCompatibilityV1 {
+  const sourceBinding = assertBinding(binding);
+  if (sourceBinding.sourceCadence.kind === 'VFR') {
+    return frozen({ disposition: 'UNSUPPORTED' as const, reason: 'VFR_INDEX_REQUIRED' as const });
+  }
+  if (!Number.isSafeInteger(projectFps) || projectFps <= 0) {
+    return frozen({
+      disposition: 'UNSUPPORTED' as const,
+      reason: 'PROJECT_RATIONAL_TIMEBASE_REQUIRED' as const,
+    });
+  }
+  const positive = (value: string): bigint | null => {
+    if (!/^[1-9][0-9]*$/.test(value)) return null;
+    return BigInt(value);
+  };
+  const timebaseNumerator = positive(sourceBinding.sourceTimebase.numerator);
+  const timebaseDenominator = positive(sourceBinding.sourceTimebase.denominator);
+  const frameDurationTicks = positive(sourceBinding.sourceCadence.durationTicks);
+  if (!timebaseNumerator || !timebaseDenominator || !frameDurationTicks) {
+    throw new Error('VIDEO_SOURCE_TIME_BINDING_INVALID');
+  }
+  return timebaseDenominator
+    === timebaseNumerator * frameDurationTicks * BigInt(projectFps)
+    ? frozen({ disposition: 'COMPATIBLE_SAME_RATE_CFR' as const })
+    : frozen({
+        disposition: 'UNSUPPORTED' as const,
+        reason: 'SOURCE_PROJECT_RATE_MISMATCH' as const,
+      });
+}
 
 export function resolveVerifiedVideoSourceTimeBindingV1(
   asset: MediaSourcePtsCadenceMapAssetStateInputV2,
@@ -141,6 +193,13 @@ export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
   }
   const durationInFrames = positiveInteger(input.durationInFrames, 'VIDEO_SOURCE_TIME_TRANSFORM_DURATION_INVALID');
   const projectFps = positiveFinite(input.projectFps, 'VIDEO_SOURCE_TIME_TRANSFORM_PROJECT_FPS_INVALID');
+  const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+    sourceBinding,
+    projectFps,
+  );
+  if (rateCompatibility.disposition === 'UNSUPPORTED') {
+    throw new Error(`VIDEO_SOURCE_TIME_TRANSFORM_${rateCompatibility.reason}`);
+  }
   assertRevisionPair(input.beforeProjectRevision, input.afterProjectRevision);
   const speedCurve = assertSpeedCurve(input.speedCurve, durationInFrames);
   const availableSourceFrames = sourceEndFrameExclusive === undefined
@@ -208,8 +267,18 @@ export function rebindSourcePresentationTimestampV1(
   if (currentBinding.bindingSha256 !== binding.bindingSha256) {
     return frozen({ disposition: 'UNVERIFIABLE' as const, reason: 'SOURCE_BINDING_STALE' as const });
   }
-  if (binding.sourceCadence.kind === 'VFR') {
-    return frozen({ disposition: 'UNVERIFIABLE' as const, reason: 'VFR_INDEX_REQUIRED' as const });
+  const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+    binding,
+    transform.projectTimebase.fps,
+  );
+  if (rateCompatibility.disposition === 'UNSUPPORTED') {
+    return frozen({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: rateCompatibility.reason,
+    });
+  }
+  if (binding.sourceCadence.kind !== 'CFR') {
+    throw new Error('VIDEO_SOURCE_TIME_TRANSFORM_INVALID');
   }
   const pts = integerText(sourcePresentationTimestampTicks, 'VIDEO_SOURCE_TIME_REBIND_PTS_INVALID');
   const start = BigInt(binding.sourceStartPresentationTimestampTicks);

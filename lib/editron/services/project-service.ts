@@ -75,6 +75,7 @@ import {
 } from "./pipeline-video-project-delivery-v1";
 import {
   assertProjectVideoSpeedRampStateV1,
+  classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
   rebindSourcePresentationTimestampV1,
   resolveVerifiedVideoSourceTimeBindingV1,
@@ -251,7 +252,10 @@ export interface ProjectVideoSpeedRampCommandV1 {
 export type ProjectVideoSpeedRampSafeStopReasonV1 =
   | "SOURCE_ASSET_NOT_FOUND"
   | "SOURCE_TIME_EVIDENCE_INCOMPLETE"
-  | "SOURCE_HANDLES_INSUFFICIENT";
+  | "SOURCE_HANDLES_INSUFFICIENT"
+  | "SOURCE_EVENT_REBIND_UNSUPPORTED"
+  | "PROJECT_RATIONAL_TIMEBASE_REQUIRED"
+  | "SOURCE_PROJECT_RATE_MISMATCH";
 
 export type ProjectVideoSpeedRampResultV1 =
   | ({ disposition: "APPLIED"; sourceTimeTransform: ProjectVideoSourceTimeTransformV1 }
@@ -271,8 +275,7 @@ export interface ProjectVideoSourceRangeRetimeCommandV1 {
 
 export type ProjectVideoSourceRangeRetimeSafeStopReasonV1 =
   | ProjectVideoSpeedRampSafeStopReasonV1
-  | VideoSourceRangeRetimeSafeStopReasonV1
-  | "SOURCE_EVENT_REBIND_UNSUPPORTED";
+  | VideoSourceRangeRetimeSafeStopReasonV1;
 
 export type ProjectVideoSourceRangeRetimeResultV1 =
   | ({
@@ -5041,6 +5044,19 @@ export class ProjectService {
         "The verified source-time binding does not match the overlay asset.",
       );
     }
+    const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+      sourceBinding,
+      project.fps,
+    );
+    if (rateCompatibility.disposition === "UNSUPPORTED") {
+      return {
+        disposition: "SAFE_STOP",
+        reason: rateCompatibility.reason === "VFR_INDEX_REQUIRED"
+          ? "SOURCE_EVENT_REBIND_UNSUPPORTED"
+          : rateCompatibility.reason,
+        currentRevision,
+      };
+    }
 
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
@@ -5234,10 +5250,16 @@ export class ProjectService {
         "The verified source-time binding does not match the overlay asset.",
       );
     }
-    if (sourceBinding.sourceCadence.kind !== "CFR") {
+    const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+      sourceBinding,
+      project.fps,
+    );
+    if (rateCompatibility.disposition === "UNSUPPORTED") {
       return {
         disposition: "SAFE_STOP",
-        reason: "SOURCE_EVENT_REBIND_UNSUPPORTED",
+        reason: rateCompatibility.reason === "VFR_INDEX_REQUIRED"
+          ? "SOURCE_EVENT_REBIND_UNSUPPORTED"
+          : rateCompatibility.reason,
         currentRevision,
       };
     }
