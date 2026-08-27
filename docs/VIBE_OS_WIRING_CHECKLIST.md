@@ -29,7 +29,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 |---|---|
 | script (real content) | DONE — engine markdown renders |
 | reel (real editor embed) | DONE — boot guard + missing-state; live mount needs real project |
-| canvas | BRIDGED — real lab embeds in stage (same-origin iframe) |
+| canvas | BRIDGED — VERIFIED on production: gate→confirm→session→artifact→lab embed live (9cr) |
 | schedule | BRIDGED — real calendar embeds in stage |
 | analyze | BRIDGED — real report embeds in stage (task id from sourceRef) |
 
