@@ -4755,11 +4755,15 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    rendered research candidates; RHC-02 through RHC-04 still require real
    owner/fixture candidates. Keep the filmstrip island generated and the
    complete reel hybrid; do not route by operation count.
-6. Exercise stale user edits, overlap conflicts, safe rebases and locked ranges
-   through the real ProjectService product authority rather than only an
-   isolated fixture owner. The first cut-specific receipt-chain/lock substrate
-   is now implemented; broaden it only after each remaining writer declares
-   exact ranges, identities and invalidation effects.
+6. **Bounded gate complete at `258065639`; broader convergence remains open.**
+   Stale direct-overlay edits, overlap conflicts, safe cut rebase, cut-lock
+   lifecycle, invalid range/revision and generated-state-token evidence now run
+   through the real ProjectService product authority against an isolated real
+   mongod. The proof covers exactly `updateOverlay`, `cutTimelineRangeV1`, the
+   cut-lock owner and generated-composition prepare/revise. Broaden it only
+   after each remaining writer declares exact ranges, identities and
+   invalidation effects; do not call this generic locking, Atlas/multi-user
+   proof or project-wide writer convergence.
 7. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
    preserving plan, opaque result, revision and cumulative budget identities.
 8. The local actual-container portion of the long-form evidence/context-limit
@@ -5847,6 +5851,57 @@ model inference or historical paid-cohort rerun occurred; Stage 2.5 remains
 `MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered slice is the
 real ProjectService stale-edit, overlap, lock and safe-rebase gate from queue
 item 6, before any optional paid resume inference.
+
+**Stage 2.5 real ProjectService conflict/lock/rebase gate (2026-08-27):**
+commits `cec153e0c` and `258065639` add one evidence-only orchestrator, an
+opt-in loopback Mongo runner, focused tests and the single `$not/$elemMatch`
+predicate required by the existing stateful test persistence. They do not add
+a conflict engine: every allow/block/rebase/lock decision is made by the
+existing `ProjectService` owner. The focused proof plus the existing conflict
+and canonical generated-composition suites pass 14/14; repository typecheck,
+targeted lint and full quiet ESLint pass. Exact committed source hashes are
+ProjectService `6fb9c745...`, proof owner `9794f9b1...` and runner
+`88e57ee5...`.
+
+The durable run used source commit
+`258065639f3dcd29e642f879355d5312da93c067`, official Mongo image digest
+`sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b`,
+MongoDB `7.0.40` with WiredTiger, a dedicated loopback-only database and an
+inert import-only GCS environment. Canonical receipt
+`b06476798a3f4b46969e1aeae7761e44a47de84575561fdb2604b237ed4e0c8f`
+and receipt-file SHA-256 `e79b963b3d85b32ada20da77a86e71d6fb1d56ea85602c3a0e512466ca1985d4`
+were independently revalidated against the committed source hashes.
+
+The bounded evidence is exact:
+
+- a revision-7 stale cut safely rebases over one exact disjoint
+  `UPDATE_OVERLAY` receipt at revision 8, commits at revision 9, preserves the
+  concurrent text edit and reloads byte-equivalent durable state;
+- an overlapping direct-overlay move blocks as `OVERLAPPING_UPDATE` with zero
+  mutation receipts and an unchanged project-state hash;
+- the cut-lock owner blocks wrong-owner release, overlapping acquisition and
+  use of a released lock, then accepts exact release, reacquisition and
+  consumes the full-tail lock in the revision-11 cut;
+- stale revision, invalid range and forged generated-composition base token
+  each block with zero mutation receipts and unchanged durable state, while
+  the exact current state token permits one bounded revise at revision 9;
+- the cut receipt declares the complete pre-cut `[30,240)` write/invalidation
+  tail, removed `[30,60)` range, post-cut `[30,210)` affected range and
+  `-30`-frame ripple. Invalidation truth remains explicitly
+  `UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`;
+- all five uniquely named fixture projects were deleted and independently
+  counted as zero before the one-use container was removed. Provider inference,
+  provider spend, historical cohort rows, non-fixture project writes and
+  non-loopback network calls are all zero.
+
+This closes queue item 6 only for its declared bounded gate. It is not Atlas,
+replica-set or deployed multi-user evidence; `UPDATE_OVERLAY` still records
+`UNKNOWN_LEGACY_CALLER`; locks remain cut-specific; only two timeline writers
+participate; and generated-composition evidence reaches canonical
+prepare/revise, not render finalization. Stage 2.5 remains
+`MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered step is queue
+item 7's fresh zero-spend/current-source decision on whether a paid real-model
+resume episode is genuinely needed; no paid call is authorized by this record.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
