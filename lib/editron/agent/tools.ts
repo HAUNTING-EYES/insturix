@@ -25,7 +25,6 @@ import {
   resolveCoordinates,
   getDefaultSize,
   OverlayType,
-  ExistingOverlay,
 } from "../core/physics";
 import {
   sanitizeHtml,
@@ -64,9 +63,14 @@ import { buildKeyframeMutationPatch } from '../services/keyframe-mutation';
 import { createPipelineVideoEnqueueInternalHeadersV1 } from '../security/pipeline-video-enqueue-internal-auth';
 import {
   constrainChatOverlayPlacement,
-  EDITRON_TITLE_SAFE_MARGIN,
   protectChatTextLegibility,
 } from './chat-overlay-safe-placement';
+import {
+  buildChatAddOverlayForm,
+  chatAddOverlaySchema,
+  getCanvasDimensions,
+  toExistingOverlays,
+} from './chat-add-overlay-form';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -425,31 +429,6 @@ export const createTools = (userId: string, projectId: string) => {
     });
     return normalizeChatMutationFrameRanges([previous, next]);
   }
-
-  // Helper to get canvas dimensions from project
-  // IMPORTANT: Always use composition dimensions for overlay positioning.
-  // playerDimensions is the preview container size and will cause positioning
-  // issues during Lambda render if used directly.
-  const getCanvasDimensions = (project: any) => {
-    // Use composition dimensions based on aspect ratio
-    if (project.aspectRatio === "9:16") return { width: 1080, height: 1920 };
-    if (project.aspectRatio === "4:5") return { width: 1080, height: 1350 };
-    if (project.aspectRatio === "1:1") return { width: 1080, height: 1080 };
-    if (project.aspectRatio === "16:9") return { width: 1280, height: 720 };
-    return { width: 1920, height: 1080 }; // Default fallback
-  };
-
-
-  // Helper to convert overlays to ExistingOverlay format for Physics Engine
-  const toExistingOverlays = (overlays: any[]): ExistingOverlay[] => {
-    return overlays.map(o => ({
-      id: o.id,
-      row: o.row,
-      from: o.from,
-      durationInFrames: o.durationInFrames,
-      type: o.type as OverlayType
-    }));
-  };
 
   type SignalValueMap = Record<string, unknown>;
   type ProjectSignalInputs = Partial<ContentSignals>;
@@ -833,344 +812,24 @@ Call with no arguments to get full timeline.`,
   // --- UNIFIED ADD OVERLAY TOOL ---
   // This replaces the 4 separate add_*_overlay tools with one powerful tool
 
-  // Valid sticker template ids — MUST mirror config.id in
-  // components/editron/editor/version-7.0.0/templates/sticker-templates/* (source of truth). The renderer
-  // (sticker-layer-content.tsx) looks up templateMap[overlay.content]; an id NOT in this map renders NOTHING.
-  // Hardcoded (not imported) because templateMap lives in a client component tree; kept in sync by review.
-  const STICKER_TEMPLATE_IDS = [
-    'emoji-grin', 'emoji-joy', 'emoji-heart-eyes', 'emoji-cool', 'emoji-love', 'emoji-fire',
-    'emoji-hundred', 'emoji-sparkles', 'emoji-star', 'emoji-gift', 'emoji-balloon', 'emoji-party',
-    'audio-visualiser', 'bar-chart', 'boom-effect', 'card-flip', 'circular-progress', 'discount-circle',
-    'matrix-rain', 'pulsing-circle', 'spinning-square', 'bouncing-triangle', 'expanding-hexagon',
-    'morphing-star', 'rotating-octagon', 'zigzag-diamond', 'flashing-pentagon',
-  ];
-  const DEFAULT_STICKER_ID = 'emoji-fire'; // stable, always present — a sensible "add a sticker" default
-
-  const addOverlaySchema = z.object({
-    type: z.enum(['text', 'image', 'video', 'sound', 'shape', 'sticker']).describe("Type of overlay to add"),
-
-    // Timing (required)
-    start: z.coerce.number().describe("Start frame (0-based)"),
-    duration: z.coerce.number().describe("Duration in frames"),
-
-    // Content (type-specific)
-    text: z.string().optional().describe("Text content (required for type='text')"),
-    assetId: z.string().optional().describe("Asset ID (required for image/video/sound)"),
-    stickerId: z.string().optional().describe("Sticker template id (for type='sticker'). Emojis: emoji-fire, emoji-love, emoji-star, emoji-party, emoji-hundred, emoji-sparkles, emoji-grin, emoji-joy, emoji-heart-eyes, emoji-cool, emoji-gift, emoji-balloon. Effects: boom-effect, card-flip, circular-progress, bar-chart, audio-visualiser, matrix-rain, discount-circle, morphing-star, pulsing-circle, spinning-square, bouncing-triangle, expanding-hexagon, rotating-octagon, zigzag-diamond, flashing-pentagon. Defaults to emoji-fire. For a fully custom/bespoke sticker, use generate_html_sticker instead."),
-
-    // Position - accepts numbers (pixels) or strings (percentages like '50%' or 'center')
-    x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
-    y: z.union([z.coerce.number(), z.string()]).optional().describe("Y position: number for pixels, string for '50%' or 'center'. Default: center"),
-    width: z.union([z.coerce.number(), z.string()]).optional().describe("Width: number for pixels, string for '50%'. Default: type-specific"),
-    height: z.union([z.coerce.number(), z.string()]).optional().describe("Height: number for pixels, string for '50%'. Default: type-specific"),
-    rotation: z.coerce.number().optional().default(0),
-
-    // Row override (Smart Placement by default)
-    row: z.coerce.number().optional().describe("Force specific row. If omitted, Physics Engine auto-places: Videos at bottom, Text on top."),
-
-    // Styles (all optional, type-specific fields ignored if not applicable)
-    styles: z.object({
-        // Text styles
-      fontSize: z.coerce.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
-      fontFamily: z.enum([
-        'font-sans',      // Inter (modern sans-serif)
-        'font-serif',     // Merriweather (elegant serif)
-        'font-mono',      // Roboto Mono (code/technical)
-        'font-retro',     // VT323 (retro pixel style)
-        'font-league-spartan', // League Spartan (bold display)
-        'font-bungee-inline'   // Bungee Inline (fun/playful)
-      ]).optional().describe("Font family (for text). Default: font-sans"),
-      fontWeight: z.coerce.number().optional().describe("Font weight 400-900 (for text). Default: 700"),
-      color: z.string().optional().describe("Text color hex (for text). Default: #ffffff"),
-      textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment. Default: center"),
-      backgroundColor: z.string().optional().describe("Background color (for text). Default: transparent"),
-
-        // Animation (for text - recommended to use fade by default)
-      animation: z.object({
-        enter: z.enum([
-          'fade',       // Simple fade in (default, recommended)
-          'slideUp',    // Slide from bottom
-          'slideRight', // Slide from left
-          'scale',      // Scale up
-          'bounce',     // Elastic bounce
-          'floatIn',    // Smooth floating
-          'flipX',      // 3D flip
-          'zoomBlur',   // Zoom with blur
-          'snapRotate', // Quick rotate
-          'glitch',     // Digital glitch
-          'swipeReveal' // Swipe reveal
-        ]).optional().describe("Entry animation. Default: fade"),
-        exit: z.enum([
-          'fade',       // Simple fade out (default, recommended)
-          'slideUp',
-          'slideRight',
-          'scale',
-          'bounce',
-          'floatIn',
-          'flipX',
-          'zoomBlur',
-          'snapRotate',
-          'glitch',
-          'swipeReveal'
-        ]).optional().describe("Exit animation. Default: fade"),
-      }).optional().describe("Animation config. Recommended: use fade for smooth transitions"),
-
-        // Media styles
-      objectFit: z.enum(['cover', 'contain', 'fill']).optional().describe("Object fit (for image/video)"),
-      volume: z.coerce.number().optional().describe("Volume 0-1 (for video/sound)"),
-
-        // Shape styles
-        fill: z.string().optional().describe("Fill color (for shape)"),
-        stroke: z.string().optional().describe("Stroke color (for shape)"),
-      strokeWidth: z.coerce.number().optional().describe("Stroke width (for shape)"),
-
-        // Common styles
-        opacity: z.coerce.number().optional().describe("Opacity 0-1"),
-      borderRadius: z.string().optional().describe("Border radius (e.g. '8px')"),
-    }).optional(),
-
-    // Video-specific
-    videoStartTime: z.coerce.number().optional().describe("Start time within source video in seconds (for video)"),
-    startFromSound: z.coerce.number().optional().describe("Start time within source audio in seconds (for sound)"),
-  });
-
   const addOverlay = tool(
-    async (input: z.infer<typeof addOverlaySchema>) => {
+    async (input: z.infer<typeof chatAddOverlaySchema>) => {
       try {
         const project = await loadProject();
-        const canvas = getCanvasDimensions(project);
-        const existingOverlays = toExistingOverlays(project.overlays || []);
-
-        // Validate type-specific required fields
-        if (input.type === 'text' && !input.text) {
-          return JSON.stringify({ status: 'error', message: "'text' field is required for type='text'" });
-        }
-        if (['image', 'video', 'sound'].includes(input.type) && !input.assetId) {
-          return JSON.stringify({ status: 'error', message: `'assetId' field is required for type='${input.type}'` });
-        }
-
-        // Generate unique ID
         const id = Date.now() + Math.floor(Math.random() * 10000);
-
-        // Smart row placement via Physics Engine
-        const physicsType = input.type === 'sound' ? OverlayType.SOUND : 
-                           input.type === 'video' ? OverlayType.VIDEO :
-                           input.type === 'image' ? OverlayType.IMAGE :
-                           input.type === 'text' ? OverlayType.TEXT :
-                           input.type === 'shape' ? OverlayType.SHAPE :
-                           OverlayType.STICKER;
-
-        const row = findBestRow(
-          physicsType,
-          { from: input.start, duration: input.duration },
-          existingOverlays,
-          input.row // forceRow override
-        );
-
-        // Resolve coordinates using Physics Engine
-        const defaultSize = getDefaultSize(physicsType);
-        const requestedCoords = resolveCoordinates(
-          { x: input.x, y: input.y, width: input.width, height: input.height },
-          canvas,
-          defaultSize
-        );
-        const coords = constrainChatOverlayPlacement({
-          overlayType: input.type,
-          bounds: requestedCoords,
-          canvas,
+        const { overlay, row, position } = buildChatAddOverlayForm({
+          request: input,
+          project,
+          overlayId: id,
         });
-
-        // Build base overlay
-        const baseOverlay = {
-          id,
-          type: input.type,
-          from: input.start,
-          durationInFrames: input.duration,
-          row,
-          left: coords.left,
-          top: coords.top,
-          width: coords.width,
-          height: coords.height,
-          rotation: input.rotation ?? 0,
-          isDragging: false,
-          metadata: {
-            chatPlacement: {
-              requested: coords.requested,
-              resolved: {
-                left: coords.left,
-                top: coords.top,
-                width: coords.width,
-                height: coords.height,
-              },
-              safeMargin: coords.margin,
-              adjusted: coords.adjusted,
-            },
-          },
-        };
-
-        // Build type-specific overlay
-        let newOverlay: any;
-
-        switch (input.type) {
-          case 'text': {
-            const fontSize = input.styles?.fontSize ?? 32;
-            const textContent = input.text || '';
-            const explicitLines = textContent.split('\n');
-            const maxLineChars = Math.max(...explicitLines.map(l => l.length), 1);
-
-            const maxAllowedWidth = canvas.width * (1 - (2 * EDITRON_TITLE_SAFE_MARGIN));
-
-            // Calculate width: auto-fit to content but cap to canvas
-            const rawAutoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
-            const autoWidth = Math.min(rawAutoWidth, maxAllowedWidth);
-
-            // If text needs to wrap, calculate wrapped height
-            const charsPerLine = Math.max(1, Math.floor(autoWidth / (fontSize * 0.6)));
-            let totalVisualLines = 0;
-            for (const line of explicitLines) {
-              totalVisualLines += line.length === 0 ? 1 : Math.ceil(line.length / charsPerLine);
-            }
-            const autoHeight = totalVisualLines * fontSize * 1.4;
-
-            // Use auto-calculated if not specified, otherwise use resolved coords (also capped)
-            const textWidth = input.width === undefined ? autoWidth : Math.min(coords.width, maxAllowedWidth);
-            const textHeight = input.height === undefined ? autoHeight : coords.height;
-            const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : requestedCoords.left;
-            const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : requestedCoords.top;
-            const textPlacement = constrainChatOverlayPlacement({
-              overlayType: input.type,
-              bounds: { left: textLeft, top: textTop, width: textWidth, height: textHeight },
-              canvas,
-            });
-
-            newOverlay = {
-              ...baseOverlay,
-              left: textPlacement.left,
-              top: textPlacement.top,
-              width: textPlacement.width,
-              height: textPlacement.height,
-              metadata: {
-                chatPlacement: {
-                  requested: textPlacement.requested,
-                  resolved: {
-                    left: textPlacement.left,
-                    top: textPlacement.top,
-                    width: textPlacement.width,
-                    height: textPlacement.height,
-                  },
-                  safeMargin: textPlacement.margin,
-                  adjusted: textPlacement.adjusted,
-                },
-              },
-              content: textContent,
-              styles: protectChatTextLegibility({
-                overlayType: 'text',
-                currentStyles: {
-                  fontSize: `${fontSize}`,
-                  fontFamily: input.styles?.fontFamily ?? "font-sans",
-                  fontWeight: `${input.styles?.fontWeight ?? 700}`,
-                  textAlign: input.styles?.textAlign ?? "center",
-                  color: input.styles?.color ?? "#ffffff",
-                  backgroundColor: input.styles?.backgroundColor ?? "transparent",
-                  fontStyle: "normal",
-                  textDecoration: "none",
-                  opacity: input.styles?.opacity ?? 1,
-                  animation: {
-                    enter: input.styles?.animation?.enter ?? "fade",
-                    exit: input.styles?.animation?.exit ?? "fade",
-                    duration: 15,
-                  },
-                },
-              }),
-            };
-            break;
-          }
-
-          case 'image':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              styles: {
-                objectFit: input.styles?.objectFit ?? "cover",
-                opacity: input.styles?.opacity ?? 1,
-                borderRadius: input.styles?.borderRadius,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-
-          case 'video':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              videoStartTime: input.videoStartTime ?? 0,
-              styles: {
-                volume: input.styles?.volume ?? 1,
-                objectFit: input.styles?.objectFit ?? "cover",
-                opacity: input.styles?.opacity ?? 1,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-
-          case 'sound':
-            newOverlay = {
-              ...baseOverlay,
-              assetId: input.assetId,
-              startFromSound: input.startFromSound ?? 0,
-              // Sound has no visual position
-              left: 0, top: 0, width: 0, height: 0,
-              styles: {
-                volume: input.styles?.volume ?? 1,
-              }
-            };
-            break;
-
-          case 'shape':
-            newOverlay = {
-              ...baseOverlay,
-              content: 'rectangle', // Default shape
-              styles: {
-                fill: input.styles?.fill ?? "#3b82f6",
-                stroke: input.styles?.stroke,
-                strokeWidth: input.styles?.strokeWidth,
-                opacity: input.styles?.opacity ?? 1,
-                borderRadius: input.styles?.borderRadius,
-              }
-            };
-            break;
-
-          case 'sticker': {
-            // Was hardcoded content:'emoji' — NOT a valid templateMap id, so the sticker rendered nothing (F-1).
-            const requested = (input.stickerId ?? '').trim();
-            const stickerId = STICKER_TEMPLATE_IDS.includes(requested) ? requested : DEFAULT_STICKER_ID;
-            newOverlay = {
-              ...baseOverlay,
-              content: stickerId,
-              category: 'Default',
-              styles: {
-                opacity: input.styles?.opacity ?? 1,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
-              }
-            };
-            break;
-          }
-        }
-
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await projectService.addOverlay(userId, projectId, overlay as any);
         return JSON.stringify({
-          status: 'success', 
+          status: 'success',
           id,
           row,
-          position: {
-            left: newOverlay.left,
-            top: newOverlay.top,
-            width: newOverlay.width,
-            height: newOverlay.height,
-          },
-          message: `${input.type} overlay added with ID ${id} on row ${row}` 
+          position,
+          message: `${input.type} overlay added with ID ${id} on row ${row}`,
         });
-        
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -1190,7 +849,7 @@ TYPE-SPECIFIC FIELDS:
 - image/video/sound: requires 'assetId' field
 - video: optional 'videoStartTime' (seconds)
 - sound: optional 'startFromSound' (seconds)`,
-      schema: addOverlaySchema
+      schema: chatAddOverlaySchema,
     }
   );
 

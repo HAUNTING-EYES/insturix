@@ -5289,6 +5289,30 @@ not change the Phase-2 route dispositions; the next bounded slice remains the
 shared live/isolated native overlay form owner and revision-issued dispatcher
 adapter.
 
+**RHC-02 native-form extraction Phase 3A (2026-08-27):** the live
+`add_overlay` schema and complete materialized form now have one pure owner in
+`chat-add-overlay-form.ts`. The existing chat tool delegates to that owner and
+still leaves persistence exclusively with `ProjectService.addOverlay`; the
+owner receives overlay identity from its caller and performs no database,
+provider, render or project mutation itself. All six existing overlay kinds,
+composition-size mapping, collision-aware rows, coordinate resolution,
+title/action-safe placement, text auto-fit/legibility and type-specific style
+forms were extracted without adding a new creative threshold. Literal external
+font names such as `Noto Sans` remain deliberately outside the current native
+schema, so this does not pretend to close RHC-02's exact-font gap. Focused form
+and safe-placement proof passes 13/13, the affected chat-tool regression set
+passes 147/147, and repository typecheck plus quiet ESLint pass. Current hashes
+are form owner
+`3bfce721bb5d6820837e8618e4e0d35876292bc6cfea364194c60a3420bac080`,
+live tool
+`e0fb9b26f97c5293bdbec3a7a046cda5a0b393a99368d5766229c1f5fbcceba2`
+and focused test
+`dcc36f092e3e61ec4c42bb9160275eb3c839368f0344dc12a8dde5bc1a0f5987`.
+This is shared downstream form plumbing, not merged control flow: the isolated
+revision-issued `add_overlay` mutation owner is still absent, all RHC-02 routes
+remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`, and
+Phase 3B is the isolated adapter plus dispatcher registration.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
