@@ -5360,6 +5360,32 @@ This registers a research proposal path, not a rendered route or canonical
 ProjectService mutation. Phase 3D must issue a new current owner-observation
 receipt and rebind RHC-02's candidate truth without changing the V1 safe-stop.
 
+**RHC-02 current native-owner observation Phase 3D (2026-08-27):** successor
+receipt
+`3bbe10d5d9eabf254c82efec20a6ef6d1902cfa6ff7e8ee5d30cac5fc96997e3`
+binds the frozen RHC-02 task/fixture and the exact Phase 3A-3C form, owner and
+dispatcher hashes. Through `RHC02_OVERLAY_RESEARCH_V1`, the two still-image
+calls execute in order on one isolated ProjectService proposal, receive
+deterministic overlay IDs 3/4 and proposal revisions, and change only
+`$.overlays[2]` and `$.overlays[3]`; the canonical snapshot and the baseline
+dialogue/room-tone overlay paths remain unchanged. The exact `Noto Sans` title
+is tested on a fresh proposal and returns
+`PROJECTSERVICE_ISOLATED_OVERLAY_FORM_INPUT_INVALID` with zero changed paths,
+so no partial candidate is mistaken for route success. Current truth is
+therefore `isolatedRevisionIssuedOverlayWriter=true` and
+`bothStillImageFormsAccepted=true`, but
+`exactNativeFontFileBinding=false` and
+`nativeRouteCapabilityAvailable=false`. This is isolated owner/form proof, not
+render, decoded-PCM proof, canonical product mutation or route-quality proof;
+all external-call and canonical-write counts are zero. The successor plus
+dispatcher and historical V1 regression set passes 14/14, and repository
+typecheck plus quiet ESLint pass. Source hash is
+`69b19c282e21d9c713e8937467d657a152090dc071d3608ed3adbd0c8863650e`
+and test hash is
+`6ea72ca4db77d128a991126051fb6b17d8665ed622c50cca131894fa7616fdda`.
+Phase 3E must issue the RHC-02 candidate-contract successor with this receipt;
+the preliminary V1 candidate artifact remains historical and is not rewritten.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
