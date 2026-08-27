@@ -4751,10 +4751,13 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    two-attempt ceiling. The old confirmation does not authorize this corrected
    identity; no new paid cohort is currently authorized or required to proceed
    to route-candidate product evidence.
-5. Turn successful route plans into bounded previews. RHC-01 already has three
-   rendered research candidates; RHC-02 through RHC-04 still require real
-   owner/fixture candidates. Keep the filmstrip island generated and the
-   complete reel hybrid; do not route by operation count.
+5. **Technical route evidence complete; human judgment remains open.** RHC-01
+   has three blind-packaged research candidates. RHC-02 and RHC-03 have
+   playable hybrid A/V proofs with exact timebase, audio and boundary checks;
+   RHC-04 has initial/corrected generated proxies with exact unaffected-state
+   comparison. Their dispositions remain technical-only and `UNJUDGED`; no
+   route is promoted from these artifacts. Keep the filmstrip island generated
+   and the complete reel hybrid; do not route by operation count.
 6. **Bounded gate complete at `258065639`; broader convergence remains open.**
    Stale direct-overlay edits, overlap conflicts, safe cut rebase, cut-lock
    lifecycle, invalid range/revision and generated-state-token evidence now run
@@ -4770,12 +4773,14 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    `NOT_AUTHORIZED` and is not decision-critical before long-form and human
    evidence. If later evidence makes it necessary, freeze a successor identity
    and obtain a new exact capped authorization before any provider call.
-8. The local actual-container portion of the long-form evidence/context-limit
-   gate is complete under the accepted V1.2 receipt recorded below. Continue
-   with real creative media, semantic retrieval, live storage/index owners,
-   mixed-rate ProjectService consumption and production playback/render; the
-   corrected historical nine-row cohort and the local synthetic trial are not
-   substitutes for those product proofs.
+8. **Bounded long-form product evidence executed; result is `MODIFY`.** The
+   accepted 4.5-hour local mechanics receipt, current owner tests, a live Atlas
+   CAS/cleanup fixture, generic R2 reachability, mixed-rate fail-closed checks
+   and a fresh five-minute production audio render are now source-bound. This
+   does not prove real creative multi-hour retrieval, judged semantic accuracy,
+   private PTS storage, rational mixed-rate/VFR consumption, proxy/master
+   relink, production visual playback/delivery or hosted recovery. Those gaps
+   carry into the frozen decision rather than being relabelled as passes.
 9. Collect blind rendered quality, correction-time, latency and cost receipts.
 10. Publish one frozen Stage 2.5 `GO`, `MODIFY` or `NO-GO` decision. Stage 3
    production model-driven mutation may begin only after that gate permits it.
@@ -5943,6 +5948,47 @@ resolve either blocker. Keep it conditional on the later successor whole-
 episode decision; generic permission to continue is not an exact capped spend
 authorization. Queue item 8 is therefore next, with queue item 7's paid arm
 deferred rather than falsely passed.
+
+**Stage 2.5 bounded long-form product-evidence gate (2026-08-28):** commit
+`f882b95c9` adds a fail-closed source/project timebase transform at the legacy
+ProjectService render boundary. Exact same-rate CFR remains supported;
+29.97-in-30 CFR blocks as `SOURCE_PROJECT_RATE_MISMATCH`, VFR blocks as
+`SOURCE_EVENT_REBIND_UNSUPPORTED`, and fractional project rates block as
+`PROJECT_RATIONAL_TIMEBASE_REQUIRED`. No approximate frame conversion or
+project write occurs. The relevant transform/speed-ramp suite passes 47/47.
+
+Commit `56723463a` then adds a pure readiness finalizer and one-use live
+operator that compose the existing media PTS/CAS, storage, semantic, mixed-rate
+and render owners without creating a second project or proof runtime. A fresh
+300-second production Remotion audio render produced exactly 14,400,000 stereo
+48 kHz sample frames, decoded PCM hash `457280bc...`, no browser errors and
+zero provider, embedding or cloud-render calls. Its receipt-file SHA-256 is
+`b13fe853aa08dfe8d39f56ecb5f5aed2c6b6c2cb681371fe81cb10291872151c`.
+
+Execution `stage25-long-form-product-56723463a-v1` ran from relevant-clean
+source commit `56723463a00f9e81f12798d258e2fc505298b739`. It proved one live Atlas
+`mediaAssets` V2 CAS apply plus stale-state rejection, then deleted the exact
+UUID-scoped fixture and verified zero remained. Generic R2 `HeadBucket` was
+reachable; no object was written. The dedicated private PTS bucket was
+`NOT_CONFIGURED`, Neo4j was `UNAVAILABLE`, semantic accuracy was not judged,
+and the production render remained `PASS_AUDIO_ONLY`. Provider inference,
+provider embeddings, cloud renders, canonical project reads/mutations and
+non-fixture writes were all zero. Canonical readiness receipt
+`eaf5db558f4c6962563e92a4399a12cfd4cbcc68bd1627864bb55829cd146e83`
+and receipt-file SHA-256
+`2c9ba317d1134a611a3c3564533e3bf5cffd54f5914814afdb7522cbee0e72dd`
+bind the exact disposition `MODIFY_LONG_FORM_PRODUCT_EVIDENCE_INCOMPLETE` and
+proof ceiling
+`LIVE_ATLAS_CAS_GENERIC_R2_REACHABILITY_MIXED_RATE_SAFE_STOP_AND_LOCAL_PRODUCTION_AUDIO_RENDER`.
+
+This is the required evidence result for queue item 8, not long-form product
+certification. Real rights-cleared creative multi-hour media, query-level
+semantic accuracy, private PTS storage, rational mixed-rate/VFR consumption,
+discontinuity/epoch handling, live proxy/master invalidation, production visual
+playback/render/delivery/recovery and provider-native multimodal accounting
+remain explicit blockers. Queue item 9's human quality/correction/latency/cost
+evidence is next; the paid successor episode remains unauthorized and is not
+decision-critical while these blockers already require `MODIFY`.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
