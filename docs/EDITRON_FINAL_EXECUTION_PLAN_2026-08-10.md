@@ -5386,6 +5386,38 @@ and test hash is
 Phase 3E must issue the RHC-02 candidate-contract successor with this receipt;
 the preliminary V1 candidate artifact remains historical and is not rewritten.
 
+**RHC-02 current candidate-contract Phase 3E (2026-08-27):** versioned V2
+artifact
+`866de2478ddbcd1e39a701b0f3812b1a52b00b8dc8bdeca91be3a2a31652b443`
+supersedes preliminary V1 artifact
+`231ff44f68812faf596d21d598384227f17403037fd3b0fb5ab7e820a5c2cde8`
+without rewriting it. V2 derives native capability from current owner receipt
+`3bbe10d5d9eabf254c82efec20a6ef6d1902cfa6ff7e8ee5d30cac5fc96997e3`
+and adds explicit still/font evidence IDs to the three unchanged visual
+requests. Native now truthfully records an isolated revision-issued overlay
+writer and both accepted still forms; its sole remaining route blocker is exact
+native `Noto Sans` file binding. Generated composition now truthfully records a
+real hash-bound still-image source owner, but remains blocked by absent playable
+audio preservation, no RHC-02 program and no current sandbox capability. The
+historical DEV-02 capability remains evidence only: its bound API hash
+`bc61a906...` differs from current still-capable API hash `ee2468e25...`.
+Hybrid retains the complete 30/1 timebase, native-audio and entry/exit handoffs
+and the real ProjectService generated-composition writers; it remains blocked
+by the absent isolated proposal adapter, current sandbox capability and RHC-02
+program. Consequently all three routes remain `CAPABILITY_GAP`,
+`NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`; no provider, render, database
+or canonical mutation call occurred. Route-set hash is
+`70741ab21a32b57890e2a8879786425536f5345e8e0fa9c2d199ab0c4239f150`.
+The V2/V1/owner focused set passes 16/16, and repository typecheck plus quiet
+ESLint pass. Source hash is
+`10d00f80da447a5bfb9f026e72a8ad7c5647937aa56fd355429c284c637e8fa2`
+and test hash is
+`ad45b985299f32220a9cde54825b944a4d6716a3cb62e5a078a36f2ae25b3212`.
+The next bounded RHC-02 phase must locate and bind truthful licensed media/font
+bytes and requalify the generated sandbox before any candidate render; a later
+phase must add the hybrid isolated adapter rather than bypassing its real
+ProjectService mutation owners.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
