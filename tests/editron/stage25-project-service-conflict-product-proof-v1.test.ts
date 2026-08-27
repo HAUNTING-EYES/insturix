@@ -127,6 +127,8 @@ function environment() {
   return {
     persistenceKind: 'IN_MEMORY_STATEFUL_TEST_DOUBLE' as const,
     topology: 'IN_PROCESS_SINGLE_OWNER' as const,
+    gcsImportDisposition: 'TEST_MODULE_MOCK_NO_GCS_IMPORT' as const,
+    networkBoundary: 'IN_PROCESS_ONLY' as const,
     serverVersion: 'stateful-test-double-v1',
     storageEngine: 'bounded-mongo-surface',
     sourceCommit: 'abcdef0',

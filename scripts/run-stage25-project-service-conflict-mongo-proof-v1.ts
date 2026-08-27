@@ -20,6 +20,7 @@ assertLoopbackMongo(uri, databaseName);
 process.env.MONGODB_URI = uri;
 process.env.MONGODB_DB_NAME = databaseName;
 process.env.EDITRON_MONGODB_DB_NAME = databaseName;
+installInertGcsImportEnvironment();
 
 const createdAt = new Date().toISOString();
 const compactTime = createdAt.replace(/[-:.TZ]/g, '');
@@ -73,6 +74,8 @@ try {
     environment: {
       persistenceKind: 'REAL_MONGODB_SINGLE_NODE',
       topology: 'LOOPBACK_STANDALONE_MONGOD',
+      gcsImportDisposition: 'INERT_IMPORT_ENV_NO_GCS_METHOD_CALL',
+      networkBoundary: 'LOOPBACK_MONGODB_ONLY',
       serverVersion,
       storageEngine,
       sourceCommit,
@@ -147,6 +150,11 @@ function assertLoopbackMongo(uriValue: string, dbName: string): void {
       'Stage 2.5 conflict proof requires a loopback Mongo URI and a dedicated editron_stage25_conflict_* database.',
     );
   }
+}
+
+function installInertGcsImportEnvironment(): void {
+  process.env.GOOGLE_CLOUD_CREDENTIALS = 'e30=';
+  process.env.GCS_BUCKET_NAME = 'stage25-no-egress-import-only';
 }
 
 function textField(value: unknown, field: string): string {

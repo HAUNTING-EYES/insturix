@@ -37,6 +37,10 @@ export interface Stage25ProjectServiceConflictProbeStoreV1 {
 export interface Stage25ProjectServiceConflictProofEnvironmentV1 {
   persistenceKind: 'IN_MEMORY_STATEFUL_TEST_DOUBLE' | 'REAL_MONGODB_SINGLE_NODE';
   topology: 'IN_PROCESS_SINGLE_OWNER' | 'LOOPBACK_STANDALONE_MONGOD';
+  gcsImportDisposition:
+    | 'TEST_MODULE_MOCK_NO_GCS_IMPORT'
+    | 'INERT_IMPORT_ENV_NO_GCS_METHOD_CALL';
+  networkBoundary: 'IN_PROCESS_ONLY' | 'LOOPBACK_MONGODB_ONLY';
   serverVersion: string;
   storageEngine: string;
   sourceCommit: string;
@@ -151,6 +155,7 @@ export async function executeStage25ProjectServiceConflictProductProofV1(input: 
         providerSpendUsd: 0 as const,
         historicalPaidCohortRowsExecuted: 0 as const,
         nonFixtureProjectWrites: 0 as const,
+        nonLoopbackNetworkCalls: 0 as const,
       },
       limitations: [
         'The range lock is cut-specific; this does not certify a generic lock honored by every writer.',
@@ -682,7 +687,17 @@ function assertExecutionInput(input: {
   userId: string;
   projectIdPrefix: string;
 }): void {
-  if (!/^[A-Za-z0-9_-]{8,100}$/.test(input.executionId)
+  const realMongo = input.environment.persistenceKind === 'REAL_MONGODB_SINGLE_NODE';
+  const environmentPairingValid = realMongo
+    ? input.environment.topology === 'LOOPBACK_STANDALONE_MONGOD'
+      && input.environment.gcsImportDisposition
+        === 'INERT_IMPORT_ENV_NO_GCS_METHOD_CALL'
+      && input.environment.networkBoundary === 'LOOPBACK_MONGODB_ONLY'
+    : input.environment.topology === 'IN_PROCESS_SINGLE_OWNER'
+      && input.environment.gcsImportDisposition === 'TEST_MODULE_MOCK_NO_GCS_IMPORT'
+      && input.environment.networkBoundary === 'IN_PROCESS_ONLY';
+  if (!environmentPairingValid
+    || !/^[A-Za-z0-9_-]{8,100}$/.test(input.executionId)
     || !/^[A-Za-z0-9_-]{8,100}$/.test(input.userId)
     || !/^[A-Za-z0-9_-]{8,100}$/.test(input.projectIdPrefix)
     || Number.isNaN(new Date(input.createdAt).getTime())
@@ -853,6 +868,7 @@ export function assertStage25ProjectServiceConflictProductProofReceiptV1(
     || effects.providerSpendUsd !== 0
     || effects.historicalPaidCohortRowsExecuted !== 0
     || effects.nonFixtureProjectWrites !== 0
+    || effects.nonLoopbackNetworkCalls !== 0
     || !isSha256(receiptSha256)
     || receiptSha256 !== hashCanonicalJsonV1(unsigned)) {
     fail('RECEIPT_INVALID');
