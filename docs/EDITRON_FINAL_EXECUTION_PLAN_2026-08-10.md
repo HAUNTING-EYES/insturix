@@ -5418,6 +5418,55 @@ bytes and requalify the generated sandbox before any candidate render; a later
 phase must add the hybrid isolated adapter rather than bypassing its real
 ProjectService mutation owners.
 
+**RHC-02 AV fixture and hybrid-program Phase 4 (2026-08-27):** accepted local
+media receipt
+`096312058f19d3978eea4128df89c3607632664b5fcc061ca75acaf123d7e3b3`
+binds four real files and their provenance: a 450-frame 1080x1920 30/1 H.264
+interview source using the repository-owned portrait and voiceover, two
+repository-owned PNG product stills, deterministic 48 kHz mono pink room tone,
+and the bundled OFL Noto Sans file. The bound dialogue begins at frame 210 and
+ends at frame 421, so the complete target `[300,390)` and both proof boundaries
+occur inside the spoken line. A canonical 720,000-sample 48 kHz mono baseline
+mixes decoded dialogue with room tone at the owner-observation gain `0.15`; its
+PCM hash is
+`4ed3b146e63e53d5f9854abe2932922ff7b5d257c2993cf6a43d6e23ff064512`.
+Asset hashes are interview `4cdf4ace...`, still A `5f25189f...`, still B
+`6c399576...`, room tone `a78c58f1...`, and font `d2a8188d...`; each source or
+deterministic recipe has a separate rights/provenance receipt.
+
+The still-input visual check caught an initial contained-card placement that
+would have sat under the eventual centered title. Preliminary local receipt
+`7692be2d...` remains a non-candidate correction artifact; the accepted receipt
+uses dark blurred full-frame backing and an upper crisp source card, without
+changing either source identity or the program-owned title. No candidate was
+rendered in either attempt. The separately authored RHC-02 hybrid program now
+passes the strict generated-composition verifier and binds both stills as true
+`[0,1)` `STILL_IMAGE` slots, exact title `How we shipped it`, the hash-bound
+font, project `[300,390)`, composition `[0,90)`, native-audio cue handoffs and
+the already-frozen frame-390 return. Program hash is
+`cf88a984d8ab938c83c6fd2b4cc6a0cc9b809f4ca703e119d9c828c642a582fd`
+and source-bundle hash is
+`ba1ec8f349a652e829faf1d6d2fd6d8837f0875b03b1ae9836f041d7dfa445c3`.
+
+This closes truthful local bytes, PCM baseline and task-specific verified
+hybrid-program construction only. The verifier remains `NOT_EXECUTABLE` by
+contract, the current deny-all sandbox capability is still absent, the hybrid
+isolated proposal adapter is still absent, native exact-font binding remains
+absent, and pure generated composition still cannot own preserved playable
+audio. Therefore all route decisions remain `CAPABILITY_GAP`, `NOT_RENDERED`,
+`UNJUDGED` and `NOT_AUTHORIZED`. The accepted and preliminary evidence trees
+are local `.calibration-temp` state only; provider, cloud, database,
+ProjectService and canonical mutation calls remain zero. The affected verifier,
+proxy and RHC-02 set passes 20/20, with repository typecheck and quiet ESLint
+passing. Current hashes are media owner
+`9b4efb657a6c4d2394a7ec2a17837c8df5d9443970c1f02d2931eebed7a03fb9`,
+program fixture
+`9b151f96c25405455461393bf958b9ebb484468142bbb295b5afe679c75d836e`
+and focused test
+`d09f033fe83aceeb9b53319030425bcbb66a9a21e16a91569f7105e159c54e7c`.
+The next phase must obtain explicit live-sandbox authority and issue a
+current-hash deny-all sandbox receipt before any RHC-02 candidate render.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
