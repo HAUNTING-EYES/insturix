@@ -4764,8 +4764,12 @@ itself remains `MODIFY_AND_PROCEED_RESEARCH`; it has not reached production
    after each remaining writer declares exact ranges, identities and
    invalidation effects; do not call this generic locking, Atlas/multi-user
    proof or project-wide writer convergence.
-7. Exercise paid mid-episode compaction/resume only after a fresh no-spend gate,
-   preserving plan, opaque result, revision and cumulative budget identities.
+7. **Fresh zero-spend gate complete; paid trial conditionally deferred.** The
+   current-source executable owner gate passes 36/36 while preserving plan,
+   opaque result, revision and cumulative budget identities. Paid resume remains
+   `NOT_AUTHORIZED` and is not decision-critical before long-form and human
+   evidence. If later evidence makes it necessary, freeze a successor identity
+   and obtain a new exact capped authorization before any provider call.
 8. The local actual-container portion of the long-form evidence/context-limit
    gate is complete under the accepted V1.2 receipt recorded below. Continue
    with real creative media, semantic retrieval, live storage/index owners,
@@ -5902,6 +5906,43 @@ prepare/revise, not render finalization. Stage 2.5 remains
 `MODIFY_AND_PROCEED_RESEARCH` and `NOT_CLAIMED`. The next ordered step is queue
 item 7's fresh zero-spend/current-source decision on whether a paid real-model
 resume episode is genuinely needed; no paid call is authorized by this record.
+
+**Stage 2.5 current-source resume decision gate (2026-08-27):** the existing
+`stage25-resume-zero-spend-operator-v1` ran at source commit
+`10f5640a46ee289c51a995fa6e6ba343d5c29208`, tree
+`b2aebd5e56caa5588b103962019a4b5e8d7ae8f3`, over 1,973 tracked Editron
+scope files with relevant worktree status empty. It scrubbed all nine declared
+provider credential names, used test stubs only with no provider route, made
+zero retries and bound a 36/36 passing report across the eight frozen owner
+suites. Canonical receipt
+`c9ad7fb075edb879f7b3874ceda149de655707ad59be12b038738d796a0d169a`
+and receipt-file SHA-256
+`aa892b64579ab15aa3ff4cae45e77cb866c182c0f8cfb8f61cd5855da70d5980`
+were independently rehashed. The relevant-scope SHA-256 is
+`0f5fd645b161bb4a72ac09c2348b976f98a30e6aad44ebbe0376a34b2de2314f`.
+
+The receipt binds all eight public sentinels and both supporting proofs:
+committed-writer interruption, distinct-runtime suffix representation, no
+prefix provider reinvocation, stale/tampered/budget-drift rejection,
+conservative unresolved-dispatch stop, dispatch disabled, compacted plan plus
+opaque-result preservation, and the real Plan worker's owner-bound receipt.
+Its exact disposition is
+`READY_FOR_SEPARATELY_AUTHORIZED_PAID_RESUME_TRIAL`, not a paid pass;
+`paidResumeDisposition=NOT_AUTHORIZED`, provider dispatch count, canonical
+project mutation count and automatic retry count are all zero. Network packet
+capture, paid provider resume, live Atlas/QStash, hosted ingress, canonical
+ProjectService apply/reload and rendered audiovisual acceptance remain outside
+this receipt.
+
+Decision: do not spend on another provider interruption now. Existing evidence
+already replays the exact captured paid Luna P1 bodies through fresh-instance
+and separate-process suffix recovery with no new inference, while the current
+Stage 2.5 decision is still blocked by realistic long-form product evidence and
+human rendered-quality/correction/cost evidence. A new paid resume would not
+resolve either blocker. Keep it conditional on the later successor whole-
+episode decision; generic permission to continue is not an exact capped spend
+authorization. Queue item 8 is therefore next, with queue item 7's paid arm
+deferred rather than falsely passed.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
