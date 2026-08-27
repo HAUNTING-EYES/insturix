@@ -5313,6 +5313,30 @@ revision-issued `add_overlay` mutation owner is still absent, all RHC-02 routes
 remain `CAPABILITY_GAP`, `NOT_RENDERED`, `UNJUDGED` and `NOT_AUTHORIZED`, and
 Phase 3B is the isolated adapter plus dispatcher registration.
 
+**RHC-02 isolated native-overlay owner Phase 3B (2026-08-27):** a bounded
+`add_overlay` proposal owner now applies the extracted live form to an in-memory
+ProjectService clone and issues its working revision only through the existing
+clone-bound deterministic issuer. It accepts already-resolved form values; it
+does not reinterpret planner intent, inspect an asset, certify the meaning of
+opaque evidence IDs or call canonical `ProjectService.addOverlay`. Before the
+clone changes it enforces project/user scope, current proposal revision,
+allowed fields, unique evidence references, non-empty media evidence, a valid
+half-open project-frame range, a non-negative forced row and collision-free
+deterministic numeric overlay identity. Optional `undefined` form members are
+removed only at the proposal JSON boundary so the canonical proposal-state
+hasher remains fail-loud. The receipt records exact changed paths, form hash,
+resolved geometry, evidence-proof ceiling and that the canonical mutation
+owner was not called. Direct, clone-finalization, replay and adversarial proof
+passes 9/9; the wider clone/cut/keyframe/overlay owner set passes 30/30; full
+typecheck and quiet ESLint pass. Current owner hash is
+`3e78da2f6198c04da7122cbeb8f3f14a0db4fc68cdb04df40b44ce918c12c623`
+and test hash is
+`25a46ebfbe4fc2d15f3620d9d2441e93f82bbfca0955e87db56195c9b9152ccf`.
+The owner is deliberately not registered in the sole dispatcher in this
+checkpoint, so the immutable historical safe-stop still reproduces and no
+route is promoted. Phase 3C must register it and issue a versioned successor to
+the old owner observation rather than rewriting that historical receipt.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
