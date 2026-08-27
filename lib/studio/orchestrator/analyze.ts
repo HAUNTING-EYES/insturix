@@ -32,7 +32,7 @@ export interface AnalyzeTurnContext {
 
 function quote(turnId: string): StudioTurnCostQuote {
   return {
-    quoteId: `q_${turnId}`,
+    quoteId: "q_analyze_url_v1",
     turnId,
     stepId: "a1",
     lines: [

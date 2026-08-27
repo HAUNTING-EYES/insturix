@@ -42,7 +42,7 @@ function quote(turnId: string, stepId: string, quantity: number, modelId: string
   const multiplier = (MODEL_MULTIPLIER[modelId] ?? 1) * GENERATION_REQUEST_MULTIPLIER;
   const subtotal = Math.ceil(unit * quantity * multiplier);
   return {
-    quoteId: `q_${turnId}`,
+    quoteId: "q_design_canvas_v1",
     turnId,
     stepId,
     lines: [

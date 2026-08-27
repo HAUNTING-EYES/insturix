@@ -136,6 +136,12 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           ),
         );
         break;
+      case "turn.error":
+        setItems((prev) => [
+          ...prev,
+          { kind: "prose", id: `err_${ev.turnId}_${Date.now()}`, text: `${ev.message}${ev.refundIssued ? " · credits refunded" : ""}${ev.retryable ? " — try again" : ""}`, createdAt: new Date().toISOString() },
+        ]);
+        break;
       case "turn.confirm_required":
         setPendingConfirm({
           kind: ev.kind,
@@ -236,8 +242,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
                 try {
                   const cr = await fetch("/api/user/credits?wallet=auto");
                   if (cr.ok) {
-                    const w = (await cr.json()) as { totalCredits?: number; totalMediaCredits?: number };
-                    setRealWallet({ main: w.totalCredits ?? 0, media: w.totalMediaCredits ?? 0 });
+                    const w = (await cr.json()) as { balance?: { totalCredits?: number; totalMediaCredits?: number }; totalCredits?: number; totalMediaCredits?: number };
+                    setRealWallet({ main: w.balance?.totalCredits ?? w.totalCredits ?? 0, media: w.balance?.totalMediaCredits ?? w.totalMediaCredits ?? 0 });
                   }
                 } catch {
                   /* card falls back to the last known wallet */
