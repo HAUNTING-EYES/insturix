@@ -112,6 +112,7 @@ function matchesValue(actual: unknown, expected: unknown): boolean {
         return Array.isArray(operand) && operand.some((item) => equal(actual, item));
       }
       if (operator === "$ne") return !equal(actual, operand);
+      if (operator === "$not") return !matchesValue(actual, operand);
       throw new Error(`UNSUPPORTED_PROJECT_SERVICE_TEST_OPERATOR:${operator}`);
     });
   }
