@@ -5583,6 +5583,68 @@ quiet ESLint pass. Source hashes are adapter `c0e66acf...`, isolated owner
 `UNJUDGED`; the next bounded phase is its first current still-branch sandbox
 render followed by native-audio and boundary composition proof.
 
+**RHC-02 current still-sandbox and rendered-hybrid Phase 7 (2026-08-27):**
+the pre-render source gate correctly found that capability V3's issuance-time
+worker-overlay hash `7359b725...` was no longer the current overlay after the
+Phase 5A font-verifier correction. V3
+`a182c3a7eb29909e837ed8da515feb89ab9d0123497cf6e7b522e5f3b609d1c6`
+remains immutable historical evidence. Before running the candidate, the
+unchanged DEV-02 canary requalified exact current worker hash
+`4d392654882a1b067dcf3b510add92c79b519a596e8e833ca75526f50922a79d`
+in a fresh deny-all Vercel Sandbox. Request `7f21a8af...` rendered in 97,402 ms
+and current-hash host receipt
+`e1426a7b83b3f1acb637a6c577641e87b6454c98873bdaefb6c3203439326c03`
+records nine materialized outputs, non-persistence, sandbox deletion and no
+project mutation. The V3 test now preserves `7359...` as its issuance identity
+and separately requires the qualified successor overlay `4d392654...`; it no
+longer falsely calls the historical worker the current source tree.
+
+The first actual RHC-02 still request then ran program
+`e9eccd5ce966de6924ec9b2c1936214e5bbc52f6a0eff0594fe44c603f399852`
+through that exact overlay and snapshot. Only `rhc02-still-a`,
+`rhc02-still-b` and Noto Sans Regular/400 entered the sandbox; the interview,
+dialogue and room tone did not. Request `d4b468d2...` rendered six proof stills,
+a contact sheet and visual-only H.264 proxy `0a2d9ec7...` in 24,000 ms. Host
+receipt `1a9e41421775a49b9aa4bc7d12ca537dfe232c5aa00a4c93cd4cec5651709e34`
+binds proxy receipt `837a50bc...`, all nine outputs, deny-all network, empty
+worker environment, non-persistence, successful deletion and zero project
+effects.
+
+The native AV mechanics owner then assembled one lossless FFV1/PCM proof master
+and a separate ordinary H.264/AAC review proxy. Its initial local integration
+correctly rejected a mux that ended 576 samples early; removing the premature
+video-frame output stop allowed the already exact 450-frame segment graph to
+finish the full native audio stream. Accepted master `bd0d90f1...` is
+57,829,460 bytes and accepted review proxy `9e126b0d...` is 652,160 bytes. All
+300 pre-target frames equal interview frames `[0,300)`, all 90 target frames
+equal generated local frames `[0,90)`, and all 60 post-target frames equal
+interview frames `[390,450)`. Project frame 300 equals generated frame 0,
+project frame 389 equals generated frame 89, and project frame 390 equals
+interview source frame 390. Decoded native PCM hash `4ed3b146...` is identical
+for all 720,000 samples, proof window `[270,420)` and target `[300,390)`.
+
+Final receipt
+`e0cb167f3faaf2fed05a174cd4884079e05db72b6ce011c75b929370dafa2a98`
+and all 14 persisted artifact hashes verify. It binds media, rights, font,
+program, source, evidence, blueprint, API, current worker, ProjectService draft
+and adapter receipts. It records no provider-model inference, no historical
+paid-cohort rerun, no database or canonical ProjectService mutation and no
+product dispatcher convergence. Focused real-render integration passes 2/2,
+the surrounding sandbox/program/ProjectService set passes 32/32, repository
+typecheck and quiet ESLint pass. Commit `dcdf10557`; source hashes are AV
+mechanics `822e0cf0...`, task orchestrator `2301b015...`, live runner
+`c7b40315...`, focused test `aca256e6...` and corrected V3 test `d9a81cf2...`.
+
+RHC-02 hybrid is now `TECHNICAL_RENDER_PASS_HUMAN_QUALITY_UNJUDGED`, not a
+production or Stage-2.5 pass. Exact timebase, playable-audio presence, decoded
+PCM preservation, both boundaries and unchanged outside frames pass. Native
+remains a capability gap for exact product font binding; generated-only remains
+a capability gap because native audio ownership is absent. Sentence
+intelligibility, visual/editorial quality, correction time and blind preference
+remain for the later human-quality phase. The next bounded task in the frozen
+order is RHC-03 media/owner reconciliation and materialization; no inference is
+authorized or needed for that step.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
