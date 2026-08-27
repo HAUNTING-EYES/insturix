@@ -5700,6 +5700,60 @@ exact current deny-all sandbox render followed by stereo PCM, synchronized
 source-frame, label-bounds and return-boundary proof; no model inference is
 authorized or required.
 
+**RHC-03 deny-all hybrid render Phase B (2026-08-27):** commit `c730c9d24`
+adds one route-neutral decoded hybrid A/V measurement owner and one RHC-03
+receipt owner without changing the generated form owner, ProjectService owner
+or sandbox authority. Exact source hashes are generic A/V mechanics
+`8b878f72...`, rendered visual measurement `61747c16...`, RHC-03 orchestration
+`d1b0dcaf...`, live runner `8ca33ef8...` and focused test `7f37f316...`.
+The generic owner is only partial adoption: RHC-02 retains its earlier
+task-specific measurement implementation. This is not a claim that the two
+pipelines are merged.
+
+The local proof failed closed twice before acceptance. First, adding decimal
+normalized panel bounds produced a one-pixel floating-point measurement
+asymmetry; the accepted checker derives equal measurement extents directly
+from declared panel width and height. Second, a lossless-master
+`-frames:v 210` cap ended muxing at the final video timestamp and omitted
+1,408 stereo samples per channel; the accepted owner lets the exact video
+concat and sample-addressed audio trim determine duration, then independently
+probes the required 210 decoded frames. The corrected focused proof passes
+2/2. Six surrounding sandbox/program/ProjectService suites pass 21/21;
+repository typecheck and full quiet ESLint pass.
+
+The real Vercel microVM execution used qualified snapshot
+`snap_FuRFrHL9WE4IgNXjhWjMxeWZP9mW` at commit
+`eb896ffbd8927621a77c4bd4073dad2a1119876d`, exact API `ee2468e2...` and
+worker `4d392654...`, with `DENY_ALL` networking, empty sandbox environment,
+no project mutation, non-persistence and host-attested deletion. Request
+`ed180d9a...`, host receipt `356305c7...`, proxy receipt `3bab4e03...` and
+localized-evidence receipt `ed29fa17...` bind the execution. The canonical
+RHC-03 receipt is
+`29883e01bbc1be34803b67d1f2e8eb2af8c08e9c837c9ea6d778c94a80031f32`;
+all 12 recorded evidence artifacts re-hash exactly. The one-use pulled OIDC
+file was deleted and verified absent after execution.
+
+Decoded video proof is exact for native project frames `[420,450)`, generated
+local frames `[0,150)` placed at project `[450,600)`, and native project frames
+`[600,630)`. The first returned frame is exactly project/authored-wide frame
+600. Both editable source slots bind the same `7fe82cf9...` temporal artifact
+and same local-frame expression while their left/right crops remain materially
+distinct in every measured frame. The proof master `fc0dd699...` contains
+FFV1 plus 48 kHz stereo PCM; the playable H264/AAC review proxy is
+`7bad9e3c...`. Its 336,000 proof-window samples per channel and 240,000 target
+samples per channel are byte-exact against native production audio; no audio
+was sent to or owned by the generated renderer.
+
+Rendered frames 0, 1, 74 and 149 all place the 90x29 `SYNC` glyph bounds at
+`x=916..1005`, `y=526..554`, with 50 pixels of clearance from either
+conservative subject panel, 0.5-pixel centre offset, zero conservative subject
+overlap and measured 20.168504:1 contrast on exact `#05070A`. These are
+objective safety/readability measurements, not an aesthetic judgment. RHC-03
+therefore advances only to
+`TECHNICAL_RENDER_PASS_HUMAN_QUALITY_UNJUDGED`; Stage 2.5 completion remains
+`NOT_CLAIMED`, no model inference or historical cohort rerun occurred, and the
+next ordered slice is RHC-04 materialization/rendering.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
