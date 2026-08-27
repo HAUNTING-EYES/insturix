@@ -5506,6 +5506,40 @@ hybrid isolated proposal adapter through the existing real
 `prepareProjectGeneratedCompositionV1`/`finalizeProjectGeneratedCompositionV1`
 owners, followed by the first RHC-02 still-branch sandbox render.
 
+**RHC-02 font-metadata correction Phase 5A (2026-08-27):** review of the exact
+bundled font bytes found that Phase 4's V1 media receipt and program declared
+weight `700` even though the bound file is Noto Sans Regular and its
+authoritative SFNT `OS/2.usWeightClass` is `400`. The public RHC-02 brief does
+not require bold typography, and the creative knowledge graph's sans-serif
+guidance requires neutral/readable treatment rather than a specific bold
+weight. V1 therefore remains immutable historical evidence; no prior receipt
+or result was rewritten and no replacement font was downloaded.
+
+Versioned media receipt
+`5b1053bc3bf0146e1550bb1f1c98f025bbed818477b1fe99481731d0f5f921ca`
+delegates byte materialization to the V1 owner, preserves font-file hash
+`d2a8188d...`, records `OS/2` table hash `83aadd2a...`, and explicitly
+supersedes accepted Phase 4 receipt
+`096312058f19d3978eea4128df89c3607632664b5fcc061ca75acaf123d7e3b3`.
+The corresponding verified successor program `gcp-rhc02-hybrid-v2` has hash
+`e9eccd5ce966de6924ec9b2c1936214e5bbc52f6a0eff0594fe44c603f399852`,
+evidence-pack hash
+`57e88b09e1ae5dcfe4855be4fc34e849b56fe7607b18f091c927407344b3a705`,
+and unchanged source-bundle hash `ba1ec8f3...`; it hash-links and supersedes V1
+program `cf88a984...` while changing only the false weight declaration.
+
+The existing generated-program verifier now rejects family, face or weight
+drift whenever the evidence explicitly declares that field, while preserving
+compatibility with older evidence that never claimed it. Forged receipt weight,
+program/evidence weight drift, malformed SFNT bytes and missing `OS/2` tables
+fail closed. The seven-file focused/regression set passes 28/28, repository
+typecheck and quiet ESLint pass, and accepted outputs remain git-ignored local
+research evidence. Source hashes are media successor `5f1ed07e...`, program
+fixture successor `516bef51...`, verifier `2717db9a...`, and focused test
+`a4fa5d2f...`. This corrects contract truth only: RHC-02 remains
+`NOT_RENDERED` and `UNJUDGED`, and the next bounded phase remains the isolated
+ProjectService proposal adapter before the first still-branch sandbox render.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has

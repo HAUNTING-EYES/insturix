@@ -157,7 +157,10 @@ function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: Json
   for (const font of program.fontSlots) {
     const identity = facts.find((entry) => entry.kind === 'FONT_IDENTITY' && entry.fontAssetId === font.fontAssetId);
     if (!identity || !['INTERNAL_OWNED_FIXTURE', 'BUNDLED_DEPENDENCY_LICENSED_FIXTURE'].includes(text(identity.rightsStatus)) || identity.fontAssetVersion !== font.fontAssetVersion
-      || identity.fileSha256 !== font.fileSha256 || identity.licenseId !== font.licenseId) diagnostics.push(`FONT_IDENTITY_OR_RIGHTS_DRIFT:${font.slotId}`);
+      || identity.fileSha256 !== font.fileSha256 || identity.licenseId !== font.licenseId
+      || declaredValueDrifts(identity, 'family', font.family)
+      || declaredValueDrifts(identity, 'face', font.face)
+      || declaredValueDrifts(identity, 'weight', font.weight)) diagnostics.push(`FONT_IDENTITY_OR_RIGHTS_DRIFT:${font.slotId}`);
   }
   if (!uniqueIds(program.declaredLayers.map(({ layerId }) => layerId)) || !uniqueNumbers(program.declaredLayers.map(({ zIndex }) => zIndex))) diagnostics.push('DECLARED_LAYER_ID_OR_ORDER_INVALID');
   for (const layer of program.declaredLayers) {
@@ -269,6 +272,7 @@ function strings(value: unknown): string[] { return Array.isArray(value) ? value
 function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function declaredValueDrifts(recordValue: JsonRecord, key: string, actual: unknown): boolean { return Object.hasOwn(recordValue, key) && recordValue[key] !== actual; }
 function uniqueIds(values: string[]): boolean { return values.every(Boolean) && new Set(values).size === values.length; }
 function uniqueNumbers(values: number[]): boolean { return values.every(Number.isSafeInteger) && new Set(values).size === values.length; }
 function sameSet(left: string[], right: string[]): boolean { return left.length === right.length && right.every((value) => left.includes(value)); }
