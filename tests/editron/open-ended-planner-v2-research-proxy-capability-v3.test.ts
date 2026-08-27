@@ -21,7 +21,7 @@ import {
   DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1,
 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
 
-describe('generated-composition current-hash sandbox capability V3', () => {
+describe('generated-composition sandbox capability V3', () => {
   it('issues a versioned successor without rewriting either historical capability', () => {
     expect(() => assertDev02GeneratedCompositionResearchProxyCapabilityV3(
       structuredClone(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V3),
@@ -36,7 +36,7 @@ describe('generated-composition current-hash sandbox capability V3', () => {
       .not.toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.capabilityHash);
   });
 
-  it('binds the exact current API, runner, worker overlay, program and source bundle', async () => {
+  it('preserves issuance hashes and exposes the qualified post-Phase-5A overlay', async () => {
     const [api, runner, overlay] = await Promise.all([
       readFile('lib/editron/research/open-ended-planner/generated-composition-api-v1.tsx'),
       readFile('lib/editron/research/open-ended-planner/generated-composition-sandbox-runner-v1.ts'),
@@ -45,8 +45,12 @@ describe('generated-composition current-hash sandbox capability V3', () => {
     const capability = DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V3;
     expect(sha256(api)).toBe(capability.implementation.apiImplementationHash);
     expect(sha256(runner)).toBe(capability.implementation.runnerImplementationHash);
+    expect(capability.implementation.workerImplementationHash)
+      .toBe('7359b7251c019bf3036c23483aea2cbee7be4823e7e272b1da8cc4e1a3b6c047');
     expect(overlay.workerImplementationHash)
-      .toBe(capability.implementation.workerImplementationHash);
+      .toBe('4d392654882a1b067dcf3b510add92c79b519a596e8e833ca75526f50922a79d');
+    expect(overlay.workerImplementationHash)
+      .not.toBe(capability.implementation.workerImplementationHash);
     expect(hashCanonicalJsonV1(DEV02_GENERATED_COMPOSITION_PROGRAM_V1))
       .toBe(capability.proofBindings.qualification.programHash);
     expect(DEV02_GENERATED_COMPOSITION_PROGRAM_V1.sourceBundleHash)
