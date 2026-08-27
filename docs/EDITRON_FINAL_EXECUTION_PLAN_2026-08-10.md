@@ -5467,6 +5467,45 @@ and focused test
 The next phase must obtain explicit live-sandbox authority and issue a
 current-hash deny-all sandbox receipt before any RHC-02 candidate render.
 
+**RHC-02 current-hash sandbox qualification Phase 5 (2026-08-27):** explicit
+user authority was received for the bounded live sandbox step. The first host
+invocation stopped before `Sandbox.create` because the cached local OIDC token
+was expired; it produced no sandbox, render or capability receipt and remains
+an infrastructure-only non-evaluation. The linked Vercel CLI then pulled a
+fresh development token into one temporary git-ignored file, injected it only
+into the canary subprocess while retaining the separately pinned snapshot
+bindings, and deleted the temporary credential file after execution. No
+credential value was printed or persisted in source.
+
+The approved non-RHC-02 DEV-02 technical canary then ran the current overlay in
+one ephemeral Vercel Sandbox. Request
+`133dbd06d108699a8ba428d2d5c6d18dc7594af580da44a58e029421f08c9119`
+bound API hash `ee2468e25...`, runner hash `578d2a30...`, worker-overlay hash
+`7359b725...`, snapshot commit `eb896ffb...` and the existing DEV-02 program.
+The worker rendered in 91,392 ms and returned nine hash-bound outputs. Host
+receipt `df7653eba5d470a94735c4d1cafd2cc85d25de217ac29bceef10b78aee09b681`
+independently records `DENY_ALL` network, empty environment, no secrets,
+database or project mutation, non-persistence, successful sandbox deletion and
+output materialization. Playable-proxy hash remains `873074a3...`; contact
+sheet hash remains `6d4107d1...`.
+
+Versioned capability V3
+`a182c3a7eb29909e837ed8da515feb89ab9d0123497cf6e7b522e5f3b609d1c6`
+supersedes V2 without rewriting it and binds the exact request, result, host,
+proxy, program, source-bundle, snapshot and current implementation identities.
+Its test passes 4/4 and deliberately records
+`currentStillImageSandboxRender=NOT_RUN`: this proves that the current
+still-capable implementation can execute safely in the production sandbox,
+not that the still branch or RHC-02 quality has passed. RHC-02 remains
+`NOT_RENDERED` and `UNJUDGED`; hybrid still requires its isolated
+ProjectService proposal adapter before the now-authorized candidate can run,
+native still lacks exact font-file binding, and pure generated composition
+still lacks playable-audio ownership. Current source hashes are capability
+`1c21af66...` and focused test `8610a73e...`. The next bounded phase is the
+hybrid isolated proposal adapter through the existing real
+`prepareProjectGeneratedCompositionV1`/`finalizeProjectGeneratedCompositionV1`
+owners, followed by the first RHC-02 still-branch sandbox render.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
