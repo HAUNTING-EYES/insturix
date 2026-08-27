@@ -5276,6 +5276,19 @@ the handover, this ledger, current receipts or code. The durable resume point is
 therefore exact EOF; no claim is made that the raw 1.23 GB transcript remains
 inside model context.
 
+**RHC-02 native-form extraction Step 0 (2026-08-27):** commit `eca4b717e`
+removes all fifteen ESLint-reported dead bindings and declaration warnings from
+the 6,408-line live chat-tool factory before its embedded `add_overlay` form is
+structurally extracted. The published `close_gaps.preserveCaptions`
+compatibility field is deliberately retained because current tests and the
+CAP-2A audit reference it; changing that contract would not be dead-binding
+cleanup. No tool schema, edit form, ProjectService call or renderer behavior
+changed. The three closest chat-tool suites pass 82/82, and repository
+typecheck plus quiet ESLint pass. This cleanup adds no RHC capability and does
+not change the Phase-2 route dispositions; the next bounded slice remains the
+shared live/isolated native overlay form owner and revision-issued dispatcher
+adapter.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
