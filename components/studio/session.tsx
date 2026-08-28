@@ -16,6 +16,7 @@ import { MOCK_DELIVERABLE, MOCK_THREAD, MOCK_WALLET } from "@/lib/studio/mock/da
 import { runMockTurn, type MockTurnHandle } from "@/lib/studio/mock/orchestrator";
 import { runRealTurn, studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
 import { useArtifactPolling } from "./use-artifact-polling";
+import { ComposerMedia, type ComposerAttachment } from "./composer-media";
 import { ThreadItems, ClarifyCard, CapabilityGapCard, ConfirmSpendCard, ConfirmPublishCard } from "./thread";
 import { StageHost } from "./stage";
 
@@ -38,6 +39,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [realWallet, setRealWallet] = useState<{ main: number; media: number }>({ main: MOCK_WALLET.main, media: MOCK_WALLET.media });
+  const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [clarifyEv, setClarifyEv] = useState<Extract<StudioTurnEvent, { type: "turn.needs_clarification" }> | null>(null);
   const [gapEv, setGapEv] = useState<Extract<StudioTurnEvent, { type: "turn.capability_gap" }> | null>(null);
@@ -235,7 +237,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               threadId: "th_live",
               text: text.trim(),
               mode,
-              attachments: attachment,
+              attachments: [...attachment, ...composerAttachments.map((a) => ({ ref: a.ref, role: a.role }))],
               mentions: [],
               clientContext: { focusedArtifactId: focus?.artifactId ?? null },
               operationId: crypto.randomUUID(),
@@ -287,7 +289,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
       setBusy(false);
       handleRef.current = null;
     },
-    [busy, applyEvent, artifacts, mode, focus],
+    [busy, applyEvent, artifacts, mode, focus, composerAttachments],
   );
 
   const answerConfirm = useCallback(
@@ -387,8 +389,12 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 runTurn(input);
+                setComposerAttachments([]);
               }}
+              style={REAL ? { flexDirection: "column", alignItems: "stretch", gap: 8 } : undefined}
             >
+              {REAL && <ComposerMedia attachments={composerAttachments} setAttachments={setComposerAttachments} />}
+              <div style={REAL ? { display: "flex", alignItems: "center", gap: 12 } : undefined}>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -396,6 +402,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
                 aria-label="Direct the agent"
               />
               <span className="k">⌘K</span>
+              </div>
             </form>
             <div className="stu-chint">you never pick a tool · the agent shows you what it&apos;s on</div>
           </div>
