@@ -6266,13 +6266,106 @@ proposal adapter and technical render. Generated-only still lacks preserved
 playable-audio ownership. Shared research vocabulary and adapters remain partial
 convergence: no production end-to-end route broker exists.
 
-The next implementation phase remains queue item 2: add the canonical lossless
-time/rate/epoch foundation with backward-compatible reads, after a fresh owner
-search and a bounded maximum-five-file design. In parallel programme order, the
-V2 RHC candidate/packet repair must precede formal blind review. Neither stream
-changes `FROZEN_MODIFY_DECISION_ISSUED`; a successor `GO` still requires the
-entire declared supported-project blocker set to close and a new readiness
-receipt.
+**Canonical lossless media-time foundation Phase 1 (2026-08-28):** commit
+`32a5ec816` completes queue item 2's bounded representation prerequisite. The
+new pure `canonical-media-time-v1.ts` owner defines reduced rational rates,
+lossless signed media ticks/timescales, integer audio-sample ranges,
+source/timeline positions and explicit discontinuity epochs. Ordering and
+exact rescaling use `BigInt` cross-multiplication under a 128-decimal-digit
+resource bound. Legacy numeric FPS remains readable with explicit
+`LEGACY_NUMERIC_DECIMAL_V1 / READ_COMPATIBILITY_ONLY` provenance: `29.97` is
+preserved as `2997/100` and is never guessed to mean `30000/1001`. New
+canonical writes require an explicit reduced rational.
+
+`EditorialMediaIdentityContractV1` is the first bounded adopter. Its prior
+JavaScript-safe-integer rejection has been replaced by the shared lossless
+validator, so source rates and PTS ranges beyond `Number.MAX_SAFE_INTEGER`
+remain exact while malformed, unreduced, reversed or over-bound values still
+fail. Focused canonical-time, identity-boundary and long-form scale-proxy
+regressions pass 35/35; repository TypeScript and quiet ESLint pass. This is
+`FOUNDATION_IMPLEMENTED_RUNTIME_NOT_WIRED`: `MEDIA_ASSETS`, the PTS lifecycle,
+ProjectService, the same-rate source transform and every renderer retain their
+existing authorities. Mixed-rate/VFR media therefore still stops at the
+current product boundary; no ingest, conform, project, preview or render path
+was silently switched.
+
+The next timebase phase must first perform the required Step-0 audit/cleanup of
+the 419-line `video-source-time-transform-v1.ts`, then extend that existing
+owner rather than create a second source-time authority. Freeze exact
+same-rate, `24000/1001 -> 30000/1001`, `30000/1001 -> 30`, VFR, negative-PTS,
+epoch-boundary, audio-sample and proxy/master fixtures before wiring a caller.
+The default ordinary mixed-rate policy is
+`PRESERVE_REAL_TIME_NEAREST`: preserve real duration/audio and choose the
+covering/nearest source presentation at each output instant. `FRAME_BLEND` and
+`OPTICAL_FLOW` require separately certified visual owners; `INTERPRET_RATE`
+remains an explicit creative command; `TRANSCODE_TO_CFR_PROXY` is a controlled
+conform workflow with exact master anchors, never an unexplained fallback.
+
+**Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
+programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
+continuity” means that after the filmstrip releases, the surviving source
+continues naturally as the full-screen picture; under that definition the
+answer is yes. Candidate A's simultaneous-three-source and motion/layout
+failures remain. For RHC-02, the portrait return is confirmed and the explainer
+voice continues across that return in the expected J/L-cut-style overlap. The
+portrait is static, so return-to-live-motion remains untestable, and the owner
+reports the interview/portrait portion as audibly dead silent: human room-tone
+preservation therefore fails even though the synthetic baseline/PCM technical
+comparison passed. Technical sample equivalence cannot override that audible
+review result.
+
+RHC-03's visible subject-clearance result remains `FAIL`. “Subject” must be an
+explicit selected target, not whatever a detector happens to find. NVIDIA
+NanoOWL is an Apache-2.0, TensorRT-optimized open-vocabulary OWL-ViT detector
+and is a useful candidate evidence producer, not the safety authority:
+<https://github.com/NVIDIA-AI-IOT/nanoowl>. The production candidate pipeline
+is text/selection-conditioned detection -> mask/temporal track (for example a
+separately licensed and benchmarked SAM-family/DeepStream owner) ->
+source-version/epoch-bound mask tube -> conservative clearance dilation ->
+all-frame deterministic overlay-intersection proof. Low confidence, track
+loss, identity swap, uncovered frames or user ambiguity blocks/reroutes the
+layout. A sampled box or NanoOWL result alone can never pass `RHC03-T2`.
+
+RHC-04 V2 must include a route-neutral source/pairing board: every original
+close-up appears once with a stable source ID, thumbnail/frame reference,
+source-version hash and the number it is intended to illustrate; the initial
+and corrected outputs then name those IDs. Route identities remain hidden.
+This lets a reviewer distinguish the intended `30% -> 35%` paired-source
+correction from an accidental source swap. The board and a fresh measured
+hands-on correction session are both required; the V1 packet is preserved and
+not retroactively repaired.
+
+The native exact-font gap has a concrete closure contract. Register the
+rights-cleared font bytes as an immutable font asset with licence, SHA-256,
+SFNT face index, family, weight, style and variation axes; replace the bare
+family string with that `fontAssetRef`; mount/load the exact bytes in both the
+native isolated renderer and generated sandbox; and bind the loaded-byte hash,
+resolved face metadata and text-geometry probe into the render receipt. A
+missing/substituted font or metric mismatch fails before candidate promotion.
+System font lookup by the string `Noto Sans` is never sufficient proof.
+
+The long-form visual blocker also remains explicit. The existing five-minute
+receipt is audio-only. Queue items 8-9 must render a rights-cleared five-minute
+moving-picture timeline containing native media, overlays and transitions;
+decode the complete output; verify A/V sync and boundary samples across the
+duration; record browser/GPU/worker memory; deliver and reread the final object;
+exercise proxy/master visual relink; and recover one interrupted hosted render
+without duplicate or false success. Only that evidence can close “no full
+five-minute visual timeline.”
+
+The historical five confounded rows remain immutable and unscored, while their
+successor remediation remains required rather than forgotten. Runtime safety
+and product proof come first. If a model cohort is still decision-critical at
+queue item 11, a new identity must implement reversible-term lint,
+key-order-invariance tests, public positive/negative/equivalent examples,
+independent clarity sign-off, a comprehension sentinel and unseen isomorphic
+failure tasks before any separately capped dispatch. The corrected 74/74
+zero-inference gate is harness proof only. No old 24-row rerun is authorized.
+
+In parallel programme order, the corrected RHC-02/RHC-03 candidates and V2
+packet must precede formal blind review. None of this changes
+`FROZEN_MODIFY_DECISION_ISSUED`; a successor `GO` still requires the entire
+declared supported-project blocker set to close and a new readiness receipt.
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
