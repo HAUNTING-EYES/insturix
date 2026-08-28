@@ -9,6 +9,7 @@
 import type { StudioArtifact, StudioStageFocus } from "@/lib/studio/contracts/objects";
 import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
 import { ReelEmbed } from "./reel-embed";
+import { AUTO_EDIT_STAGES } from "@/components/editron/project/auto-edit/auto-edit-stages";
 import { StageIframe } from "./stage-iframe";
 
 const CAP_COLOR: Record<string, string> = {
@@ -20,7 +21,60 @@ const CAP_COLOR: Record<string, string> = {
   analysis: "var(--c-analyze)",
 };
 
+/* A3: the 8-stage pipeline rail for a running auto-edit (canonical stages
+ * from the engine's own auto-edit-stages.ts — current lit by telemetry text) */
+function AutoEditProgressView({ artifact }: { artifact: StudioArtifact }) {
+  const text = (artifact.progress?.stage ?? "").toLowerCase();
+  let current = 0;
+  if (/analyz/.test(text)) current = 0;
+  else if (/cut/.test(text)) current = 1;
+  else if (/punch|beat/.test(text)) current = 2;
+  else if (/caption/.test(text)) current = 3;
+  else if (/music|scor/.test(text)) current = 4;
+  else if (/transition|dissolv/.test(text)) current = 5;
+  else if (/graphic/.test(text)) current = 6;
+  else if (/finish|render/.test(text)) current = 7;
+  const needsInput = /needs more footage|needs_input/.test(text);
+  return (
+    <>
+      <div className="stu-chips">
+        <span className="stu-chip">auto-edit · live</span>
+        {artifact.sourceRef.manualHref && (
+          <a className="stu-chip" href={artifact.sourceRef.manualHref} style={{ textDecoration: "none" }}>open pipeline ↗</a>
+        )}
+      </div>
+      <div className="stu-doc" style={{ textAlign: "left" }}>
+        <div className="stu-mlabel" style={{ marginBottom: 16 }}>the cut is being made</div>
+        <div className="stu-steps">
+          {AUTO_EDIT_STAGES.map((st, i) => (
+            <div key={st.id} className={`stu-step ${i < current ? "done" : i === current ? "" : "pending"}`}>
+              <span className={`sdot ${i === current ? "run" : ""}`} style={{ background: "var(--c-edit)" }} />
+              <span className="lab">{st.verb}</span>
+              {i === current && <span className="tool">now</span>}
+            </div>
+          ))}
+        </div>
+        {needsInput && (
+          <div className="stu-hcard" style={{ marginTop: 16, marginBottom: 0 }}>
+            <span className="stu-htag"><i style={{ background: "var(--gold)" }} />needs input</span>
+            <div className="stu-hq" style={{ marginBottom: 10 }}>
+              The script has beats this footage doesn&apos;t cover. Feed it more clips — or loosen the script — and the cut continues.
+            </div>
+            <div className="stu-btnrow" style={{ marginTop: 0 }}>
+              <a className="stu-btn stu-btn-primary" href={artifact.sourceRef.manualHref ?? "/studio"} style={{ textDecoration: "none" }}>Feed it footage</a>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function ReelView({ artifact }: { artifact: StudioArtifact }) {
+  /* running auto-edit → the pipeline rail; done → the editor */
+  if (studioRealTurnsEnabled && artifact.sourceRef.engine === "editron" && artifact.status === "running") {
+    return <AutoEditProgressView artifact={artifact} />;
+  }
   /* real mode + real editron artifact → the actual editor, embedded */
   if (studioRealTurnsEnabled && artifact.sourceRef.engine === "editron") {
     return (

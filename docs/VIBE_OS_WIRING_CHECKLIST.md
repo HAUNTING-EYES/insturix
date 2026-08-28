@@ -38,7 +38,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 |---|---|
 | ThinkForge ideation as turns | BRIDGED — REAL ideas agent (editorial-plan + signals chain), idea cards in thread, click-to-draft; trends/URL-brief OPEN |
 | ThinkForge→Editron storyboard export edge | OPEN |
-| Editron auto-edit in-thread | BRIDGED — pipeline runs from composer media; in-thread 8-stage visuals + needs_input CARD (vs stage text) still A3 |
+| Editron auto-edit in-thread | DONE — 8-stage rail (canonical engine stages, telemetry-lit) + needs-input card w/ feed-it-footage CTA in the stage |
 | Checkpoints/undo in thread | BRIDGED — high-risk receipts render red + undo chip → restore checkpoint turn via edit bridge |
 | SaaS explainer flow | OPEN |
 | Clickatron variations polling → artifact done-state | DONE — useArtifactPolling (4s, real telemetry, honest percent) |
