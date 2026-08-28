@@ -50,6 +50,10 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Home real data (TF + Editron adapters, brand-name groups) | DONE — /api/studio/deliverables (+brands map) |
 | Mission control | VERIFIED on production — In-flight 12 real rows, Your work 50, attention section honest-empty; screenshot mission-control-live.png |
 | Open a Home row → hydrated session | DONE — /api/studio/deliverables/[id] seeds artifacts + stage (script content, reel→editor) |
+| Composer: upload + rights gate + honest progress | OPEN — plan §2 (docs/USER_JOURNEY_AND_MEDIA_PLAN.md) |
+| Composer: unified media library + /api/studio/media | OPEN — aggregates editron media/clickatron/TF/musitron + stock |
+| Attachment roles through orchestrator planners | OPEN — contract exists (attachments[]); planner wiring next |
+| ICP personas + per-screen task scripts (MatrAIx seam) | OPEN — MatrAIx R&D not in code; advisory-only |
 | Account shell seam | BRIDGED — /account/{billing,brands,avatars,connections,org} resolve to the real surfaces; own skin OPEN |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |
 
