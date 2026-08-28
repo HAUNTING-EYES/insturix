@@ -33,9 +33,11 @@ export function StudioHome() {
     if (!REAL) return;
     fetch("/api/studio/overview")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { deliverables: StudioDeliverable[]; brands?: Record<string, string> }) => {
+      .then((d: { deliverables: StudioDeliverable[]; brands?: Record<string, string>; attention?: { id: string; title: string; detail: string; severity: string; href: string | null }[]; inFlight?: { engine: string; label: string; stage: string; href: string | null }[] }) => {
         setRealDeliverables(d.deliverables ?? []);
         setRealBrands(d.brands ?? {});
+        setAttention(d.attention ?? []);
+        setInFlight(d.inFlight ?? []);
       })
       .catch((e: Error) => setRealError(e.message));
   }, [REAL]);
