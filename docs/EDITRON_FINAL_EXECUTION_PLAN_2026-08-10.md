@@ -6301,6 +6301,45 @@ covering/nearest source presentation at each output instant. `FRAME_BLEND` and
 remains an explicit creative command; `TRANSCODE_TO_CFR_PROXY` is a controlled
 conform workflow with exact master anchors, never an unexplained fallback.
 
+**Timestamp-aware media-conformance foundation Phase 2 (2026-08-29):** the
+required Step-0 audit found no dead imports, exports, props or debug logging in
+the existing source-time owner, so this phase extends that owner rather than
+creating a second time authority. `createVideoSourceTimestampConformV2` now
+accepts only a hash-bound `PRE_RESOLVED_FIXTURE_ONLY` presentation window:
+current verified source binding, exact stream and source anchor, explicit
+epochs, exact per-picture PTS/duration, a reduced rational project rate,
+selected timeline-frame queries and a caller-declared bounded resource policy.
+It samples each output frame at frame start using `BigInt` rational arithmetic,
+selects the covering half-open source presentation, and uses nearest previous
+or next only across an explicitly represented inter-epoch gap, with the earlier
+presentation winning a tie. An epoch-reset boundary belongs to the later
+half-open epoch. Audio remains a separate exact sample domain and reports
+integer or between-sample rational positions; video choices never create audio
+positions. An `UNQUALIFIED` proxy/master relation stops before a transform is
+issued.
+
+The frozen fixture set proves same-rate CFR, `24000/1001 -> 30000/1001`,
+`30000/1001 -> 30`, VFR intervals, negative PTS, timestamp-reset ownership,
+fractional 48 kHz audio boundaries, and rejection of unqualified proxy mapping,
+undeclared same-epoch PTS gaps and uncovered queries. The focused time/rate
+cluster passes 38/38, repository TypeScript passes, and affected-file quiet
+ESLint passes. The absolute 100,000-frame window and 10,000-query limits are
+anti-abuse ceilings for one injected lookup window, not media- or project-
+duration ceilings.
+
+This result is
+`PURE_PRE_RESOLVED_WINDOW_CONTRACT_IMPLEMENTED_RUNTIME_NOT_WIRED`. Current PTS
+batch/index owners still require one contiguous PTS sequence and expose no
+epoch-aware random-access lookup; the proxy/master owner still declares its
+mapping unqualified; ProjectService, ingest, analysis, preview and final render
+have no V2 conform caller; and the legacy V1 product transform still blocks
+ordinary mixed-rate/VFR media. Queue item 3 therefore remains open. Its next
+bounded phase must add a hash-verified, epoch-aware presentation-window reader
+behind the existing PTS authority and a timestamp-driven native-media consumer,
+without changing the ProjectService writer boundary or silently qualifying
+proxy/master state. Dedicated live private-sidecar storage, relink and
+invalidation remain queue item 4.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
@@ -6353,6 +6392,22 @@ exercise proxy/master visual relink; and recover one interrupted hosted render
 without duplicate or false success. Only that evidence can close “no full
 five-minute visual timeline.”
 
+The 2026-08-29 read-only render-owner audit adds two important separations. A
+five-minute project currently takes the standard single-render path because the
+chapter threshold is fifteen minutes, so a five-minute A/V success would not
+prove chapter admission, chapter concatenation or chapter-boundary recovery.
+The first successor proof must therefore render and completely decode exactly
+9,000 moving-picture frames at 30 fps plus 14,400,000 sample frames per channel
+at 48 kHz, exercise native video, overlays and transitions, measure A/V marker
+error to no more than one video frame, observe motion at early/middle/late/tail
+and transition points, reread the entire delivered object twice with matching
+byte count and SHA-256, and resume one interrupted attempt without duplicating
+admission, provider, billing, finalization or output identities. A separate
+greater-than-fifteen-minute proof must exercise the chapter path. Current
+delivery verification reads only one byte, no recovery sweeper was found, and
+the UI does not resume a `finalizing` job after refresh; none of those gaps is
+closed by the audio receipt.
+
 The historical five confounded rows remain immutable and unscored, while their
 successor remediation remains required rather than forgotten. Runtime safety
 and product proof come first. If a model cohort is still decision-critical at
@@ -6366,6 +6421,63 @@ In parallel programme order, the corrected RHC-02/RHC-03 candidates and V2
 packet must precede formal blind review. None of this changes
 `FROZEN_MODIFY_DECISION_ISSUED`; a successor `GO` still requires the entire
 declared supported-project blocker set to close and a new readiness receipt.
+
+The 2026-08-29 read-only RHC owner audit freezes the implementation sequence.
+RHC-02 has no corrected moving-interview successor: its file labelled media V2
+only changes font metadata while retaining the looped portrait, voiceover and
+synthetic pink-noise fixture. A new identity requires an immutable rights/
+consent receipt plus exact-format moving interview media with genuine location
+ambience before any corrected render may claim readiness. RHC-03 likewise has
+no V2 candidate. Its V1 visual check samples only four frames, measures glyphs
+against static panel rectangles and cannot substantiate `RHC03-T2`; it must not
+be promoted as all-frame subject-clearance evidence. The successor must bind an
+explicitly selected subject and source/version/epoch mask tube, conservative
+dilation and the complete label treatment across all 150 frames, failing on
+ambiguity, missing masks, identity swap, track loss or overlap. RHC-04 needs no
+rerender: its accepted receipt already binds all four source hashes and exact
+initial/corrected pairings, so the next bounded RHC slice is a deterministic
+route-neutral source/pairing board plus tamper tests. That board may be marked
+`RHC04_V2_REFERENCE_READY_PACKET_NOT_ISSUED`; it cannot issue the V2 review
+packet until corrected RHC-02/RHC-03 artifacts exist, and it does not replace
+the measured hands-on correction session.
+
+**Real mutation-owner inventory checkpoint (2026-08-29):** the read-only audit
+confirms that `ProjectService` is the intended authority but does not yet have a
+universal mutation prerequisite envelope. Revision CAS, exact range receipts,
+cut locks, rights transactions, generated state tokens, Director leases and
+delivery receipts exist as strong specialized mechanisms; they are not
+consistently required by every writer. Generic add/update/delete operations
+self-sample the current revision instead of binding the caller's earlier
+evidence, `cutTimelineRangeV1` can run without its optional cut lock, and no
+production caller currently acquires/releases that lock. Whole-state saves,
+family replacement, several delivery/restoration paths and rights writers do
+not all expose equivalent exact affected-range coverage. Every current timeline
+receipt still declares durable artifact invalidation
+`UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`.
+
+The audit also found nineteen production files that mutate the `projects`
+collection outside `ProjectService`; some are metadata-only, while at least the
+video-analysis worker writes overlay native-audio evidence without advancing
+`projectRevision` or `updatedAt`, so ProjectService CAS cannot observe that
+change. This is an authority bypass, not convergence. Wrappers that merely
+delegate to ProjectService are not counted as new owners, and
+`captureMutationReceipts` remains an observer rather than an admission gate.
+
+Queue item 5 must start with one five-file production pilot on the existing
+pipeline-video delivery path, not a new mutation registry. The dispatcher must
+attach a ProjectService-owned prerequisite value containing expected project
+revision, exact target fingerprint/range, applicable lock assertions,
+source/replacement evidence, rights receipt, predecessor generation receipt and
+invalidation requirement; the worker relays it unchanged; and
+`commitPipelineVideoDeliveryV1` independently re-derives all current facts
+before its CAS. Tests must prove zero mutation and no success receipt for wrong
+project, stale revision, changed range/fingerprint, active Director lease,
+overlapping cut lock, missing/forged rights or generation evidence, absent
+predecessor, unsafe replay and unmaterialized required invalidation. Until a
+durable invalidation owner exists, the last case remains fail-closed/
+`UNVERIFIABLE`. This pilot is not universal-envelope completion. Any later edit
+to `project-service.ts` must preserve the frozen CAP-2 V10 source identity and
+issue a separately versioned V11 reconciliation rather than rewriting history.
 
 **Concurrent ThinkForge production-safety closure (2026-08-28):** the
 previously unstaged ThinkForge work now has a clean repository typecheck and a

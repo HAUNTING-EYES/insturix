@@ -5,6 +5,18 @@ import type {
 import { computeSpeedSegments } from '@/lib/editron/utils/keyframe-math';
 
 import {
+  parseAudioSampleRangeV1,
+  parseExactRationalRateV1,
+  parsePresentationEpochV1,
+  parseSourcePositionV1,
+  type AudioSampleRangeV1,
+  type CanonicalMediaTimeV1,
+  type ExactRationalRateV1,
+  type PresentationEpochV1,
+  type SourcePositionV1,
+} from '../contracts/canonical-media-time-v1';
+
+import {
   deepFreezeEditronJsonV1,
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
@@ -12,7 +24,9 @@ import {
   readMediaSourcePtsCadenceMapAssetStateV2,
   type MediaSourcePtsCadenceMapAssetStateInputV2,
 } from './media-source-pts-cadence-map-asset-state-v2';
-import { assertMediaSourceVersionV1 } from './media-source-version-v1';
+import {
+  assertMediaSourceVersionV1,
+} from './media-source-version-v1';
 import type { ProjectRevisionV1 } from './project-service';
 
 export const VIDEO_SOURCE_TIME_BINDING_KIND_V1 =
@@ -25,6 +39,67 @@ export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1 =
   'EDITRON_STEP_SPEED_SEGMENTS_V1' as const;
 export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2 =
   'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2' as const;
+export const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2 =
+  'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V2' as const;
+export const VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2 =
+  'PRESERVE_REAL_TIME_NEAREST' as const;
+export const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2 = 100_000;
+export const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_QUERIES_V2 = 10_000;
+
+export type VideoSourceTimestampConformFrameV2 = Readonly<{
+  sourceFrameOrdinal: string;
+  epochId: string;
+  presentationTimestampTicks: string;
+  durationTicks: string;
+}>;
+
+export type VideoSourceTimestampConformResourcePolicyV2 = Readonly<{
+  policyVersion: string;
+  maxSourceFrames: number;
+  maxFrameQueries: number;
+}>;
+
+export type ExactAudioSamplePositionV2 = Readonly<{
+  numerator: string;
+  denominator: string;
+  disposition: 'INTEGER_SAMPLE_FRAME' | 'BETWEEN_SAMPLE_FRAMES';
+}>;
+
+export type VideoSourceTimestampConformV2 = Readonly<{
+  schemaVersion: 2;
+  kind: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2;
+  writerAuthority: typeof PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1;
+  policy: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2;
+  evidenceStatus: 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED';
+  sourceBindingSha256: string;
+  sourceVersionSha256: string;
+  mapBindingSha256: string;
+  sourceWindowSha256: string;
+  presentationWindowEvidenceSha256: string;
+  streamId: string;
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  queryCount: string;
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  frameSelections: readonly Readonly<{
+    timelineFrame: string;
+    timelineTime: CanonicalMediaTimeV1;
+    sourceCanonicalTime: CanonicalMediaTimeV1;
+    sourceFrameOrdinal: string;
+    epochId: string;
+    presentationTimestampTicks: string;
+    selection: 'COVERING_PRESENTATION' | 'NEAREST_PREVIOUS' | 'NEAREST_NEXT';
+  }>[];
+  audioMapping: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+    startSamplePosition: ExactAudioSamplePositionV2;
+    endExclusiveSamplePosition: ExactAudioSamplePositionV2;
+  }> | null;
+  transformSha256: string;
+}>;
 
 export type VerifiedVideoSourceTimeBindingV1 = Readonly<{
   schemaVersion: 1;
@@ -165,6 +240,158 @@ export function resolveVerifiedVideoSourceTimeBindingV1(
     ...material,
     bindingSha256: hashEditronCanonicalJsonV1(material),
   });
+}
+
+/**
+ * Builds a bounded, exact timestamp map for ordinary real-time conformance.
+ * It selects pictures only; audio remains an independent exact sample domain.
+ * No live caller consumes this V2 map yet, and a V1 proxy/master relation is
+ * deliberately rejected because that owner still declares its PTS mapping
+ * unqualified.
+ */
+export function createVideoSourceTimestampConformV2(input: Readonly<{
+  sourceBinding: VerifiedVideoSourceTimeBindingV1;
+  presentationWindowEvidenceSha256: string;
+  presentationWindowEvidenceStatus: 'PRE_RESOLVED_FIXTURE_ONLY';
+  streamId: string;
+  epochs: readonly PresentationEpochV1[];
+  sourceFrames: readonly VideoSourceTimestampConformFrameV2[];
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  timelineFrameQueries: readonly string[];
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  audio?: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+  }>;
+  proxyMasterMapping?: Readonly<{
+    disposition: 'UNQUALIFIED';
+    relationSha256: string;
+  }>;
+}>): VideoSourceTimestampConformV2 {
+  const sourceBinding = assertBinding(input.sourceBinding);
+  if (input.proxyMasterMapping !== undefined) {
+    sha256Text(
+      input.proxyMasterMapping.relationSha256,
+      'VIDEO_SOURCE_CONFORM_PROXY_MASTER_RELATION_INVALID',
+    );
+    throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
+  }
+  if (input.presentationWindowEvidenceStatus !== 'PRE_RESOLVED_FIXTURE_ONLY') {
+    throw new Error('VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_STATUS_INVALID');
+  }
+  const presentationWindowEvidenceSha256 = sha256Text(
+    input.presentationWindowEvidenceSha256,
+    'VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_INVALID',
+  );
+  const streamId = boundedText(input.streamId, 'VIDEO_SOURCE_CONFORM_STREAM_INVALID');
+  const projectRate = parseExactRationalRateV1(input.projectRate);
+  const timelineStartFrame = nonNegativeIntegerText(
+    input.timelineStartFrame,
+    'VIDEO_SOURCE_CONFORM_TIMELINE_START_INVALID',
+  );
+  const resourcePolicy = normalizeTimestampConformResourcePolicyV2(input.resourcePolicy);
+  const timelineFrameQueries = normalizeTimestampConformQueriesV2(
+    input.timelineFrameQueries,
+    timelineStartFrame,
+    resourcePolicy.maxFrameQueries,
+  );
+  const sourceTimebase = parseExactRationalRateV1(sourceBinding.sourceTimebase);
+  const epochs = normalizeTimestampConformEpochsV2(input.epochs, streamId, sourceTimebase);
+  const sourceFrames = normalizeTimestampConformFramesV2(
+    input.sourceFrames,
+    sourceBinding,
+    epochs,
+    resourcePolicy.maxSourceFrames,
+  );
+  const sourceAnchor = parseSourcePositionV1(input.sourceAnchor);
+  if (sourceAnchor.sourceVersionSha256 !== sourceBinding.sourceVersionSha256
+    || sourceAnchor.streamId !== streamId) {
+    throw new Error('VIDEO_SOURCE_CONFORM_ANCHOR_SCOPE_MISMATCH');
+  }
+  const epochById = new Map(epochs.map((epoch) => [epoch.epochId, epoch]));
+  const anchorEpoch = epochById.get(sourceAnchor.epochId);
+  if (!anchorEpoch
+    || !sameRateV2(anchorEpoch.secondsPerSourceTick, sourceAnchor.secondsPerSourceTick)) {
+    throw new Error('VIDEO_SOURCE_CONFORM_ANCHOR_EPOCH_MISMATCH');
+  }
+  const intervals = sourceFrames.map((frame) => timestampConformIntervalV2(
+    frame,
+    epochById.get(frame.epochId)!,
+  ));
+  for (let index = 1; index < intervals.length; index += 1) {
+    if (compareFractionV2(intervals[index - 1]!.end, intervals[index]!.start) > 0) {
+      throw new Error('VIDEO_SOURCE_CONFORM_CANONICAL_INTERVAL_OVERLAP');
+    }
+  }
+  const anchorPts = BigInt(sourceAnchor.presentationTimestampTicks);
+  const anchorFrame = intervals.find(({ frame }) => frame.epochId === sourceAnchor.epochId
+    && anchorPts >= BigInt(frame.presentationTimestampTicks)
+    && anchorPts < BigInt(frame.presentationTimestampTicks) + BigInt(frame.durationTicks));
+  if (!anchorFrame) throw new Error('VIDEO_SOURCE_CONFORM_ANCHOR_NOT_IN_WINDOW');
+  const anchorTime = canonicalTimeForSourcePtsV2(anchorEpoch, anchorPts);
+
+  const frameSelections = timelineFrameQueries.map((timelineFrameText) => {
+    const timelineFrame = BigInt(timelineFrameText);
+    const offset = timelineFrame - BigInt(timelineStartFrame);
+    const relativeTime = fractionV2(
+      offset * BigInt(projectRate.denominator),
+      BigInt(projectRate.numerator),
+    );
+    const sourceTime = addFractionV2(anchorTime, relativeTime);
+    const selected = selectTimestampConformIntervalV2(intervals, sourceTime);
+    return {
+      timelineFrame: timelineFrame.toString(),
+      timelineTime: canonicalTimeFromFractionV2(fractionV2(
+        timelineFrame * BigInt(projectRate.denominator),
+        BigInt(projectRate.numerator),
+      )),
+      sourceCanonicalTime: canonicalTimeFromFractionV2(sourceTime),
+      sourceFrameOrdinal: selected.interval.frame.sourceFrameOrdinal,
+      epochId: selected.interval.frame.epochId,
+      presentationTimestampTicks: selected.interval.frame.presentationTimestampTicks,
+      selection: selected.selection,
+    };
+  });
+  const sourceWindowMaterial = {
+    sourceBindingSha256: sourceBinding.bindingSha256,
+    presentationWindowEvidenceSha256,
+    presentationWindowEvidenceStatus: input.presentationWindowEvidenceStatus,
+    streamId,
+    epochs,
+    sourceFrames,
+    resourcePolicy,
+  };
+  const audioMapping = input.audio === undefined
+    ? null
+    : createTimestampConformAudioMappingV2(
+        input.audio,
+        projectRate,
+        timelineStartFrame,
+      );
+  const material = {
+    schemaVersion: 2 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2,
+    writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
+    policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
+    evidenceStatus: 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED' as const,
+    sourceBindingSha256: sourceBinding.bindingSha256,
+    sourceVersionSha256: sourceBinding.sourceVersionSha256,
+    mapBindingSha256: sourceBinding.mapBindingSha256,
+    sourceWindowSha256: hashEditronCanonicalJsonV1(sourceWindowMaterial),
+    presentationWindowEvidenceSha256,
+    streamId,
+    projectRate,
+    timelineStartFrame,
+    queryCount: String(timelineFrameQueries.length),
+    sourceAnchor,
+    resourcePolicy,
+    frameSelections,
+    audioMapping,
+  };
+  return frozen({ ...material, transformSha256: hashEditronCanonicalJsonV1(material) });
 }
 
 export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
@@ -410,6 +637,307 @@ function assertSpeedCurve(value: readonly Keyframe[], durationInFrames: number):
     throw new Error('VIDEO_SOURCE_TIME_TRANSFORM_CURVE_INVALID');
   }
   return curve;
+}
+
+type ExactFractionV2 = Readonly<{ numerator: bigint; denominator: bigint }>;
+type TimestampConformIntervalV2 = Readonly<{
+  frame: VideoSourceTimestampConformFrameV2;
+  start: ExactFractionV2;
+  end: ExactFractionV2;
+}>;
+
+function normalizeTimestampConformResourcePolicyV2(
+  value: VideoSourceTimestampConformResourcePolicyV2,
+): VideoSourceTimestampConformResourcePolicyV2 {
+  if (!value || typeof value !== 'object') {
+    throw new Error('VIDEO_SOURCE_CONFORM_RESOURCE_POLICY_INVALID');
+  }
+  return {
+    policyVersion: boundedText(value.policyVersion, 'VIDEO_SOURCE_CONFORM_RESOURCE_POLICY_INVALID'),
+    maxSourceFrames: positiveIntegerInRange(
+      value.maxSourceFrames,
+      VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2,
+      'VIDEO_SOURCE_CONFORM_SOURCE_FRAME_LIMIT_INVALID',
+    ),
+    maxFrameQueries: positiveIntegerInRange(
+      value.maxFrameQueries,
+      VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_QUERIES_V2,
+      'VIDEO_SOURCE_CONFORM_QUERY_LIMIT_INVALID',
+    ),
+  };
+}
+
+function normalizeTimestampConformEpochsV2(
+  value: readonly PresentationEpochV1[],
+  streamId: string,
+  sourceTimebase: ExactRationalRateV1,
+): readonly PresentationEpochV1[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 4096) {
+    throw new Error('VIDEO_SOURCE_CONFORM_EPOCHS_INVALID');
+  }
+  const epochs = value.map((epoch) => parsePresentationEpochV1(epoch));
+  const seen = new Set<string>();
+  for (const epoch of epochs) {
+    if (seen.has(epoch.epochId) || epoch.streamId !== streamId
+      || !sameRateV2(epoch.secondsPerSourceTick, sourceTimebase)) {
+      throw new Error('VIDEO_SOURCE_CONFORM_EPOCH_SCOPE_INVALID');
+    }
+    seen.add(epoch.epochId);
+  }
+  return epochs;
+}
+
+function normalizeTimestampConformFramesV2(
+  value: readonly VideoSourceTimestampConformFrameV2[],
+  sourceBinding: VerifiedVideoSourceTimeBindingV1,
+  epochs: readonly PresentationEpochV1[],
+  maximum: number,
+): readonly VideoSourceTimestampConformFrameV2[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new Error('VIDEO_SOURCE_CONFORM_SOURCE_FRAMES_INVALID');
+  }
+  const epochById = new Map(epochs.map((epoch) => [epoch.epochId, epoch]));
+  const totalSourceFrameCount = BigInt(nonNegativeIntegerText(
+    sourceBinding.totalSourceFrameCount,
+    'VIDEO_SOURCE_TIME_BINDING_INVALID',
+  ));
+  const frames = value.map((frame) => {
+    if (!frame || typeof frame !== 'object') {
+      throw new Error('VIDEO_SOURCE_CONFORM_SOURCE_FRAME_INVALID');
+    }
+    const normalized = {
+      sourceFrameOrdinal: nonNegativeIntegerText(
+        frame.sourceFrameOrdinal,
+        'VIDEO_SOURCE_CONFORM_FRAME_ORDINAL_INVALID',
+      ),
+      epochId: boundedText(frame.epochId, 'VIDEO_SOURCE_CONFORM_FRAME_EPOCH_INVALID'),
+      presentationTimestampTicks: integerText(
+        frame.presentationTimestampTicks,
+        'VIDEO_SOURCE_CONFORM_FRAME_PTS_INVALID',
+      ).toString(),
+      durationTicks: positiveIntegerText(
+        frame.durationTicks,
+        'VIDEO_SOURCE_CONFORM_FRAME_DURATION_INVALID',
+      ),
+    };
+    const epoch = epochById.get(normalized.epochId);
+    const start = BigInt(normalized.presentationTimestampTicks);
+    const end = start + BigInt(normalized.durationTicks);
+    if (!epoch || start < BigInt(epoch.sourceStartPresentationTimestampTicks)
+      || end > BigInt(epoch.sourceEndExclusivePresentationTimestampTicks)
+      || BigInt(normalized.sourceFrameOrdinal) >= totalSourceFrameCount) {
+      throw new Error('VIDEO_SOURCE_CONFORM_FRAME_OUTSIDE_EVIDENCE');
+    }
+    if (sourceBinding.sourceCadence.kind === 'CFR'
+      && normalized.durationTicks !== sourceBinding.sourceCadence.durationTicks) {
+      throw new Error('VIDEO_SOURCE_CONFORM_CFR_DURATION_MISMATCH');
+    }
+    return normalized;
+  });
+  for (let index = 1; index < frames.length; index += 1) {
+    const previous = frames[index - 1]!;
+    const current = frames[index]!;
+    if (BigInt(current.sourceFrameOrdinal) !== BigInt(previous.sourceFrameOrdinal) + BigInt(1)) {
+      throw new Error('VIDEO_SOURCE_CONFORM_FRAME_ORDINAL_GAP');
+    }
+    if (current.epochId === previous.epochId
+      && BigInt(current.presentationTimestampTicks)
+        !== BigInt(previous.presentationTimestampTicks) + BigInt(previous.durationTicks)) {
+      throw new Error('VIDEO_SOURCE_CONFORM_UNDECLARED_DISCONTINUITY');
+    }
+  }
+  return frames;
+}
+
+function normalizeTimestampConformQueriesV2(
+  value: readonly string[],
+  timelineStartFrame: string,
+  maximum: number,
+): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new Error('VIDEO_SOURCE_CONFORM_QUERIES_INVALID');
+  }
+  const start = BigInt(timelineStartFrame);
+  const queries = value.map((query) => nonNegativeIntegerText(
+    query,
+    'VIDEO_SOURCE_CONFORM_QUERY_INVALID',
+  ));
+  if (queries.some((query, index) => BigInt(query) < start
+    || (index > 0 && BigInt(query) <= BigInt(queries[index - 1]!)))) {
+    throw new Error('VIDEO_SOURCE_CONFORM_QUERY_ORDER_INVALID');
+  }
+  return queries;
+}
+
+function timestampConformIntervalV2(
+  frame: VideoSourceTimestampConformFrameV2,
+  epoch: PresentationEpochV1,
+): TimestampConformIntervalV2 {
+  const startPts = BigInt(frame.presentationTimestampTicks);
+  const start = canonicalTimeForSourcePtsV2(epoch, startPts);
+  const end = canonicalTimeForSourcePtsV2(epoch, startPts + BigInt(frame.durationTicks));
+  if (compareFractionV2(start, end) >= 0) {
+    throw new Error('VIDEO_SOURCE_CONFORM_FRAME_INTERVAL_INVALID');
+  }
+  return { frame, start, end };
+}
+
+function selectTimestampConformIntervalV2(
+  intervals: readonly TimestampConformIntervalV2[],
+  target: ExactFractionV2,
+): Readonly<{
+  interval: TimestampConformIntervalV2;
+  selection: 'COVERING_PRESENTATION' | 'NEAREST_PREVIOUS' | 'NEAREST_NEXT';
+}> {
+  if (compareFractionV2(target, intervals[0]!.start) < 0
+    || compareFractionV2(target, intervals[intervals.length - 1]!.end) >= 0) {
+    throw new Error('VIDEO_SOURCE_CONFORM_QUERY_OUTSIDE_WINDOW');
+  }
+  const covering = intervals.find((interval) => compareFractionV2(target, interval.start) >= 0
+    && compareFractionV2(target, interval.end) < 0);
+  if (covering) return { interval: covering, selection: 'COVERING_PRESENTATION' };
+  const nextIndex = intervals.findIndex((interval) => compareFractionV2(interval.start, target) > 0);
+  const previous = intervals[nextIndex - 1];
+  const next = intervals[nextIndex];
+  if (!previous || !next) throw new Error('VIDEO_SOURCE_CONFORM_GAP_UNRESOLVED');
+  const previousDistance = subtractFractionV2(target, previous.end);
+  const nextDistance = subtractFractionV2(next.start, target);
+  return compareFractionV2(previousDistance, nextDistance) <= 0
+    ? { interval: previous, selection: 'NEAREST_PREVIOUS' }
+    : { interval: next, selection: 'NEAREST_NEXT' };
+}
+
+function createTimestampConformAudioMappingV2(
+  input: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+  }>,
+  projectRate: ExactRationalRateV1,
+  timelineStartFrame: string,
+): NonNullable<VideoSourceTimestampConformV2['audioMapping']> {
+  const sourceRange = parseAudioSampleRangeV1(input.sourceRange);
+  const sourceAnchorSampleFrame = nonNegativeIntegerText(
+    input.sourceAnchorSampleFrame,
+    'VIDEO_SOURCE_CONFORM_AUDIO_ANCHOR_INVALID',
+  );
+  const endExclusiveTimelineFrame = nonNegativeIntegerText(
+    input.endExclusiveTimelineFrame,
+    'VIDEO_SOURCE_CONFORM_AUDIO_TIMELINE_END_INVALID',
+  );
+  const timelineFrameCount = BigInt(endExclusiveTimelineFrame) - BigInt(timelineStartFrame);
+  if (timelineFrameCount <= BigInt(0)) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_TIMELINE_RANGE_INVALID');
+  }
+  const start = fractionV2(BigInt(sourceAnchorSampleFrame), BigInt(1));
+  const duration = fractionV2(
+    timelineFrameCount * BigInt(projectRate.denominator) * BigInt(sourceRange.sampleRate),
+    BigInt(projectRate.numerator),
+  );
+  const end = addFractionV2(start, duration);
+  if (BigInt(sourceAnchorSampleFrame) < BigInt(sourceRange.startSampleFrame)
+    || compareFractionV2(end, fractionV2(BigInt(sourceRange.endExclusiveSampleFrame), BigInt(1))) > 0) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_RANGE_INSUFFICIENT');
+  }
+  return {
+    sourceRange,
+    sourceAnchorSampleFrame,
+    endExclusiveTimelineFrame,
+    startSamplePosition: exactAudioSamplePositionV2(start),
+    endExclusiveSamplePosition: exactAudioSamplePositionV2(end),
+  };
+}
+
+function canonicalTimeForSourcePtsV2(
+  epoch: PresentationEpochV1,
+  presentationTimestampTicks: bigint,
+): ExactFractionV2 {
+  const canonicalStart = fractionV2(
+    BigInt(epoch.canonicalStartTime.ticks),
+    BigInt(epoch.canonicalStartTime.timescale),
+  );
+  const delta = fractionV2(
+    (presentationTimestampTicks - BigInt(epoch.sourceStartPresentationTimestampTicks))
+      * BigInt(epoch.secondsPerSourceTick.numerator),
+    BigInt(epoch.secondsPerSourceTick.denominator),
+  );
+  return addFractionV2(canonicalStart, delta);
+}
+
+function exactAudioSamplePositionV2(value: ExactFractionV2): ExactAudioSamplePositionV2 {
+  return {
+    numerator: value.numerator.toString(),
+    denominator: value.denominator.toString(),
+    disposition: value.denominator === BigInt(1)
+      ? 'INTEGER_SAMPLE_FRAME'
+      : 'BETWEEN_SAMPLE_FRAMES',
+  };
+}
+
+function canonicalTimeFromFractionV2(value: ExactFractionV2): CanonicalMediaTimeV1 {
+  return { ticks: value.numerator.toString(), timescale: value.denominator.toString() };
+}
+
+function fractionV2(numerator: bigint, denominator: bigint): ExactFractionV2 {
+  if (denominator <= BigInt(0)) throw new Error('VIDEO_SOURCE_CONFORM_FRACTION_INVALID');
+  const divisor = greatestCommonDivisorV2(numerator, denominator);
+  return { numerator: numerator / divisor, denominator: denominator / divisor };
+}
+
+function addFractionV2(left: ExactFractionV2, right: ExactFractionV2): ExactFractionV2 {
+  return fractionV2(
+    left.numerator * right.denominator + right.numerator * left.denominator,
+    left.denominator * right.denominator,
+  );
+}
+
+function subtractFractionV2(left: ExactFractionV2, right: ExactFractionV2): ExactFractionV2 {
+  return fractionV2(
+    left.numerator * right.denominator - right.numerator * left.denominator,
+    left.denominator * right.denominator,
+  );
+}
+
+function compareFractionV2(left: ExactFractionV2, right: ExactFractionV2): -1 | 0 | 1 {
+  const leftCross = left.numerator * right.denominator;
+  const rightCross = right.numerator * left.denominator;
+  return leftCross < rightCross ? -1 : leftCross > rightCross ? 1 : 0;
+}
+
+function greatestCommonDivisorV2(left: bigint, right: bigint): bigint {
+  let a = left < BigInt(0) ? -left : left;
+  let b = right;
+  while (b !== BigInt(0)) [a, b] = [b, a % b];
+  return a === BigInt(0) ? BigInt(1) : a;
+}
+
+function sameRateV2(left: ExactRationalRateV1, right: ExactRationalRateV1): boolean {
+  const normalizedLeft = parseExactRationalRateV1(left);
+  const normalizedRight = parseExactRationalRateV1(right);
+  return normalizedLeft.numerator === normalizedRight.numerator
+    && normalizedLeft.denominator === normalizedRight.denominator;
+}
+
+function sha256Text(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error(code);
+  return value;
+}
+
+function nonNegativeIntegerText(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,127})$/.test(value)) throw new Error(code);
+  return BigInt(value).toString();
+}
+
+function positiveIntegerText(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^[1-9][0-9]{0,127}$/.test(value)) throw new Error(code);
+  return BigInt(value).toString();
+}
+
+function positiveIntegerInRange(value: unknown, maximum: number, code: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0 || Number(value) > maximum) {
+    throw new Error(code);
+  }
+  return Number(value);
 }
 
 function boundedText(value: unknown, code: string): string {
