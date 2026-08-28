@@ -25,6 +25,16 @@ import {
   type MediaSourcePtsCadenceMapAssetStateInputV2,
 } from './media-source-pts-cadence-map-asset-state-v2';
 import {
+  readMediaSourcePtsCadencePresentationWindowV2,
+  type MediaSourcePtsCadenceFrameBatchReaderV2,
+  type MediaSourcePtsCadencePresentationWindowResourcePolicyV2,
+  type MediaSourcePtsCadencePresentationWindowResultV2,
+  type MediaSourcePtsCadencePresentationWindowV2,
+} from './media-source-pts-cadence-index-verifier-v2';
+import type {
+  MediaSourcePtsCadenceManifestIndexSerializationV2,
+} from './media-source-pts-cadence-manifest-index-v2';
+import {
   assertMediaSourceVersionV1,
 } from './media-source-version-v1';
 import type { ProjectRevisionV1 } from './project-service';
@@ -70,7 +80,9 @@ export type VideoSourceTimestampConformV2 = Readonly<{
   kind: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2;
   writerAuthority: typeof PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1;
   policy: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2;
-  evidenceStatus: 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED';
+  evidenceStatus:
+    | 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED'
+    | 'HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW_CONSUMED_NOT_RENDERER_WIRED';
   sourceBindingSha256: string;
   sourceVersionSha256: string;
   mapBindingSha256: string;
@@ -100,6 +112,45 @@ export type VideoSourceTimestampConformV2 = Readonly<{
   }> | null;
   transformSha256: string;
 }>;
+
+export type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
+  | {
+      disposition: 'CONFORM_CREATED';
+      presentationWindow: MediaSourcePtsCadencePresentationWindowV2;
+      transform: VideoSourceTimestampConformV2;
+    }
+  | Extract<MediaSourcePtsCadencePresentationWindowResultV2, { disposition: 'UNVERIFIABLE' }>
+>;
+
+type VideoSourceTimestampConformInputV2 = Readonly<{
+  sourceBinding: VerifiedVideoSourceTimeBindingV1;
+  presentationWindowEvidenceSha256: string;
+  presentationWindowEvidenceStatus:
+    | 'PRE_RESOLVED_FIXTURE_ONLY'
+    | 'HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW';
+  streamId: string;
+  epochs: readonly PresentationEpochV1[];
+  sourceFrames: readonly VideoSourceTimestampConformFrameV2[];
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  timelineFrameQueries: readonly string[];
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  audio?: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+  }>;
+  proxyMasterMapping?: Readonly<{
+    disposition: 'UNQUALIFIED';
+    relationSha256: string;
+  }>;
+}>;
+
+type PreResolvedVideoSourceTimestampConformInputV2 = Readonly<
+  Omit<VideoSourceTimestampConformInputV2, 'presentationWindowEvidenceStatus'>
+  & { presentationWindowEvidenceStatus: 'PRE_RESOLVED_FIXTURE_ONLY' }
+>;
 
 export type VerifiedVideoSourceTimeBindingV1 = Readonly<{
   schemaVersion: 1;
@@ -249,28 +300,19 @@ export function resolveVerifiedVideoSourceTimeBindingV1(
  * deliberately rejected because that owner still declares its PTS mapping
  * unqualified.
  */
-export function createVideoSourceTimestampConformV2(input: Readonly<{
-  sourceBinding: VerifiedVideoSourceTimeBindingV1;
-  presentationWindowEvidenceSha256: string;
-  presentationWindowEvidenceStatus: 'PRE_RESOLVED_FIXTURE_ONLY';
-  streamId: string;
-  epochs: readonly PresentationEpochV1[];
-  sourceFrames: readonly VideoSourceTimestampConformFrameV2[];
-  projectRate: ExactRationalRateV1;
-  timelineStartFrame: string;
-  timelineFrameQueries: readonly string[];
-  sourceAnchor: SourcePositionV1;
-  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
-  audio?: Readonly<{
-    sourceRange: AudioSampleRangeV1;
-    sourceAnchorSampleFrame: string;
-    endExclusiveTimelineFrame: string;
-  }>;
-  proxyMasterMapping?: Readonly<{
-    disposition: 'UNQUALIFIED';
-    relationSha256: string;
-  }>;
-}>): VideoSourceTimestampConformV2 {
+export function createVideoSourceTimestampConformV2(
+  input: PreResolvedVideoSourceTimestampConformInputV2,
+): VideoSourceTimestampConformV2 {
+  if (!input || typeof input !== 'object'
+    || input.presentationWindowEvidenceStatus !== 'PRE_RESOLVED_FIXTURE_ONLY') {
+    throw new Error('VIDEO_SOURCE_CONFORM_PRE_RESOLVED_EVIDENCE_STATUS_INVALID');
+  }
+  return createVideoSourceTimestampConformWithEvidenceV2(input);
+}
+
+function createVideoSourceTimestampConformWithEvidenceV2(
+  input: VideoSourceTimestampConformInputV2,
+): VideoSourceTimestampConformV2 {
   const sourceBinding = assertBinding(input.sourceBinding);
   if (input.proxyMasterMapping !== undefined) {
     sha256Text(
@@ -279,9 +321,9 @@ export function createVideoSourceTimestampConformV2(input: Readonly<{
     );
     throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
   }
-  if (input.presentationWindowEvidenceStatus !== 'PRE_RESOLVED_FIXTURE_ONLY') {
-    throw new Error('VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_STATUS_INVALID');
-  }
+  const evidenceStatus = timestampConformOutputEvidenceStatusV2(
+    input.presentationWindowEvidenceStatus,
+  );
   const presentationWindowEvidenceSha256 = sha256Text(
     input.presentationWindowEvidenceSha256,
     'VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_INVALID',
@@ -376,7 +418,7 @@ export function createVideoSourceTimestampConformV2(input: Readonly<{
     kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2,
     writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
     policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
-    evidenceStatus: 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED' as const,
+    evidenceStatus,
     sourceBindingSha256: sourceBinding.bindingSha256,
     sourceVersionSha256: sourceBinding.sourceVersionSha256,
     mapBindingSha256: sourceBinding.mapBindingSha256,
@@ -392,6 +434,82 @@ export function createVideoSourceTimestampConformV2(input: Readonly<{
     audioMapping,
   };
   return frozen({ ...material, transformSha256: hashEditronCanonicalJsonV1(material) });
+}
+
+/**
+ * Binds an exact conform transform to bytes verified through the immutable V2
+ * manifest/sidecar owner. V2 persistence represents one contiguous PTS epoch,
+ * so this wrapper accepts exactly one explicit epoch and remains unwired from
+ * ProjectService, preview, and final render.
+ */
+export async function createVideoSourceTimestampConformFromManifestIndexV2(
+  input: Readonly<{
+    sourceBinding: VerifiedVideoSourceTimeBindingV1;
+    manifestIndex: MediaSourcePtsCadenceManifestIndexSerializationV2;
+    frameBatchReader: MediaSourcePtsCadenceFrameBatchReaderV2;
+    videoStreamIndex: number;
+    firstFrameOrdinal: string;
+    endExclusiveFrameOrdinal: string;
+    presentationWindowResourcePolicy: MediaSourcePtsCadencePresentationWindowResourcePolicyV2;
+    streamId: string;
+    epoch: PresentationEpochV1;
+    projectRate: ExactRationalRateV1;
+    timelineStartFrame: string;
+    timelineFrameQueries: readonly string[];
+    sourceAnchor: SourcePositionV1;
+    resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+    audio?: Readonly<{
+      sourceRange: AudioSampleRangeV1;
+      sourceAnchorSampleFrame: string;
+      endExclusiveTimelineFrame: string;
+    }>;
+    proxyMasterMapping?: Readonly<{
+      disposition: 'UNQUALIFIED';
+      relationSha256: string;
+    }>;
+  }>,
+): Promise<VideoSourceTimestampConformFromIndexResultV2> {
+  const sourceBinding = assertBinding(input.sourceBinding);
+  if (input.proxyMasterMapping !== undefined) {
+    sha256Text(
+      input.proxyMasterMapping.relationSha256,
+      'VIDEO_SOURCE_CONFORM_PROXY_MASTER_RELATION_INVALID',
+    );
+    throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
+  }
+  const presentationWindow = await readMediaSourcePtsCadencePresentationWindowV2({
+    manifestIndex: input.manifestIndex,
+    reader: input.frameBatchReader,
+    expectedSource: {
+      mapBindingSha256: sourceBinding.mapBindingSha256,
+      sourceVersionSha256: sourceBinding.sourceVersionSha256,
+      videoStreamIndex: input.videoStreamIndex,
+      sourceTimebase: parseExactRationalRateV1(sourceBinding.sourceTimebase),
+    },
+    firstFrameOrdinal: input.firstFrameOrdinal,
+    endExclusiveFrameOrdinal: input.endExclusiveFrameOrdinal,
+    resourcePolicy: input.presentationWindowResourcePolicy,
+  });
+  if (presentationWindow.disposition === 'UNVERIFIABLE') return presentationWindow;
+
+  const transform = createVideoSourceTimestampConformWithEvidenceV2({
+    sourceBinding,
+    presentationWindowEvidenceSha256: presentationWindow.presentationWindowEvidenceSha256,
+    presentationWindowEvidenceStatus: 'HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW',
+    streamId: input.streamId,
+    epochs: [input.epoch],
+    sourceFrames: presentationWindow.frames.map((frame) => ({
+      ...frame,
+      epochId: input.epoch.epochId,
+    })),
+    projectRate: input.projectRate,
+    timelineStartFrame: input.timelineStartFrame,
+    timelineFrameQueries: input.timelineFrameQueries,
+    sourceAnchor: input.sourceAnchor,
+    resourcePolicy: input.resourcePolicy,
+    ...(input.audio === undefined ? {} : { audio: input.audio }),
+  });
+  return frozen({ disposition: 'CONFORM_CREATED' as const, presentationWindow, transform });
 }
 
 export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
@@ -665,6 +783,18 @@ function normalizeTimestampConformResourcePolicyV2(
       'VIDEO_SOURCE_CONFORM_QUERY_LIMIT_INVALID',
     ),
   };
+}
+
+function timestampConformOutputEvidenceStatusV2(
+  value: unknown,
+): VideoSourceTimestampConformV2['evidenceStatus'] {
+  if (value === 'PRE_RESOLVED_FIXTURE_ONLY') {
+    return 'PURE_PRE_RESOLVED_WINDOW_CONTRACT_NOT_RUNTIME_WIRED';
+  }
+  if (value === 'HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW') {
+    return 'HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW_CONSUMED_NOT_RENDERER_WIRED';
+  }
+  throw new Error('VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_STATUS_INVALID');
 }
 
 function normalizeTimestampConformEpochsV2(

@@ -6340,6 +6340,44 @@ without changing the ProjectService writer boundary or silently qualifying
 proxy/master state. Dedicated live private-sidecar storage, relink and
 invalidation remain queue item 4.
 
+**Hash-verified contiguous PTS-window consumption Phase 3 (2026-08-29):**
+the existing V2 PTS index verifier now owns a bounded exact-ordinal window
+read. It parses the canonical manifest serialization, selects only intersecting
+immutable batches, rereads and verifies each selected batch's byte length,
+content hash, canonical payload and index descriptor, and binds the result to
+the expected map, source version, video stream and rational source timebase.
+The issued evidence also binds the requested half-open ordinal/PTS range,
+selected batch hashes and caller-declared resource policy. VFR picture
+durations and negative PTS are preserved exactly inside the current V2 index's
+single contiguous presentation epoch; no full-source scan is required for a
+small window.
+
+`createVideoSourceTimestampConformFromManifestIndexV2` is the only path in this
+phase allowed to convert that result into the
+`HASH_VERIFIED_CONTIGUOUS_V2_INDEX_WINDOW_CONSUMED_NOT_RENDERER_WIRED` status.
+The public pre-resolved fixture constructor cannot self-assert hash-verified
+evidence. A stale map stops before storage access; stale source/stream/timebase,
+unreadable or tampered selected bytes, out-of-index or over-budget windows stop
+without a transform; and an unqualified proxy/master relation stops before any
+sidecar read. The complete PTS-cadence plus source-time regression cluster
+passes 121/121, repository TypeScript passes, and repository-wide quiet ESLint
+passes.
+
+This is bounded consumption plumbing, not production mixed-rate completion.
+The frozen V2 sidecar/index format still enforces one contiguous PTS sequence
+and cannot persist timestamp resets, gaps or multiple presentation epochs. The
+wrapper is not called by the current media-asset/ProjectService boundary, so a
+runtime owner must still derive the current terminal manifest and source
+binding rather than accept caller-authored identity material. Preview and final
+render still address native media through integer source frames, and no
+timestamp decoder consumes this transform. Proxy/master mapping remains
+unqualified. Queue item 3 therefore remains open. Its next bounded subphase
+must design a successor epoch/discontinuity persistence contract without
+rewriting frozen V2 artifacts; a later bounded subphase must version the
+project/render input and add the timestamp-driven native-media consumer.
+Dedicated live private-sidecar storage, relink and invalidation remain queue
+item 4.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
