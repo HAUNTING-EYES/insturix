@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "studio_real_turns_disabled" }, { status: 503 });
   }
 
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
                     {
                       userId,
                       orgId: orgId ?? null,
-                      isOrgAdmin: Boolean(orgId),
+                      isOrgAdmin: Boolean(orgId && has?.({ role: "org:admin" })),
                       deliverableTitle: "Studio draft",
                       brandId: request.brandId ?? null,
                       ...state,

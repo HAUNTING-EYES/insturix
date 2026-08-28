@@ -53,7 +53,12 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Composer: upload + rights gate + honest progress | DONE — presign→PUT→register chain w/ attestation, pill state, error/dismiss (A1) |
 | Composer: unified media library + /api/studio/media | DONE — picker over editron/clickatron/TF/musitron; stock tab + auto-edit-from-attachment next (A2) |
 | Media attachment → auto-edit pipeline | DONE (A2) — from-asset bridge creates the project; reel artifact born running; editron telemetry polling (needs_input surfaces honestly, done/error mapped) |
-| ICP personas + per-screen task scripts (MatrAIx seam) | OPEN — MatrAIx R&D not in code; advisory-only |
+| ICP personas + per-screen task scripts (MatrAIx seam) | OPEN — deferred to testing phase per founder |
+| Org access: real isOrgAdmin in turn envelope | DONE — Clerk has({role:org:admin}) (census-caught bug) |
+| Trends chat surface (calos trends + opportunity queue + watch) | OPEN — CONNECTIVITY_MAP.md §Trends |
+| CalOS depth (decision/publish-status/client-view/references) | OPEN — CONNECTIVITY_MAP.md §CalOS |
+| ThinkForge refine+research (script/edit, url-brief, refinery, brand-dna, databank, AV, shot-plan, cards) | OPEN — CONNECTIVITY_MAP.md §ThinkForge |
+| Storyboard-as-conversation chain | OPEN — CONNECTIVITY_MAP.md §Storyboard |
 | Account shell seam | BRIDGED — /account/{billing,brands,avatars,connections,org} resolve to the real surfaces; own skin OPEN |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |
 
