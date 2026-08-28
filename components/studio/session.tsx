@@ -152,6 +152,18 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           originalText: lastTextRef.current ?? "",
         });
         break;
+      case "turn.ideas":
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "ideas",
+            id: `ideas_${ev.turnId}`,
+            turnId: ev.turnId,
+            ideas: ev.ideas,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        break;
       case "turn.done":
         setItems((prev) => [
           ...prev,

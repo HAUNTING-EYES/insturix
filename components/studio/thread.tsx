@@ -326,6 +326,35 @@ export function ThreadItems({
                 {item.riskLevel === "high" && onUndo && <UndoChip onUndo={onUndo} />}
               </div>
             );
+          case "ideas":
+            return (
+              <div key={item.id} className="stu-arts" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                {item.ideas.map((idea, n) => (
+                  <button
+                    key={idea.id}
+                    className="stu-amini"
+                    style={{ textAlign: "left" }}
+                    onClick={() => onQuickReply(`draft idea ${n + 1}: ${idea.idea.slice(0, 60)}`)}
+                  >
+                    <div className="pv" style={{ height: 84 }}>
+                      <div className="lines">
+                        <span className="h" style={{ width: "92%" }} />
+                        <span style={{ width: "72%" }} />
+                        <span style={{ width: "82%" }} />
+                        <span style={{ width: "55%" }} />
+                      </div>
+                    </div>
+                    <div className="mt" style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                      <span className="mn" style={{ fontWeight: 500, color: "var(--text)" }}>{n + 1}. {idea.idea.slice(0, 70)}</span>
+                      {idea.purpose && <span style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>{idea.purpose.slice(0, 90)}</span>}
+                      <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--dim)", textTransform: "uppercase", letterSpacing: ".04em" }}>
+                        {idea.tone ?? "editorial"}{idea.style ? ` · ${idea.style}` : ""}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            );
           case "quick_replies":
             return (
               <div className="stu-qr" key={item.id}>

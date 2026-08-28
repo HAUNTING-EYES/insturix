@@ -23,6 +23,9 @@ import { createThinkForgeSessionBrandBinding } from "@/lib/thinkforge/context/br
 import type { StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import type { StudioArtifact } from "@/lib/studio/contracts/objects";
 import { WRITE_DOMAIN_MANIFEST } from "./manifests/write";
+import { createIdeasAgent } from "@/lib/thinkforge/agents/ideas-agent";
+import { buildThinkForgeEditorialPlan } from "@/lib/thinkforge/agents/editorial-plan";
+import { resolveContentSignalProfile } from "@/lib/thinkforge/signals";
 
 const WRITE_TOOL = (name: string) => {
   const tool = WRITE_DOMAIN_MANIFEST.tools.find((t) => t.name === name);
@@ -134,6 +137,69 @@ export async function* runWriteTurn(
   await sleep(350);
   yield { type: "step.done", turnId, stepId: "w1", receipt: { label: mFormat.receiptLabel, detail: "from the brief", artifactIds: [], creditsConsumed: 0 } };
 
+  /* Minimal format routing: the engine requires a confirmed authoring
+   * request; the orchestrator infers the writer kind from the ask. Full
+   * signal-driven routing is the engine's resolver, not ours. */
+  const wantsVideo = /\b(reels?|video|script|explainer|shorts)\b/i.test(text);
+  const authoringRequest = wantsVideo
+    ? {
+        version: 1,
+        contentContract: { version: 1, documentKind: "script", outputKind: "video_script", artifactType: "screenplay" } as const,
+        platformSurface: { id: "instagram" } as const,
+        publishingSurface: "instagram_reels" as const,
+      }
+    : {
+        version: 1,
+        contentContract: { version: 1, documentKind: "post", outputKind: "social_post", artifactType: "social_post" } as const,
+        platformSurface: { id: "instagram" } as const,
+        publishingSurface: "instagram_feed" as const,
+        postControls: { version: 1, cta: { preference: "editorial" }, hashtags: { preference: "editorial" }, emoji: { preference: "editorial" } } as const,
+      };
+
+  /* ideation intent — the REAL ideas agent, no session needed */
+  if (/(give me \d? ?ideas?|brainstorm|ideas for)/i.test(text)) {
+    yield { type: "step.start", turnId, stepId: "w2", toolName: "ideas-agent", loadingMessage: "thinking up angles…" };
+    let brandIdI = ctx.brandId ?? null;
+    if (!brandIdI) {
+      const scopes = await listAuthorizedBrandScopes({ userId: ctx.userId, orgId: ctx.orgId });
+      brandIdI = scopes[0]?.brandId ?? null;
+    }
+    if (!brandIdI) {
+      yield { type: "turn.capability_gap", turnId, reason: "No brand set up — ideas are brand-grounded.", alternative: { description: "Create a brand in the vault first, then ask again.", proposedSteps: [] } };
+      return;
+    }
+    await CreditsMigrationService.ensureMigrated(ctx.userId);
+    const walletI = resolveContextBillingOwner(ctx.userId, ctx.orgId, isOrgWalletBillingEnabled());
+    const checkI = await checkCredits(ctx.userId, "thinkforge", "chat_message", {}, walletI);
+    if (!checkI.allowed) {
+      yield { type: "turn.error", turnId, message: "Not enough credits for ideation.", retryable: false, refundIssued: false };
+      return;
+    }
+    let deductedI: { transactionId: string } | null = null;
+    try {
+      deductedI = await checkI.deduct();
+      const signalProfile = resolveContentSignalProfile({ userPrompt: text, authoringRequest, brandId: brandIdI });
+      const editorialPlan = buildThinkForgeEditorialPlan({ userPrompt: text, authoringRequest, authorizedFactIds: [], sourceLedgerEntryIds: [] });
+      const ideas = await createIdeasAgent().generateIdeas(text, { authoringRequest, editorialPlan, brandId: brandIdI });
+      yield {
+        type: "step.done",
+        turnId,
+        stepId: "w2",
+        receipt: { label: "Ideas generated", detail: `${ideas.length} angles`, riskLevel: "medium", artifactIds: [], creditsConsumed: getCreditCost("thinkforge", "chat_message") },
+      };
+      yield {
+        type: "turn.ideas",
+        turnId,
+        ideas: ideas.map((i, n) => ({ id: i.id ?? `idea_${n + 1}`, idea: i.idea, purpose: i.purpose, style: i.style, tone: i.tone })),
+      };
+      yield { type: "turn.done", turnId, summary: "Four angles — pick one and I'll draft it on brand.", creditsConsumedTotal: getCreditCost("thinkforge", "chat_message"), artifactIds: [] };
+    } catch (error) {
+      if (deductedI) await checkI.refund(`ideation failed: ${error instanceof Error ? error.message : "unknown"}`);
+      yield { type: "turn.error", turnId, message: error instanceof Error ? error.message : "ideation failed", retryable: true, refundIssued: Boolean(deductedI) };
+    }
+    return;
+  }
+
   /* step 2 — brand scope + session */
   yield { type: "step.start", turnId, stepId: "w2", toolName: mSession.name };
   let brandId = ctx.brandId ?? null;
@@ -162,25 +228,6 @@ export async function* runWriteTurn(
     };
     return;
   }
-
-  /* Minimal format routing: the engine requires a confirmed authoring
-   * request; the orchestrator infers the writer kind from the ask. Full
-   * signal-driven routing is the engine's resolver, not ours. */
-  const wantsVideo = /\b(reels?|video|script|explainer|shorts)\b/i.test(text);
-  const authoringRequest = wantsVideo
-    ? {
-        version: 1,
-        contentContract: { version: 1, documentKind: "script", outputKind: "video_script", artifactType: "screenplay" } as const,
-        platformSurface: { id: "instagram" } as const,
-        publishingSurface: "instagram_reels" as const,
-      }
-    : {
-        version: 1,
-        contentContract: { version: 1, documentKind: "post", outputKind: "social_post", artifactType: "social_post" } as const,
-        platformSurface: { id: "instagram" } as const,
-        publishingSurface: "instagram_feed" as const,
-        postControls: { version: 1, cta: { preference: "editorial" }, hashtags: { preference: "editorial" }, emoji: { preference: "editorial" } } as const,
-      };
 
   const session = await db.getOrCreateSession(
     ctx.userId,

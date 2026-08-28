@@ -36,7 +36,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 ## Feature absorption (per disposition matrix §3)
 | Surface | Status |
 |---|---|
-| ThinkForge ideation/trends/URL-brief as turns | OPEN |
+| ThinkForge ideation as turns | BRIDGED — REAL ideas agent (editorial-plan + signals chain), idea cards in thread, click-to-draft; trends/URL-brief OPEN |
 | ThinkForge→Editron storyboard export edge | OPEN |
 | Editron auto-edit (upload→8 stages→needs_input) | OPEN |
 | Checkpoints/undo in thread | BRIDGED — high-risk receipts render red + undo chip → restore checkpoint turn via edit bridge |

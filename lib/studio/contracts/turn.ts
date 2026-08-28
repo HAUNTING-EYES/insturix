@@ -186,6 +186,19 @@ export const StudioTurnEventSchema = z.discriminatedUnion("type", [
       .default([]),
   }),
   z.object({
+    type: z.literal("turn.ideas"),
+    turnId: z.string(),
+    ideas: z.array(
+      z.object({
+        id: z.string(),
+        idea: z.string(),
+        purpose: z.string().optional(),
+        style: z.string().optional(),
+        tone: z.string().optional(),
+      }),
+    ),
+  }),
+  z.object({
     type: z.literal("turn.done"),
     turnId: z.string(),
     summary: z.string(),

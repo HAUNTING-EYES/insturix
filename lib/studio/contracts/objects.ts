@@ -207,6 +207,21 @@ export const StudioThreadItemSchema = z.discriminatedUnion("kind", [
     createdAt: z.string().datetime(),
   }),
   z.object({
+    kind: z.literal("ideas"),
+    id: z.string(),
+    turnId: z.string().optional(),
+    ideas: z.array(
+      z.object({
+        id: z.string(),
+        idea: z.string(),
+        purpose: z.string().optional(),
+        style: z.string().optional(),
+        tone: z.string().optional(),
+      }),
+    ),
+    createdAt: z.string().datetime(),
+  }),
+  z.object({
     kind: z.literal("quick_replies"),
     id: z.string(),
     options: z.array(z.string()),
