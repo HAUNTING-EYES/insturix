@@ -11,7 +11,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Capability | Status | Evidence |
 |---|---|---|
 | write | WIRED (direct lib calls) | prod live-loop: 0.2cr, 43-word draft, persisted script |
-| edit | BRIDGED (chat/stream SSE) | synthetic smoke PASS; receipts from registry labels; live-loop needs a seeded reel in the deliverable |
+| edit | VERIFIED on production — Home row → hydrated session → real editor in stage → read-only turn → live agent picked get_timeline_view, registry receipt 'Read timeline' rendered (screenshot edit-live-loop.png; engine autosave 'markers' 400 is pre-existing, not bridge) |
 | design | BRIDGED (session create) | prod quote card verified (9cr real math); confirm continuation reworked serverless-safe |
 | distribute | WIRED (suggestCadence direct) | dev smoke PASS (linkedin 3x/wk + rationale) |
 | analyze | BRIDGED (analyze submit + polling) | queued artifact resolves from real task status; report render still MOCK |
