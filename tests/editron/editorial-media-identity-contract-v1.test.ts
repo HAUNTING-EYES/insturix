@@ -29,12 +29,6 @@ describe('EditorialMediaIdentityContractV1', () => {
     ['SOURCE_RANGE_INVALID', (value: ReturnType<typeof qualifiedIdentity>) => {
       value.source.range = { startTick: '1000', endExclusiveTick: '1000' };
     }],
-    ['SOURCE_TIMEBASE_RATE_UNSAFE_INTEGER', (value: ReturnType<typeof qualifiedIdentity>) => {
-      value.source.timebase.ticksPerSecond = { numerator: '9007199254740992', denominator: '1' };
-    }],
-    ['SOURCE_RANGE_UNSAFE_INTEGER', (value: ReturnType<typeof qualifiedIdentity>) => {
-      value.source.range = { startTick: '0', endExclusiveTick: '9007199254740992' };
-    }],
     ['REEL_TIMECODE_DELIMITER_MISMATCH', (value: ReturnType<typeof qualifiedIdentity>) => {
       value.source.reelTimecode.dropFrame = true;
     }],
@@ -51,6 +45,33 @@ describe('EditorialMediaIdentityContractV1', () => {
     expect(verifyEditorialMediaIdentityContractV1(value)).toMatchObject({
       status: 'FAIL',
       diagnostics: expect.arrayContaining([diagnostic]),
+    });
+  });
+
+  it('preserves qualified rate and PTS integers beyond JavaScript safe range', () => {
+    const value = qualifiedIdentity();
+    value.source.timebase.ticksPerSecond = {
+      numerator: '9007199254740993', denominator: '1',
+    };
+    value.source.range = {
+      startTick: '9007199254740993',
+      endExclusiveTick: '90071992547409931234567890',
+    };
+
+    expect(parseEditorialMediaIdentityContractV1(value)).toMatchObject({
+      source: {
+        timebase: { ticksPerSecond: { numerator: '9007199254740993' } },
+        range: { endExclusiveTick: '90071992547409931234567890' },
+      },
+    });
+  });
+
+  it('rejects integer text beyond the defensive exact-domain bound', () => {
+    const value = qualifiedIdentity();
+    value.source.range.endExclusiveTick = '1'.repeat(129);
+
+    expect(verifyEditorialMediaIdentityContractV1(value)).toEqual({
+      status: 'FAIL', diagnostics: ['SCHEMA_INVALID'],
     });
   });
 
