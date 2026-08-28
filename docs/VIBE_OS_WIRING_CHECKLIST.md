@@ -38,7 +38,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 |---|---|
 | ThinkForge ideation as turns | BRIDGED — REAL ideas agent (editorial-plan + signals chain), idea cards in thread, click-to-draft; trends/URL-brief OPEN |
 | ThinkForge→Editron storyboard export edge | OPEN |
-| Editron auto-edit (upload→8 stages→needs_input) | OPEN |
+| Editron auto-edit in-thread | BRIDGED — pipeline runs from composer media; in-thread 8-stage visuals + needs_input CARD (vs stage text) still A3 |
 | Checkpoints/undo in thread | BRIDGED — high-risk receipts render red + undo chip → restore checkpoint turn via edit bridge |
 | SaaS explainer flow | OPEN |
 | Clickatron variations polling → artifact done-state | DONE — useArtifactPolling (4s, real telemetry, honest percent) |
@@ -52,7 +52,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Open a Home row → hydrated session | DONE — /api/studio/deliverables/[id] seeds artifacts + stage (script content, reel→editor) |
 | Composer: upload + rights gate + honest progress | DONE — presign→PUT→register chain w/ attestation, pill state, error/dismiss (A1) |
 | Composer: unified media library + /api/studio/media | DONE — picker over editron/clickatron/TF/musitron; stock tab + auto-edit-from-attachment next (A2) |
-| Attachment roles through orchestrator planners | OPEN — contract exists (attachments[]); planner wiring next |
+| Media attachment → auto-edit pipeline | DONE (A2) — from-asset bridge creates the project; reel artifact born running; editron telemetry polling (needs_input surfaces honestly, done/error mapped) |
 | ICP personas + per-screen task scripts (MatrAIx seam) | OPEN — MatrAIx R&D not in code; advisory-only |
 | Account shell seam | BRIDGED — /account/{billing,brands,avatars,connections,org} resolve to the real surfaces; own skin OPEN |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |

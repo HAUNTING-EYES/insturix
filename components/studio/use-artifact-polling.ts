@@ -23,6 +23,30 @@ interface AlyzitronTask {
 }
 
 async function pollOne(artifact: StudioArtifact): Promise<Partial<StudioArtifact> | null> {
+  if (artifact.sourceRef.engine === "editron") {
+    try {
+      const res = await fetch(`/api/services/editron/projects/${artifact.sourceRef.externalId}`);
+      if (!res.ok) return null;
+      const data = (await res.json()) as { project?: Record<string, unknown> };
+      const p = data.project;
+      if (!p) return null;
+      const auto = String(p.autoEditStatus ?? "");
+      const status = String(p.status ?? "");
+      if (auto === "needs_review" || status === "rendered" || status === "published") {
+        return { status: "done", progress: null };
+      }
+      if (auto === "needs_input") {
+        return { progress: { stage: "needs more footage — open the auto-edit page to feed it beats", percent: null } };
+      }
+      if (auto === "scan_failed" || auto === "failed" || status === "failed") {
+        return { status: "error", progress: null };
+      }
+      const stage = String(p.pipelineStage ?? auto ?? status ?? "processing");
+      return { progress: { stage, percent: null } };
+    } catch {
+      return null;
+    }
+  }
   if (artifact.sourceRef.engine === "clickatron") {
     try {
       const res = await fetch(`/api/services/clickatron/session/${artifact.sourceRef.externalId}`);

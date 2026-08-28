@@ -6,6 +6,7 @@ import { runEditTurn } from "@/lib/studio/orchestrator/edit";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
+import { runAutoEditTurn } from "@/lib/studio/orchestrator/auto-edit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +64,9 @@ export async function POST(req: Request) {
   const editProjectId = reelAttachment?.ref ?? null;
   const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
   const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute;
+  /* A2: a composer media attachment routes to the auto-edit pipeline
+   * (unless a real project is already the target via a reel attachment). */
+  const mediaAttachment = request.attachments.find((a) => a.role === "media");
   const wantsAnalyze = /\b(analyz|teardown|score|audit|grade)\b/i.test(request.text) && !editProjectId && !wantsDistribute && !wantsDesign;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
@@ -85,24 +89,30 @@ export async function POST(req: Request) {
               request.text,
               req.signal,
             )
+          : mediaAttachment
+            ? runAutoEditTurn(
+                { userId, orgId: orgId ?? null, assetId: mediaAttachment.ref, assetLabel: mediaAttachment.ref.slice(0, 24), brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin },
+                request.text,
+                req.signal,
+              )
           : wantsDistribute
             ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
             : wantsDesign
               ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
               : wantsAnalyze
                 ? runAnalyzeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAcceptedQuoteId)
-            : runWriteTurn(
-                {
-                  userId,
-                  orgId: orgId ?? null,
-                  isOrgAdmin: Boolean(orgId),
-                  deliverableTitle: "Studio draft",
-                  brandId: request.brandId ?? null,
-                  ...state,
-                },
-                request.text,
-                req.signal,
-              );
+                : runWriteTurn(
+                    {
+                      userId,
+                      orgId: orgId ?? null,
+                      isOrgAdmin: Boolean(orgId),
+                      deliverableTitle: "Studio draft",
+                      brandId: request.brandId ?? null,
+                      ...state,
+                    },
+                    request.text,
+                    req.signal,
+                  );
         for await (const event of events) {
           send(event);
         }
