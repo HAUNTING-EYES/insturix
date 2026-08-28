@@ -176,7 +176,13 @@ function makeInput(overrides: Partial<PlanVideoTreatmentInput> = {}): PlanVideoT
 
 function modelOutputFrom(treatment: VideoTreatment): VideoTreatmentModelOutput {
   const copy = structuredClone(treatment);
-  const { version: _version, treatmentId: _treatmentId, decisionTrace, ...rest } = copy;
+  const {
+    version: _version,
+    treatmentId: _treatmentId,
+    audiovisualIntent: _audiovisualIntent,
+    decisionTrace,
+    ...rest
+  } = copy;
   const {
     inputFingerprint: _inputFingerprint,
     brand: _brand,
@@ -299,7 +305,52 @@ describe('video treatment planner', () => {
     expect(request.systemInstruction).toContain('<creative_content_knowledge_retrieval>');
     expect(request.systemInstruction).toContain('constraint:overlay.visual_clutter');
     expect(request.systemInstruction).not.toContain(result.treatment.treatmentId);
+    for (const label of [
+      'talking head',
+      'product film',
+      'documentary',
+      'explainer',
+      'cinematic',
+    ]) {
+      expect(request.cacheSystemInstruction.toLowerCase()).not.toContain(label);
+    }
+    expect(request.cacheSystemInstruction).not.toMatch(/\b(?:ad|ugc)\b/i);
+    expect(request.cacheSystemInstruction).toContain('semantic evidence');
+    expect(request.cacheSystemInstruction).toContain('non-authoritative metadata');
     expect(request.thinkingBudgetTokens).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['Spanish label', 'Quiero un documental experimental sobre nuestra marca.'],
+    ['Hindi label', 'हमारे उत्पाद के लिए एक सिनेमाई विज्ञापन बनाओ।'],
+    ['Japanese label', 'これはプロダクトフィルムです。'],
+    ['unusual invented form', 'Create a chlorophyll opera for our launch.'],
+  ])('keeps a label-only %s request inside untrusted data without local acquisition inference', async (_caseName, userPrompt) => {
+    let capturedRequest: Parameters<NonNullable<VideoTreatmentPlannerDependencies['generate']>>[0] | undefined;
+    const result = await planVideoTreatment(makeInput({ userPrompt }), {
+      cache: memoryCache(),
+      generate: async (request) => {
+        capturedRequest = request;
+        return {
+          result: modelOutputFrom(abstractExplainerTreatment),
+          cacheStatus: 'inline',
+          modelName: 'gemini-test',
+        };
+      },
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    });
+
+    if (!capturedRequest) throw new Error('Expected video treatment generator to receive a request.');
+    expect(capturedRequest.prompt).toContain(userPrompt);
+    expect(result.treatment.audiovisualIntent).toEqual({
+      version: 1,
+      audibleSpeech: 'unspecified',
+      onCameraSpeech: 'unspecified',
+      visiblePerson: 'unspecified',
+      physicalCapture: 'unspecified',
+    });
+    expect(result.treatment.captureRequirements).toEqual([]);
   });
 
   it('accepts only server-declared mandatory writing constraint provenance', async () => {

@@ -36,11 +36,20 @@ import {
   type ScriptWriterModelOutput,
   type ScriptWriterV3ModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
-import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
+import {
+  buildThinkForgeEditorialPlan,
+  type ThinkForgeScriptEditorialPlanArtifact,
+} from '@/lib/thinkforge/agents/editorial-plan';
 import { mapScriptSidecarToEditronExport } from '@/lib/thinkforge/export/script-sidecar-to-editron';
-import { executeLongFormScriptAction } from '@/lib/thinkforge/long-form/script-generation-execution';
+import {
+  executeLongFormScriptAction,
+  isRetryableLongFormScriptActionError,
+} from '@/lib/thinkforge/long-form/script-generation-execution';
 import { diagnoseThinkForgeDocumentEvidence } from '@/lib/thinkforge/operations/operational-diagnostics';
 import {
+  LONG_FORM_SCRIPT_JOB_VERSION,
+  createLongFormScriptJobDedupeKey,
+  normalizeLongFormScriptJobError,
   type LongFormScriptGenerationJobSnapshot,
 } from '@/lib/thinkforge/long-form/script-generation-job-contract';
 import { buildScriptShotPlan } from '@/lib/thinkforge/production/build-script-shot-plan';
@@ -216,14 +225,23 @@ function chapterResult(input: {
               emotionalBeat: 'Attentive clarity.',
               energy: 0.35,
               visualPriority: 'The hands, material changes, and retained revision mark.',
-              action: 'still',
+              action: 'demonstrating',
               desiredFraming: 'medium',
               desiredAngle: 'eye-level',
               desiredMovement: 'static',
               movementMotivation: '',
-              simultaneousPerformers: 0,
+              simultaneousPerformers: 1,
               spokenAudio: false,
-              performance: [],
+              performance: [{
+                characterId: 'narrator',
+                stance: 'standing',
+                emotion: 'attentive clarity',
+                intensity: 0.35,
+                gaze: 'toward the material and revision mark',
+                posture: 'upright beside the confirmed work surface',
+                gesture: 'indicate the current revision detail',
+                movement: 'remain on the confirmed subject mark',
+              }],
               continuity: { wardrobe: [], props: ['tools', 'revision mark'], previousSceneIds: [] },
             },
             sourceRefs: [],
@@ -247,6 +265,7 @@ function chapterResultV3(input: {
   sceneId: string;
   durationSeconds: number;
   treatmentEventIds: string[];
+  treatment: typeof longFormTreatment;
 }) {
   const output: ScriptWriterV3ModelOutput = {
     contentAnalysis: {
@@ -296,7 +315,7 @@ function chapterResultV3(input: {
   };
   return materializeScriptWriterV3Result(
     output,
-    longFormTreatment,
+    input.treatment,
     { mode: 'chapter', chapterId: input.chapterId },
     undefined,
     input.treatmentEventIds,
@@ -305,7 +324,7 @@ function chapterResultV3(input: {
 
 function jobFixture(): {
   job: LongFormScriptGenerationJobSnapshot;
-  editorialPlan: ReturnType<typeof buildThinkForgeEditorialPlan>;
+  editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   sourceLedger: SourceLedger;
 } {
   const brief = productionBrief();
@@ -325,38 +344,50 @@ function jobFixture(): {
   });
   if (editorialPlan.writerKind !== 'script') throw new Error('Expected a script editorial plan fixture.');
 
+  const input: LongFormScriptGenerationJobSnapshot['input'] = {
+    userId: 'user_1',
+    orgId: 'org_1',
+    sessionId: 'session_1',
+    generationId: 'generation_1',
+    scriptId: 'script_1',
+    baseVersion: 0,
+    authoringContext: {
+      projectMeta: { brandId: 'brand_1' },
+      retrievedContext: { projectFacts: [], globalFacts: [], semanticFacts: [], interactionPatterns: [] },
+      creativeReferenceContext: {
+        version: 1,
+        referenceSet: { version: 1, referenceSetId: 'creative_refs_empty', references: [] },
+        scope: { kind: 'personal', ownerUserId: 'user_1', brandId: 'brand_1' },
+        sources: [],
+        selectedReferenceIds: [],
+        analyzedReferenceIds: [],
+        unresolved: [],
+        brandRevision: null,
+      },
+      systemBrief: 'Author from the accepted brand context and the user request.',
+      snapshot: { profile: { recordId: 'profile_1', revision: 5, checksum: 'c'.repeat(64) } },
+    } as never,
+    authoringInput: {
+      context: { projectSummary: 'A documentary about visible daily practice.' },
+      userPrompt,
+      authoringRequest,
+      editorialPlan,
+      productionBrief: brief,
+      sourceLedger,
+    } as never,
+    signalTrace: { outputFormat: 'video_script', goal: 'documentary', angle: 'observational' } as never,
+  };
+
   return {
     job: {
       id: 'longscript_provider_stub_e2e',
-      version: 1,
-      dedupeKey: 'd'.repeat(64),
+      version: LONG_FORM_SCRIPT_JOB_VERSION,
+      dedupeKey: createLongFormScriptJobDedupeKey(input),
       userId: 'user_1',
       orgId: 'org_1',
       sessionId: 'session_1',
       generationId: 'generation_1',
-      input: {
-        userId: 'user_1',
-        orgId: 'org_1',
-        sessionId: 'session_1',
-        generationId: 'generation_1',
-        scriptId: 'script_1',
-        baseVersion: 0,
-        authoringContext: {
-          projectMeta: { brandId: 'brand_1' },
-          retrievedContext: { projectFacts: [], globalFacts: [], semanticFacts: [], interactionPatterns: [] },
-          systemBrief: 'Author from the accepted brand context and the user request.',
-          snapshot: { profile: { recordId: 'profile_1', revision: 5, checksum: 'c'.repeat(64) } },
-        } as never,
-        authoringInput: {
-          context: { projectSummary: 'A documentary about visible daily practice.' },
-          userPrompt,
-          authoringRequest,
-          editorialPlan,
-          productionBrief: brief,
-          sourceLedger,
-        } as never,
-        signalTrace: { outputFormat: 'video_script', goal: 'documentary', angle: 'observational' } as never,
-      },
+      input,
       status: 'running',
       stage: 'planning',
       dispatchCount: 1,
@@ -393,10 +424,27 @@ function shootKitProfile() {
       noiseFloor: 'quiet',
     }],
     equipment: [
-      { id: 'phone', label: 'Phone camera', category: 'camera', kind: 'phone', availability: 'owned', preferred: true },
+      {
+        id: 'phone',
+        label: 'Phone camera',
+        category: 'camera',
+        kind: 'phone',
+        availability: 'owned',
+        preferred: true,
+        focalLengthEquivalentMm: { min: 24, max: 28 },
+      },
       { id: 'tripod', label: 'Phone tripod', category: 'support', kind: 'tripod', availability: 'owned', maxHeightM: 1.8 },
     ],
-    people: { performersAvailable: 1, cameraOperatorsAvailable: 0, assistantsAvailable: 0, selfShoot: true },
+    people: {
+      performersAvailable: 1,
+      cameraOperatorsAvailable: 0,
+      assistantsAvailable: 0,
+      selfShoot: true,
+      subjectCalibration: {
+        source: 'user-measured',
+        eyeHeightMByStance: { standing: 1.61 },
+      },
+    },
     constraints: {
       currency: 'INR',
       maxIncrementalSpend: 0,
@@ -654,10 +702,16 @@ describe('long-form ThinkForge provider-stub E2E', () => {
   it('preserves an approved V3 semantic treatment through durable chapter assembly and commit', async () => {
     const fixture = jobFixture();
     const treatment = structuredClone(longFormTreatment);
+    treatment.audiovisualIntent.audibleSpeech = 'required';
+    treatment.decisionTrace.sourceRefs = ['brief_user'];
+    treatment.visualEvents[0]!.sourceRefs = ['brief_user'];
+    fixture.editorialPlan.execution.plan.audiovisualIntent = structuredClone(treatment.audiovisualIntent);
     fixture.job.input.authoringInput = {
       ...fixture.job.input.authoringInput,
+      editorialPlan: fixture.editorialPlan,
       videoTreatment: treatment,
     };
+    fixture.job.dedupeKey = createLongFormScriptJobDedupeKey(fixture.job.input);
     const plan = masterPlan();
     plan.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['event_long_form_anchor'];
     const trace = buildThinkForgeWriterInvocationTrace({
@@ -679,6 +733,10 @@ describe('long-form ThinkForge provider-stub E2E', () => {
       const execution = input.chapterExecution;
       if (!execution) throw new Error('Chapter writer must receive the server-owned assignment.');
       expect(input.videoTreatment).toEqual(treatment);
+      const prompt = new ScriptWriterAgent().buildPromptParts(input).prompt;
+      expect(prompt).toContain('"audibleSpeech": "required"');
+      expect(prompt).toContain('"targetDurationSeconds": 420');
+      expect(prompt).toContain(`"targetDurationSeconds": ${execution.chapterId === 'chapter_preparation' ? 180 : 240}`);
       const chapter = execution.plan.acts
         .flatMap((act) => act.chapters.map((candidate) => ({ actId: act.id, chapter: candidate })))
         .find((candidate) => candidate.chapter.id === execution.chapterId);
@@ -691,6 +749,7 @@ describe('long-form ThinkForge provider-stub E2E', () => {
           sceneId: scene.id,
           durationSeconds: scene.durationIntentSeconds,
           treatmentEventIds: [...(scene.treatmentEventIds ?? [])],
+          treatment,
         }),
         metadata: { writerTrace: trace },
       } as never;
@@ -726,8 +785,18 @@ describe('long-form ThinkForge provider-stub E2E', () => {
       throw new Error('Expected a materialized V3 long-form script.');
     }
     expect(assembled.result.metadata.estimatedTimeSeconds).toBe(420);
-    expect(assembled.result.sidecar.acts.flatMap((act) => act.narrativeScenes).flatMap((scene) => scene.beats)
-      .flatMap((beat) => beat.visualEvents.map((event) => event.id))).toEqual(['event_long_form_anchor']);
+    const assembledEvents = assembled.result.sidecar.acts
+      .flatMap((act) => act.narrativeScenes)
+      .flatMap((scene) => scene.beats)
+      .flatMap((beat) => beat.visualEvents);
+    expect(assembled.result.sidecar.treatment).toEqual({
+      treatmentId: treatment.treatmentId,
+      treatmentVersion: treatment.version,
+      inputFingerprint: treatment.decisionTrace.inputFingerprint,
+    });
+    expect(assembledEvents.map((event) => event.treatmentEventId)).toEqual(['event_long_form_anchor']);
+    expect(assembledEvents[0]?.sourceRefs).toEqual(['brief_user']);
+    expect(assembled.result.sidecar.sourceRefs).toContain('brief_user');
     expect(JSON.stringify(assembled.result.sidecar)).not.toContain('shotIntent');
     expect(JSON.stringify(assembled.result.sidecar)).not.toContain('renderPlan');
 
@@ -750,5 +819,64 @@ describe('long-form ThinkForge provider-stub E2E', () => {
     const persistedSidecar = persistedWriterOutput?.scriptSidecar;
     expect(persistedSidecar?.sidecarVersion).toBe(3);
     expect(persistedWriterOutput?.videoTreatment).toEqual(treatment);
+  });
+
+  it('rejects changed V3 identity, audiovisual intent, or source provenance before planning', async () => {
+    const fixture = jobFixture();
+    const treatment = structuredClone(longFormTreatment);
+    treatment.audiovisualIntent.audibleSpeech = 'required';
+    treatment.decisionTrace.sourceRefs = ['brief_user'];
+    treatment.visualEvents[0]!.sourceRefs = ['brief_user'];
+    fixture.editorialPlan.execution.plan.audiovisualIntent = structuredClone(treatment.audiovisualIntent);
+    fixture.job.input.authoringInput = {
+      ...fixture.job.input.authoringInput,
+      editorialPlan: fixture.editorialPlan,
+      videoTreatment: treatment,
+    };
+    fixture.job.dedupeKey = createLongFormScriptJobDedupeKey(fixture.job.input);
+    const planAgent = vi.spyOn(ScriptChapterPlanAgent.prototype, 'generatePlan');
+
+    const changedFingerprint = structuredClone(fixture.job);
+    changedFingerprint.input.authoringInput.videoTreatment!.decisionTrace.inputFingerprint = 'changed_fingerprint';
+    const integrityError = await executeLongFormScriptAction({
+      job: changedFingerprint,
+      action: { kind: 'plan' },
+    }).then(() => null, (error: unknown) => error);
+    expect(integrityError).toMatchObject({
+      name: 'LongFormScriptJobInputIntegrityError',
+      code: 'LONG_FORM_SCRIPT_INPUT_INTEGRITY_INVALID',
+      failures: ['immutable_input_hash_mismatch'],
+    });
+    expect(isRetryableLongFormScriptActionError(integrityError)).toBe(false);
+    expect(normalizeLongFormScriptJobError(integrityError, 'planning', false)).toMatchObject({
+      code: 'LONG_FORM_SCRIPT_INPUT_INTEGRITY_INVALID',
+      retryable: false,
+      stage: 'planning',
+    });
+
+    const removedTreatment = structuredClone(fixture.job);
+    delete removedTreatment.input.authoringInput.videoTreatment;
+    await expect(executeLongFormScriptAction({
+      job: removedTreatment,
+      action: { kind: 'plan' },
+    })).rejects.toThrow(/immutable_input_hash_mismatch/);
+
+    const changedIntent = structuredClone(fixture.job);
+    changedIntent.input.authoringInput.editorialPlan.execution.plan.audiovisualIntent.audibleSpeech = 'forbidden';
+    changedIntent.dedupeKey = createLongFormScriptJobDedupeKey(changedIntent.input);
+    await expect(executeLongFormScriptAction({
+      job: changedIntent,
+      action: { kind: 'plan' },
+    })).rejects.toThrow(/audiovisual_intent_mismatch/);
+
+    const changedSource = structuredClone(fixture.job);
+    changedSource.input.authoringInput.videoTreatment!.visualEvents[0]!.sourceRefs = ['forged_source'];
+    changedSource.dedupeKey = createLongFormScriptJobDedupeKey(changedSource.input);
+    await expect(executeLongFormScriptAction({
+      job: changedSource,
+      action: { kind: 'plan' },
+    })).rejects.toThrow(/unknown_source_ref:forged_source/);
+
+    expect(planAgent).not.toHaveBeenCalled();
   });
 });

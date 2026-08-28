@@ -203,6 +203,7 @@ function buildThinkForgeE2EVideoTreatmentFixture(data: Record<string, unknown>) 
       momentId: `moment_approval_${index + 1}`,
       audienceJob: SCRIPT_SCENES[index]!.narrativePurpose,
       visualThesis: 'Clarify the current decision relationship without prescribing footage, graphics, layout, or camera form.',
+      visiblePerson: 'unspecified' as const,
       audioRelationship: 'complement' as const,
       timingNote: 'Appears with the narrative turn and clears once the next decision becomes the focus.',
       continuityNotes: ['Keep the approval-path relationship coherent across the full narrative.'],

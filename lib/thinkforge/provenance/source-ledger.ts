@@ -202,22 +202,46 @@ function entryBase(input: BuildThinkForgeSourceLedgerInput) {
   };
 }
 
+type RetrievedFactLedgerKind = Extract<
+  SourceLedgerEntryKind,
+  'project_fact' | 'global_fact' | 'research_source' | 'upload'
+>;
+
+function resolvedFactLedgerKind(
+  fact: SemanticFact,
+  fallbackKind: Extract<RetrievedFactLedgerKind, 'project_fact' | 'global_fact'>,
+): RetrievedFactLedgerKind {
+  if (fact.dataBankType === 'reference' && fact.sourceEntryId) return 'upload';
+  if (
+    fact.dataBankType === 'research'
+    || fact.dataBankType === 'url_brief'
+    || (fact.dataBankType === 'reference' && fact.source)
+  ) {
+    return 'research_source';
+  }
+  return fallbackKind;
+}
+
 function factEntry(
   fact: SemanticFact,
-  kind: Extract<SourceLedgerEntryKind, 'project_fact' | 'global_fact'>,
+  fallbackKind: Extract<RetrievedFactLedgerKind, 'project_fact' | 'global_fact'>,
   referenceId: string,
   input: BuildThinkForgeSourceLedgerInput,
 ): SourceLedgerEntry {
+  const kind = resolvedFactLedgerKind(fact, fallbackKind);
+  const sourceId = kind === 'upload' && fact.sourceEntryId
+    ? fact.sourceEntryId
+    : fact.id;
   return {
     referenceId,
     kind,
     title: cleanText(fact.title || fact.id || referenceId, 160) || referenceId,
     summary: cleanText(fact.summary || fact.title || fact.id || referenceId, MAX_SOURCE_TEXT_CHARS) || referenceId,
-    sourceId: cleanText(fact.id, 160) || referenceId,
+    sourceId: cleanText(sourceId, 160) || referenceId,
     ...(fact.source ? { sourceUrl: cleanText(fact.source, 500) } : {}),
-    confidence: kind === 'project_fact' ? 0.95 : 0.85,
+    confidence: fallbackKind === 'project_fact' ? 0.95 : 0.85,
     provenance: {
-      origin: kind,
+      origin: fact.dataBankType ? `databank_${fact.dataBankType}` : fallbackKind,
       ...entryBase(input),
     },
   };

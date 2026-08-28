@@ -81,6 +81,7 @@ export function assessScriptEvidenceSufficiency(
     || editorialPlan.runtime.targetDurationSeconds < SOURCE_BOUNDED_LONG_FORM_START_SECONDS
     || editorialPlan.narration.wordBudgetPolicy !== 'guided'
     || editorialPlan.narration.mode === 'minimal'
+    || editorialPlan.narration.mode === 'none'
     || !input.sourceLedger
   ) {
     return { status: 'not_applicable' };

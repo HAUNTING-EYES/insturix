@@ -31,6 +31,7 @@ function profile() {
         kind: 'phone' as const,
         availability: 'owned' as const,
         preferred: true,
+        focalLengthEquivalentMm: { min: 24, max: 28 },
         orientations: ['landscape', 'portrait'] as const,
       },
       {
@@ -55,6 +56,12 @@ function profile() {
       cameraOperatorsAvailable: 0,
       assistantsAvailable: 0,
       selfShoot: true,
+      subjectCalibration: {
+        source: 'user-measured' as const,
+        eyeHeightMByStance: {
+          standing: 1.61,
+        },
+      },
     },
     constraints: {
       currency: 'INR',
@@ -260,7 +267,7 @@ describe('Shot Guide adversarial battle matrix', () => {
     expect(parseShotPlan(structuredClone(result.plan))).toEqual(result.plan);
   });
 
-  it('supports performer-free B-roll without fabricating audio or performer marks', () => {
+  it('blocks legacy performer-free geometry instead of inventing a subject plane', () => {
     const result = resolveSceneShotPlan({
       profile: profile(),
       intent: intent({
@@ -271,12 +278,11 @@ describe('Shot Guide adversarial battle matrix', () => {
         performance: [],
       }),
     });
-    expect(result.status).toBe('resolved');
-    if (result.status !== 'resolved') return;
-
-    expect(result.plan.scenes[0]?.performance).toEqual([]);
-    expect(result.plan.setupGroups[0]?.performerMarks).toEqual([]);
-    expect(result.plan.setupGroups[0]?.audioMarks).toEqual([]);
+    expect(result).toMatchObject({
+      status: 'needs-user-input',
+      blockers: [expect.objectContaining({ code: 'subject_calibration' })],
+    });
+    expect(JSON.stringify(result)).not.toContain('normalized');
   });
 
   it('rejects unknown continuity aliases instead of silently dropping them', () => {

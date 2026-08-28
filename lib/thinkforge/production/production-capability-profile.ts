@@ -17,6 +17,7 @@ const EquipmentBaseShape = {
 export const ProductionSpaceSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
+  preferred: z.boolean().default(false),
   dimensionsM: z.object({
     width: z.number().finite().positive().max(100),
     depth: z.number().finite().positive().max(100),
@@ -92,6 +93,21 @@ export const ProductionEquipmentSchema = z.discriminatedUnion('category', [
   }).strict(),
 ]);
 
+const SubjectEyeHeightSchema = z.number().finite().min(0.1).max(3);
+const SubjectCalibrationSchema = z.object({
+  source: z.enum(['user-measured', 'live-preview']),
+  eyeHeightMByStance: z.object({
+    seated: SubjectEyeHeightSchema.optional(),
+    standing: SubjectEyeHeightSchema.optional(),
+    walking: SubjectEyeHeightSchema.optional(),
+    floor: SubjectEyeHeightSchema.optional(),
+    custom: SubjectEyeHeightSchema.optional(),
+  }).strict().refine(
+    (measurements) => Object.values(measurements).some((value) => value !== undefined),
+    { message: 'subject calibration requires at least one measured eye height' },
+  ),
+}).strict();
+
 export const ProductionCapabilityProfileSchema = z.object({
   version: z.number().int().default(PRODUCTION_CAPABILITY_PROFILE_VERSION),
   profileId: z.string().min(1).optional(),
@@ -102,6 +118,7 @@ export const ProductionCapabilityProfileSchema = z.object({
     cameraOperatorsAvailable: z.number().int().min(0).max(100).default(0),
     assistantsAvailable: z.number().int().min(0).max(100).default(0),
     selfShoot: z.boolean().default(false),
+    subjectCalibration: SubjectCalibrationSchema.optional(),
   }).strict().default({
     performersAvailable: 0,
     cameraOperatorsAvailable: 0,
@@ -154,6 +171,17 @@ export const ProductionCapabilityProfileSchema = z.object({
       }
       seen.add(value.id);
     });
+  }
+
+  const preferredSpaceIndexes = profile.spaces.flatMap((space, index) => (
+    space.preferred ? [index] : []
+  ));
+  if (preferredSpaceIndexes.length > 1) {
+    preferredSpaceIndexes.forEach((index) => ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['spaces', index, 'preferred'],
+      message: 'only one production space may be preferred',
+    }));
   }
 
   if (profile.constraints.maxIncrementalSpend === 0

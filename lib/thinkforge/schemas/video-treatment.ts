@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  AudiovisualConstraintSchema,
+  createUnspecifiedAudiovisualIntent,
+  ThinkForgeAudiovisualIntentSchema,
+} from './audiovisual-intent';
 
 export const VIDEO_TREATMENT_VERSION = 1 as const;
 export const CREATIVE_REFERENCE_SET_VERSION = 1 as const;
@@ -241,6 +246,7 @@ export const VisualEventSchema = z.object({
   momentId: IdentifierSchema,
   audienceJob: NonEmptyTextSchema,
   visualThesis: NonEmptyTextSchema,
+  visiblePerson: AudiovisualConstraintSchema.default('unspecified'),
   audioRelationship: z.enum(['anchor', 'complement', 'counterpoint', 'replace']),
   timingNote: NonEmptyTextSchema,
   continuityNotes: NonEmptyTextListSchema,
@@ -267,6 +273,7 @@ const ModelCaptureRequirementSchema = z.object({
 const ModelVisualEventSchema = VisualEventSchema.extend({
   audienceJob: ModelTreatmentSummarySchema,
   visualThesis: ModelTreatmentDetailSchema,
+  visiblePerson: AudiovisualConstraintSchema,
   timingNote: ModelTreatmentSummarySchema,
   continuityNotes: boundedModelTextList(12),
   sourceRefs: boundedModelTextList(32, 160),
@@ -291,6 +298,10 @@ const VideoTreatmentObjectSchema = z.object({
   continuityStrategy: NonEmptyTextSchema,
   audioVoiceStrategy: NonEmptyTextSchema,
   userConstraints: NonEmptyTextListSchema,
+  // Server-owned intake truth. Historical treatments default to no explicit constraints.
+  audiovisualIntent: ThinkForgeAudiovisualIntentSchema.default(
+    createUnspecifiedAudiovisualIntent(),
+  ),
   visualEvents: z.array(VisualEventSchema).min(1),
   captureRequirements: z.array(CaptureRequirementSchema).default([]),
   decisionTrace: VideoTreatmentDecisionTraceSchema,
@@ -305,7 +316,58 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
   validateUniqueIds(ctx, treatment.captureRequirements, 'captureRequirements', 'capture requirement');
 
   const captureRequirementIds = new Set(treatment.captureRequirements.map((requirement) => requirement.id));
+  const usedCaptureRequirementIds = new Set(treatment.visualEvents.flatMap(
+    (event) => event.captureRequirementIds,
+  ));
   const creativeReferenceIds = new Set(treatment.decisionTrace.creativeReferenceIds);
+  const physicalRequirements = treatment.captureRequirements.filter(
+    (requirement) => requirement.captureKind === 'physical-camera',
+  );
+  const visiblePersonEvents = treatment.visualEvents.filter(
+    (event) => event.visiblePerson === 'required',
+  );
+
+  if (treatment.audiovisualIntent.physicalCapture === 'forbidden' && physicalRequirements.length > 0) {
+    addIssue(
+      ctx,
+      ['captureRequirements'],
+      'Physical capture is forbidden by the resolved audiovisual intent.',
+    );
+  }
+  if (treatment.audiovisualIntent.physicalCapture === 'required' && physicalRequirements.length === 0) {
+    addIssue(
+      ctx,
+      ['captureRequirements'],
+      'Physical capture is required but no physical-camera requirement was declared.',
+    );
+  }
+  if (
+    treatment.audiovisualIntent.visiblePerson === 'forbidden'
+    && physicalRequirements.some((requirement) => requirement.requiredCapabilities.includes('performer'))
+  ) {
+    addIssue(
+      ctx,
+      ['captureRequirements'],
+      'A performer capture cannot be required when visible people are forbidden.',
+    );
+  }
+  if (
+    treatment.audiovisualIntent.visiblePerson === 'forbidden'
+    && treatment.visualEvents.some((event) => event.visiblePerson !== 'forbidden')
+  ) {
+    addIssue(
+      ctx,
+      ['visualEvents'],
+      'Every visual event must explicitly forbid visible people when the resolved intent forbids them.',
+    );
+  }
+  if (treatment.audiovisualIntent.visiblePerson === 'required' && visiblePersonEvents.length === 0) {
+    addIssue(
+      ctx,
+      ['visualEvents'],
+      'At least one visual event must require a visible person when the resolved intent requires one.',
+    );
+  }
 
   treatment.visualEvents.forEach((event, index) => {
     event.captureRequirementIds.forEach((captureRequirementId, requirementIndex) => {
@@ -327,6 +389,16 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
   });
 
   treatment.captureRequirements.forEach((requirement, index) => {
+    // V1 visual events have always owned capture-requirement references. An
+    // unowned requirement has no executable moment, so never guess a link or
+    // silently discard it while reading a persisted treatment.
+    if (!usedCaptureRequirementIds.has(requirement.id)) {
+      addIssue(
+        ctx,
+        ['captureRequirements', index, 'id'],
+        `Capture requirement "${requirement.id}" is not linked to any visual event.`,
+      );
+    }
     validateDeclaredReferences(
       ctx,
       requirement.creativeReferenceIds,
@@ -346,6 +418,7 @@ export const VideoTreatmentModelOutputSchema = VideoTreatmentObjectSchema
   .omit({
     version: true,
     treatmentId: true,
+    audiovisualIntent: true,
     decisionTrace: true,
   })
   .extend({

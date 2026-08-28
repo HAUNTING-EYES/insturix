@@ -77,6 +77,14 @@ export interface WritingContextStructuredGenerationResult<TOutput> {
   modelName: string;
 }
 
+export class ThinkForgeIncompleteStructuredOutputError extends Error {
+  constructor(readonly finishReason: string) {
+    super(`No object generated: provider reported an incomplete structured response (${finishReason}).`);
+    // Existing bounded recovery paths recognize the AI SDK's no-object contract.
+    this.name = 'AI_NoObjectGeneratedError';
+  }
+}
+
 interface ResolvedWritingContext {
   cacheName?: string;
   cacheStatus: WritingContextGenerationResult['cacheStatus'];
@@ -941,6 +949,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   let sentPromptChars: number | undefined;
   let sentSystemInstructionChars: number | undefined;
   let providerAttemptCount = 0;
+  let generatedOutputChars: number | undefined;
+  let generatedUsage: GeminiWritingContextUsage | undefined;
 
   try {
     const dispatch = prepareThinkForgeProviderPromptDispatch({
@@ -994,7 +1004,11 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
         deadline,
       );
     }, WRITING_OVERLOAD_RETRY_DELAY_MS, deadline.abortSignal);
-    const outputChars = JSON.stringify(generation.object).length;
+    generatedOutputChars = JSON.stringify(generation.object).length;
+    generatedUsage = await readAiSdkUsage(generation.usage);
+    if (generation.finishReason && generation.finishReason !== 'stop') {
+      throw new ThinkForgeIncompleteStructuredOutputError(generation.finishReason);
+    }
     recordThinkForgeWritingContextCost({
       status: 'success',
       modelName,
@@ -1002,9 +1016,9 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       cacheStatus: context.cacheStatus,
       userInputChars: sentPromptChars,
       systemInstructionChars: sentSystemInstructionChars,
-      outputChars,
+      outputChars: generatedOutputChars,
       functionMs: Date.now() - startedAt,
-      usage: await readAiSdkUsage(generation.usage),
+      usage: generatedUsage,
       privacyAudit,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
       providerRequestCount: providerAttemptCount,
@@ -1028,7 +1042,9 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       cacheStatus: context.cacheStatus,
       userInputChars: sentPromptChars,
       systemInstructionChars: sentSystemInstructionChars,
+      outputChars: generatedOutputChars,
       functionMs: Date.now() - startedAt,
+      usage: generatedUsage,
       privacyAudit: failedAudit,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
       providerRequestCount: providerAttemptCount,

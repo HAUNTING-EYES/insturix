@@ -1427,7 +1427,7 @@ describe('ScriptWriterAgent evidence readiness', () => {
     );
     const readiness = source.indexOf('assertScriptEvidenceSufficiency({');
     const longFormDispatch = source.indexOf('handoffChapteredScriptGenerationIfRequired({');
-    const writerDispatch = source.indexOf('writer.runStructured(baseInput as ScriptWriterInput');
+    const writerDispatch = source.indexOf('writer.runStructured(scriptInput, undefined, abortSignal)');
 
     expect(readiness).toBeGreaterThan(-1);
     expect(readiness).toBeLessThan(longFormDispatch);

@@ -50,6 +50,7 @@ import { PostWriterAgent, PostWriterResultSchema } from '@/lib/thinkforge/agents
 import {
   ScriptWriterAgent,
   ScriptWriterModelOutputSchema,
+  ScriptWriterV3ModelOutputSchema,
   type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
@@ -66,6 +67,7 @@ import {
   ThinkForgeEvalProviderBudget,
 } from '@/lib/thinkforge/eval/provider-budget';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
+import { longFormTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 function nativeV2CacheOutput(): ScriptWriterModelOutput {
   return {
@@ -175,12 +177,15 @@ function buildAutoFixturePrompt(
   const isScript = kind === 'script';
   return buildIsolatedPromptParts({
     systemInstruction: isScript
-      ? '<script_writer_contract>Return a native Sidecar V2 script.</script_writer_contract>'
+      ? '<script_writer_contract>Return a semantic Sidecar V3 script bound to the approved treatment.</script_writer_contract>'
       : `${kind === 'carousel' ? '<carousel_contract>Return the requested slide deck.</carousel_contract>\n' : ''}<post_control_contract>Return the requested post contract.</post_control_contract>`,
     data: {
       brandContext,
       ...(isScript
-        ? { authoringDestination: { outputKind: 'video_script' } }
+        ? {
+            authoringDestination: { outputKind: 'video_script' },
+            videoTreatment: longFormTreatment,
+          }
         : { postEditorialPlan: { platform: 'LinkedIn' } }),
     },
   });
@@ -545,6 +550,36 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(Object.keys(evalFailure)).not.toContain('rejectedOutput');
   });
 
+  it('rejects a schema-valid object when the provider reports an incomplete finish', async () => {
+    const incompleteObject = { output: 'Structurally valid but provider-truncated copy' };
+    sdkMocks.generateObject.mockResolvedValueOnce({
+      object: incompleteObject,
+      finishReason: 'length',
+      usage: { inputTokens: 780, outputTokens: 1_908, totalTokens: 9_220 },
+    });
+
+    await expect(generateStructuredWithWritingContextCache({
+      prompt: 'write a script',
+      schema: z.object({ output: z.string() }),
+    })).rejects.toMatchObject({
+      name: 'AI_NoObjectGeneratedError',
+      finishReason: 'length',
+    });
+
+    expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'failed',
+      units: {
+        inputTokens: 780,
+        outputTokens: 1_908,
+        totalTokens: 9_220,
+      },
+      metadata: expect.objectContaining({
+        errorClass: 'AI_NoObjectGeneratedError',
+        outputChars: JSON.stringify(incompleteObject).length,
+      }),
+    });
+  });
+
   it('uses a schema-validated post fixture only for an explicit non-production E2E run', async () => {
     enableE2EWriterFixture('post');
 
@@ -608,23 +643,33 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(sdkMocks.generateObject).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the script fixture on Sidecar v2 with a content-led seven-minute runtime', async () => {
+  it('keeps the script fixture on semantic Sidecar V3 with a content-led seven-minute runtime', async () => {
     enableE2EWriterFixture('script');
+    const parts = buildIsolatedPromptParts({
+      systemInstruction: '<script_writer_contract>Return a semantic Sidecar V3 script.</script_writer_contract>',
+      data: {
+        authoringDestination: { outputKind: 'video_script' },
+        videoTreatment: longFormTreatment,
+      },
+    });
 
     const fixture = await generateStructuredWithWritingContextCache({
-      prompt: 'Create a seven-minute montage-driven YouTube documentary.',
-      schema: ScriptWriterModelOutputSchema,
+      ...parts,
+      schema: ScriptWriterV3ModelOutputSchema,
     });
     const scenes = fixture.result.sidecar.acts.flatMap((act) => act.narrativeScenes);
     const durations = scenes.map((scene) => scene.durationIntentSeconds ?? 0);
+    const selectedTreatmentEventIds = scenes.flatMap((scene) => scene.beats)
+      .flatMap((beat) => beat.treatmentVisualEvents.map((event) => event.treatmentEventId));
 
     expect(fixture).toMatchObject({
       cacheStatus: 'inline',
       modelName: 'thinkforge-e2e-stub',
     });
-    expect(fixture.result.sidecar.sidecarVersion).toBe(2);
+    expect(fixture.result.sidecar.sidecarVersion).toBe(3);
     expect(fixture.result.sidecar.spokenTextSource).toBe('beat-lines');
-    expect(fixture.result.sidecar).not.toHaveProperty('renderPlan');
+    expect(JSON.stringify(fixture.result.sidecar)).not.toMatch(/shotIntent|visualIntent|renderPlan/i);
+    expect(selectedTreatmentEventIds).toEqual(longFormTreatment.visualEvents.map((event) => event.id));
     expect(scenes).toHaveLength(6);
     expect(durations.reduce((total, duration) => total + duration, 0)).toBe(420);
     expect(new Set(durations).size).toBeGreaterThan(1);
@@ -697,19 +742,22 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(sdkMocks.generateObject).not.toHaveBeenCalled();
   });
 
-  it('routes an auto native V2 script without deriving its runtime from a static mode', async () => {
+  it('routes an auto semantic V3 script without deriving its runtime from a static mode', async () => {
     enableE2EWriterFixture('auto');
     const parts = buildAutoFixturePrompt('script', FORMAL_E2E_BRAND_CONTEXT);
 
     const result = await generateStructuredWithWritingContextCache({
       ...parts,
-      schema: ScriptWriterModelOutputSchema,
+      schema: ScriptWriterV3ModelOutputSchema,
     });
     const scenes = result.result.sidecar.acts.flatMap((act) => act.narrativeScenes);
+    const selectedTreatmentEventIds = scenes.flatMap((scene) => scene.beats)
+      .flatMap((beat) => beat.treatmentVisualEvents.map((event) => event.treatmentEventId));
 
     expect(scenes[0]?.title).toContain(THINKFORGE_E2E_BRAND_MARKERS.formalPersonal);
     expect(scenes.reduce((total, scene) => total + (scene.durationIntentSeconds ?? 0), 0)).toBe(420);
-    expect(result.result.sidecar.sidecarVersion).toBe(2);
+    expect(result.result.sidecar.sidecarVersion).toBe(3);
+    expect(selectedTreatmentEventIds).toEqual(longFormTreatment.visualEvents.map((event) => event.id));
     expect(sdkMocks.createCache).not.toHaveBeenCalled();
     expect(sdkMocks.generateObject).not.toHaveBeenCalled();
   });

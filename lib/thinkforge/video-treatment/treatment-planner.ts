@@ -42,12 +42,12 @@ const VIDEO_TREATMENT_TEMPERATURE = 0.35;
 const VIDEO_TREATMENT_MAX_TOKENS = 20_480;
 const VIDEO_TREATMENT_THINKING_BUDGET_TOKENS = 4_096;
 const VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS = 2_048;
-// The provenance policy changed in V2. Do not revive cached V1 treatments
-// whose model-authored decision evidence was validated against the old policy.
-const VIDEO_TREATMENT_CACHE_VERSION = 2;
+// Trusted treatment policy is part of the cache contract. Never replay output
+// authored under an older semantic-evidence policy after that policy changes.
+const VIDEO_TREATMENT_CACHE_VERSION = 4;
 const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
 const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
-const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v2';
+const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v4';
 
 const TREATMENT_CONTEXT_DECISION_EVIDENCE = {
   authoringRequest: 'context_authoring_request',
@@ -290,6 +290,7 @@ export async function planVideoTreatment(
     inputFingerprint,
     treatmentId,
     input,
+    editorialPlan,
     knowledge,
     provenancePolicy,
   });
@@ -471,7 +472,12 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - Plan the entire video's audiovisual meaning before prose. The result is a semantic treatment, not a shot list or render plan.
 - Return only the structured model schema. The server owns treatment IDs, input fingerprints, Brand Vault revision provenance, and knowledge versions.
 - A visual event may coexist with spoken audio and another visual event inside one narrative moment. Do not flatten mixed media into a single asset recommendation.
-- Choose a capture requirement only when the approved brief genuinely needs original evidence or capture. Classify each requirement as physical-camera, screen-recording, source-asset, or unspecified. Use physical-camera only when the treatment genuinely needs a camera capture; then declare only the necessary user-confirmable capabilities from performer, camera, space, audio, and lighting. A conceptual, graphics-led, archive-led, or generated treatment can have zero capture requirements. If the evidence does not establish the acquisition kind, use unspecified, leave requiredCapabilities empty, and surface the missing decision as an unresolved question.
+- Obey tf_untrusted_data.editorialPlan.execution.plan.audiovisualIntent as four independent hard constraints. It is not a video-type label. "required" must be represented, "forbidden" must be absent, and "unspecified" leaves the creative decision open.
+- audibleSpeech covers every spoken line, including voice-over and synchronous dialogue. onCameraSpeech covers only visible synchronous speech. visiblePerson covers speaking and silent people. physicalCapture covers newly filming physical subjects; it does not include screen recording, supplied assets, stock, animation, graphics, or generated imagery.
+- Set every visualEvents[].visiblePerson independently. Under a global visiblePerson prohibition every event must say "forbidden"; under a requirement at least one event must say "required". Do not hide people inside free-text visualThesis while marking the structured field otherwise.
+- Genre, style, channel, campaign, and format labels are non-authoritative metadata. Never use a category label alone to decide speech, people, capture, or acquisition form.
+- Resolve unconstrained audiovisual choices from semantic evidence: explicit user constraints, approved source and reference evidence, Brand Vault boundaries, and the narrative or audience need. Cite the material evidence in decisionTrace; a label is not sufficient evidence.
+- Add a capture requirement only when a visual event needs named evidence or subject matter to be acquired. Set captureKind to physical-camera, screen-recording, source-asset, or unspecified according to how that evidence can actually be obtained. Use physical-camera only when the evidence must be newly recorded with a physical camera, and declare only user-confirmable capabilities from performer, camera, space, audio, and lighting. Capture requirements may be empty. If the evidence does not establish the acquisition mechanism, use unspecified, leave requiredCapabilities empty, and surface the missing decision as an unresolved question.
 - Do not prescribe a camera, lens, framing coordinate, room geometry, lighting position, equipment, asset query, visual layout, typography, keyframe, transition implementation, SFX token, render provider, or timeline segmentation. Editron owns final editorial form; Shoot Kit owns physical calibration after user confirmation.
 - Treat sourceLedger as the only factual source. Use only listed source reference IDs; no invented claims, proof, dates, statistics, outcomes, people, UI states, or logos.
 - Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
@@ -512,6 +518,7 @@ function materializeVideoTreatment(input: {
   inputFingerprint: string;
   treatmentId: string;
   input: PlanVideoTreatmentInput;
+  editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   knowledge: VideoTreatmentKnowledge;
   provenancePolicy: TreatmentTraceEvidencePolicy;
 }): VideoTreatment {
@@ -540,11 +547,17 @@ function materializeVideoTreatment(input: {
         profileFingerprint: snapshotBrand.profileFingerprint,
       }
     : undefined;
+  const audiovisualIntent = input.editorialPlan.execution.plan.audiovisualIntent;
+  const audioVoiceStrategy = audiovisualIntent.audibleSpeech === 'forbidden'
+    ? 'No intelligible speech. Use only non-verbal audio that serves the approved treatment.'
+    : input.modelOutput.audioVoiceStrategy;
 
   return parseVideoTreatment({
     version: VIDEO_TREATMENT_VERSION,
     treatmentId: input.treatmentId,
     ...input.modelOutput,
+    audioVoiceStrategy,
+    audiovisualIntent,
     decisionTrace: {
       ...modelDecisionTrace,
       inputFingerprint: input.inputFingerprint,

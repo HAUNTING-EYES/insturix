@@ -87,6 +87,18 @@ import {
 import {
   APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY,
 } from '../production/shoot-kit-snapshot';
+import {
+  PHYSICAL_CAPTURE_DESIGN_METADATA_KEY,
+  PhysicalCaptureDesignSchema,
+} from '../schemas/physical-capture-design';
+import {
+  TECHNICAL_CAPTURE_PLAN_METADATA_KEY,
+  TechnicalCapturePlanSchema,
+} from '../schemas/technical-capture-plan';
+import {
+  APPROVED_TECHNICAL_CAPTURE_SNAPSHOT_METADATA_KEY,
+  ApprovedTechnicalCaptureSnapshotSchema,
+} from '../schemas/capture-calibration-approval';
 
 // ==================== ThinkForge Database Connection ====================
 // Production uses the dedicated 'thinkforge_db' database. The explicit override is
@@ -1842,6 +1854,10 @@ type SaveCaptureAcquisitionDecisionSetResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Document conflict'; currentVersion: number };
 
+type SaveTechnicalCaptureArtifactResult =
+  | { ok: true; script: Script }
+  | { ok: false; error: 'Document conflict'; currentVersion: number };
+
 function clonePersistableScriptMetadata(
   metadata: NonNullable<Script['metadata']>,
 ): NonNullable<Script['metadata']> {
@@ -1862,7 +1878,160 @@ function metadataForDocumentWrite(
   const cloned = clonePersistableScriptMetadata(metadata ?? {});
   delete cloned[CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY];
   delete cloned[APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY];
+  delete cloned[PHYSICAL_CAPTURE_DESIGN_METADATA_KEY];
+  delete cloned[TECHNICAL_CAPTURE_PLAN_METADATA_KEY];
+  delete cloned[APPROVED_TECHNICAL_CAPTURE_SNAPSHOT_METADATA_KEY];
   return cloned;
+}
+
+export function buildTechnicalCapturePlanningWriteFilter(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  expectedAcquisitionDecisionSetHash: string | null;
+}): Record<string, unknown> {
+  const exactSessionId = input.sessionId.trim();
+  const exactScriptId = input.scriptId.trim();
+  if (!exactSessionId || exactSessionId !== input.sessionId) {
+    throw new Error('ThinkForge session ID must be a non-empty trimmed string');
+  }
+  if (!exactScriptId || exactScriptId !== input.scriptId) {
+    throw new Error('ThinkForge document ID must be a non-empty trimmed string');
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) {
+    throw new Error('Technical capture source document version must be a positive integer');
+  }
+  if (typeof input.expectedContent !== 'string') {
+    throw new Error('Technical capture source document content must be a string');
+  }
+  if (!/^[a-f0-9]{64}$/u.test(input.expectedSidecarHash)) {
+    throw new Error('Technical capture source sidecar hash must be a SHA-256 digest');
+  }
+  if (
+    input.expectedAcquisitionDecisionSetHash !== null
+    && (
+      typeof input.expectedAcquisitionDecisionSetHash !== 'string'
+      || !/^[a-f0-9]{64}$/u.test(input.expectedAcquisitionDecisionSetHash)
+    )
+  ) {
+    throw new Error('Technical capture acquisition decision hash must be a SHA-256 digest or null');
+  }
+
+  const acquisitionDecisionBinding = input.expectedAcquisitionDecisionSetHash === null
+    ? { [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}`]: { $exists: false } }
+    : {
+        [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}.decisionSetHash`]:
+          input.expectedAcquisitionDecisionSetHash,
+      };
+  return {
+    sessionId: exactSessionId,
+    scriptId: exactScriptId,
+    recordStatus: 'active',
+    version: input.expectedVersion,
+    content: input.expectedContent,
+    'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
+    ...acquisitionDecisionBinding,
+  };
+}
+
+export async function saveTechnicalCapturePlanningArtifacts(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  expectedAcquisitionDecisionSetHash: string | null;
+  design: unknown;
+  plan: unknown;
+}): Promise<SaveTechnicalCaptureArtifactResult> {
+  const writeFilter = buildTechnicalCapturePlanningWriteFilter(input);
+  const design = PhysicalCaptureDesignSchema.parse(input.design);
+  const plan = TechnicalCapturePlanSchema.parse(input.plan);
+  const { ScriptModel } = await getModels();
+  const updated = await ScriptModel.findOneAndUpdate(
+    writeFilter,
+    {
+      $set: {
+        [`metadata.${PHYSICAL_CAPTURE_DESIGN_METADATA_KEY}`]: clonePersistableScriptMetadata({ design }).design,
+        [`metadata.${TECHNICAL_CAPTURE_PLAN_METADATA_KEY}`]: clonePersistableScriptMetadata({ plan }).plan,
+        updatedAt: new Date(),
+      },
+      $unset: {
+        [`metadata.${APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY}`]: '',
+        [`metadata.${APPROVED_TECHNICAL_CAPTURE_SNAPSHOT_METADATA_KEY}`]: '',
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+  if (updated) return { ok: true, script: mapStoredScript(updated) };
+  const latest = await ScriptModel.findOne({
+    sessionId: input.sessionId,
+    scriptId: input.scriptId,
+    recordStatus: 'active',
+  }).lean() as any;
+  return {
+    ok: false,
+    error: 'Document conflict',
+    currentVersion: typeof latest?.version === 'number' ? latest.version : 0,
+  };
+}
+
+export async function saveApprovedTechnicalCaptureSnapshot(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  expectedPlanHash: string;
+  snapshot: unknown;
+}): Promise<SaveTechnicalCaptureArtifactResult> {
+  const exactSessionId = input.sessionId.trim();
+  const exactScriptId = input.scriptId.trim();
+  if (!exactSessionId || exactSessionId !== input.sessionId) {
+    throw new Error('ThinkForge session ID must be a non-empty trimmed string');
+  }
+  if (!exactScriptId || exactScriptId !== input.scriptId) {
+    throw new Error('ThinkForge document ID must be a non-empty trimmed string');
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) {
+    throw new Error('Technical capture approval document version must be a positive integer');
+  }
+  if (!/^[a-f0-9]{64}$/u.test(input.expectedSidecarHash) || !/^[a-f0-9]{64}$/u.test(input.expectedPlanHash)) {
+    throw new Error('Technical capture approval hashes must be SHA-256 digests');
+  }
+  const snapshot = ApprovedTechnicalCaptureSnapshotSchema.parse(input.snapshot);
+  const { ScriptModel } = await getModels();
+  const updated = await ScriptModel.findOneAndUpdate(
+    {
+      sessionId: exactSessionId,
+      scriptId: exactScriptId,
+      recordStatus: 'active',
+      version: input.expectedVersion,
+      content: input.expectedContent,
+      'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
+      [`metadata.${TECHNICAL_CAPTURE_PLAN_METADATA_KEY}.planHash`]: input.expectedPlanHash,
+    },
+    {
+      $set: {
+        [`metadata.${APPROVED_TECHNICAL_CAPTURE_SNAPSHOT_METADATA_KEY}`]: clonePersistableScriptMetadata({ snapshot }).snapshot,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+  if (updated) return { ok: true, script: mapStoredScript(updated) };
+  const latest = await ScriptModel.findOne({
+    sessionId: exactSessionId,
+    scriptId: exactScriptId,
+    recordStatus: 'active',
+  }).lean() as any;
+  return {
+    ok: false,
+    error: 'Document conflict',
+    currentVersion: typeof latest?.version === 'number' ? latest.version : 0,
+  };
 }
 
 export async function saveApprovedShootKitSnapshot(input: {
@@ -1920,19 +2089,14 @@ export async function saveApprovedShootKitSnapshot(input: {
   };
 }
 
-/**
- * Persists a user-confirmed acquisition decision only while the exact source
- * document and sidecar are still current. A changed decision invalidates an
- * earlier approved Shoot Kit snapshot without changing document content.
- */
-export async function saveCaptureAcquisitionDecisionSet(input: {
+export function buildCaptureAcquisitionDecisionWriteFilter(input: {
   sessionId: string;
   scriptId: string;
   expectedVersion: number;
   expectedContent: string;
   expectedSidecarHash: string;
-  decisionSet: unknown;
-}): Promise<SaveCaptureAcquisitionDecisionSetResult> {
+  expectedPreviousDecisionSetHash: string | null;
+}): Record<string, unknown> {
   const exactSessionId = input.sessionId.trim();
   const exactScriptId = input.scriptId.trim();
   if (!exactSessionId || exactSessionId !== input.sessionId) {
@@ -1950,19 +2114,50 @@ export async function saveCaptureAcquisitionDecisionSet(input: {
   if (!/^[a-f0-9]{64}$/u.test(input.expectedSidecarHash)) {
     throw new Error('Capture acquisition source sidecar hash must be a SHA-256 digest');
   }
+  if (
+    input.expectedPreviousDecisionSetHash !== null
+    && !/^[a-f0-9]{64}$/u.test(input.expectedPreviousDecisionSetHash)
+  ) {
+    throw new Error('Previous capture acquisition decision hash must be a SHA-256 digest or null');
+  }
+  const previousDecisionBinding = input.expectedPreviousDecisionSetHash === null
+    ? { [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}`]: { $exists: false } }
+    : {
+        [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}.decisionSetHash`]:
+          input.expectedPreviousDecisionSetHash,
+      };
+  return {
+    sessionId: exactSessionId,
+    scriptId: exactScriptId,
+    recordStatus: 'active',
+    version: input.expectedVersion,
+    content: input.expectedContent,
+    'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
+    ...previousDecisionBinding,
+  };
+}
+
+/**
+ * Persists a user-confirmed acquisition decision only while the exact source
+ * document, sidecar, and prior decision revision are still current. A changed
+ * decision invalidates downstream Shoot Kit artifacts without changing content.
+ */
+export async function saveCaptureAcquisitionDecisionSet(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  expectedPreviousDecisionSetHash: string | null;
+  decisionSet: unknown;
+}): Promise<SaveCaptureAcquisitionDecisionSetResult> {
+  const writeFilter = buildCaptureAcquisitionDecisionWriteFilter(input);
   const persistedDecisionSet: unknown = clonePersistableScriptMetadata({
     decisionSet: input.decisionSet,
   }).decisionSet;
   const { ScriptModel } = await getModels();
   const updated = await ScriptModel.findOneAndUpdate(
-    {
-      sessionId: exactSessionId,
-      scriptId: exactScriptId,
-      recordStatus: 'active',
-      version: input.expectedVersion,
-      content: input.expectedContent,
-      'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
-    },
+    writeFilter,
     {
       $set: {
         [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}`]: persistedDecisionSet,
@@ -1970,6 +2165,9 @@ export async function saveCaptureAcquisitionDecisionSet(input: {
       },
       $unset: {
         [`metadata.${APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY}`]: '',
+        [`metadata.${PHYSICAL_CAPTURE_DESIGN_METADATA_KEY}`]: '',
+        [`metadata.${TECHNICAL_CAPTURE_PLAN_METADATA_KEY}`]: '',
+        [`metadata.${APPROVED_TECHNICAL_CAPTURE_SNAPSHOT_METADATA_KEY}`]: '',
       },
     },
     { new: true, lean: true },
@@ -1977,8 +2175,8 @@ export async function saveCaptureAcquisitionDecisionSet(input: {
 
   if (updated) return { ok: true, script: mapStoredScript(updated) };
   const latest = await ScriptModel.findOne({
-    sessionId: exactSessionId,
-    scriptId: exactScriptId,
+    sessionId: input.sessionId,
+    scriptId: input.scriptId,
     recordStatus: 'active',
   }).lean() as any;
   return {

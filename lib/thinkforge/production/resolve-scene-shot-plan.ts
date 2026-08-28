@@ -7,7 +7,6 @@ import {
 } from './production-capability-profile';
 import {
   CAMERA_KIND_RANK,
-  DEFAULT_FOCAL_LENGTH_MM,
   FRAMING_KNOWLEDGE,
   HOUSEHOLD_SUBSTITUTIONS,
   MOVEMENT_REQUIREMENTS,
@@ -43,7 +42,8 @@ export type SceneProductionIntent = z.infer<typeof SceneProductionIntentSchema>;
 
 export interface ShotPlanBlocker {
   code: 'camera_required' | 'camera_orientation' | 'performer_capacity' | 'stable_support_required'
-    | 'room_depth' | 'audio_required' | 'setup_time' | 'budget';
+    | 'camera_selection' | 'camera_calibration' | 'space_required' | 'space_selection'
+    | 'room_depth' | 'subject_calibration' | 'audio_required' | 'setup_time' | 'budget';
   message: string;
 }
 
@@ -115,16 +115,17 @@ function orientationForAspect(aspectRatio: SceneProductionIntent['aspectRatio'])
   return aspectRatio === '9:16' || aspectRatio === '4:5' ? 'portrait' : 'landscape';
 }
 
-function focalLengthForCamera(camera: CameraEquipment): number {
+function focalLengthForCamera(camera: CameraEquipment): number | null {
   const range = camera.focalLengthEquivalentMm;
-  if (!range) return DEFAULT_FOCAL_LENGTH_MM[camera.kind];
+  if (!range) return null;
   return Math.min(range.max, Math.max(range.min, 35));
 }
 
-function eyeHeightForStance(stance: SceneProductionIntent['performance'][number]['stance']): number {
-  if (stance === 'seated') return 1.25;
-  if (stance === 'floor') return 0.75;
-  return 1.6;
+function measuredEyeHeightForStance(
+  profile: ProductionCapabilityProfile,
+  stance: SceneProductionIntent['performance'][number]['stance'],
+): number | null {
+  return profile.people.subjectCalibration?.eyeHeightMByStance[stance] ?? null;
 }
 
 function heightForAngle(angle: CameraAngle, eyeHeight: number): number {
@@ -133,18 +134,6 @@ function heightForAngle(angle: CameraAngle, eyeHeight: number): number {
   if (angle === 'overhead') return eyeHeight + 0.9;
   return eyeHeight;
 }
-
-const NORMALIZED_CAMERA_DISTANCE: Record<ShotFraming, number> = {
-  'extreme-close-up': 0.32,
-  'close-up': 0.42,
-  'medium-close-up': 0.52,
-  medium: 0.62,
-  'medium-wide': 0.72,
-  wide: 0.84,
-  'extreme-wide': 0.92,
-  'over-shoulder': 0.62,
-  insert: 0.34,
-};
 
 function movementPath(
   movement: CameraMovement,
@@ -189,7 +178,18 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
   const cameras = eligible(profile.equipment.filter(
     (item): item is CameraEquipment => item.category === 'camera' && item.orientations.includes(orientation),
   ));
-  const camera = cameras[0];
+  const preferredCameras = cameras.filter((item) => item.preferred);
+  if (cameras.length > 1 && preferredCameras.length !== 1) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{
+        code: 'camera_selection',
+        message: `More than one approved camera supports ${orientation} capture, but none is uniquely selected.`,
+      }],
+      questions: ['Choose one camera as preferred for this production profile.'],
+    };
+  }
+  const camera = preferredCameras[0] ?? cameras[0];
   if (!camera) {
     const hasCamera = profile.equipment.some((item) => item.category === 'camera');
     blockers.push({
@@ -202,6 +202,17 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     return { status: 'needs-user-input', blockers, questions };
   }
   spent += itemCost(camera);
+  const focalLengthEquivalentMm = focalLengthForCamera(camera);
+  if (focalLengthEquivalentMm === null) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{
+        code: 'camera_calibration',
+        message: `${camera.label} has no confirmed equivalent focal-length range, so ThinkForge cannot calculate camera distance.`,
+      }],
+      questions: ['Add the camera or lens equivalent focal-length range to the production profile.'],
+    };
+  }
 
   if (intent.simultaneousPerformers > profile.people.performersAvailable) {
     blockers.push({
@@ -225,35 +236,47 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     warnings.push('Framing widened to keep all simultaneous performers visible.');
   }
 
-  const space = profile.spaces[0];
-  const measuredDepthM = space?.usableDepthM ?? space?.dimensionsM?.depth;
-  const metricSpace = measuredDepthM !== undefined;
-  const coordinateUnit: 'meters' | 'normalized' = metricSpace ? 'meters' : 'normalized';
-  const focalLengthEquivalentMm = focalLengthForCamera(camera);
-  let cameraDistance = NORMALIZED_CAMERA_DISTANCE[framing];
-  let maxCameraDistance = 0.95;
-  if (metricSpace) {
-    maxCameraDistance = Math.max(0, measuredDepthM - 0.8);
-    const framingResolution = resolveFramingForDepth(
-      framing,
-      maxCameraDistance,
-      focalLengthEquivalentMm,
-      orientation,
-    );
-    if (!framingResolution) {
-      blockers.push({ code: 'room_depth', message: `The available depth (${measuredDepthM.toFixed(1)}m) cannot safely fit the requested shot.` });
-      questions.push('Can you provide a deeper room, a wider lens, or approve a tighter insert-style shot?');
-      return { status: 'needs-user-input', blockers, questions };
-    }
-    if (framingResolution.changed) {
-      warnings.push(`Framing changed from ${framing} to ${framingResolution.framing} to fit the available room depth.`);
-      framing = framingResolution.framing;
-    }
-    cameraDistance = framingResolution.distanceM;
-  } else {
-    assumptions.push('Room depth is unknown; camera, performer, and light marks use normalized coordinates and must be physically confirmed before recording.');
-    assumptions.push(`The ${framing} framing can be achieved in the selected space; adjust the normalized camera mark using the live preview.`);
+  if (profile.spaces.length === 0) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{ code: 'space_required', message: 'A measured physical space is required before camera positions can be planned.' }],
+      questions: ['Add the space you will use and its usable depth.'],
+    };
   }
+  const preferredSpaces = profile.spaces.filter((candidate) => candidate.preferred);
+  if (profile.spaces.length > 1 && preferredSpaces.length !== 1) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{ code: 'space_selection', message: 'More than one production space is available and none is selected for this capture.' }],
+      questions: ['Choose one production space as preferred before resolving camera positions.'],
+    };
+  }
+  const space = preferredSpaces[0] ?? profile.spaces[0]!;
+  const measuredDepthM = space?.usableDepthM ?? space?.dimensionsM?.depth;
+  if (measuredDepthM === undefined) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{ code: 'room_depth', message: `${space.label} has no confirmed usable depth, so ThinkForge cannot place a camera safely.` }],
+      questions: ['Measure and add the usable depth, or complete a live framing calibration before generating a technical plan.'],
+    };
+  }
+  const maxCameraDistance = Math.max(0, measuredDepthM - 0.8);
+  const framingResolution = resolveFramingForDepth(
+    framing,
+    maxCameraDistance,
+    focalLengthEquivalentMm,
+    orientation,
+  );
+  if (!framingResolution) {
+    blockers.push({ code: 'room_depth', message: `The available depth (${measuredDepthM.toFixed(1)}m) cannot safely fit the requested shot.` });
+    questions.push('Can you provide a deeper room, a wider lens, or approve a tighter insert-style shot?');
+    return { status: 'needs-user-input', blockers, questions };
+  }
+  if (framingResolution.changed) {
+    warnings.push(`Framing changed from ${framing} to ${framingResolution.framing} to fit the available room depth.`);
+    framing = framingResolution.framing;
+  }
+  const cameraDistance = framingResolution.distanceM;
 
   let angle: CameraAngle = intent.desiredAngle;
   let movement: CameraMovement = intent.desiredMovement;
@@ -288,11 +311,28 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     }
   }
 
-  // Performer-free B-roll and object shots target a neutral one-metre subject plane.
-  // Human scenes continue to derive the target from the lead performer's stance.
-  const leadEyeHeight = intent.performance.length > 0
-    ? eyeHeightForStance(intent.performance[0]!.stance)
-    : 1;
+  if (intent.performance.length === 0) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{
+        code: 'subject_calibration',
+        message: 'This legacy physical scene has no measured subject reference, so ThinkForge cannot place camera or light targets without inventing geometry.',
+      }],
+      questions: ['Regenerate this scene with the semantic capture contract before planning its physical setup.'],
+    };
+  }
+  const leadStance = intent.performance[0]!.stance;
+  const leadEyeHeight = measuredEyeHeightForStance(profile, leadStance);
+  if (leadEyeHeight === null) {
+    return {
+      status: 'needs-user-input',
+      blockers: [{
+        code: 'subject_calibration',
+        message: `The legacy physical scene has ${leadStance} performance direction but no measured ${leadStance} eye height. Performance direction is not geometry evidence.`,
+      }],
+      questions: [`Measure the lead performer's ${leadStance} eye height in the production profile, or regenerate this scene with the semantic capture contract.`],
+    };
+  }
   if (angle === 'overhead') {
     const requiredHeight = leadEyeHeight + 0.9;
     if (!support || profile.people.cameraOperatorsAvailable < 1 || (support.maxHeightM ?? 0) < requiredHeight) {
@@ -382,9 +422,9 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
   const setupId = `setup_${sceneKey}`;
   const cameraMarkId = `camera_${sceneKey}`;
   const distance = cameraDistance;
-  const eyeHeight = coordinateUnit === 'meters' ? leadEyeHeight : 0.5;
-  const cameraHeight = coordinateUnit === 'meters' ? heightForAngle(angle, leadEyeHeight) : angle === 'high' ? 0.72 : angle === 'low' ? 0.3 : 0.5;
-  const performerSpacing = coordinateUnit === 'meters' ? 0.8 : 0.35;
+  const eyeHeight = leadEyeHeight;
+  const cameraHeight = heightForAngle(angle, leadEyeHeight);
+  const performerSpacing = 0.8;
   const performerMarks = intent.performance.map((entry, index) => ({
     id: `performer_${sceneKey}_${safeId(entry.characterId)}`,
     characterId: entry.characterId,
@@ -400,7 +440,7 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
       id: `key_${sceneKey}`,
       resourceId: keyResource.id,
       role: 'key',
-      position: { x: coordinateUnit === 'meters' ? -1.2 : -0.7, y: coordinateUnit === 'meters' ? leadEyeHeight + 0.25 : 0.7, z: coordinateUnit === 'meters' ? -0.25 : -0.1 },
+      position: { x: -1.2, y: leadEyeHeight + 0.25, z: -0.25 },
       target: { x: 0, y: eyeHeight, z: 0 },
       ...(selectedLight?.colorTemperatureK ? { colorTemperatureK: Math.round((selectedLight.colorTemperatureK.min + selectedLight.colorTemperatureK.max) / 2) } : {}),
     });
@@ -411,7 +451,7 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
       id: `fill_${sceneKey}`,
       resourceId: fillResource.id,
       role: 'fill',
-      position: { x: coordinateUnit === 'meters' ? 1.1 : 0.65, y: coordinateUnit === 'meters' ? leadEyeHeight : 0.55, z: coordinateUnit === 'meters' ? -0.1 : 0 },
+      position: { x: 1.1, y: leadEyeHeight, z: -0.1 },
       target: { x: 0, y: eyeHeight, z: 0 },
     });
   }
@@ -486,12 +526,12 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     sourceSidecarVersion: 1,
     tier,
     currency: profile.constraints.currency,
-    coordinateSystem: { unit: coordinateUnit, origin: 'room-center', xAxis: 'camera-right', yAxis: 'up', zAxis: 'toward-background' },
+    coordinateSystem: { unit: 'meters', origin: 'room-center', xAxis: 'camera-right', yAxis: 'up', zAxis: 'toward-background' },
     resources,
     setupGroups: [{
       id: setupId,
-      label: `${space?.label ?? 'Unmeasured space'} - ${framing} setup`,
-      ...(space ? { spaceId: space.id } : {}),
+      label: `${space.label} - ${framing} setup`,
+      spaceId: space.id,
       sceneIds: [intent.sceneId],
       setupMinutes,
       resetMinutes: 0,
@@ -500,16 +540,14 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
         resourceId: cameraResource.id,
         position: { x: 0, y: cameraHeight, z: -distance },
         target: { x: 0, y: eyeHeight, z: 0 },
-        ...(coordinateUnit === 'meters' ? { heightM: cameraHeight } : {}),
+        heightM: cameraHeight,
         orientation,
       }],
       lightMarks,
       performerMarks,
       audioMarks,
       instructions: [
-        coordinateUnit === 'meters'
-          ? `Place the camera ${cameraDistance.toFixed(1)}m from the lead performer at ${angle} height.`
-          : `Start at the normalized camera mark, then adjust with the live preview until the ${framing} framing is achieved; confirm the position and any movement path are safe before recording.`,
+        `Place the camera ${cameraDistance.toFixed(1)}m from the lead performer at ${angle} height.`,
         supportResourceId ? `Stabilize the camera with ${resources.find((resource) => resource.id === supportResourceId)?.label ?? 'the selected support'}.` : 'Assign the camera operator before recording.',
         ...(keyResource ? [`Place ${keyResource.label} about 45 degrees to the performer and keep it outside frame.`] : []),
         ...(fillResource ? [`Place ${fillResource.label} opposite the key to soften facial shadows.`] : []),

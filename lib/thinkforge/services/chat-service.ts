@@ -82,6 +82,18 @@ import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
 
+export class ScriptPromptUnderstandingError extends Error {
+  readonly code = 'SCRIPT_PROMPT_UNDERSTANDING_UNAVAILABLE' as const;
+
+  constructor() {
+    super(
+      'ThinkForge could not safely resolve the video production constraints in this request. '
+      + 'Please retry or state whether speech, an on-camera speaker, visible people, or new physical filming are required or forbidden.',
+    );
+    this.name = 'ScriptPromptUnderstandingError';
+  }
+}
+
 export async function resolveScriptPromptUnderstanding(
   userPrompt: string,
   abortSignal?: AbortSignal,
@@ -810,6 +822,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
         if (contentPath !== 'post') {
           promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
+          if (promptUnderstanding.status !== 'resolved') {
+            throw new ScriptPromptUnderstandingError();
+          }
         }
 
         let briefSnapshot = resolveThinkForgeProductionBrief({
@@ -858,6 +873,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             ...(contentPath === 'post' ? {} : {
               productionBrief: briefSnapshot,
               evidenceNarrativeIntent: promptUnderstanding?.evidenceNarrativeIntent,
+              audiovisualIntent: promptUnderstanding?.audiovisualIntent,
             }),
             authorizedFactIds: [
               ...authoringContextSnapshot.retrieval.projectFactIds,

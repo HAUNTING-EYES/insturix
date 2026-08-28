@@ -17,6 +17,7 @@ import {
   getRecentInteractionEvents,
   type BrandDNA,
   type DataBankEntry,
+  type DataBankEntryType,
   type DataBankPrincipal,
   type ThinkForgeEvent,
   type EventType,
@@ -84,6 +85,10 @@ export interface SemanticFact {
   summary: string;
   tags: string[];
   source?: string;
+  /** Preserved authorized DataBank provenance; never inferred from prose. */
+  dataBankType?: DataBankEntryType;
+  /** Durable referenced asset/entry identity supplied by the DataBank owner. */
+  sourceEntryId?: string;
 }
 
 export interface InteractionPattern {
@@ -242,6 +247,18 @@ async function fetchColdContext(
 
 // ==================== Warm Tier: Semantic Facts ====================
 
+function semanticFactFromEntry(entry: DataBankEntry): SemanticFact {
+  return {
+    id: entry._id.toString(),
+    title: entry.title,
+    summary: extractSummary(entry),
+    tags: entry.tags || [],
+    ...(entry.sourceUrl ? { source: entry.sourceUrl } : {}),
+    dataBankType: entry.type,
+    ...(entry.sourceEntryId ? { sourceEntryId: entry.sourceEntryId } : {}),
+  };
+}
+
 /**
  * Fetch project-scoped facts for the current session (exact match, no semantic search).
  */
@@ -251,13 +268,7 @@ async function fetchProjectContext(
   maxFacts: number,
 ): Promise<SemanticFact[]> {
   const entries = await getAuthorizedProjectScopedEntries(principal, sessionId, { limit: maxFacts });
-  return entries.map((entry) => ({
-    id: entry._id,
-    title: entry.title,
-    summary: extractSummary(entry),
-    tags: entry.tags || [],
-    source: entry.sourceUrl,
-  }));
+  return entries.map(semanticFactFromEntry);
 }
 
 async function fetchWarmVectorContext(
@@ -295,13 +306,7 @@ async function fetchWarmVectorContext(
     ? orderedEntries.filter((entry) => isVisibleGlobalEntry(entry, brandId))
     : orderedEntries;
 
-  return visibleEntries.slice(0, maxFacts).map((entry) => ({
-    id: entry._id.toString(),
-    title: entry.title,
-    summary: extractSummary(entry),
-    tags: entry.tags || [],
-    source: entry.sourceUrl,
-  }));
+  return visibleEntries.slice(0, maxFacts).map(semanticFactFromEntry);
 }
 
 function dedupeVectorResults<T extends { id: string; score: number }>(results: T[]): T[] {
@@ -366,13 +371,7 @@ async function fetchWarmKeywordContext(
     .sort((a, b) => b.score - a.score)
     .slice(0, maxFacts);
 
-  return scored.map(({ entry }) => ({
-    id: entry._id,
-    title: entry.title,
-    summary: extractSummary(entry),
-    tags: entry.tags || [],
-    source: entry.sourceUrl,
-  }));
+  return scored.map(({ entry }) => semanticFactFromEntry(entry));
 }
 
 function extractSummary(entry: DataBankEntry): string {

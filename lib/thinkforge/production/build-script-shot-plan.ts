@@ -54,6 +54,8 @@ export interface BuildScriptShotPlanInput {
   acquisitionDecisions?: unknown;
   /** Exact source document identity required to verify acquisition choices. */
   acquisitionDecisionSourceDocument?: unknown;
+  /** Persisted Source Ledger used by V3 to expose only authorized acquisition candidates. */
+  sourceLedger?: unknown;
 }
 
 type ScriptSidecarV2 = Extract<ScriptSidecarReadResult, { sourceVersion: 1 | 2 }>['sidecar'];
@@ -349,6 +351,7 @@ function buildV3CaptureProjection(
         chapterPlan: input.chapterPlan,
         acquisitionDecisions: input.acquisitionDecisions,
         acquisitionDecisionSourceDocument: input.acquisitionDecisionSourceDocument,
+        sourceLedger: input.sourceLedger,
       }),
       issues: [],
     };
