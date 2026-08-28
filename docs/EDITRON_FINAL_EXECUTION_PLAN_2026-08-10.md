@@ -6200,6 +6200,80 @@ programme scope; it does not authorize Stage 3 model-driven production mutation,
 provider spend, a historical cohort rerun, customer-project mutation or a claim
 of Adobe/Resolve parity.
 
+**Founder RHC review, editor-foundation and route-arbitration checkpoint
+(2026-08-28):** the verified decisions and observations are now frozen in
+`docs/editron/editron-editor-foundation-and-route-arbitration-adr-2026-08-28.md`
+and
+`docs/editron/open-ended-editing/stage25-user-nonblind-aesthetic-feedback-2026-08-28.md`.
+This is a documentation/evidence phase only; no provider, database, sandbox,
+renderer, ProjectService or customer-project call occurred.
+
+The programme-owner review is valid
+`USER_NON_BLIND_AESTHETIC_FEEDBACK`, not a formal qualified route-blind receipt.
+It records RHC-01 preference `C > B > A`; candidate A's reported failure to hold
+all three sources plus weaker motion/layout; RHC-02's complete/intelligible
+speech but static portrait rather than moving interview and an unclear hard-cut
+return; RHC-03's synchronized action and readable label but visible subject
+occlusion; and RHC-04's final `10%` plus inability to verify source pairings
+without reference closeups. The RHC-04 middle-image change is expected because
+the frozen correction requests number, paired source and final-hold changes,
+not the number alone.
+
+Source reconciliation shows that these are not all ordinary aesthetic comments.
+RHC-02 V1 loops a repository portrait under voiceover and deterministic pink
+noise; it proves exact synthetic A/V handoffs but cannot judge a natural return
+to live interview motion. RHC-03's screenshot (57,187 bytes, SHA-256
+`54e0e466be663414122472f6fdca89316d75eb741c5a8a4b8406e6099a6ffefd`)
+shows the black `SYNC` strip over subject content, so the conservative subject-
+box proof is insufficient for `RHC03-T2`. RHC-02, RHC-03 and RHC-04 also have
+empty V1 `mediaBindings`, leaving return/source-pairing questions partly or
+wholly unanswerable by a human. Preserve V1 unchanged, but do not use it as the
+final promotion instrument. Before formal blind review, issue a new V2 packet
+with a rights-cleared moving interview (or honestly renamed voiceover-portrait
+task), corrected non-occluding RHC-03, marked authored-return references,
+route-neutral RHC-04 source/pairing boards and plain review-mode explanations.
+
+The architecture decision is to **keep Editron's canonical core and not rebase
+it wholesale on OpenCut or Palmier**. Current OpenCut commit `400f097b...` is an
+MIT ground-up rewrite whose architecture is still being designed; classic
+commit `cf5e79e...` is MIT but archived and still contains a rounded-FPS ingest
+seam without Editron's required durable PTS/epoch, proxy/master and receipt
+infrastructure. Palmier is a valuable mature UI/interaction reference, but the
+inspected snapshot is Swift/macOS-only, GPLv3 and uses an integer-FPS/project-
+frame timeline rather than the required production mixed-rate foundation.
+Selectively adapt license-compatible primitives only behind Editron's canonical
+time, command and saved-project boundaries; use Palmier/OpenCut interaction
+patterns to redesign the shell without copying Palmier code.
+
+Native, generated and hybrid are execution strategies selected per edit region,
+not user-facing edit categories. Generated composition may animate overlays or
+video panels and is not limited to still images. The future broker first
+materializes target/preservation/evidence/editability/delivery claims, then
+hard-rejects candidates that cannot prove timebase, audio, boundaries, rights,
+revision, rollback and delivery. It ranks eligible candidates by fidelity,
+preservation, canonical editability/round-trip, continuity/correction locality,
+quality risk, latency, cost and only then authoring surface. Operation count is
+never a route threshold. For the tested filmstrip, generated composition remains
+the preferred bounded visual-form owner and hybrid the complete-reel strategy
+when native footage/audio/captions/delivery continue; that is a task-specific
+decision, not a universal montage rule.
+
+This checkpoint corrects the audit's historical statement that the RHC-02
+isolated overlay adapter was still absent. Phase 3A–3D already supplied the
+research-only form/owner/dispatcher and accepted both stills; native's remaining
+route blocker is exact font-file binding. Phase 6/7 already supplied the hybrid
+proposal adapter and technical render. Generated-only still lacks preserved
+playable-audio ownership. Shared research vocabulary and adapters remain partial
+convergence: no production end-to-end route broker exists.
+
+The next implementation phase remains queue item 2: add the canonical lossless
+time/rate/epoch foundation with backward-compatible reads, after a fresh owner
+search and a bounded maximum-five-file design. In parallel programme order, the
+V2 RHC candidate/packet repair must precede formal blind review. Neither stream
+changes `FROZEN_MODIFY_DECISION_ISSUED`; a successor `GO` still requires the
+entire declared supported-project blocker set to close and a new readiness
+receipt.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has

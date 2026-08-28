@@ -264,17 +264,27 @@ Strategy meanings:
 | Generated | A bounded, self-contained authored visual or clip is best represented as an editable generated program and it owns every required output it is allowed to change. | It cannot silently take ownership of existing dialogue, source identity or the project timeline. |
 | Hybrid | A generated visual island is composited inside a native timeline while native media/audio remains authoritative. | Requires exact timebase, audio-ownership and entry/exit boundary handoffs. |
 
-For RHC-02, native image placement is absolutely possible in principle. The
-tested native candidate was blocked because that isolated dispatcher lacked the
-complete overlay adapter and exact font binding—not because Editron can never
-place an image natively. The hybrid candidate proved one safe alternative:
-native timeline/audio continuously owns the interview, while generated
-composition owns only frames 300–389 of the picture. That technical handoff
-does not decide which route looks better.
+For RHC-02, native image placement is absolutely possible. At the preliminary
+checkpoint the isolated dispatcher lacked the overlay proposal adapter and an
+exact font-file binding. Subsequent Phase 3A–3D work added a research-only
+overlay form owner, proposal owner and explicit dispatcher profile; both still
+forms now execute on the isolated clone. Native remains ineligible only because
+its text form still cannot bind the exact licensed font file. Subsequent Phase
+6/7 work also added the hybrid proposal adapter and rendered the hybrid. The
+hybrid proves one safe alternative: native timeline/audio continuously owns the
+interview, while generated composition owns only frames 300–389 of the picture.
+Pure generated composition remains ineligible because it does not own preserved
+playable interview audio. These are current route facts, not a decision about
+which eligible result looks better.
 
 The current route-ablation and staged-packet code contains much of this research
 vocabulary, but no production router currently owns the end-to-end decision.
 That is partial convergence, not a merged routing architecture.
+
+The editor-foundation and route-broker decision is frozen separately in
+[the route-arbitration ADR](./editron-editor-foundation-and-route-arbitration-adr-2026-08-28.md).
+It rejects a wholesale OpenCut/Palmier rebase while retaining both as selective
+engineering and interface references.
 
 ## Why the five paid-cohort rows were confounded
 
@@ -381,16 +391,28 @@ This means several current “solutions” are intentionally MVP/research-grade:
 
 ## Human-quality evidence
 
-The public RHC packet is real and playable, but it has zero qualified
-submissions. The review workflow is documented in
+The public RHC V1 packet is real and playable, but it has zero qualified
+submissions. Programme-owner review also exposed that it is not yet a fair
+promotion packet: RHC-02 uses a static portrait/voiceover surrogate rather than
+moving interview footage; RHC-03's centered label visibly occludes subject
+content despite passing conservative technical boxes; and RHC-04 supplies no
+source-reference board from which a human can verify number/closeup pairing.
+RHC-01 is a three-candidate comparison, while RHC-02/RHC-03 are single-result
+acceptance reviews and RHC-04 is a correction-locality pair; V1 did not explain
+that distinction plainly enough. Preserve V1, but do not send it to a new
+reviewer as the final promotion instrument.
+
+The corrected workflow is documented in
 [the RHC human-review guide](./open-ended-editing/stage25-rhc-human-review-guide-2026-08-28.md).
 
 The programme owner may give valuable non-blind product feedback. Because this
 chat and the engineering documents have disclosed route identities, that
 feedback must be labelled `USER_NON_BLIND_AESTHETIC_FEEDBACK`; it cannot satisfy
 the existing declaration that candidate/operator identity was not accessed
-before completion. A different qualified reviewer who receives only the public
-packet is required for the formal blind receipt.
+before completion. The actual programme-owner observations are recorded in
+[the non-blind feedback ledger](./open-ended-editing/stage25-user-nonblind-aesthetic-feedback-2026-08-28.md).
+A different qualified reviewer must receive only a corrected, newly identified
+V2 public packet after the candidate/reference defects above are resolved.
 
 There is another current gap: the contract accepts a truthful qualification
 basis, but the programme has not frozen a deterministic reviewer-qualification

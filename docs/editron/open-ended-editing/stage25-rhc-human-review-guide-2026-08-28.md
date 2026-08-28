@@ -11,6 +11,29 @@ D:\google downloads\Front-End-main\editron-worktree\.calibration-temp\open-ended
 The packet contains only public briefs, public predicates, review contracts and
 the route-blinded media. It does not contain a human verdict.
 
+### Current V1 packet disposition
+
+Keep the V1 packet immutable, but **do not send it to a new reviewer as the
+final promotion packet**. Programme-owner review exposed three instrument and
+candidate gaps:
+
+- RHC-02 is a static portrait loop with voiceover and synthetic ambience, so it
+  proves A/V handoff mechanics but cannot test the aesthetic return to moving
+  interview footage;
+- RHC-03's `SYNC` strip visibly covers subject content despite passing the
+  conservative technical subject boxes; and
+- RHC-04 has no route-neutral source thumbnail/pairing board, so a reviewer
+  cannot verify which closeup is the declared `60`, `30`/`35` or `10` source.
+
+RHC-01 is the only A/B/C route comparison. RHC-02 and RHC-03 each contain one
+technically qualified result and are acceptance reviews, not comparisons.
+RHC-04 compares an initial and corrected result to judge correction locality.
+The number of files is therefore intentional, but V1 did not explain the review
+modes or supply enough reference evidence.
+
+Freeze a newly hashed V2 packet after correcting RHC-02/RHC-03 and adding the
+missing route-blind references. Never edit the V1 JSON or media in place.
+
 ## Two different kinds of feedback
 
 ### Programme-owner feedback
@@ -43,6 +66,10 @@ Use a different editor who:
 The programme still needs a separately frozen reviewer-qualification policy.
 Until it exists, qualification status must not be invented from a name or an
 unverified claim.
+
+Formal route-blind review is paused until the V2 packet exists. The steps below
+describe the required process for V2; they do not authorize treating V1's
+unanswerable fields as passes.
 
 ## Programme-owner worksheet
 
@@ -93,6 +120,13 @@ Across all four
 
 Do not convert this worksheet into a blind receipt. Store it separately under
 its non-blind disposition.
+
+“Room tone” is the quiet background sound of the recording space under the
+speaker—air conditioning, distant room sound and microphone noise. Continuity
+means that ambience must not suddenly disappear or change at the entry/exit
+cuts. RHC-02 V1 uses deterministic synthetic pink noise, not real location
+ambience; its technical PCM comparison is separate from a human listening
+judgment.
 
 ## Formal task contracts
 
@@ -148,9 +182,10 @@ hashes and zero hidden rescue time. Do not estimate this and label it measured.
 
 ## Formal submission shape
 
-`review-contracts.json` is the authority. One submission is required per task
-and must bind the unchanged contract/public-pack/rubric/artifact hashes. The
-existing owner
+For preserved V1 evidence, `review-contracts.json` remains the authority. The
+future V2 packet must receive a versioned contract/packet identity rather than
+reusing these hashes. One submission is required per task and must bind its
+unchanged contract/public-pack/rubric/artifact hashes. The existing owner
 `finalizeBlindQualityReviewReceiptV1` validates:
 
 - reviewer qualification and blinding declarations;
@@ -169,9 +204,13 @@ No provider call, project mutation or route-key access is required.
 
 ## What closes the current human gate
 
-The minimum evidence is:
+The minimum evidence is now:
 
-- one truthful qualified blind receipt for each of RHC-01 through RHC-04;
+- a newly identified V2 packet with a moving-interview or honestly renamed
+  RHC-02 task, corrected non-occluding RHC-03 candidate, marked return references
+  and neutral RHC-04 source/pairing references;
+- one truthful qualified blind receipt for each of RHC-01 through RHC-04 against
+  that unchanged V2 packet;
 - the separately measured RHC-04 hands-on correction receipt;
 - a versioned reviewer-qualification decision; and
 - independent review/agreement if the future promotion policy requires more
