@@ -238,3 +238,21 @@ Feature-flag redirects `/dashboard → /studio` per-product as each reaches pari
 
 ---
 *Sources for §2: [Cursor agent best practices](https://cursor.com/blog/agent-best-practices) · [Cursor 3 agent-first interface](https://zenvanriel.com/ai-engineer-blog/cursor-3-agent-first-interface-developer-guide/) · [Agent UX 2026](https://fuselabcreative.com/ui-design-for-ai-agents/) · [Checkpoints & Restore pattern](https://aiuxplayground.com/pattern/checkpoints-and-restore) · [Replit checkpoints](https://docs.replit.com/features/version-control/checkpoints-and-rollbacks) · [UX for Agents — LangChain](https://www.langchain.com/blog/ux-for-agents-part-1-chat-2) · [v0 vs Lovable](https://vercel.com/i/v0-vs-lovable) · [Architecture of AI app builders](https://www.beam.cloud/blog/agentic-apps) · [Streaming pattern anatomy](https://www.setproduct.com/blog/ai-chat-interface-ui-design)*
+
+---
+
+## 8. MISSION CONTROL DASHBOARD (founder directive 2026-08-28)
+
+Entry = one screen with the status of ALL work + project management + start doors.
+
+**Data (verified census):**
+- Attention: GET /api/dashboard/attention (failed batches; dismiss via DELETE)
+- Editron: projects/list → pipelineStage, projectStatus, qualityScore; detail → autoEditStatus/proxy in-flight
+- ThinkForge: Session.activeGeneration (status running/failed + progress) — metadata route strips it; call db.getUserSessions directly
+- Alyzitron: analyses list → status listed/queued/processing/completed/failed (+unread, refunded)
+- Musitron: history → listed/processing/completed/failed
+- Clickatron: per-variation status only (generating/completed/failed) — session detail fetch
+- CalOS: deliverables (brandId) → editorialStatus + imageStatus; publish-status → pending/claimed/publishing/published/failed (+canRetry)
+
+**Layout:** [Needs you] attention items w/ dismiss → [In flight] per-engine running rows (stage, engine dot, link) → [Your work] deliverable rows (existing) → [Start new] doors: chat-first (reel/post/email via /studio/d/live) + heavy doors (upload→editron, saas-explainer, music, avatar).
+Aggregation: GET /api/studio/overview (self-fetch bridges with forwarded auth; TF direct).
