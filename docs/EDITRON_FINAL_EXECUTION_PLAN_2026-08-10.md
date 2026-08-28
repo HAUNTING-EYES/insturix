@@ -6200,6 +6200,29 @@ programme scope; it does not authorize Stage 3 model-driven production mutation,
 provider spend, a historical cohort rerun, customer-project mutation or a claim
 of Adobe/Resolve parity.
 
+**Cross-cutting fast user-QA gate (added 2026-08-29):** every successor-GO
+vertical above must also become inspectable through the versioned QA system in
+`docs/editron/editron-fast-user-qa-system-adr-2026-08-29.md`. The required
+evidence ladder is exact technical proof -> controlled perceptual regression ->
+qualified human editorial proof where taste is claimed. These layers may not
+substitute for one another. Q0/Q1 establish a one-command isolated,
+provider-off fixture, a real visible edit/playback/correction/undo/reload
+journey, canonical before/after diff, Playwright trace, exact cleanup and a
+read-only QA cockpit. Q2-Q5 add rendered A/V, representative mutation/media
+verticals, long-form/recovery/delivery and qualified human review. This is a
+cross-cutting certification lane, not a new project/timeline writer and not a
+reordering of the twelve production-remediation items. A future readiness
+receipt may not call a supported project class complete unless its declared
+user journey emits one finalized evidence bundle with zero false success.
+
+The verified current browser baseline remains narrower: Editron's Playwright
+suite proves authenticated project/chat isolation across navigation and
+refresh, but no edit, playback, project diff, correction, undo/redo, export or
+user-facing evidence bundle. No Editron server/authenticated fixture was live
+during the 2026-08-29 audit, so no browser-edit pass is claimed. The QA ADR is
+`FAST_USER_QA_DESIGN_ACCEPTED_IMPLEMENTATION_OPEN`; it authorizes no provider
+call, customer data, production deployment or Stage 2.5 status change.
+
 **Founder RHC review, editor-foundation and route-arbitration checkpoint
 (2026-08-28):** the verified decisions and observations are now frozen in
 `docs/editron/editron-editor-foundation-and-route-arbitration-adr-2026-08-28.md`
@@ -6415,6 +6438,56 @@ bound V3 lifecycle/state successor without weakening frozen V2 reads. Only
 after that owner exists may a versioned timestamp-driven native-media consumer
 be wired. Dedicated live private storage, proxy/master relink and invalidation
 remain queue item 4.
+
+**Full V3 artifact verification and source-bound publication Phase 3C
+(2026-08-29):** the additive V3 epoch contract now has an independently
+injected full artifact verifier and an additive `MEDIA_ASSETS` publication
+owner. The verifier validates the top index sidecar before storage access,
+then rereads the exact stored canonical V3 index, every referenced immutable
+V2 frame batch and every external reset/wrap/edit-list evidence object. It
+checks byte length, SHA-256, canonical JSON, index descriptors, source/map/
+stream/timebase scope and caller-declared read/byte ceilings. It records exact
+verified epoch, batch, frame and evidence counts plus uniform/variable frame-
+duration observation.
+
+External evidence bytes are not self-certifying. Reset, wrap and edit-list
+evidence must also receive a hash-bound receipt from an injected registered
+semantic verifier. That receipt binds registry and verifier versions, evidence
+contract, map, epoch, boundary kind/basis, detector and content hash. Missing,
+altered, noncanonical, cross-scope, unknown-contract, forged-receipt or
+over-budget evidence returns a named `UNVERIFIABLE` result; there is no
+approximate or hash-only fallback.
+
+The V3 asset owner binds the verified artifact set to the current source
+version, storage version, qualification binding, technical observation, map,
+video stream and rational source timebase. Its only lifecycle is
+`PENDING -> VERIFYING -> COMPLETE | UNVERIFIABLE`, with bounded expiring claims,
+expiry-only reclaim, immutable terminal receipts and strict transition checks.
+The Mongo adapter targets the existing `MEDIA_ASSETS` record with a source-
+bound compare-and-set filter. Initial publication requires V1, V2 and V3 state
+to be absent; persisted V1/V2 state is rejected rather than silently migrated.
+No parallel media registry or project writer is created.
+
+The combined adversarial fixture uses real canonical V2 batches, a three-epoch
+V3 reset/gap index, actual stored evidence bytes and a semantic verifier. Its
+6/6 focused tests cover complete verification, missing/altered/noncanonical
+objects, unregistered/cross-scope semantic evidence, read/byte ceilings,
+claim/reclaim/expiry, completion/unverifiable terminalization, stale hashes,
+invalid transitions, earlier-version state, changed source and CAS races. The
+wider cadence/time/media cluster passes 164/164 across 28 files; repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`V3_ARTIFACT_VERIFICATION_AND_SOURCE_BOUND_PUBLICATION_CONTRACT_IMPLEMENTED_RUNTIME_NOT_WIRED`.
+The Mongo adapter was not invoked against a live database; no dedicated private
+PTS/evidence object was written; no production boundary-evidence registry or
+scanner/finalizer creates this V3 state; and no ProjectService, decoder,
+preview or final-render consumer reads the verification receipt. Existing V2
+assets have no automatic migration. Queue item 3 therefore remains open. Its
+next bounded timebase subphase is the versioned timestamp-driven native-media
+input/consumer behind the verified receipt. Dedicated live private storage,
+V3 scan/finalizer integration, V2-to-V3 migration policy, proxy/master relink
+and invalidation remain queue item 4.
 
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
