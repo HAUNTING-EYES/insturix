@@ -6088,6 +6088,118 @@ accounting. The optional successor whole-editing episode is recorded as
 closed with `MODIFY`, while Stage 3 production model-driven mutation remains
 blocked pending a future explicitly permitted gate.
 
+**Production-NLE parity audit and successor-GO remediation plan
+(2026-08-28):** the capability-level audit is frozen at
+`docs/editron/editron-production-nle-parity-audit-2026-08-28.md`. It reconciles
+the CAP-0/CAP-1/CAP-2 inventories, current media/time/render/mutation owners,
+the frozen Stage 2.5 receipts, official Premiere/Resolve mixed-rate behavior
+and the inspected OpenCut sources. The audit does not claim line-by-line review
+of every historical file and does not claim access to proprietary Adobe or
+Blackmagic internals. Public NLE behavior and inferred Editron architecture are
+kept separate.
+
+The verified media-time fault line is now explicit. Upstream Editron contracts
+can represent rational rates, SOURCE_PTS, VFR cadence and private PTS sidecars,
+but the live project/renderer boundary still uses numeric FPS plus integer
+project/source frames. The current same-rate-only transform is correct safety
+containment at that boundary, not a production mixed-rate solution. Its target
+replacement is a lossless rational/integer time domain, per-stream PTS/duration
+and discontinuity epochs, sample-frame audio coordinates, explicit
+preserve-real-time/frame-blend/optical-flow/interpret-rate/transcode conform
+policies, timestamp-driven preview/render and invariant proxy-to-master
+mappings. Normal mixed CFR/VFR media must become an explicit conform workflow;
+corrupt, contradictory, unmapped or unprovable media must continue to stop.
+
+OpenCut is an input, not an architecture decision. Its rational frame-rate,
+integer media-time and timestamp-frame access patterns are useful. The inspected
+source does not supply the missing durable VFR PTS sidecar, discontinuity epoch,
+verified proxy/master online-conform or complete production delivery solution,
+and one classic ingest path still rounds FPS. Do not copy it wholesale.
+
+Native, generated and hybrid are henceforth execution strategies rather than
+edit categories. The future product route owner must first materialize target,
+preservation, coordinate, evidence, editability and delivery claims; enumerate
+only real registered owners; hard-reject candidates that cannot prove
+timebase/audio/boundaries/rights/revision/editability/delivery/rollback; then
+rank remaining candidates by fidelity, preservation, canonical editability and
+continuity before quality risk, latency and cost. A declared project policy or
+bounded user preview resolves materially equivalent candidates. Final form
+continues to belong to the existing family resolver/renderer, and all selected
+mutations compile through ProjectService. Research route vocabulary is partial
+convergence only; no production end-to-end route decision owner exists yet.
+
+RHC-01 through RHC-04 remain route/handoff canaries, not coverage of “all
+editing.” Full product claims still require the 118-row CAP-1 capability matrix
+and reconciled CAP-2 atomic catalog to close family by family with real owner,
+caller, renderer, proof, undo/replay, rights and project-class certification.
+At this checkpoint CAP-1 is 52 partial, 8 research-only and 58 missing, with no
+certified row; CAP-2 declares 37 candidates and no production-certified
+candidate.
+
+The five historical confounded rows now have a complete root-cause remediation,
+not merely an exclusion rule. Ambiguous `{ before, after }` names, canonical
+display as `after` then `before`, absent directional prose/examples and a
+preflight that checked visibility but not semantic clarity jointly caused the
+confound. The immutable rows remain unscored because retrospective relabelling
+would be false. Before any newly authorized successor cohort, add a reversible-
+term schema lint, canonical-order-independence tests, independent human clarity
+sign-off, public positive/negative/equivalent examples, a contract-comprehension
+sentinel and unseen isomorphic tasks. The corrected 74/74 zero-inference gate
+proves wiring, not model competence. Never rerun the historical 24-row cohort;
+run a new-identity paid successor only if runtime/product evidence later makes
+model inference decision-critical and a new exact cap is authorized.
+
+The usable review workflow is recorded at
+`docs/editron/open-ended-editing/stage25-rhc-human-review-guide-2026-08-28.md`.
+The programme owner's review is welcome but, because route identities have
+already been disclosed in this chat, it must be stored as
+`USER_NON_BLIND_AESTHETIC_FEEDBACK` and cannot satisfy the existing route-blind
+declaration. A separate qualified reviewer must receive only the public packet.
+Before promotion, freeze a deterministic reviewer-qualification policy, obtain
+one valid blind receipt for every RHC task, run the separately measured fresh-
+clone RHC-04 correction trial, and require independent agreement if the
+successor promotion policy calls for it. Do not conflate technical render proof
+with human editorial acceptance.
+
+The ordered successor-GO queue is:
+
+1. Freeze the production audit, reviewer workflow and qualification/blinding
+   policy without modifying the existing `MODIFY` receipt.
+2. Add canonical lossless time/rate/epoch types with migration and read
+   compatibility; do not switch all writers in one refactor.
+3. Wire timestamp-aware ingest, preview, native-media conform, analysis and
+   final render, certifying preserve-real-time nearest conform before optional
+   frame blend, optical flow and interpret-rate policies.
+4. Configure dedicated private PTS storage and prove write/read/hash/lifecycle,
+   proxy generation, exact proxy/master mapping, master relink, invalidation,
+   boundary/audio equivalence and rollback.
+5. Inventory every real ProjectService mutation owner and enforce evidence,
+   project/source revision, coordinate range, lock, rights, predecessors and
+   invalidations before dispatch and independently inside every writer.
+6. Implement the route-neutral production broker described above without
+   duplicating any family resolver's final form authority.
+7. Close CAP-1/CAP-2 in bounded certified verticals: core timeline,
+   graphics/captions, audio, colour, VFX/tracking, interchange,
+   collaboration/review and delivery.
+8. Evaluate rights-cleared multi-hour material with labelled semantic queries,
+   judged retrieval accuracy, full visual/audio playback and render, real
+   compaction/resume and long-running recovery.
+9. Prove live proxy/master invalidation, parallel render, final delivery,
+   hosted interruption/recovery and complete local/cloud/optional-provider cost
+   accounting.
+10. Collect qualified blind RHC-01 through RHC-04 judgments and a fresh isolated
+    measured RHC-04 hands-on correction receipt.
+11. Run a corrected successor whole-episode model evaluation only if it remains
+    necessary and is separately capped and authorized.
+12. Issue a new versioned readiness receipt. `GO` requires all blockers for the
+    declared supported project classes to be closed; the frozen Stage 2.5
+    `MODIFY` receipt itself is never rewritten.
+
+This queue authorizes bounded infrastructure remediation under the existing
+programme scope; it does not authorize Stage 3 model-driven production mutation,
+provider spend, a historical cohort rerun, customer-project mutation or a claim
+of Adobe/Resolve parity.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
