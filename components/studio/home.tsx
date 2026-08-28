@@ -24,12 +24,14 @@ export function StudioHome() {
   const [brand, setBrand] = useState<string>(MOCK_BRANDS[0].id);
   const [prompt, setPrompt] = useState("");
   const [realDeliverables, setRealDeliverables] = useState<StudioDeliverable[] | null>(null);
+  const [attention, setAttention] = useState<{ id: string; title: string; detail: string; severity: string; href: string | null }[]>([]);
+  const [inFlight, setInFlight] = useState<{ engine: string; label: string; stage: string; href: string | null }[]>([]);
   const [realBrands, setRealBrands] = useState<Record<string, string>>({});
   const [realError, setRealError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!REAL) return;
-    fetch("/api/studio/deliverables")
+    fetch("/api/studio/overview")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: { deliverables: StudioDeliverable[]; brands?: Record<string, string> }) => {
         setRealDeliverables(d.deliverables ?? []);
@@ -77,6 +79,9 @@ export function StudioHome() {
             <span className="stu-credits">⌘K</span>
           </form>
           <div className="stu-sugg">
+            <button onClick={() => go("live")}>start in chat — anything</button>
+            <button onClick={() => window.open("/dashboard/editron", "_blank")}>upload footage</button>
+            <button onClick={() => window.open("/dashboard/musitron", "_blank")}>make music</button>
             <button onClick={() => go(MOCK_DELIVERABLE.id)}>a 30s launch reel</button>
             <button onClick={() => go(MOCK_DELIVERABLE_EMAIL.id)}>a launch email to the waitlist</button>
             <button onClick={() => go(MOCK_DELIVERABLE.id)}>teardown a competitor&apos;s ad</button>
@@ -84,6 +89,35 @@ export function StudioHome() {
         </div>
 
         <div className="stu-homesections">
+          {REAL && attention.length > 0 && (
+            <section className="stu-hsec">
+              <div className="st"><span className="t">Needs you</span><span className="n">{attention.length} items</span></div>
+              {attention.map((a) => (
+                <div className="stu-drow" key={a.id} onClick={() => a.href && window.open(a.href, "_blank")} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && a.href && window.open(a.href, "_blank")}>
+                  <div>
+                    <div className="nm" style={a.severity === "high" ? { color: "var(--red)" } : undefined}>{a.title}</div>
+                    <div className="sub">{a.detail}</div>
+                  </div>
+                  <span className="ch">→</span>
+                </div>
+              ))}
+            </section>
+          )}
+          {REAL && inFlight.length > 0 && (
+            <section className="stu-hsec">
+              <div className="st"><span className="t">In flight</span><span className="n">{inFlight.length} running</span></div>
+              {inFlight.map((f, i) => (
+                <div className="stu-drow" key={i} onClick={() => f.href && window.open(f.href, "_blank")} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && f.href && window.open(f.href, "_blank")}>
+                  <div>
+                    <div className="nm">{f.label}</div>
+                    <div className="sub">{f.stage}</div>
+                  </div>
+                  <div className="state stu-s-producing"><i style={{ background: "var(--gold)" }} />{f.engine}</div>
+                  <span className="ch">→</span>
+                </div>
+              ))}
+            </section>
+          )}
           <section className="stu-hsec">
             <div className="st"><span className="t">Producing now</span><span className="n">{REAL ? `${producing.length} live` : "1 deliverable · live"}</span></div>
             <button className="stu-pnow" onClick={() => go(MOCK_DELIVERABLE.id)}>
