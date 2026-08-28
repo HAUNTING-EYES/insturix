@@ -39,7 +39,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | ThinkForge ideation/trends/URL-brief as turns | OPEN |
 | ThinkForge→Editron storyboard export edge | OPEN |
 | Editron auto-edit (upload→8 stages→needs_input) | OPEN |
-| Checkpoints/undo in thread | OPEN (mock shows pattern) |
+| Checkpoints/undo in thread | BRIDGED — high-risk receipts render red + undo chip → restore checkpoint turn via edit bridge |
 | SaaS explainer flow | OPEN |
 | Clickatron variations polling → artifact done-state | DONE — useArtifactPolling (4s, real telemetry, honest percent) |
 | CalOS calendar/review rail/delivery states | OPEN |

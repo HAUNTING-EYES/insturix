@@ -19,6 +19,27 @@ export function Spark({ size = 13 }: { size?: number }) {
   );
 }
 
+function UndoChip({ onUndo }: { onUndo: () => void }) {
+  return (
+    <button
+      onClick={onUndo}
+      style={{
+        marginLeft: 10,
+        fontSize: 11,
+        fontFamily: "var(--mono)",
+        letterSpacing: ".04em",
+        textTransform: "uppercase",
+        color: "var(--soft)",
+        border: "1px solid var(--bs)",
+        borderRadius: 4,
+        padding: "2px 8px",
+      }}
+    >
+      undo
+    </button>
+  );
+}
+
 function AgentName({ title }: { title: string }) {
   return (
     <div className="stu-aname">
@@ -246,6 +267,7 @@ export function ThreadItems({
   gapCard,
   spendCard,
   publishCard,
+  onUndo,
 }: {
   items: StudioThreadItem[];
   artifacts: { id: string; kind: string; title: string; status: string }[];
@@ -255,6 +277,7 @@ export function ThreadItems({
   gapCard: React.ReactNode;
   spendCard: React.ReactNode;
   publishCard: React.ReactNode;
+  onUndo?: () => void;
 }) {
   const artifactById = new Map(artifacts.map((a) => [a.id, a]));
   return (
@@ -290,13 +313,17 @@ export function ThreadItems({
             );
           case "receipt":
             return (
-              <div className="stu-receipt" key={item.id}>
-                <span className="tick">✓</span>
+              <div className="stu-receipt" key={item.id} style={item.riskLevel === "high" ? { color: "var(--red)" } : undefined}>
+                <span className="tick" style={item.riskLevel === "high" ? { color: "var(--red)" } : undefined}>
+                  {item.riskLevel === "high" ? "▲" : "✓"}
+                </span>
                 <span>
                   receipt · {item.label}
                   {item.detail ? ` · ${item.detail}` : ""}
                   {item.creditsConsumed ? ` · ${item.creditsConsumed} cr` : ""}
+                  {item.riskLevel === "high" ? " · high risk" : ""}
                 </span>
+                {item.riskLevel === "high" && onUndo && <UndoChip onUndo={onUndo} />}
               </div>
             );
           case "quick_replies":

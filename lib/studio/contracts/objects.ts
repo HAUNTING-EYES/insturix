@@ -18,7 +18,7 @@
 
 import { z } from "zod";
 
-export const STUDIO_CONTRACTS_VERSION = "0.2.0" as const;
+export const STUDIO_CONTRACTS_VERSION = "0.3.0" as const;
 
 /* ─── Artifacts ─── */
 
@@ -201,6 +201,7 @@ export const StudioThreadItemSchema = z.discriminatedUnion("kind", [
     id: z.string(),
     /** the tool's literal receiptLabel — never paraphrased */
     label: z.string(),
+    riskLevel: z.enum(["read", "low", "medium", "high"]).optional(),
     detail: z.string().optional(),
     creditsConsumed: z.number().optional(),
     createdAt: z.string().datetime(),

@@ -121,6 +121,7 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
             kind: "receipt",
             id: `${ev.turnId}_${ev.stepId}_rc`,
             label: ev.receipt.label,
+            riskLevel: ev.receipt.riskLevel,
             detail: ev.receipt.detail,
             creditsConsumed: ev.receipt.creditsConsumed,
             createdAt: new Date().toISOString(),
@@ -353,7 +354,8 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
                   />
                 ) : null
               }
-              publishCard={
+              onUndo={() => runTurn("undo the last change — restore the checkpoint")}
+            publishCard={
                 pendingConfirm?.kind === "publish" ? (
                   <ConfirmPublishCard targets={pendingConfirm.publishTargets} answered={pendingConfirm.answered} onAnswer={answerConfirm} />
                 ) : null

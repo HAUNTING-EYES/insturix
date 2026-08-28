@@ -88,6 +88,8 @@ export type StudioPlannedStep = z.infer<typeof StudioPlannedStepSchema>;
 export const StudioStepReceiptSchema = z.object({
   /** literal receiptLabel from the domain manifest */
   label: z.string(),
+  /** the tool's registry riskLevel — high-risk receipts render with undo */
+  riskLevel: z.enum(["read", "low", "medium", "high"]).optional(),
   /** human detail line (counts, ranges, ids) — derived from real results */
   detail: z.string().optional(),
   /** artifacts this step created or mutated */

@@ -106,7 +106,7 @@ export async function* runEditTurn(ctx: EditTurnContext, text: string, signal?: 
           type: "step.done",
           turnId,
           stepId: "e1",
-          receipt: { label: meta?.receiptLabel ?? (name || "Tool ran"), artifactIds: [], creditsConsumed: 0 },
+          receipt: { label: meta?.receiptLabel ?? (name || "Tool ran"), riskLevel: meta?.riskLevel, artifactIds: [], creditsConsumed: 0 },
         };
       }
     } else if (type === "token") {
