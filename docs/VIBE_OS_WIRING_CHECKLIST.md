@@ -48,7 +48,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Avatar render flow | OPEN |
 | Socialize link-in-bio updates | OPEN |
 | Home real data (TF + Editron adapters, brand-name groups) | DONE — /api/studio/deliverables (+brands map) |
-| Mission control (needs-you + in-flight + start doors) | DONE — /api/studio/overview aggregates attention/engines; CalOS/Clickatron flight rows land with their polling adapters |
+| Mission control | VERIFIED on production — In-flight 12 real rows, Your work 50, attention section honest-empty; screenshot mission-control-live.png |
 | Open a Home row → hydrated session | DONE — /api/studio/deliverables/[id] seeds artifacts + stage (script content, reel→editor) |
 | Account shell seam | BRIDGED — /account/{billing,brands,avatars,connections,org} resolve to the real surfaces; own skin OPEN |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |
