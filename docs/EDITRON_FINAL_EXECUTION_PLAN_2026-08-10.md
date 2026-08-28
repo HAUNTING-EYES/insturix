@@ -6378,6 +6378,44 @@ project/render input and add the timestamp-driven native-media consumer.
 Dedicated live private-sidecar storage, relink and invalidation remain queue
 item 4.
 
+**Presentation-epoch discontinuity persistence contract Phase 3B
+(2026-08-29):** a new additive V3 epoch-boundary/index owner now groups
+unchanged immutable V2 frame batches into explicit presentation epochs. It
+binds global batch sequence and frame ordinals, source version, map, video
+stream and exact rational source timebase while preserving each V2 batch's
+canonical bytes and hash. The index accepts only declared `INITIAL`, `GAP`,
+`OVERLAP`, `TIMESTAMP_RESET`, `WRAP` and `EDIT_LIST` handoffs. Initial
+canonical time must be zero; a positive PTS gap must preserve exactly the same
+canonical duration; overlap/reset/wrap must have a negative source-PTS delta
+and resume at the previous canonical end; edit-list mappings may move forward
+but canonical epoch ranges may never overlap.
+
+Reset, wrap and edit-list classifications cannot rely on an orphan hash. They
+require a deterministic private evidence-sidecar reference bound to the map,
+epoch, byte length, content hash and evidence-contract version. Gap and overlap
+remain deterministically classifiable from exact PTS deltas and reject external
+evidence. Boundary records bind the preceding and following V2 batch hashes;
+the V3 index and evidence object keys are deterministic, hash-scoped and
+resource-bounded. Cross-map evidence, forged object keys, hidden same-epoch
+discontinuities, reordered ordinals, stale scope, invalid canonical handoffs,
+noncanonical JSON and resource overflow all fail loudly. The complete PTS-
+cadence plus source-time regression cluster passes 134/134, repository
+TypeScript passes, and affected-file quiet ESLint passes.
+
+This result is
+`EPOCH_DISCONTINUITY_PERSISTENCE_CONTRACT_IMPLEMENTED_NO_RUNTIME_WRITER_OR_READER`.
+It is not yet a production ingest or conform path. Existing V1/V2 scan staging,
+promotion/finalization and `MEDIA_ASSETS` lifecycle owners do not create or CAS
+the V3 index; no reader fetches and hash-verifies the referenced V2 batch and
+boundary-evidence bytes as one complete V3 artifact; no dedicated private
+object was written; and ProjectService, preview and final render have no V3
+timestamp consumer. Queue item 3 remains open. Its next bounded subphase must
+add an independently injected V3 artifact reader/full verifier and a source-
+bound V3 lifecycle/state successor without weakening frozen V2 reads. Only
+after that owner exists may a versioned timestamp-driven native-media consumer
+be wired. Dedicated live private storage, proxy/master relink and invalidation
+remain queue item 4.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
