@@ -49,7 +49,7 @@ WIRED (direct server calls) · MOCK (design surface only) · OPEN
 | Socialize link-in-bio updates | OPEN |
 | Home real data (TF + Editron adapters, brand-name groups) | DONE — /api/studio/deliverables (+brands map) |
 | Open a Home row → hydrated session | DONE — /api/studio/deliverables/[id] seeds artifacts + stage (script content, reel→editor) |
-| Account shell (org/billing/vaults) | OPEN (Phase 6) |
+| Account shell seam | BRIDGED — /account/{billing,brands,avatars,connections,org} resolve to the real surfaces; own skin OPEN |
 | Legacy /dashboard coexistence + redirects | OPEN (Phase 7) |
 
 ## Infra
