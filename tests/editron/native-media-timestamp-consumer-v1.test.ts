@@ -12,9 +12,24 @@ import {
   hashEditronCanonicalJsonV1,
 } from '@/lib/editron/services/canonical-json-v1';
 import {
+  createMediaSourceAudioArtifactAssetRecordV1,
+  createMediaSourceAudioArtifactAssetStateV1,
+} from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
+import type { MediaSourceAudioPrivateArtifactReaderV1 } from '@/lib/editron/services/media-source-audio-private-artifact-port-v1';
+import {
+  createMediaSourceAudioEpochMapArtifactReferenceV1,
+  createMediaSourceAudioPcmChunkPlanV1,
+  createMediaSourceAudioPcmChunkReferenceV1,
+  createMediaSourceAudioPrivateArtifactManifestV1,
+  MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
+  serializeMediaSourceAudioPrivateArtifactManifestV1,
+  type MediaSourceAudioPrivateArtifactPolicyV1,
+} from '@/lib/editron/services/media-source-audio-private-artifact-v1';
+import {
   createMediaSourceAudioSampleEpochMapV1,
   createMediaSourceAudioStreamBindingV1,
   MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ADAPTER_VERSION_V1,
+  serializeMediaSourceAudioSampleEpochMapV1,
 } from '@/lib/editron/services/media-source-audio-sample-epoch-map-v1';
 import { createMediaSourcePtsCadenceBoundaryEvidenceSidecarV3 } from '@/lib/editron/services/media-source-pts-cadence-epoch-boundary-v3';
 import {
@@ -450,6 +465,104 @@ describe('native media timestamp preview materializer V1', () => {
     expect(unbounded.decodePictures).not.toHaveBeenCalled();
   });
 
+  it('binds asset-owned audio evidence and rejects tamper, ambiguity, and late state change', async () => {
+    const fixture = await verifiedFixture('materializer-audio-bound', { withAudio: true });
+    if (!fixture.audioArtifactSet) throw new Error('TEST_AUDIO_ARTIFACT_SET_REQUIRED');
+    const baseProject = projectFixture(fixture.sourceVersion.assetId);
+    const baseVideo = baseProject.overlays[0]!;
+    if (baseVideo.type !== OverlayType.VIDEO) throw new Error('TEST_VIDEO_OVERLAY_REQUIRED');
+    const fullEpochProject = projectFixture(fixture.sourceVersion.assetId, {
+      fps: 1,
+      durationInFrames: 8,
+      overlays: [{
+        ...baseVideo,
+        from: 0,
+        durationInFrames: 8,
+        sourceStartFrame: 0,
+        sourceEndFrame: 6,
+      }],
+    });
+    const readArtifactSet = vi.fn(async () => fixture.audioArtifactSet!);
+    const runtime = materializerPorts(fixture, {
+      project: fullEpochProject,
+      audioArtifactReader: { readArtifactSet },
+    });
+
+    const result = await materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(),
+      runtime.ports,
+    );
+    expect(result).toMatchObject({
+      disposition: 'WINDOW_MATERIALIZED',
+      window: {
+        overlayFromFrame: 0,
+        audioOwnership: {
+          disposition: 'EXACT_SAMPLE_MAPPING_BOUND',
+          decoderMaySupplyOrReplaceAudio: false,
+          audioMappingSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+    });
+    expect(readArtifactSet).toHaveBeenCalledWith(
+      fixture.audioManifestReference,
+    );
+    expect(runtime.decodePictures).toHaveBeenCalledTimes(1);
+
+    const tampered = materializerPorts(fixture, {
+      project: fullEpochProject,
+      audioArtifactReader: {
+        readArtifactSet: vi.fn(async () => ({
+          ...fixture.audioArtifactSet!,
+          mapCanonicalJson: `${fixture.audioArtifactSet!.mapCanonicalJson} `,
+        })),
+      },
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), tampered.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'EXACT_AUDIO_MAPPING_REQUIRED',
+    });
+    expect(tampered.decodePictures).not.toHaveBeenCalled();
+
+    const withoutAudioState = {
+      ...fixture.asset,
+      sourceAudioArtifactsV1: null,
+      sourceAudioArtifactsStateSha256V1: null,
+    };
+    const changed = materializerPorts(fixture, {
+      project: fullEpochProject,
+      assetReads: [fixture.asset, withoutAudioState],
+      audioArtifactReader: { readArtifactSet },
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), changed.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'ASSET_CHANGED_DURING_MATERIALIZATION',
+    });
+    expect(changed.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+
+    const ambiguousFixture = await verifiedFixture('materializer-multi-audio', {
+      withAudio: true,
+      audioStreamCount: 2,
+    });
+    const ambiguousReader = vi.fn(async () => {
+      if (!ambiguousFixture.audioArtifactSet) throw new Error('TEST_AUDIO_ARTIFACT_REQUIRED');
+      return ambiguousFixture.audioArtifactSet;
+    });
+    const ambiguous = materializerPorts(ambiguousFixture, {
+      audioArtifactReader: { readArtifactSet: ambiguousReader },
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), ambiguous.ports,
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'EXACT_AUDIO_MAPPING_REQUIRED',
+      diagnostic: 'NATIVE_MEDIA_PREVIEW_AUDIO_STREAM_SELECTION_REQUIRED',
+    });
+    expect(ambiguousReader).not.toHaveBeenCalled();
+    expect(ambiguous.decodePictures).not.toHaveBeenCalled();
+  });
+
   it('releases decoded surfaces on stale asset, late revision, or unusable lease', async () => {
     const fixture = await verifiedFixture('materializer-late-stop');
     const staleAsset = materializerPorts(fixture, {
@@ -514,6 +627,7 @@ function materializerPorts(
     expiresInMs?: number;
     releaseFailure?: boolean;
     policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
+    audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
   }> = {},
 ) {
   const project = options.project ?? projectFixture(fixture.sourceVersion.assetId);
@@ -545,6 +659,9 @@ function materializerPorts(
         }),
       },
       storedObjectReader: fixture.reader,
+      ...(options.audioArtifactReader
+        ? { audioArtifactReader: options.audioArtifactReader }
+        : {}),
       createDecoder: vi.fn(({ materializationStartedAtEpochMs }) => ({
         decoder,
         surfaceExpiresAtEpochMs: materializationStartedAtEpochMs
@@ -719,6 +836,7 @@ async function verifiedFixture(
   tag: string,
   options: Readonly<{
     withAudio?: boolean;
+    audioStreamCount?: 1 | 2;
     fractionalAudioPhase?: boolean;
   }> = {},
 ) {
@@ -737,15 +855,16 @@ async function verifiedFixture(
     contentSha256: hashUtf8(`source-${tag}`),
     storageVersion,
   });
+  const audioStreamCount = options.audioStreamCount ?? (options.withAudio ? 1 : 0);
   const qualification = qualificationFixture(
     assetId,
     storageVersion,
     sourceTimebase,
     tag,
-    options.withAudio ?? false,
+    audioStreamCount,
     options.fractionalAudioPhase ?? false,
   );
-  const audioEvidence = options.withAudio
+  const audioEvidence = audioStreamCount > 0
     ? createFixtureAudioEvidence(
         sourceVersion,
         qualification,
@@ -922,11 +1041,19 @@ async function verifiedFixture(
     now: new Date('2026-08-29T00:02:00.000Z'),
   });
   const state = createMediaSourcePtsCadenceMapAssetStateV3({ asset: baseAsset, record: completed });
+  const ptsAsset = { ...baseAsset, ...state };
+  const audioArtifact = audioEvidence === null
+    ? null
+    : createFixtureAudioArtifact(ptsAsset, audioEvidence, tag);
   return {
-    asset: { ...baseAsset, ...state },
+    asset: audioArtifact === null
+      ? ptsAsset
+      : { ...ptsAsset, ...audioArtifact.assetState },
     baseAsset,
     sourceVersion,
     audioEvidence,
+    audioArtifactSet: audioArtifact?.artifactSet ?? null,
+    audioManifestReference: audioArtifact?.manifestReference ?? null,
     batches,
     objects,
     reader,
@@ -996,7 +1123,7 @@ function qualificationFixture(
   storageVersion: ReturnType<typeof createMediaSourceStorageVersionV1>,
   sourceTimebase: Readonly<{ numerator: string; denominator: string }>,
   tag: string,
-  withAudio: boolean,
+  audioStreamCount: number,
   fractionalAudioPhase: boolean,
 ) {
   const observation = {
@@ -1025,8 +1152,8 @@ function qualificationFixture(
       timecode: null,
       reelId: null,
     }],
-    audioStreams: withAudio ? [{
-      streamIndex: 1,
+    audioStreams: Array.from({ length: audioStreamCount }, (_, index) => ({
+      streamIndex: index + 1,
       codec: 'pcm_s16le',
       sampleRate: '48000',
       channelCount: 2,
@@ -1036,7 +1163,7 @@ function qualificationFixture(
         : { numerator: '1', denominator: '48000' },
       sourceStartPts: fractionalAudioPhase ? '900001' : '480000',
       sourceDurationTicks: fractionalAudioPhase ? '720000' : '384000',
-    }] : [],
+    })),
   };
   return {
     schemaVersion: 1 as const,
@@ -1101,6 +1228,57 @@ function createFixtureAudioEvidence(
       decodedPcmSha256: hashUtf8(`decoded-pcm-${tag}`),
     },
   });
+}
+
+function createFixtureAudioArtifact(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+  evidence: ReturnType<typeof createFixtureAudioEvidence>,
+  tag: string,
+) {
+  const policy: MediaSourceAudioPrivateArtifactPolicyV1 = {
+    policyVersion: MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
+    maxChunkBytes: 1_000_000,
+    maxChunkCount: 10,
+    maxManifestBytes: 1_000_000,
+    maxReadBytes: 3_000_000,
+  };
+  const mapSerialization = serializeMediaSourceAudioSampleEpochMapV1(evidence);
+  const epochMapArtifact = createMediaSourceAudioEpochMapArtifactReferenceV1({
+    serialization: mapSerialization,
+  });
+  const pcmChunks = createMediaSourceAudioPcmChunkPlanV1({
+    map: evidence,
+    policy,
+  }).map((planEntry) => createMediaSourceAudioPcmChunkReferenceV1({
+    map: evidence,
+    planEntry,
+    contentSha256: hashUtf8(`audio-chunk-${tag}-${String(planEntry.chunkIndex)}`),
+  }));
+  const manifestSerialization = serializeMediaSourceAudioPrivateArtifactManifestV1(
+    createMediaSourceAudioPrivateArtifactManifestV1({
+      map: evidence,
+      epochMapArtifact,
+      pcmChunks,
+      policy,
+    }),
+  );
+  const record = createMediaSourceAudioArtifactAssetRecordV1({
+    asset,
+    mapSerialization,
+    manifestSerialization,
+    publishedAt: new Date('2026-08-29T00:03:00.000Z'),
+  });
+  return {
+    assetState: createMediaSourceAudioArtifactAssetStateV1({
+      asset,
+      records: [record],
+    }),
+    artifactSet: {
+      manifest: manifestSerialization.manifest,
+      mapCanonicalJson: mapSerialization.canonicalJson,
+    },
+    manifestReference: manifestSerialization.reference,
+  };
 }
 
 function stored(value: StoredObject): StoredObject {

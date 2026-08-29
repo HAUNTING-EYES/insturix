@@ -13,12 +13,19 @@ import {
 
 import { readCanonicalFrameRateV1 } from '../contracts/canonical-media-time-v1';
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
+import {
+  createMediaSourceAudioArtifactAssetMongoPortsV1,
+  readMediaSourceAudioArtifactAssetStateV1,
+  type MediaSourceAudioArtifactAssetRecordV1,
+  type MediaSourceAudioArtifactAssetStateInputV1,
+} from './media-source-audio-artifact-asset-owner-v1';
+import type { MediaSourceAudioPrivateArtifactReaderV1 } from './media-source-audio-private-artifact-port-v1';
+import {
+  serializeMediaSourceAudioPrivateArtifactManifestV1,
+  verifyMediaSourceAudioPrivateArtifactSetV1,
+} from './media-source-audio-private-artifact-v1';
 import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 } from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import type { MediaSourcePtsCadenceEpochWindowResourcePolicyV3 } from './media-source-pts-cadence-epoch-window-reader-v3';
-import {
-  createMediaSourcePtsCadenceMapAssetMongoPortsV3,
-  type MediaSourcePtsCadenceMapAssetStateInputV3,
-} from './media-source-pts-cadence-map-asset-owner-v3';
 import {
   createNativeMediaTimestampFfmpegPreviewDecoderV1,
   createVerifiedAssetNativeMediaTimestampPreviewSourceLeasePortV1,
@@ -167,11 +174,15 @@ export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
   }>;
   projectRevisionReader: NativeMediaProjectRevisionReaderPortV1;
   assetReader: Readonly<{
-    load(assetId: string, userId: string): Promise<MediaSourcePtsCadenceMapAssetStateInputV3 | null>;
+    load(
+      assetId: string,
+      userId: string,
+    ): Promise<MediaSourceAudioArtifactAssetStateInputV1 | null>;
   }>;
   storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+  audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
   createDecoder(input: Readonly<{
-    asset: MediaSourcePtsCadenceMapAssetStateInputV3;
+    asset: MediaSourceAudioArtifactAssetStateInputV1;
     leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
     materializationStartedAtEpochMs: number;
   }>): Readonly<{
@@ -224,11 +235,12 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     return unverifiable('OVERLAY_INVALID', diagnostic(error));
   }
   if (overlay.retimed) return unverifiable('OVERLAY_RETIME_UNSUPPORTED', null);
-  if (scope.windowLocalStartFrame + scope.windowDurationInFrames > overlay.durationInFrames
+  if (BigInt(scope.windowLocalStartFrame) + BigInt(scope.windowDurationInFrames)
+      > BigInt(overlay.durationInFrames)
     || scope.windowDurationInFrames > policy.maxWindowFrames) {
     return unverifiable('INPUT_INVALID', 'NATIVE_MEDIA_PREVIEW_WINDOW_RANGE_INVALID');
   }
-  let asset: MediaSourcePtsCadenceMapAssetStateInputV3 | null;
+  let asset: MediaSourceAudioArtifactAssetStateInputV1 | null;
   try {
     asset = await ports.assetReader.load(overlay.assetId, scope.userId);
   } catch {
@@ -295,9 +307,14 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   if (!asset || !binding || binding.assetId !== overlay.assetId) {
     return unverifiable('ASSET_SCOPE_INVALID', null);
   }
-  const hasAudio = sourceHasAudio(asset);
-  if (hasAudio === null) return unverifiable('ASSET_SCOPE_INVALID', null);
-  if (hasAudio) return unverifiable('EXACT_AUDIO_MAPPING_REQUIRED', null);
+  const audioStreamIndexes = sourceAudioStreamIndexes(asset);
+  if (audioStreamIndexes === null) return unverifiable('ASSET_SCOPE_INVALID', null);
+  let audioArtifactState: ReturnType<typeof readMediaSourceAudioArtifactAssetStateV1>;
+  try {
+    audioArtifactState = readMediaSourceAudioArtifactAssetStateV1(asset);
+  } catch (error) {
+    return unverifiable('ASSET_SCOPE_INVALID', diagnostic(error));
+  }
 
   const sourceStart = BigInt(overlay.sourceStartFrame);
   const totalSourceFrames = BigInt(binding.totalSourceFrameCount);
@@ -316,9 +333,44 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       null,
     );
   }
+  let audioEvidence: ReturnType<typeof verifyMediaSourceAudioPrivateArtifactSetV1> | null = null;
+  if (audioStreamIndexes.length > 0) {
+    if (audioStreamIndexes.length !== 1) {
+      return unverifiable(
+        'EXACT_AUDIO_MAPPING_REQUIRED',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_STREAM_SELECTION_REQUIRED',
+      );
+    }
+    const audioStreamIndex = audioStreamIndexes[0]!;
+    const audioRecord = audioArtifactState?.sourceAudioArtifactsV1.records.find(
+      (record) => record.audioStreamIndex === audioStreamIndex,
+    );
+    if (!audioRecord || !ports.audioArtifactReader) {
+      return unverifiable(
+        'EXACT_AUDIO_MAPPING_REQUIRED',
+        audioRecord
+          ? 'NATIVE_MEDIA_PREVIEW_AUDIO_ARTIFACT_READER_REQUIRED'
+          : 'NATIVE_MEDIA_PREVIEW_AUDIO_ARTIFACT_STATE_REQUIRED',
+      );
+    }
+    try {
+      const artifactSet = await ports.audioArtifactReader.readArtifactSet(
+        audioRecord.manifestReference,
+      );
+      audioEvidence = verifyMediaSourceAudioPrivateArtifactSetV1({
+        manifest: artifactSet.manifest,
+        mapCanonicalJson: artifactSet.mapCanonicalJson,
+      });
+      assertAudioArtifactMatchesAssetRecord(audioRecord, artifactSet.manifest, audioEvidence);
+    } catch (error) {
+      return unverifiable('EXACT_AUDIO_MAPPING_REQUIRED', diagnostic(error));
+    }
+  }
   const timelineQueries = Array.from(
     { length: scope.windowDurationInFrames },
-    (_, index) => String(overlay.from + scope.windowLocalStartFrame + index),
+    (_, index) => (
+      BigInt(overlay.from) + BigInt(scope.windowLocalStartFrame) + BigInt(index)
+    ).toString(),
   );
   let conform: Awaited<ReturnType<
     typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3
@@ -335,6 +387,14 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       timelineFrameQueries: timelineQueries,
       sourceAnchorFrameOrdinal: sourceStart.toString(),
       resourcePolicy: policy.conform,
+      ...(audioEvidence === null ? {} : {
+        audio: {
+          evidence: audioEvidence,
+          endExclusiveTimelineFrame: (
+            BigInt(overlay.from) + BigInt(overlay.durationInFrames)
+          ).toString(),
+        },
+      }),
     });
   } catch (error) {
     return unverifiable('CONFORM_FAILED', diagnostic(error));
@@ -382,17 +442,21 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     return unverifiable('CONSUMPTION_UNVERIFIABLE', consumed.reason);
   }
 
-  let freshAsset: MediaSourcePtsCadenceMapAssetStateInputV3 | null;
+  let freshAsset: MediaSourceAudioArtifactAssetStateInputV1 | null;
   try {
     freshAsset = await ports.assetReader.load(overlay.assetId, scope.userId);
   } catch {
     freshAsset = null;
   }
   let freshBinding: ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>;
+  let freshAudioArtifactState: ReturnType<typeof readMediaSourceAudioArtifactAssetStateV1>;
   try {
     freshBinding = freshAsset === null
       ? null
       : resolveVerifiedVideoSourceEpochTimeBindingV3(freshAsset);
+    freshAudioArtifactState = freshAsset === null
+      ? null
+      : readMediaSourceAudioArtifactAssetStateV1(freshAsset);
   } catch (error) {
     return releaseThen(
       created.decoder,
@@ -401,7 +465,9 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       diagnostic(error),
     );
   }
-  if (!freshBinding || freshBinding.bindingSha256 !== binding.bindingSha256) {
+  if (!freshBinding || freshBinding.bindingSha256 !== binding.bindingSha256
+    || (freshAudioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null)
+      !== (audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null)) {
     return releaseThen(created.decoder, consumed.receipt.decoderRequestSha256,
       'ASSET_CHANGED_DURING_MATERIALIZATION');
   }
@@ -466,6 +532,7 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
     policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
     ffmpegPath?: string;
     now?: () => number;
+    audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
   }> = {},
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
   try {
@@ -473,7 +540,7 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
       options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
     );
     const runtime = createMediaSourcePtsCadenceR2RuntimePortsV1(options.environment);
-    const assetPorts = await createMediaSourcePtsCadenceMapAssetMongoPortsV3();
+    const assetPorts = await createMediaSourceAudioArtifactAssetMongoPortsV1();
     return materializeNativeMediaTimestampPreviewWindowV1(input, {
       projectSnapshotReader: {
         async loadProjectForMutation(userId, projectId) {
@@ -484,6 +551,9 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
       projectRevisionReader: projectServiceNativeMediaProjectRevisionReaderV1,
       assetReader: assetPorts,
       storedObjectReader: runtime.epochArtifactReader,
+      ...(options.audioArtifactReader
+        ? { audioArtifactReader: options.audioArtifactReader }
+        : {}),
       createDecoder({ asset, leaseScope, materializationStartedAtEpochMs }) {
         const surfaceStore = runtime.previewSurface.createStore(leaseScope, {
           policy: policy.surface,
@@ -603,16 +673,64 @@ function positivePolicyInteger(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) > 0;
 }
 
-function sourceHasAudio(asset: MediaSourcePtsCadenceMapAssetStateInputV3): boolean | null {
+function sourceAudioStreamIndexes(
+  asset: MediaSourceAudioArtifactAssetStateInputV1,
+): readonly number[] | null {
   const qualification = asset.sourceQualificationV1 as {
     observation?: { audioStreams?: unknown };
   } | undefined;
   const streams = qualification?.observation?.audioStreams;
-  return Array.isArray(streams) ? streams.length > 0 : null;
+  if (!Array.isArray(streams)) return null;
+  const indexes: number[] = [];
+  for (const stream of streams) {
+    if (!stream || typeof stream !== 'object') return null;
+    const streamIndex = (stream as { streamIndex?: unknown }).streamIndex;
+    if (!Number.isSafeInteger(streamIndex) || Number(streamIndex) < 0
+      || indexes.includes(Number(streamIndex))) return null;
+    indexes.push(Number(streamIndex));
+  }
+  return Object.freeze(indexes.sort((left, right) => left - right));
+}
+
+function assertAudioArtifactMatchesAssetRecord(
+  record: MediaSourceAudioArtifactAssetRecordV1,
+  manifest: Parameters<typeof verifyMediaSourceAudioPrivateArtifactSetV1>[0]['manifest'],
+  evidence: ReturnType<typeof verifyMediaSourceAudioPrivateArtifactSetV1>,
+): void {
+  const manifestSerialization = serializeMediaSourceAudioPrivateArtifactManifestV1(manifest);
+  if (!sameAudioArtifactReference(
+    manifestSerialization.reference,
+    record.manifestReference,
+  )
+    || manifest.manifestSha256 !== record.manifestSha256
+    || manifest.audioSampleEpochMapSha256 !== record.audioSampleEpochMapSha256
+    || manifest.decodedPcmSha256 !== record.decodedPcmSha256
+    || manifest.decodedSampleFrameCount !== record.decodedSampleFrameCount
+    || evidence.audioSampleEpochMapSha256 !== record.audioSampleEpochMapSha256
+    || evidence.pcm.decodedPcmSha256 !== record.decodedPcmSha256
+    || evidence.pcm.decodedSampleFrameCount !== record.decodedSampleFrameCount
+    || evidence.binding.audioStreamIndex !== record.audioStreamIndex
+    || evidence.binding.streamId !== record.streamId
+    || evidence.binding.sampleRate !== record.sampleRate
+    || evidence.binding.channelCount !== record.channelCount) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_ARTIFACT_STATE_MISMATCH');
+  }
+}
+
+function sameAudioArtifactReference(
+  left: MediaSourceAudioArtifactAssetRecordV1['manifestReference'],
+  right: MediaSourceAudioArtifactAssetRecordV1['manifestReference'],
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.storage === right.storage
+    && left.artifactKind === right.artifactKind
+    && left.objectKey === right.objectKey
+    && left.byteLength === right.byteLength
+    && left.contentSha256 === right.contentSha256;
 }
 
 function timestampManagement(
-  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+  asset: MediaSourceAudioArtifactAssetStateInputV1,
 ): 'NONE' | 'EARLIER' | 'V3' {
   const state = asset as Record<string, unknown>;
   const present = (key: string) => state[key] !== undefined && state[key] !== null;

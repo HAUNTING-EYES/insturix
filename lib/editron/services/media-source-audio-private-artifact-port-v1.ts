@@ -1,5 +1,7 @@
 import type {
+  MediaSourceAudioPrivateArtifactManifestV1,
   MediaSourceAudioPrivateArtifactManifestSerializationV1,
+  MediaSourceAudioPrivateObjectReferenceV1,
 } from './media-source-audio-private-artifact-v1';
 import type {
   MediaSourceAudioSampleEpochMapSerializationV1,
@@ -13,4 +15,13 @@ export interface MediaSourceAudioPrivateArtifactStreamWriterV1 {
     mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1;
     pcmBytes: MediaSourceAudioPcmByteStreamV1;
   }>): Promise<MediaSourceAudioPrivateArtifactManifestSerializationV1>;
+}
+
+export interface MediaSourceAudioPrivateArtifactReaderV1 {
+  readArtifactSet(
+    reference: MediaSourceAudioPrivateObjectReferenceV1,
+  ): Promise<Readonly<{
+    manifest: MediaSourceAudioPrivateArtifactManifestV1;
+    mapCanonicalJson: string;
+  }>>;
 }
