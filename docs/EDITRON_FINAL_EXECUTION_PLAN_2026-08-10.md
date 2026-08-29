@@ -7751,6 +7751,37 @@ for those owners plus partial-epoch/edit-list/timestamp-wrap support. Queue item
 proxy/master relink/invalidation. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Verified source bytes and Remotion compatibility Phase 3F-C7y/C7z
+(2026-08-29):** commit `02b3e3a1e` centralizes immutable remote-media
+materialization for the exact preview decoder and audio scanner. The shared
+owner performs bounded streaming download, exact byte-length and SHA-256
+verification, and create-only local publication; both consumers retain their
+own stream-specific proof instead of treating successful download as decoded
+media proof. The focused helper plus real FFmpeg preview/audio suites pass
+12/12, and repository TypeScript and repository-wide quiet ESLint pass.
+
+Commit `9ae5d2654` then tests candidate mezzanine profiles through the installed
+Remotion 4.0.509 compositor rather than inferring compatibility from FFmpeg
+support. Its stripped compositor rejects Matroska/FFV1 with `Decoder not
+found`, so FFV1 is disqualified for this consumer and no fallback is silently
+selected. A full FFmpeg 8.1 encode using lossless RGB H.264 (`libx264rgb`, CRF
+0, intra-only, decoded `gbrp`) plus 48 kHz stereo PCM-S32LE in Matroska passes:
+four deterministic decoded RGB frames and 6,400 stereo PCM sample frames match
+their inputs byte-for-byte, Remotion consumes the artifact into a four-frame
+H.264/AAC output with audio present and no browser error, and a canonical
+receipt binds both decoded hashes, counts, platform, FFmpeg identity, Remotion
+version and compositor-package version. Receipt field/hash tampering fails
+closed. The real render, TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`WINDOWS_REMOTION_EXACT_SOURCE_PROFILE_CERTIFIED_LIVE_ENCODER_OPEN`. It is a
+platform/toolchain-specific compatibility qualification, not a live route or
+universal codec claim. The production FFmpeg encoder, durable private artifact
+publisher/runtime factory, authenticated route composition, Linux/Lambda
+qualification, partial-epoch/edit-list/timestamp-wrap handling and long-form
+browser/device A/V proof remain open. Queue item 3 therefore continues, and
+this checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
