@@ -2,7 +2,11 @@ import {
   deepFreezeEditronJsonV1,
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
-import { hashDurableWorkflowJobJsonV1 } from './durable-workflow-job-v1';
+import {
+  hashDurableWorkflowJobJsonV1,
+  type DurableWorkflowJobSnapshotV1,
+} from './durable-workflow-job-v1';
+import type { DurableWorkflowJobStoreV1 } from './durable-workflow-job-store-v1';
 import {
   NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1,
 } from './native-media-final-render-ffmpeg-encoder-v1';
@@ -22,6 +26,9 @@ export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1 = 5;
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1 =
+  7 * 24 * 60 * 60 * 1_000;
 
 const DURABLE_JOB_MAX_JSON_PAYLOAD_BYTES = 256 * 1024;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -113,6 +120,42 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     dependencies,
     operationIdentity: `nmfrprep_${operationSha256}`,
   });
+}
+
+export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: Readonly<{
+  jobStore: Pick<DurableWorkflowJobStoreV1, 'createOrGet'>;
+  request: Parameters<typeof buildNativeMediaFinalRenderPreparationJobContractV1>[0];
+  now?: Date;
+}>): Promise<Readonly<{
+  job: Readonly<DurableWorkflowJobSnapshotV1>;
+  created: boolean;
+}>> {
+  const now = input.now ?? new Date();
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_NOW_INVALID');
+  }
+  const contract = buildNativeMediaFinalRenderPreparationJobContractV1(input.request);
+  return input.jobStore.createOrGet({
+    tenantId: contract.payload.tenantId,
+    userId: contract.payload.userId,
+    orgId: contract.payload.orgId,
+    projectId: contract.payload.projectId,
+    operationOwner: 'NATIVE_MEDIA_FINAL_RENDER',
+    operationKind: 'native_media_final_render_prepare_source',
+    operationId: contract.operationIdentity,
+    parentCommandId: null,
+    parentReceiptId: null,
+    idempotencyKey: contract.operationIdentity,
+    input: {
+      schemaId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
+      bindingSha256: contract.bindingSha256,
+      payload: contract.payload,
+    },
+    dependencies: contract.dependencies,
+    budgetReservation: null,
+    maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
+    expiresAt: new Date(now.getTime() + NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1),
+  }, now);
 }
 
 export function assertNativeMediaFinalRenderPreparationJobInputV1(

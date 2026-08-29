@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
+import type { DurableWorkflowJobRecordV1 } from '@/lib/editron/services/durable-workflow-job-v1';
+import { DurableWorkflowJobStoreV1 } from '@/lib/editron/services/durable-workflow-job-store-v1';
 import {
   assertNativeMediaFinalRenderPreparationJobInputV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
+  createOrGetNativeMediaFinalRenderPreparationJobV1,
   NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-materializer-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-profile-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-r2-private-artifact-v1';
+import { StatefulMongoCollection } from './helpers/stateful-mongo-collection';
 
 const sha = (character: string) => character.repeat(64);
+const NOW = new Date('2026-08-30T00:00:00.000Z');
 
 function request(overlayId = 'overlay_exact_1') {
   return {
@@ -59,6 +65,37 @@ function input() {
 }
 
 describe('native final-render durable preparation job binding v1', () => {
+  it('creates one idempotent shared-store job per exact source', async () => {
+    const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
+    const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
+    const first = await createOrGetNativeMediaFinalRenderPreparationJobV1({
+      jobStore, request: input(), now: NOW,
+    });
+    const replay = await createOrGetNativeMediaFinalRenderPreparationJobV1({
+      jobStore, request: input(), now: new Date(NOW.getTime() + 1_000),
+    });
+    const secondSource = await createOrGetNativeMediaFinalRenderPreparationJobV1({
+      jobStore,
+      request: { ...input(), exactSourceRequest: request('overlay_exact_2') },
+      now: NOW,
+    });
+
+    expect(first.created).toBe(true);
+    expect(replay.created).toBe(false);
+    expect(replay.job.jobId).toBe(first.job.jobId);
+    expect(secondSource.job.jobId).not.toBe(first.job.jobId);
+    expect(first.job).toMatchObject({
+      operationOwner: 'NATIVE_MEDIA_FINAL_RENDER',
+      operationKind: 'native_media_final_render_prepare_source',
+      projectId: 'project_1',
+      maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
+      budgetReservation: null,
+      input: { schemaId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 },
+    });
+    expect(JSON.stringify(first.job.input.payload)).not.toMatch(/sourceUrl|https?:\/\//i);
+    expect(collection.snapshot()).toHaveLength(2);
+  });
+
   it('binds exact project, admission, source, policy and worker-image identity without URLs', () => {
     const contract = buildNativeMediaFinalRenderPreparationJobContractV1(input());
 
