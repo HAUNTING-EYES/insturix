@@ -70,7 +70,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
       if (o.id === overlay.id) return false;
       // Voiceover sound overlays (same detection as sound-layer-content.tsx)
       if (o.type === 'sound') {
-        const aid = (o as any).assetId || '';
+        const aid = o.assetId || '';
         if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
         if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return true;
       }
@@ -149,7 +149,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
 
   // Create a container style that includes padding and background color.
   // posterUrl (storyboard image) as CSS background - shows through if video fails to load.
-  const posterUrl = (overlay as any).posterUrl;
+  const posterUrl = overlay.posterUrl;
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
@@ -199,7 +199,8 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // Speed Ramping
   // If speedCurve is present, split into segments with different playback rates.
   // Each segment is a separate <Video> in a <Sequence> with correct source offset.
-  const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
+  const speedCurve = overlay.speedCurve ?? [];
+  const hasSpeedCurve = speedCurve.length > 1;
   const sourceStartFrame = Number.isSafeInteger(overlay.sourceStartFrame)
     ? overlay.sourceStartFrame!
     : (overlay.videoStartTime || 0);
@@ -211,7 +212,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   if (renderMediaMode === "audio-only") {
     if (hasSpeedCurve) {
       const segments = computeSpeedSegments(
-        (overlay as any).speedCurve,
+        speedCurve,
         overlay.durationInFrames,
         availableSourceFrames,
       );
@@ -248,7 +249,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
 
   if (hasSpeedCurve) {
     const segments = computeSpeedSegments(
-      (overlay as any).speedCurve,
+      speedCurve,
       overlay.durationInFrames,
       availableSourceFrames,
     );
