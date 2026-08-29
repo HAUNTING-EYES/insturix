@@ -8691,6 +8691,27 @@ ledger, followed by product composition. Finance rate approval and live cost
 calibration remain evidence/setup work; `FROZEN_MODIFY_DECISION_ISSUED` is
 unchanged.
 
+**Exact-render execution-budget reservation identity Phase 3F-C7aze
+(2026-08-30):** commit `3d5f605a0` binds one Finance policy and its calculated
+maximum to the exact tenant/user/organization/project/sequence, project-
+revision hash, admission receipt and source-request hash that a preparation job
+will consume. The authorization window must be fully covered by the immutable
+Finance policy. The reservation must occur inside that window and exposes only
+its ID plus content binding to the durable job. Source or revision drift,
+foreign policy, key/field drift, zero or malformed maximum usage, forged cost,
+expired approval and reservation-time drift fail closed.
+
+The focused suite passes 9/9, every `native-media-final-render` suite passes
+137/137, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_RESERVATION_IDENTITY_VERIFIED_DURABLE_LEDGER_AND_SETTLEMENT_OPEN`.
+The reservation explicitly represents an internal execution-cost envelope and
+does not charge the customer; `editron.render_export` remains the sole current
+customer charge. No policy locator, authorization issuer, reservation ledger,
+terminal usage settlement, partial-attempt telemetry, live database operation
+or route composition exists yet. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain open.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
