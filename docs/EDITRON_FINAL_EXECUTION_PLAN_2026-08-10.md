@@ -8081,6 +8081,31 @@ and runtime-factory suites pass 17/17; repository TypeScript and repository-wide
 quiet ESLint pass. This is behavior-neutral API cleanup only and does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Private exact-render staging cancellation Phase 3F-C7aj (2026-08-30):**
+commit `3634f2133` makes the existing content-addressed R2 stager consume the
+abort signal already issued by the exact-source encoder. Cancellation is
+checked before local access, around local hashing, before and during the
+conditional private upload, before the exact GET reread and during stored-byte
+digest verification. The live AWS command shape receives the same signal, the
+upload body stream is closed on abort and after command completion, and an
+aborted write cannot be mistaken for the idempotent precondition path. Every
+observed abort fails with
+`NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED`; it cannot continue to stored
+verification or return a publish handle.
+
+The focused private-artifact/runtime/encoder/materializer cluster passes 31/31;
+repository TypeScript and repository-wide quiet ESLint pass. Tests cover a
+pre-cancelled request with zero storage commands, an in-flight conditional PUT
+abort with no GET, and cancellation while digesting the reread object body.
+This result is
+`EXACT_RENDER_LOCAL_ENCODER_AND_PRIVATE_STAGER_CANCELLATION_VERIFIED_DURABLE_HEARTBEAT_OPEN`.
+It is transport-level cooperative cancellation proof, not live R2 cleanup,
+multipart/resumable upload, resource-release telemetry or long-running render
+recovery evidence. The durable materializer adapter still needs to own an abort
+controller and calibrated heartbeat pump; source-lease and every PCM/storage
+dependency are not yet proven abortable. Those remain Queue item 3 work. This
+checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
