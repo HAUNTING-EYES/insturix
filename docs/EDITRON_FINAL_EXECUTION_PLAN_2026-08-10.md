@@ -6993,6 +6993,45 @@ consumption. Queue item 4 still owns production V3 scanning/finalization,
 immutable private writes, live bucket proof, V2-to-V3 migration and qualified
 proxy/master mapping.
 
+**Revision-bound live preview command Phase 3F-C7c (2026-08-29):** the
+existing autosave/load owner now exposes its validated current
+`ProjectRevisionV1` through the editor context; the Player does not fetch or
+invent a second revision. A separately identified materialize command V2
+requires that expected revision. The materializer compares it with the one
+ProjectService snapshot it already owns before asset read, conform or decode,
+and returns `PROJECT_REVISION_STALE` on mismatch. An ordinary/non-managed
+classification now returns the checked revision, while exact windows already
+carry it.
+
+The live browser coordinator sends only V2, includes the revision in its
+project/session scope, validates both ordinary classifications and exact
+windows against it, and discards/rematerializes retained windows when autosave
+advances the revision. Missing, malformed or mismatched revision state pauses
+and blocks the active video. The authenticated route no longer accepts the
+unbound V1 materialize command; its obsolete constant, type, validator and
+server compatibility parser were removed after direct/type/literal/dynamic-
+import/re-export/test searches found no remaining callers. The independent V1
+release command remains because it is the current release protocol for V2
+windows.
+
+The client/server/window/layer/consumer compatibility cluster passes 30/30;
+repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. The proof uses injected ports and deterministic clocks;
+no authenticated browser, live private bucket, FFmpeg process, persisted
+project, provider or customer data was touched.
+
+This result is
+`REVISION_BOUND_LIVE_PREVIEW_COMMAND_V2_WIRED_CLASSIFICATION_EXPIRY_OPEN`.
+The ordinary decision is revision-bound but still not an expiring asset-state
+lease: a scanner could attach V3 timing state without advancing the project
+revision while a long ordinary clip remains active. Queue item 3 therefore
+continues with a bounded server-issued classification lease/invalidation,
+authenticated private-runtime browser proof across a real VFR reset/gap and
+lease swap, exact native sample-domain audio, analysis consumption and final-
+render consumption. Queue item 4 retains production V3 scanner/finalizer,
+immutable private writes, live-bucket proof, migration and qualified proxy/
+master mapping.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
