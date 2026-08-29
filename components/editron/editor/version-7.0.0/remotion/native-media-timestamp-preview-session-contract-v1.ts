@@ -9,6 +9,8 @@ import {
 
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V2' as const;
+export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3 =
+  'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_V3' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_V1' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2 =
@@ -21,6 +23,17 @@ export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_MAX_TTL_MS_V1 =
 export type NativeMediaTimestampPreviewMaterializeCommandV2 = Readonly<{
   schemaVersion: 2;
   kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2;
+  projectId: string;
+  sequenceId: string;
+  overlayId: string;
+  expectedProjectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'];
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+}>;
+
+export type NativeMediaTimestampPreviewMaterializeSessionCommandV3 = Readonly<{
+  schemaVersion: 3;
+  kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3;
   projectId: string;
   sequenceId: string;
   overlayId: string;
@@ -67,9 +80,35 @@ export function assertNativeMediaTimestampPreviewMaterializeCommandV2(
     || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2) {
     throw new Error('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
   }
+  const scope = materializeScope(record);
   return Object.freeze({
     schemaVersion: 2 as const,
     kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+    ...scope,
+  });
+}
+
+export function assertNativeMediaTimestampPreviewMaterializeSessionCommandV3(
+  value: unknown,
+): NativeMediaTimestampPreviewMaterializeSessionCommandV3 {
+  const record = exactRecord(value, [
+    'expectedProjectRevision', 'kind', 'overlayId', 'projectId', 'schemaVersion',
+    'sequenceId', 'windowDurationInFrames', 'windowLocalStartFrame',
+  ], 'NATIVE_MEDIA_PREVIEW_MATERIALIZE_SESSION_COMMAND_V3_INVALID');
+  if (record.schemaVersion !== 3
+    || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_MATERIALIZE_SESSION_COMMAND_V3_INVALID');
+  }
+  const scope = materializeScope(record);
+  return Object.freeze({
+    schemaVersion: 3 as const,
+    kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3,
+    ...scope,
+  });
+}
+
+function materializeScope(record: Record<string, unknown>) {
+  return Object.freeze({
     projectId: identifier(record.projectId, 'NATIVE_MEDIA_PREVIEW_SESSION_PROJECT_INVALID'),
     sequenceId: identifier(record.sequenceId, 'NATIVE_MEDIA_PREVIEW_SESSION_SEQUENCE_INVALID'),
     overlayId: identifier(record.overlayId, 'NATIVE_MEDIA_PREVIEW_SESSION_OVERLAY_INVALID'),
