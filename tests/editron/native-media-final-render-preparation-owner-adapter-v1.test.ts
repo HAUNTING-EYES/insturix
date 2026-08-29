@@ -9,6 +9,8 @@ import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 }
 import {
   buildNativeMediaFinalRenderPreparationJobContractV1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
+import { createNativeMediaFinalRenderPreparationRuntimePolicyV1 }
+  from '@/lib/editron/services/native-media-final-render-preparation-runtime-policy-v1';
 import {
   createNativeMediaFinalRenderPreparationHeartbeatPolicyV1,
   createNativeMediaFinalRenderPreparationOwnerAdapterV1,
@@ -56,12 +58,29 @@ function contract() {
       privateArtifactPolicyVersion:
         NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
       privateArtifactPolicySha256: sha('a'),
+      runtimePolicy: runtimePolicy(),
     },
     executionProfile: {
       workerImageDigest: `sha256:${sha('b')}`,
       compatibilityProfileVersion: NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1,
       compatibilityReceiptSha256: sha('c'),
     },
+  });
+}
+
+function runtimePolicy() {
+  return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
+    executionBudget: {
+      ownerId: 'TEST_RENDER_BUDGET_OWNER',
+      ownerVersion: 'TEST_RENDER_BUDGET_OWNER_V1',
+      policySha256: sha('e'),
+    },
+    retryPolicy: {
+      ownerId: 'TEST_RENDER_RETRY_POLICY',
+      ownerVersion: 'TEST_RENDER_RETRY_POLICY_V1',
+      policySha256: sha('f'),
+    },
+    heartbeatPolicySha256: sha('0'),
   });
 }
 
