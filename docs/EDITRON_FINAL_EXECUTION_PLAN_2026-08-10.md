@@ -8005,6 +8005,40 @@ the materializer. The worker must require a current owner-issued authorization
 receipt, and the route/terminal coordinator must settle or release it exactly
 once. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Durable exact-render preparation worker Phase 3F-C7ah (2026-08-30):**
+commit `f1391d8e1` composes the existing generic durable-workflow lifecycle with
+the exact-render preparation job/result contracts. The transport-neutral worker
+claims and heartbeats one revision-bound job, rederives and verifies its closed
+V1.2 identity, rejects runtime-policy or worker-image drift before resource
+access, requires a current owner-issued budget authorization receipt, invokes
+the declared materializer adapter only when no valid URL-free resume result
+exists, saves that result through the store's sequence CAS and completes with a
+V1.1 terminal receipt whose proof set includes the execution-budget
+authorization. Terminal redelivery does not rematerialize; it asks the injected
+accounting owner to idempotently reconcile the already committed terminal
+snapshot.
+
+The worker preserves distinct `CANCELLED`, owner-proved `UNVERIFIABLE`, bounded
+`retry_wait` and `dead_letter` outcomes. The focused result/worker suites pass
+11/11 and the ten-file exact-render/store cluster passes 58/58; repository
+TypeScript and repository-wide quiet ESLint pass. Tests cover successful
+completion and terminal redelivery, a completion transport loss resumed without
+duplicate preparation, a canonically rehashed forged resume rejection, budget
+denial before materialization, worker-image drift, cooperative cancellation and
+an owner-proved materialization gap.
+
+This result is
+`DURABLE_EXACT_RENDER_WORKER_LIFECYCLE_VERIFIED_LIVE_ADAPTER_DISPATCH_AND_ACCOUNTING_OPEN`.
+It is not a live render path: no production preparation adapter, budget
+reservation/authorization/settlement owner, calibrated retry policy,
+authenticated dispatcher/route composition, Atlas/QStash execution, live
+private-R2 object or fresh render lease was used. V1.2 also does not yet bind
+the budget-owner or retry-policy owner/version/digest into durable job identity;
+syntactic owner fields at worker invocation are not policy provenance. Those
+contracts and live proofs remain Queue item 3 work. Queue item 4 retains scalable
+private-object lifecycle, V3 ingest/migration and proxy/master invalidation.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
