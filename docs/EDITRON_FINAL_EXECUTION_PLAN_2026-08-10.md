@@ -8131,6 +8131,37 @@ publish a fresh lease from a completed durable result, or connect the render
 route. Those remain the next Queue item 3 phases. This checkpoint does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Lease-heartbeating durable preparation adapter Phase 3F-C7al
+(2026-08-30):** commit `4a4e87e1f` implements the transport-neutral adapter
+between the existing durable worker contract and the URL-free artifact
+preparer. It revalidates the claimed job/input binding before project or media
+access, passes the exact job scope to the sole preparer, validates any prepared
+artifact through the existing closed preparation-result contract and hashes an
+owner-declared `UNVERIFIABLE` result into a deterministic proof. While work is
+running, one sequential pump renews the durable lease; heartbeats never
+overlap. Cancellation or lease loss aborts the same signal consumed by source
+download, FFmpeg/FFprobe, local hashing and private R2 staging. A heartbeat
+failure outranks a late prepared result, so the worker cannot persist success
+after losing authority.
+
+The focused adapter/worker/materializer/result/encoder/private-artifact cluster
+passes 37/37; repository TypeScript and repository-wide quiet ESLint pass.
+Tests cover URL-free result validation, repeated non-overlapping heartbeats,
+abort plus rejection on lease loss, deterministic gap proof, and forged/unsafe
+heartbeat policy rejection. The explicit heartbeat policy is content-hashed
+and bound to the current 300,000-ms durable lease, but its maximum interval of
+one-third of that lease is a conservative provisional infrastructure rule, not
+measured production calibration.
+
+This result is
+`DURABLE_EXACT_RENDER_PREPARATION_ADAPTER_HEARTBEAT_AND_ABORT_VERIFIED_COMPOSITION_OPEN`.
+The policy digest is not yet part of durable job V1.2 identity, no production
+composition root instantiates this adapter, and no live Atlas/QStash/FFmpeg/R2
+run proves lease renewal, cancellation latency or cleanup. Budget/retry policy
+provenance, dispatcher, fresh completed-result publication and render-route
+consumption also remain open Queue item 3 work. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
