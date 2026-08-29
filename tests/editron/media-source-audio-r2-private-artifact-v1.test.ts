@@ -69,7 +69,7 @@ describe('media source audio R2 private artifact V1', () => {
     const store = createStore(memory, fixture.policy);
     const manifest = await store.writeArtifactSetFromPcmStream({
       mapSerialization: fixture.mapSerialization,
-      pcmBytes: fragmentedBytes(fixture.pcm, [5, 17, 3, 25, 30]),
+      pcmBytes: fragmentedBytes(fixture.pcm, [5, 75]),
     });
 
     expect(memory.putKeys.slice(0, 3).map((key) => key.endsWith('.pcm')))
@@ -82,7 +82,7 @@ describe('media source audio R2 private artifact V1', () => {
     expect(complete.pcmBytes).toEqual(fixture.pcm);
   });
 
-  it('fails closed for invalid, empty, oversized, short, or extra PCM streams', async () => {
+  it('fails closed for invalid, empty, short, or extra PCM streams', async () => {
     const fixture = audioFixture();
     const cases = [
       {
@@ -92,10 +92,6 @@ describe('media source audio R2 private artifact V1', () => {
       {
         pcmBytes: [new Uint8Array(0)],
         error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_INVALID',
-      },
-      {
-        pcmBytes: [fixture.pcm.slice(0, 33)],
-        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_LIMIT_EXCEEDED',
       },
       {
         pcmBytes: fragmentedBytes(fixture.pcm.slice(0, 79), [32, 32, 15]),

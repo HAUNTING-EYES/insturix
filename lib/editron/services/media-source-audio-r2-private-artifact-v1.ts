@@ -193,7 +193,6 @@ export function createMediaSourceAudioR2PrivateArtifactStoreV1(input: Readonly<{
         chunks: partitionPcmByteStream({
           pcmBytes,
           plan,
-          maximumInputChunkBytes: policy.maxChunkBytes,
         }),
       });
     },
@@ -283,7 +282,6 @@ function normalizeMapSerialization(
 async function* partitionPcmByteStream(input: Readonly<{
   pcmBytes: MediaSourceAudioPcmByteStreamV1;
   plan: readonly MediaSourceAudioPcmChunkPlanEntryV1[];
-  maximumInputChunkBytes: number;
 }>): AsyncIterable<MediaSourceAudioPcmChunkUploadV1> {
   if (!isPcmByteStream(input.pcmBytes)) {
     throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_INVALID');
@@ -294,9 +292,6 @@ async function* partitionPcmByteStream(input: Readonly<{
   for await (const sourceChunk of input.pcmBytes) {
     if (!(sourceChunk instanceof Uint8Array) || sourceChunk.byteLength < 1) {
       throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_INVALID');
-    }
-    if (sourceChunk.byteLength > input.maximumInputChunkBytes) {
-      throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_LIMIT_EXCEEDED');
     }
     let sourceOffset = 0;
     while (sourceOffset < sourceChunk.byteLength) {

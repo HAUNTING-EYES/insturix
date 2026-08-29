@@ -9,6 +9,17 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 
+import type {
+  MediaSourceAudioPrivateArtifactStreamWriterV1,
+} from './media-source-audio-private-artifact-port-v1';
+import {
+  assertMediaSourceAudioPrivateObjectReferenceV1,
+  serializeMediaSourceAudioPrivateArtifactManifestV1,
+  verifyMediaSourceAudioPrivateArtifactSetV1,
+  type MediaSourceAudioPrivateArtifactManifestSerializationV1,
+  type MediaSourceAudioPrivateArtifactManifestV1,
+  type MediaSourceAudioPrivateObjectReferenceV1,
+} from './media-source-audio-private-artifact-v1';
 import {
   MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ADAPTER_VERSION_V1,
   assertMediaSourceAudioSampleEpochResourcePolicyV1,
@@ -30,12 +41,7 @@ const MAX_PROCESS_DIAGNOSTIC_BYTES = 1024 * 1024;
 const MAX_FRAME_RECORD_BYTES = 4 * 1024;
 const MAX_TOOL_IDENTITY_BYTES = 16 * 1024;
 
-/**
- * Server-only evidence adapter. It measures source PTS and decoded PCM but
- * does not persist an artifact, expose a browser handle, authorize playback,
- * or mutate a project. Those remain later owners.
- */
-export async function materializeMediaSourceAudioSampleEpochMapFfmpegV1(input: Readonly<{
+type MediaSourceAudioSampleEpochFfmpegInputV1 = Readonly<{
   sourceVersion: MediaSourceVersionV1;
   qualification: MediaSourceQualificationRecordV1;
   audioStreamIndex: number;
@@ -43,7 +49,65 @@ export async function materializeMediaSourceAudioSampleEpochMapFfmpegV1(input: R
   resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
   ffmpegPath?: string;
   ffprobePath?: string;
-}>): Promise<MediaSourceAudioSampleEpochMapSerializationV1> {
+}>;
+
+export type MediaSourceAudioPrivateArtifactFfmpegMaterializationV1 = Readonly<{
+  mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1;
+  manifestSerialization: MediaSourceAudioPrivateArtifactManifestSerializationV1;
+}>;
+
+/**
+ * Server-only evidence adapter. It measures source PTS and decoded PCM but
+ * does not persist an artifact, expose a browser handle, authorize playback,
+ * or mutate a project. Those remain later owners.
+ */
+export async function materializeMediaSourceAudioSampleEpochMapFfmpegV1(
+  input: MediaSourceAudioSampleEpochFfmpegInputV1,
+): Promise<MediaSourceAudioSampleEpochMapSerializationV1> {
+  return materializeMediaSourceAudioSampleEpochFfmpegCoreV1(
+    input,
+    async ({ mapSerialization }) => mapSerialization,
+  );
+}
+
+/**
+ * Measures one exact audio stream and publishes its private PCM artifact set
+ * before the adapter-owned temporary decode is removed. It does not expose a
+ * browser handle, authorize playback, or mutate a project.
+ */
+export async function materializeMediaSourceAudioPrivateArtifactFfmpegV1(
+  input: MediaSourceAudioSampleEpochFfmpegInputV1 & Readonly<{
+    artifactWriter: MediaSourceAudioPrivateArtifactStreamWriterV1;
+  }>,
+): Promise<MediaSourceAudioPrivateArtifactFfmpegMaterializationV1> {
+  const artifactWriter = assertPrivateArtifactWriter(input.artifactWriter);
+  return materializeMediaSourceAudioSampleEpochFfmpegCoreV1(
+    input,
+    async ({ mapSerialization, pcmPath, revalidateSource }) => {
+      const writerResult = await artifactWriter.writeArtifactSetFromPcmStream({
+        mapSerialization,
+        pcmBytes: createReadStream(pcmPath),
+      });
+      const manifestSerialization = normalizePrivateArtifactWriterResult(
+        writerResult,
+        mapSerialization,
+      );
+      if (!await revalidateSource()) {
+        throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
+      }
+      return Object.freeze({ mapSerialization, manifestSerialization });
+    },
+  );
+}
+
+async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
+  input: MediaSourceAudioSampleEpochFfmpegInputV1,
+  consume: (materialized: Readonly<{
+    mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1;
+    pcmPath: string;
+    revalidateSource: () => Promise<boolean>;
+  }>) => Promise<T>,
+): Promise<T> {
   const sourceVersion = assertMediaSourceVersionV1(input.sourceVersion);
   const resourcePolicy = assertMediaSourceAudioSampleEpochResourcePolicyV1(
     input.resourcePolicy,
@@ -111,10 +175,68 @@ export async function materializeMediaSourceAudioSampleEpochMapFfmpegV1(input: R
       frames,
       pcm,
     });
-    return serializeMediaSourceAudioSampleEpochMapV1(map);
+    const consumed = await consume({
+      mapSerialization: serializeMediaSourceAudioSampleEpochMapV1(map),
+      pcmPath,
+      revalidateSource: () => lease.revalidate(),
+    });
+    return consumed;
   } finally {
     await removeOwnedTemporaryDirectory(temporaryDirectory);
   }
+}
+
+function assertPrivateArtifactWriter(
+  value: unknown,
+): MediaSourceAudioPrivateArtifactStreamWriterV1 {
+  if (!value || typeof value !== 'object'
+    || typeof (value as { writeArtifactSetFromPcmStream?: unknown })
+      .writeArtifactSetFromPcmStream !== 'function') {
+    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ARTIFACT_WRITER_INVALID');
+  }
+  return value as MediaSourceAudioPrivateArtifactStreamWriterV1;
+}
+
+function normalizePrivateArtifactWriterResult(
+  value: unknown,
+  mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1,
+): MediaSourceAudioPrivateArtifactManifestSerializationV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ARTIFACT_RESULT_INVALID');
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  const expectedKeys = ['canonicalJson', 'manifest', 'reference'];
+  if (keys.length !== expectedKeys.length
+    || keys.some((key, index) => key !== expectedKeys[index])
+    || typeof record.canonicalJson !== 'string') {
+    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ARTIFACT_RESULT_FIELDS_INVALID');
+  }
+  const canonical = serializeMediaSourceAudioPrivateArtifactManifestV1(
+    record.manifest as MediaSourceAudioPrivateArtifactManifestV1,
+  );
+  const reference = assertMediaSourceAudioPrivateObjectReferenceV1(record.reference);
+  if (canonical.canonicalJson !== record.canonicalJson
+    || !samePrivateArtifactReference(canonical.reference, reference)) {
+    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ARTIFACT_RESULT_MISMATCH');
+  }
+  verifyMediaSourceAudioPrivateArtifactSetV1({
+    manifest: canonical.manifest,
+    mapCanonicalJson: mapSerialization.canonicalJson,
+  });
+  return canonical;
+}
+
+function samePrivateArtifactReference(
+  left: MediaSourceAudioPrivateObjectReferenceV1,
+  right: MediaSourceAudioPrivateObjectReferenceV1,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.storage === right.storage
+    && left.artifactKind === right.artifactKind
+    && left.objectKey === right.objectKey
+    && left.byteLength === right.byteLength
+    && left.contentSha256 === right.contentSha256;
 }
 
 async function scanDecodedAudioFrames(input: Readonly<{
