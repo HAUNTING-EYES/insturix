@@ -37,11 +37,11 @@ import {
 import type { Project, ProjectRevisionV1 } from './project-service';
 import { resolveVerifiedVideoSourceEpochTimeBindingV3 } from './video-source-time-transform-v1';
 
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLISHER_VERSION_V1 =
+const NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLISHER_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLISHER_V1' as const;
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLICATION_KIND_V1 =
+const NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLICATION_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLICATION_V1' as const;
-export const NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_RECEIPT_KIND_V1 =
+const NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_RECEIPT_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_RECEIPT_V1' as const;
 
 const OPERATION_OWNER = 'NATIVE_MEDIA_FINAL_RENDER';
@@ -141,7 +141,7 @@ export function createNativeMediaFinalRenderPublicationRightsReceiptV1(input: Re
   });
 }
 
-export type NativeMediaFinalRenderPreparedSourcePublicationReceiptV1 = Readonly<{
+type NativeMediaFinalRenderPreparedSourcePublicationReceiptV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLICATION_KIND_V1;
   publisherVersion: typeof NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLISHER_VERSION_V1;
@@ -160,7 +160,7 @@ export type NativeMediaFinalRenderPreparedSourcePublicationReceiptV1 = Readonly<
   receiptSha256: string;
 }>;
 
-export type NativeMediaFinalRenderPreparedSourcePublicationResultV1 = Readonly<
+type NativeMediaFinalRenderPreparedSourcePublicationResultV1 = Readonly<
   | {
       disposition: 'SOURCE_PUBLISHED';
       lease: NativeMediaFinalRenderSourceLeaseV1;
