@@ -15,10 +15,10 @@ import {
   type MediaSourceOwnerV1,
 } from '@/lib/editron/services/media-source-version-v1';
 import {
+  assertSourceMediaRightsGrantStateV1,
   issueSourceMediaRightsV1,
-  readSourceMediaRightsAssetStateV1,
   revokeSourceMediaRightsV1,
-  type SourceMediaRightsAssetStateV1,
+  type SourceMediaRightsGrantStateV1,
   type SourceMediaRightsLicenseEvidenceV1,
   type SourceMediaRightsPrincipalAuthorityV1,
 } from '@/lib/editron/services/source-media-rights-owner-v1';
@@ -33,7 +33,7 @@ const REVISION = Object.freeze({
 });
 
 describe('SourceMediaRightsOwnerV1', () => {
-  it('issues and reads one deterministic project/source-version-bound user record', async () => {
+  it('issues one deterministic project/source-version-bound user grant', async () => {
     const sourceVersion = mediaSourceVersion();
     const authority = principalAuthority();
 
@@ -55,7 +55,11 @@ describe('SourceMediaRightsOwnerV1', () => {
       },
     });
     expect(Object.isFrozen(first.sourceMediaRightsV1)).toBe(true);
-    expect(readSourceMediaRightsAssetStateV1(asset(sourceVersion, first))).toEqual(first);
+    expect(assertSourceMediaRightsGrantStateV1(first)).toEqual(first);
+    expect(first).toMatchObject({
+      previousStateSha256V1: null,
+      sourceMediaRightsV1: { supersedesRecordSha256: null },
+    });
     expect(authority.authorize).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ISSUE',
       actorUserId: 'user-a',
@@ -146,30 +150,48 @@ describe('SourceMediaRightsOwnerV1', () => {
       disposition: 'OWNED_BY_ORG',
     });
 
-    expect(readSourceMediaRightsAssetStateV1(asset(sourceVersion, state))).toEqual(state);
-    expect(() => readSourceMediaRightsAssetStateV1({
-      ...asset(sourceVersion, state),
-      orgId: 'org-b',
-    })).toThrow('SOURCE_MEDIA_RIGHTS_ASSET_OWNER_MISMATCH');
+    expect(assertSourceMediaRightsGrantStateV1(state)).toEqual(state);
+    expect(state.sourceMediaRightsV1).toMatchObject({
+      orgId: 'org-a',
+      disposition: 'OWNED_BY_ORG',
+      source: { owner: { kind: 'ORG', orgId: 'org-a' } },
+    });
   });
 
-  it('never promotes legacy audio consent and rejects partial, forged, or stale state', async () => {
+  it('chains a re-attestation to the exact prior record and state', async () => {
+    const first = await issueRights();
+    const authority = principalAuthority();
+    const second = await issueRights({
+      currentState: first,
+      termsVersion: 'rights-terms-v2',
+      termsContentSha256: hex('1'),
+      attestedAt: new Date('2026-08-30T11:00:00.000Z'),
+      principalAuthority: authority,
+    });
+
+    expect(second.sourceMediaRightsV1.supersedesRecordSha256)
+      .toBe(first.sourceMediaRightsV1.recordSha256);
+    expect(second.previousStateSha256V1)
+      .toBe(first.sourceMediaRightsStateSha256V1);
+    expect(second.sourceMediaRightsStateSha256V1)
+      .not.toBe(first.sourceMediaRightsStateSha256V1);
+    expect(authority.authorize).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ISSUE',
+      currentRecordSha256: first.sourceMediaRightsV1.recordSha256,
+    }));
+  });
+
+  it('rejects partial, forged, or cross-source re-attestation state', async () => {
     const sourceVersion = mediaSourceVersion();
     const state = await issueRights({ sourceVersion });
 
-    expect(readSourceMediaRightsAssetStateV1({
-      assetId: 'asset-a',
-      type: 'video',
-      userId: 'user-a',
-      sourceVersionV1: sourceVersion,
-      audioRights: { licensed: true },
-    } as never)).toBeNull();
-    expect(() => readSourceMediaRightsAssetStateV1({
-      ...asset(sourceVersion, state),
-      sourceMediaRightsStateSha256V1: undefined,
-    })).toThrow('SOURCE_MEDIA_RIGHTS_ASSET_STATE_INCOMPLETE');
-    expect(() => readSourceMediaRightsAssetStateV1({
-      ...asset(sourceVersion, state),
+    expect(() => assertSourceMediaRightsGrantStateV1({
+      sourceMediaRightsV1: state.sourceMediaRightsV1,
+      sourceMediaRightsRevocationV1: state.sourceMediaRightsRevocationV1,
+      sourceMediaRightsStateSha256V1: state.sourceMediaRightsStateSha256V1,
+    })).toThrow('SOURCE_MEDIA_RIGHTS_STATE_FIELDS_INVALID');
+    expect(() => assertSourceMediaRightsGrantStateV1({
+      ...state,
       sourceMediaRightsV1: {
         ...state.sourceMediaRightsV1,
         recordSha256: hex('f'),
@@ -180,9 +202,18 @@ describe('SourceMediaRightsOwnerV1', () => {
       { kind: 'USER', userId: 'user-a' },
       { contentSha256: hex('b'), objectKey: 'asset-a-v2', eTag: 'etag-v2' },
     );
-    expect(() => readSourceMediaRightsAssetStateV1({
-      ...asset(replacement, state),
-    })).toThrow('SOURCE_MEDIA_RIGHTS_ASSET_SOURCE_MISMATCH');
+    const authority = principalAuthority();
+    await expect(issueSourceMediaRightsV1({
+      ...issueInput(),
+      sourceVersion: replacement,
+      currentState: state,
+      attestedAt: new Date('2026-08-30T11:00:00.000Z'),
+      principalAuthority: authority,
+    })).resolves.toEqual({
+      disposition: 'BLOCKED',
+      diagnosticCode: 'SOURCE_MEDIA_RIGHTS_ISSUE_INPUT_INVALID',
+    });
+    expect(authority.authorize).not.toHaveBeenCalled();
   });
 
   it('creates an independently authorized immutable revocation and rejects reuse', async () => {
@@ -203,6 +234,8 @@ describe('SourceMediaRightsOwnerV1', () => {
       revokedByUserId: 'user-a',
       reason: 'RIGHTS_WITHDRAWN',
     });
+    expect(result.state.previousStateSha256V1)
+      .toBe(state.sourceMediaRightsStateSha256V1);
     expect(authority.authorize).toHaveBeenCalledWith(expect.objectContaining({
       action: 'REVOKE',
       currentRecordSha256: state.sourceMediaRightsV1.recordSha256,
@@ -294,30 +327,23 @@ describe('NativeMediaFinalRenderSourceRightsOwnerV1', () => {
     });
   });
 
-  it('blocks a missing legacy-only record and a forged canonical state', async () => {
+  it('blocks missing ledger evidence despite legacy consent and rejects forged state', async () => {
     const runtime = await publicationRuntime();
+    runtime.rightsReader.read.mockResolvedValueOnce(null);
     const missing = await runtime.owner.authorize({
       ...runtime.input,
-      asset: {
-        assetId: runtime.sourceVersion.assetId,
-        type: runtime.sourceVersion.mediaKind,
-        userId: 'user-a',
-        sourceVersionV1: runtime.sourceVersion,
-        audioRights: { licensed: true },
-      } as never,
+      asset: { ...runtime.input.asset, audioRights: { licensed: true } } as never,
     });
     expect(missing).toEqual({
       disposition: 'BLOCKED',
       diagnosticCode: 'SOURCE_MEDIA_RIGHTS_EVIDENCE_MISSING',
     });
 
-    const forged = await runtime.owner.authorize({
-      ...runtime.input,
-      asset: {
-        ...runtime.input.asset,
-        sourceMediaRightsStateSha256V1: hex('f'),
-      } as never,
+    runtime.rightsReader.read.mockResolvedValueOnce({
+      ...runtime.state,
+      sourceMediaRightsStateSha256V1: hex('f'),
     });
+    const forged = await runtime.owner.authorize(runtime.input);
     expect(forged).toEqual({
       disposition: 'BLOCKED',
       diagnosticCode: 'SOURCE_MEDIA_RIGHTS_EVIDENCE_INVALID',
@@ -334,10 +360,8 @@ describe('NativeMediaFinalRenderSourceRightsOwnerV1', () => {
       principalAuthority: principalAuthority(),
     });
     if (revocation.disposition !== 'REVOKED') throw new Error('expected revocation');
-    expect(await revokedRuntime.owner.authorize({
-      ...revokedRuntime.input,
-      asset: asset(revokedRuntime.sourceVersion, revocation.state) as never,
-    })).toEqual({
+    revokedRuntime.rightsReader.read.mockResolvedValueOnce(revocation.state);
+    expect(await revokedRuntime.owner.authorize(revokedRuntime.input)).toEqual({
       disposition: 'BLOCKED',
       diagnosticCode: 'SOURCE_MEDIA_RIGHTS_REVOKED',
     });
@@ -418,7 +442,7 @@ describe('NativeMediaFinalRenderSourceRightsOwnerV1', () => {
 
 async function issueRights(
   overrides: Partial<Parameters<typeof issueSourceMediaRightsV1>[0]> = {},
-): Promise<SourceMediaRightsAssetStateV1> {
+): Promise<SourceMediaRightsGrantStateV1> {
   const result = await issueSourceMediaRightsV1({
     ...issueInput(),
     ...overrides,
@@ -484,7 +508,6 @@ function mediaSourceVersion(
 
 function asset(
   sourceVersion: ReturnType<typeof mediaSourceVersion>,
-  state: SourceMediaRightsAssetStateV1,
 ) {
   return {
     assetId: sourceVersion.assetId,
@@ -492,7 +515,6 @@ function asset(
     userId: sourceVersion.owner.kind === 'USER' ? sourceVersion.owner.userId : 'org-admin',
     orgId: sourceVersion.owner.kind === 'ORG' ? sourceVersion.owner.orgId : undefined,
     sourceVersionV1: sourceVersion,
-    ...state,
   };
 }
 
@@ -530,7 +552,11 @@ async function publicationRuntime(overrides: Readonly<{
   const overlay = videoOverlay(overrides.renderNativeAudio ?? false);
   const artifact = renderArtifact(sourceVersion, overlay);
   const verifyAudioRights = vi.fn().mockResolvedValue(undefined);
+  const rightsReader = {
+    read: vi.fn().mockResolvedValue(state),
+  };
   const owner = createNativeMediaFinalRenderSourceRightsOwnerV1({
+    rightsReader,
     now: () => ACTIVE_AT,
     verifyAudioRights,
   });
@@ -544,7 +570,7 @@ async function publicationRuntime(overrides: Readonly<{
     projectRevision: REVISION,
     currentScopeSha256: hex('9'),
     overlay,
-    asset: asset(sourceVersion, state),
+    asset: asset(sourceVersion),
     artifact,
   };
   return {
@@ -553,6 +579,7 @@ async function publicationRuntime(overrides: Readonly<{
     overlay,
     artifact,
     verifyAudioRights,
+    rightsReader,
     owner,
     input,
   };

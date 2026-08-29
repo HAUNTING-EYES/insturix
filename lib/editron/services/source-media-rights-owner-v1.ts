@@ -61,6 +61,7 @@ export type SourceMediaRightsRecordV1 = Readonly<{
   }>;
   license: SourceMediaRightsLicenseEvidenceV1 | null;
   issuedAt: string;
+  supersedesRecordSha256: string | null;
   principalAuthorization: Readonly<{
     ownerId: string;
     ownerVersion: string;
@@ -89,21 +90,11 @@ export type SourceMediaRightsRevocationReceiptV1 = Readonly<{
   revocationSha256: string;
 }>;
 
-export type SourceMediaRightsAssetStateV1 = Readonly<{
+export type SourceMediaRightsGrantStateV1 = Readonly<{
   sourceMediaRightsV1: SourceMediaRightsRecordV1;
   sourceMediaRightsRevocationV1: SourceMediaRightsRevocationReceiptV1 | null;
+  previousStateSha256V1: string | null;
   sourceMediaRightsStateSha256V1: string;
-}>;
-
-export type SourceMediaRightsAssetStateInputV1 = Readonly<{
-  assetId?: unknown;
-  type?: unknown;
-  userId?: unknown;
-  orgId?: unknown;
-  sourceVersionV1?: unknown;
-  sourceMediaRightsV1?: unknown;
-  sourceMediaRightsRevocationV1?: unknown;
-  sourceMediaRightsStateSha256V1?: unknown;
 }>;
 
 export type SourceMediaRightsPrincipalAuthorizationRequestV1 = Readonly<{
@@ -127,12 +118,12 @@ export interface SourceMediaRightsPrincipalAuthorityV1 {
 }
 
 export type SourceMediaRightsIssueResultV1 = Readonly<
-  | { disposition: 'ISSUED'; state: SourceMediaRightsAssetStateV1 }
+  | { disposition: 'ISSUED'; state: SourceMediaRightsGrantStateV1 }
   | { disposition: 'BLOCKED'; diagnosticCode: string }
 >;
 
 export type SourceMediaRightsRevocationResultV1 = Readonly<
-  | { disposition: 'REVOKED'; state: SourceMediaRightsAssetStateV1 }
+  | { disposition: 'REVOKED'; state: SourceMediaRightsGrantStateV1 }
   | { disposition: 'BLOCKED'; diagnosticCode: string }
 >;
 
@@ -147,6 +138,7 @@ export async function issueSourceMediaRightsV1(input: Readonly<{
   termsContentSha256: string;
   license: SourceMediaRightsLicenseEvidenceV1 | null;
   attestedAt: Date;
+  currentState?: SourceMediaRightsGrantStateV1 | null;
   principalAuthority: Readonly<SourceMediaRightsPrincipalAuthorityV1>;
 }>): Promise<SourceMediaRightsIssueResultV1> {
   let normalized: ReturnType<typeof normalizeIssueInput>;
@@ -164,7 +156,7 @@ export async function issueSourceMediaRightsV1(input: Readonly<{
     projectId: normalized.projectId,
     disposition: normalized.disposition,
     source: normalized.source,
-    currentRecordSha256: null,
+    currentRecordSha256: normalized.supersedesRecordSha256,
   });
   if (authorization.disposition === 'BLOCKED') return authorization;
 
@@ -174,23 +166,27 @@ export async function issueSourceMediaRightsV1(input: Readonly<{
   });
   return deepFreezeEditronJsonV1({
     disposition: 'ISSUED' as const,
-    state: createSourceMediaRightsAssetStateV1({ record, revocation: null }),
+    state: createSourceMediaRightsGrantStateV1({
+      record,
+      revocation: null,
+      previousStateSha256: normalized.previousStateSha256,
+    }),
   });
 }
 
 export async function revokeSourceMediaRightsV1(input: Readonly<{
-  state: SourceMediaRightsAssetStateV1;
+  state: SourceMediaRightsGrantStateV1;
   revokedByUserId: string;
   reason: SourceMediaRightsRevocationReceiptV1['reason'];
   revokedAt: Date;
   principalAuthority: Readonly<SourceMediaRightsPrincipalAuthorityV1>;
 }>): Promise<SourceMediaRightsRevocationResultV1> {
-  let state: SourceMediaRightsAssetStateV1;
+  let state: SourceMediaRightsGrantStateV1;
   let revokedByUserId: string;
   let reason: SourceMediaRightsRevocationReceiptV1['reason'];
   let revokedAt: string;
   try {
-    state = assertSourceMediaRightsAssetStateV1(input.state);
+    state = assertSourceMediaRightsGrantStateV1(input.state);
     if (state.sourceMediaRightsRevocationV1) {
       return blocked('SOURCE_MEDIA_RIGHTS_ALREADY_REVOKED');
     }
@@ -229,73 +225,36 @@ export async function revokeSourceMediaRightsV1(input: Readonly<{
   });
   return deepFreezeEditronJsonV1({
     disposition: 'REVOKED' as const,
-    state: createSourceMediaRightsAssetStateV1({ record, revocation }),
+    state: createSourceMediaRightsGrantStateV1({
+      record,
+      revocation,
+      previousStateSha256: state.sourceMediaRightsStateSha256V1,
+    }),
   });
 }
 
-export function createSourceMediaRightsAssetStateV1(input: Readonly<{
+export function createSourceMediaRightsGrantStateV1(input: Readonly<{
   record: SourceMediaRightsRecordV1;
   revocation: SourceMediaRightsRevocationReceiptV1 | null;
-}>): SourceMediaRightsAssetStateV1 {
+  previousStateSha256: string | null;
+}>): SourceMediaRightsGrantStateV1 {
   const record = assertSourceMediaRightsRecordV1(input.record);
   const revocation = input.revocation === null
     ? null
     : assertSourceMediaRightsRevocationReceiptV1(input.revocation, record);
+  const previousStateSha256 = nullableSha256(
+    input.previousStateSha256,
+    'SOURCE_MEDIA_RIGHTS_PREVIOUS_STATE_SHA256_INVALID',
+  );
   const material = {
     sourceMediaRightsV1: record,
     sourceMediaRightsRevocationV1: revocation,
+    previousStateSha256V1: previousStateSha256,
   };
   return deepFreezeEditronJsonV1({
     ...material,
     sourceMediaRightsStateSha256V1: hashEditronCanonicalJsonV1(material),
   });
-}
-
-/**
- * Reads the sole rights state stored on the existing MediaAsset. Legacy
- * audioRights are intentionally not promoted into visual/source clearance.
- */
-export function readSourceMediaRightsAssetStateV1(
-  asset: SourceMediaRightsAssetStateInputV1,
-): SourceMediaRightsAssetStateV1 | null {
-  const hasRecord = asset.sourceMediaRightsV1 !== undefined
-    && asset.sourceMediaRightsV1 !== null;
-  const hasRevocationField = Object.prototype.hasOwnProperty.call(
-    asset,
-    'sourceMediaRightsRevocationV1',
-  );
-  const hasStateHash = asset.sourceMediaRightsStateSha256V1 !== undefined
-    && asset.sourceMediaRightsStateSha256V1 !== null;
-  if (!hasRecord && !hasRevocationField && !hasStateHash) return null;
-  if (!hasRecord || !hasRevocationField || !hasStateHash) {
-    throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_STATE_INCOMPLETE');
-  }
-
-  const state = createSourceMediaRightsAssetStateV1({
-    record: asset.sourceMediaRightsV1 as SourceMediaRightsRecordV1,
-    revocation: asset.sourceMediaRightsRevocationV1 as
-      SourceMediaRightsRevocationReceiptV1 | null,
-  });
-  if (asset.sourceMediaRightsStateSha256V1
-    !== state.sourceMediaRightsStateSha256V1) {
-    throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_STATE_HASH_MISMATCH');
-  }
-
-  const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
-  const record = state.sourceMediaRightsV1;
-  if (asset.assetId !== sourceVersion.assetId
-    || asset.type !== sourceVersion.mediaKind
-    || !sameSource(record.source, sourceReference(sourceVersion))) {
-    throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_SOURCE_MISMATCH');
-  }
-  if (sourceVersion.owner.kind === 'USER') {
-    if (asset.userId !== sourceVersion.owner.userId) {
-      throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_OWNER_MISMATCH');
-    }
-  } else if (asset.orgId !== sourceVersion.owner.orgId) {
-    throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_OWNER_MISMATCH');
-  }
-  return state;
 }
 
 export function assertSourceMediaRightsRecordV1(
@@ -305,7 +264,8 @@ export function assertSourceMediaRightsRecordV1(
   exactKeys(record, [
     'attestedByUserId', 'authority', 'disposition', 'issuedAt', 'kind',
     'license', 'orgId', 'permittedUse', 'principalAuthorization', 'projectId',
-    'recordSha256', 'schemaVersion', 'source', 'tenantId', 'terms',
+    'recordSha256', 'schemaVersion', 'source', 'supersedesRecordSha256',
+    'tenantId', 'terms',
   ], 'SOURCE_MEDIA_RIGHTS_RECORD_FIELDS_INVALID');
   if (record.schemaVersion !== 1 || record.kind !== SOURCE_MEDIA_RIGHTS_RECORD_KIND_V1) {
     throw new Error('SOURCE_MEDIA_RIGHTS_RECORD_KIND_INVALID');
@@ -339,6 +299,10 @@ export function assertSourceMediaRightsRecordV1(
     ),
     license: normalizeLicense(record.license),
     issuedAt: isoDate(record.issuedAt, 'SOURCE_MEDIA_RIGHTS_ISSUED_AT_INVALID'),
+    supersedesRecordSha256: nullableSha256(
+      record.supersedesRecordSha256,
+      'SOURCE_MEDIA_RIGHTS_SUPERSEDES_RECORD_SHA256_INVALID',
+    ),
     principalAuthorization: principal,
   });
   if (rebuilt.recordSha256 !== sha256(
@@ -393,22 +357,33 @@ export function assertSourceMediaRightsRevocationReceiptV1(
   return rebuilt;
 }
 
-function assertSourceMediaRightsAssetStateV1(
-  state: SourceMediaRightsAssetStateV1,
-): SourceMediaRightsAssetStateV1 {
-  const rebuilt = createSourceMediaRightsAssetStateV1({
-    record: state.sourceMediaRightsV1,
-    revocation: state.sourceMediaRightsRevocationV1,
+export function assertSourceMediaRightsGrantStateV1(
+  value: unknown,
+): SourceMediaRightsGrantStateV1 {
+  const state = object(value, 'SOURCE_MEDIA_RIGHTS_STATE_INVALID');
+  exactKeys(state, [
+    'previousStateSha256V1', 'sourceMediaRightsRevocationV1',
+    'sourceMediaRightsStateSha256V1', 'sourceMediaRightsV1',
+  ], 'SOURCE_MEDIA_RIGHTS_STATE_FIELDS_INVALID');
+  const rebuilt = createSourceMediaRightsGrantStateV1({
+    record: state.sourceMediaRightsV1 as SourceMediaRightsRecordV1,
+    revocation: state.sourceMediaRightsRevocationV1 as
+      SourceMediaRightsRevocationReceiptV1 | null,
+    previousStateSha256: state.previousStateSha256V1 as string | null,
   });
   if (state.sourceMediaRightsStateSha256V1
     !== rebuilt.sourceMediaRightsStateSha256V1) {
-    throw new Error('SOURCE_MEDIA_RIGHTS_ASSET_STATE_HASH_MISMATCH');
+    throw new Error('SOURCE_MEDIA_RIGHTS_STATE_HASH_MISMATCH');
   }
   return rebuilt;
 }
 
 function normalizeIssueInput(input: Parameters<typeof issueSourceMediaRightsV1>[0]) {
   const sourceVersion = assertMediaSourceVersionV1(input.sourceVersion);
+  const source = sourceReference(sourceVersion);
+  const currentState = input.currentState === undefined || input.currentState === null
+    ? null
+    : assertSourceMediaRightsGrantStateV1(input.currentState);
   const normalized = {
     tenantId: identity(input.tenantId, 'SOURCE_MEDIA_RIGHTS_TENANT_INVALID'),
     attestedByUserId: identity(
@@ -418,7 +393,7 @@ function normalizeIssueInput(input: Parameters<typeof issueSourceMediaRightsV1>[
     orgId: nullableIdentity(input.orgId, 'SOURCE_MEDIA_RIGHTS_ORG_INVALID'),
     projectId: identity(input.projectId, 'SOURCE_MEDIA_RIGHTS_PROJECT_INVALID'),
     disposition: disposition(input.disposition),
-    source: sourceReference(sourceVersion),
+    source,
     termsVersion: identity(
       input.termsVersion,
       'SOURCE_MEDIA_RIGHTS_TERMS_VERSION_INVALID',
@@ -429,8 +404,22 @@ function normalizeIssueInput(input: Parameters<typeof issueSourceMediaRightsV1>[
     ),
     license: normalizeLicense(input.license),
     issuedAt: isoDate(input.attestedAt, 'SOURCE_MEDIA_RIGHTS_ISSUED_AT_INVALID'),
+    supersedesRecordSha256: currentState?.sourceMediaRightsV1.recordSha256 ?? null,
+    previousStateSha256: currentState?.sourceMediaRightsStateSha256V1 ?? null,
   };
   assertDispositionScope(normalized);
+  if (currentState) {
+    const currentRecord = currentState.sourceMediaRightsV1;
+    const latestAt = currentState.sourceMediaRightsRevocationV1?.revokedAt
+      ?? currentRecord.issuedAt;
+    if (!sameSource(currentRecord.source, source)
+      || currentRecord.tenantId !== normalized.tenantId
+      || currentRecord.orgId !== normalized.orgId
+      || currentRecord.projectId !== normalized.projectId
+      || Date.parse(normalized.issuedAt) < Date.parse(latestAt)) {
+      throw new Error('SOURCE_MEDIA_RIGHTS_REATTESTATION_SCOPE_INVALID');
+    }
+  }
   return normalized;
 }
 
@@ -445,6 +434,7 @@ function createRecord(input: Readonly<{
   termsContentSha256: string;
   license: SourceMediaRightsLicenseEvidenceV1 | null;
   issuedAt: string;
+  supersedesRecordSha256: string | null;
   principalAuthorization: SourceMediaRightsRecordV1['principalAuthorization'];
 }>): SourceMediaRightsRecordV1 {
   assertDispositionScope(input);
@@ -468,6 +458,7 @@ function createRecord(input: Readonly<{
     },
     license: input.license,
     issuedAt: input.issuedAt,
+    supersedesRecordSha256: input.supersedesRecordSha256,
     principalAuthorization: input.principalAuthorization,
   };
   return deepFreezeEditronJsonV1({
@@ -749,6 +740,10 @@ function nullableIdentity(value: unknown, code: string): string | null {
 function sha256(value: unknown, code: string): string {
   if (typeof value !== 'string' || !SHA256.test(value)) throw new Error(code);
   return value;
+}
+
+function nullableSha256(value: unknown, code: string): string | null {
+  return value === null ? null : sha256(value, code);
 }
 
 function isoDate(value: unknown, code: string): string {

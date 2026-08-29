@@ -12,12 +12,15 @@ import {
 } from './native-media-final-render-source-preparation-v1';
 import { verifyRenderAudioRightsAuthority } from './render-audio-rights-authority';
 import {
-  readSourceMediaRightsAssetStateV1,
+  assertSourceMediaRightsGrantStateV1,
   SOURCE_MEDIA_RIGHTS_OWNER_ID_V1,
   SOURCE_MEDIA_RIGHTS_OWNER_VERSION_V1,
-  type SourceMediaRightsAssetStateInputV1,
   type SourceMediaRightsRecordV1,
 } from './source-media-rights-owner-v1';
+import {
+  createSourceMediaRightsLedgerScopeV1,
+  type SourceMediaRightsLedgerReaderV1,
+} from './source-media-rights-ledger-v1';
 import { assertMediaSourceVersionV1 } from './media-source-version-v1';
 
 export const NATIVE_MEDIA_FINAL_RENDER_SOURCE_RIGHTS_ADAPTER_VERSION_V1 =
@@ -29,10 +32,14 @@ type AudioRightsVerifier = (
 
 export function createNativeMediaFinalRenderSourceRightsOwnerV1(
   ports: Readonly<{
+    rightsReader: Readonly<SourceMediaRightsLedgerReaderV1>;
     now?: () => Date;
     verifyAudioRights?: AudioRightsVerifier;
-  }> = {},
+  }>,
 ): NativeMediaFinalRenderPublicationRightsOwnerV1 {
+  if (typeof ports?.rightsReader?.read !== 'function') {
+    throw new Error('SOURCE_MEDIA_RIGHTS_READER_PORT_INVALID');
+  }
   if (ports.now !== undefined && typeof ports.now !== 'function') {
     throw new Error('SOURCE_MEDIA_RIGHTS_NOW_PORT_INVALID');
   }
@@ -58,9 +65,18 @@ export function createNativeMediaFinalRenderSourceRightsOwnerV1(
 
         let rightsState;
         try {
-          rightsState = readSourceMediaRightsAssetStateV1(
-            input.asset as SourceMediaRightsAssetStateInputV1,
+          const stored = await ports.rightsReader.read(
+            createSourceMediaRightsLedgerScopeV1({
+              tenantId: input.tenantId,
+              orgId: input.orgId,
+              projectId: input.projectId,
+              assetId: sourceVersion.assetId,
+              sourceVersionSha256: sourceVersion.sourceVersionSha256,
+            }),
           );
+          rightsState = stored === null
+            ? null
+            : assertSourceMediaRightsGrantStateV1(stored);
         } catch {
           fail('SOURCE_MEDIA_RIGHTS_EVIDENCE_INVALID');
         }
