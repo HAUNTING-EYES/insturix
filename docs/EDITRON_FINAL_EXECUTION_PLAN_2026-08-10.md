@@ -8050,6 +8050,27 @@ encoder and private-artifact suites pass 15/15; repository TypeScript and
 repository-wide quiet ESLint pass. This is behavior-neutral API-surface cleanup
 only and does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render cancellation propagation Phase 3F-C7ai (2026-08-30):** commit
+`3b1553df9` adds a caller-owned abort signal to the exact-source encoder port and
+threads it through the shared hash-verifying source download, Node stream
+pipeline, exact frame expansion, PCM/silence writes, large-file hashing and all
+long FFmpeg/FFprobe subprocesses. A cancelled subprocess is killed and reaped,
+its listener and timeout are cleared, and the owner returns the stable
+`NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED` diagnostic instead of continuing
+or reporting success. The same signal is forwarded into the artifact-staging
+port without changing any selected frame, audio sample, codec or artifact byte.
+
+The focused downloader/materializer/encoder/private-artifact set passes 20/20;
+repository TypeScript and repository-wide quiet ESLint pass. Tests prove
+mid-download cancellation through the composed timeout/caller signal and
+pre-execution encoder cancellation before source or staging access. This result
+is `EXACT_RENDER_CANCEL_SIGNAL_PROPAGATED_R2_AND_DURABLE_HEARTBEAT_OPEN`. The
+current R2 stager does not yet consume the forwarded signal, the durable worker
+adapter and policy-owned heartbeat pump do not exist, and no measured long
+FFmpeg cancellation/recovery run or live storage cleanup was performed. Those
+remain Queue item 3 work; this checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
