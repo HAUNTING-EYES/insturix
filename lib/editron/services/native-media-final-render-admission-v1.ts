@@ -102,7 +102,7 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
   let projectId: string;
   let sequenceId: string;
   let projectRevision: ProjectRevisionV1;
-  let videos: readonly NormalizedVideoOverlayV1[];
+  let videos: readonly NativeMediaFinalRenderVideoOverlayV1[];
   try {
     userId = identifier(input.userId, 'NATIVE_MEDIA_RENDER_USER_INVALID');
     projectId = identifier(input.projectId, 'NATIVE_MEDIA_RENDER_PROJECT_INVALID');
@@ -147,7 +147,7 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
       }
       assetRead = Object.freeze({
         asset,
-        timingStateSha256: assetTimingStateSha256(asset),
+        timingStateSha256: nativeMediaFinalRenderAssetTimingStateSha256V1(asset),
       });
       firstReads.set(overlay.assetId, assetRead);
     }
@@ -223,7 +223,7 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
       return blocked('ASSET_CHANGED_DURING_ADMISSION', null, assetId, null);
     }
     if (!fresh || fresh.assetId !== assetId || fresh.type !== 'video'
-      || assetTimingStateSha256(fresh) !== first.timingStateSha256) {
+      || nativeMediaFinalRenderAssetTimingStateSha256V1(fresh) !== first.timingStateSha256) {
       return blocked('ASSET_CHANGED_DURING_ADMISSION', null, assetId, null);
     }
   }
@@ -277,14 +277,21 @@ export async function admitNativeMediaFinalRenderUsingRuntimeV1(input: Readonly<
   }
 }
 
-type NormalizedVideoOverlayV1 = Readonly<{
+export type NativeMediaFinalRenderVideoOverlayV1 = Readonly<{
   overlayId: string;
   assetId: string;
   overlayTimingSha256: string;
   renderNativeAudio: boolean;
+  from: number;
+  durationInFrames: number;
+  sourceStartFrame: number;
+  sourceEndFrame: number | null;
+  retimed: boolean;
 }>;
 
-function normalizeVideoOverlays(overlays: readonly Overlay[]): readonly NormalizedVideoOverlayV1[] {
+function normalizeVideoOverlays(
+  overlays: readonly Overlay[],
+): readonly NativeMediaFinalRenderVideoOverlayV1[] {
   if (!Array.isArray(overlays)) throw new Error('NATIVE_MEDIA_RENDER_OVERLAYS_INVALID');
   const videos = overlays.filter((overlay) => overlay?.type === 'video');
   if (videos.length > MAX_VIDEO_OVERLAYS_V1) {
@@ -292,46 +299,67 @@ function normalizeVideoOverlays(overlays: readonly Overlay[]): readonly Normaliz
   }
   const seen = new Set<string>();
   return videos.map((overlay) => {
-    if ('nativeMediaFinalRenderSourceV1' in overlay) {
-      throw new Error('NATIVE_MEDIA_RENDER_SOURCE_BINDING_FORGED');
+    const normalized = readNativeMediaFinalRenderVideoOverlayV1(overlay);
+    if (seen.has(normalized.overlayId)) {
+      throw new Error('NATIVE_MEDIA_RENDER_OVERLAY_DUPLICATE');
     }
-    const overlayId = identifier(String(overlay.id), 'NATIVE_MEDIA_RENDER_OVERLAY_INVALID');
-    if (seen.has(overlayId)) throw new Error('NATIVE_MEDIA_RENDER_OVERLAY_DUPLICATE');
-    seen.add(overlayId);
-    if (typeof overlay.assetId !== 'string' || !overlay.assetId.trim()) {
-      throw new Error('NATIVE_MEDIA_RENDER_VIDEO_ASSET_REQUIRED');
-    }
-    const assetId = identifier(overlay.assetId, 'NATIVE_MEDIA_RENDER_ASSET_INVALID');
-    const sourceStartFrame = overlay.sourceStartFrame ?? overlay.videoStartTime ?? 0;
-    if (overlay.sourceStartFrame !== undefined && overlay.videoStartTime !== undefined
-      && overlay.sourceStartFrame !== overlay.videoStartTime) {
-      throw new Error('NATIVE_MEDIA_RENDER_SOURCE_START_CONFLICT');
-    }
-    const timing = {
-      overlayId,
-      assetId,
-      from: nonNegativeInteger(overlay.from),
-      durationInFrames: positiveInteger(overlay.durationInFrames),
-      sourceStartFrame: nonNegativeInteger(sourceStartFrame),
-      sourceEndFrame: overlay.sourceEndFrame === undefined || overlay.sourceEndFrame === null
-        ? null
-        : positiveInteger(overlay.sourceEndFrame),
-      speed: overlay.speed ?? 1,
-      speedCurve: overlay.speedCurve ?? null,
-      speedKeyframes: overlay.keyframeTracks?.filter(
-        (track: { property?: string }) => track.property === 'speed',
-      ) ?? [],
-    };
-    return Object.freeze({
-      overlayId,
-      assetId,
-      overlayTimingSha256: hashEditronCanonicalJsonV1(timing),
-      renderNativeAudio: overlay.hasNativeAudio === true,
-    });
+    seen.add(normalized.overlayId);
+    return normalized;
   });
 }
 
-function assetTimingStateSha256(asset: MediaSourceAudioArtifactAssetStateInputV1): string {
+export function readNativeMediaFinalRenderVideoOverlayV1(
+  overlay: Overlay,
+): NativeMediaFinalRenderVideoOverlayV1 {
+  if (!overlay || overlay.type !== 'video') {
+    throw new Error('NATIVE_MEDIA_RENDER_OVERLAY_INVALID');
+  }
+  if ('nativeMediaFinalRenderSourceV1' in overlay) {
+    throw new Error('NATIVE_MEDIA_RENDER_SOURCE_BINDING_FORGED');
+  }
+  const overlayId = identifier(String(overlay.id), 'NATIVE_MEDIA_RENDER_OVERLAY_INVALID');
+  if (typeof overlay.assetId !== 'string' || !overlay.assetId.trim()) {
+    throw new Error('NATIVE_MEDIA_RENDER_VIDEO_ASSET_REQUIRED');
+  }
+  const assetId = identifier(overlay.assetId, 'NATIVE_MEDIA_RENDER_ASSET_INVALID');
+  const sourceStart = overlay.sourceStartFrame ?? overlay.videoStartTime ?? 0;
+  if (overlay.sourceStartFrame !== undefined && overlay.videoStartTime !== undefined
+    && overlay.sourceStartFrame !== overlay.videoStartTime) {
+    throw new Error('NATIVE_MEDIA_RENDER_SOURCE_START_CONFLICT');
+  }
+  const timing = {
+    overlayId,
+    assetId,
+    from: nonNegativeInteger(overlay.from),
+    durationInFrames: positiveInteger(overlay.durationInFrames),
+    sourceStartFrame: nonNegativeInteger(sourceStart),
+    sourceEndFrame: overlay.sourceEndFrame === undefined || overlay.sourceEndFrame === null
+      ? null
+      : positiveInteger(overlay.sourceEndFrame),
+    speed: overlay.speed ?? 1,
+    speedCurve: overlay.speedCurve ?? null,
+    speedKeyframes: overlay.keyframeTracks?.filter(
+      (track: { property?: string }) => track.property === 'speed',
+    ) ?? [],
+  };
+  return Object.freeze({
+    overlayId,
+    assetId,
+    overlayTimingSha256: hashEditronCanonicalJsonV1(timing),
+    renderNativeAudio: overlay.hasNativeAudio === true,
+    from: timing.from,
+    durationInFrames: timing.durationInFrames,
+    sourceStartFrame: timing.sourceStartFrame,
+    sourceEndFrame: timing.sourceEndFrame,
+    retimed: timing.speed !== 1
+      || (timing.speedCurve !== null && timing.speedCurve.length > 0)
+      || timing.speedKeyframes.length > 0,
+  });
+}
+
+export function nativeMediaFinalRenderAssetTimingStateSha256V1(
+  asset: MediaSourceAudioArtifactAssetStateInputV1,
+): string {
   const state = asset as Record<string, unknown>;
   const source = record(state.sourceVersionV1);
   const storage = record(source?.storageVersion);
