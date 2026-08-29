@@ -6948,6 +6948,51 @@ session. Those are the next bounded Phase 3F-C7b responsibilities. Native
 sample-domain audio, browser discontinuity proof, analysis and final-render
 consumers remain open; queue item 3 is not complete.
 
+**Live Player rolling timestamp-preview coordinator Phase 3F-C7b
+(2026-08-29):** the real V1/V2 `VideoPlayer` now owns one browser session
+coordinator for the authenticated timestamp-preview boundary. It plans the
+active and next bounded window, deduplicates in-flight range requests, and
+withholds the active video layer while classification or exact coverage is
+unknown. Only the server's explicit `NOT_APPLICABLE / ASSET_NOT_TIMESTAMP_MANAGED`
+result enables ordinary video playback. A legacy, invalid, incomplete,
+unsupported or unavailable timing-managed path remains visibly paused and
+blocked; it never falls through to frame-rate arithmetic or the ordinary media
+element.
+
+Complete exact windows are swapped into `Main`/`RenderingProvider` before old
+leases enter delayed cleanup. Returned project, sequence, overlay, range and
+lease scope are revalidated in the browser. Lease time is derived from the
+server issue time plus elapsed monotonic request time rather than the browser
+wall clock; an independent wake renews leases even while playback is paused.
+Seeking outside a clip releases its retained windows. Unmount flushes current
+and queued releases and waits for in-flight materializations, including a
+window that arrives during disposal. React Strict Mode's synthetic cleanup is
+distinguished from a real unmount so development and QA do not strand a
+disposed coordinator. Cleanup failure is exposed, blocked sessions explain
+the reason, and the user has an explicit bounded retry.
+
+The coordinator plus server/window/layer/consumer compatibility cluster passes
+27/27; repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. These tests use an injected browser port
+and deterministic clocks/schedulers. No authenticated browser, live private
+bucket, FFmpeg process, persisted project, provider or customer data was
+touched.
+
+This result is
+`LIVE_PLAYER_ROLLING_PREVIEW_COORDINATOR_WIRED_PRIVATE_RUNTIME_PROOF_OPEN`.
+It is live control-flow wiring, not end-to-end playback certification. The
+browser command still does not carry the editor's expected ProjectService
+revision, and the ordinary/non-managed classification is not yet returned as
+a revision-bound expiring decision. There is no browser proof across a real
+VFR epoch/reset/gap or lease swap, and timing-managed source audio remains
+blocked until exact native sample-domain mapping exists. Analysis and final-
+render consumers are also open. Queue item 3 therefore continues with
+client-expected revision/classification freshness, authenticated private-
+runtime browser proof, native audio, analysis consumption and final-render
+consumption. Queue item 4 still owns production V3 scanning/finalization,
+immutable private writes, live bucket proof, V2-to-V3 migration and qualified
+proxy/master mapping.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
