@@ -20,6 +20,7 @@ import {
   createNativeMediaFinalRenderSourceLeaseV1,
   type NativeMediaFinalRenderArtifactAudioV1,
   type NativeMediaFinalRenderArtifactV1,
+  type NativeMediaFinalRenderExactSourceRequestV1,
   type NativeMediaFinalRenderSourceLeaseV1,
   type NativeMediaFinalRenderSourceMaterializerPortV1,
 } from './native-media-final-render-source-preparation-v1';
@@ -99,7 +100,25 @@ export interface NativeMediaFinalRenderPublisherPortV1 {
   >>;
 }
 
-type NativeMediaFinalRenderMaterializerPortsV1 = Readonly<{
+export interface NativeMediaFinalRenderArtifactPreparerPortV1 {
+  prepare(input: Readonly<{
+    userId: string;
+    projectId: string;
+    sequenceId: string;
+    projectRevision: ProjectRevisionV1;
+    request: NativeMediaFinalRenderExactSourceRequestV1;
+    abortSignal?: AbortSignal;
+  }>): Promise<Readonly<
+    | {
+        disposition: 'ARTIFACT_PREPARED';
+        artifact: NativeMediaFinalRenderArtifactV1;
+        publishHandle: string;
+      }
+    | { disposition: 'UNVERIFIABLE'; diagnostic: string | null }
+  >>;
+}
+
+type NativeMediaFinalRenderArtifactPreparationPortsV1 = Readonly<{
   projectSnapshotReader: Readonly<{
     loadProjectForMutation(userId: string, projectId: string): Promise<{
       project: Project;
@@ -115,8 +134,43 @@ type NativeMediaFinalRenderMaterializerPortsV1 = Readonly<{
   storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
   audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
   encoder: NativeMediaFinalRenderEncoderPortV1;
+}>;
+
+type NativeMediaFinalRenderMaterializerPortsV1 =
+NativeMediaFinalRenderArtifactPreparationPortsV1 & Readonly<{
   publisher: NativeMediaFinalRenderPublisherPortV1;
 }>;
+
+/**
+ * Builds and verifies the immutable private artifact without minting a URL.
+ * Durable workers persist this result; a render consumer publishes a fresh
+ * short-lived lease only when it is ready to consume the artifact.
+ */
+export function createNativeMediaFinalRenderArtifactPreparerV1(
+  ports: NativeMediaFinalRenderArtifactPreparationPortsV1,
+  policyInput: NativeMediaFinalRenderMaterializerPolicyV1 =
+    NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_DEFAULT_POLICY_V1,
+): NativeMediaFinalRenderArtifactPreparerPortV1 {
+  const policy = normalizePolicy(policyInput);
+  assertPreparationPorts(ports);
+  return {
+    async prepare(input) {
+      const prepared = await prepareArtifact(ports, policy, input);
+      if (prepared.disposition !== 'ARTIFACT_PREPARED_INTERNAL') return prepared;
+      const freshnessDiagnostic = await verifyFreshScope(
+        ports,
+        prepared.scope,
+        prepared.audioEvidence,
+      );
+      if (freshnessDiagnostic) return fail(freshnessDiagnostic);
+      return Object.freeze({
+        disposition: 'ARTIFACT_PREPARED' as const,
+        artifact: prepared.artifact,
+        publishHandle: prepared.publishHandle,
+      });
+    },
+  };
+}
 
 export function createNativeMediaFinalRenderSourceMaterializerV1(
   ports: NativeMediaFinalRenderMaterializerPortsV1,
@@ -124,223 +178,26 @@ export function createNativeMediaFinalRenderSourceMaterializerV1(
     NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_DEFAULT_POLICY_V1,
 ): NativeMediaFinalRenderSourceMaterializerPortV1 {
   const policy = normalizePolicy(policyInput);
-  assertPorts(ports);
+  assertPreparationPorts(ports);
+  if (typeof ports.publisher?.publish !== 'function') {
+    throw new Error('NATIVE_MEDIA_FINAL_RENDER_PORTS_INVALID');
+  }
   return {
     async materialize(input) {
-      let scope: ReturnType<typeof normalizeScope>;
+      let minimumExpiresAtEpochMs: number;
       try {
-        scope = normalizeScope(input);
+        minimumExpiresAtEpochMs = normalizeMinimumExpiresAtEpochMs(input);
       } catch (error) {
         return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_INPUT_INVALID');
       }
-      let snapshot: Awaited<ReturnType<
-        typeof ports.projectSnapshotReader.loadProjectForMutation
-      >>;
-      try {
-        snapshot = await ports.projectSnapshotReader.loadProjectForMutation(
-          scope.userId,
-          scope.projectId,
-        );
-      } catch {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_UNAVAILABLE');
-      }
-      if (snapshot.project.projectId !== scope.projectId
-        || scope.sequenceId !== 'main'
-        || !sameRevision(snapshot.revision, scope.projectRevision)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_SCOPE_STALE');
-      }
-      const candidate = snapshot.project.overlays.find(
-        (overlay) => String(overlay.id) === scope.request.overlayId,
-      );
-      if (!candidate) return fail('NATIVE_MEDIA_FINAL_RENDER_OVERLAY_UNAVAILABLE');
-      let overlay: ReturnType<typeof readNativeMediaFinalRenderVideoOverlayV1>;
-      try {
-        overlay = readNativeMediaFinalRenderVideoOverlayV1(candidate);
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_OVERLAY_INVALID');
-      }
-      if (overlay.assetId !== scope.request.assetId
-        || overlay.overlayTimingSha256 !== scope.request.overlayTimingSha256
-        || overlay.renderNativeAudio !== scope.request.renderNativeAudio) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_OVERLAY_SCOPE_STALE');
-      }
-      if (overlay.retimed) return fail('NATIVE_MEDIA_FINAL_RENDER_RETIME_UNSUPPORTED');
-      if (overlay.durationInFrames > policy.maxTimelineFrames) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_TIMELINE_RESOURCE_LIMIT');
-      }
-
-      let asset: MediaSourceAudioArtifactAssetStateInputV1 | null;
-      try {
-        asset = await ports.assetReader.load(scope.request.assetId, scope.userId);
-      } catch {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_ASSET_UNAVAILABLE');
-      }
-      if (!asset || asset.assetId !== scope.request.assetId || asset.type !== 'video'
-        || nativeMediaFinalRenderAssetTimingStateSha256V1(asset)
-          !== scope.request.assetTimingStateSha256
-        || classifyMediaSourceTimestampManagementV1(asset) !== 'V3') {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_ASSET_SCOPE_STALE');
-      }
-      let binding: NonNullable<ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>>;
-      try {
-        binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset)!;
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_V3_BINDING_INVALID');
-      }
-      if (!binding || binding.assetId !== scope.request.assetId
-        || binding.sourceVersionSha256 !== scope.request.sourceVersionSha256
-        || binding.storageVersionSha256 !== scope.request.storageVersionSha256
-        || binding.sourceBindingSha256 !== scope.request.sourceBindingSha256
-        || binding.sourcePtsCadenceMapStateSha256V3
-          !== scope.request.sourcePtsCadenceMapStateSha256V3) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_V3_BINDING_STALE');
-      }
-
-      let projectRate: ReturnType<typeof readCanonicalFrameRateV1>;
-      try {
-        projectRate = readCanonicalFrameRateV1(snapshot.project.fps);
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_PROJECT_RATE_INVALID');
-      }
-      if (projectRate.provenance === 'LEGACY_NUMERIC_DECIMAL_V1'
-        && !Number.isSafeInteger(snapshot.project.fps)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_RATE_AMBIGUOUS');
-      }
-
-      const sourceStart = BigInt(overlay.sourceStartFrame);
-      const sourceEnd = overlay.sourceEndFrame === null
-        ? BigInt(binding.totalSourceFrameCount)
-        : BigInt(overlay.sourceEndFrame);
-      if (sourceStart >= sourceEnd || sourceEnd > BigInt(binding.totalSourceFrameCount)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_SOURCE_RANGE_INVALID');
-      }
-      if (sourceEnd - sourceStart > BigInt(policy.epochWindow.maxFrameRecords)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_SOURCE_RESOURCE_LIMIT');
-      }
-
-      const audio = await resolveNativeMediaExactAudioEvidenceV1({
-        asset,
-        required: scope.request.renderNativeAudio,
-        reader: ports.audioArtifactReader,
-      });
-      if (audio.disposition === 'UNVERIFIABLE') {
-        return fail(`NATIVE_MEDIA_FINAL_RENDER_${audio.reason}`);
-      }
-      const audioEvidence = audio.disposition === 'EXACT_AUDIO_EVIDENCE_READY'
-        ? audio.selected
-        : null;
-      const timelineStart = BigInt(overlay.from);
-      const timelineQueries = Array.from(
-        { length: overlay.durationInFrames },
-        (_, index) => String(timelineStart + BigInt(index)),
-      );
-      let conform: Awaited<ReturnType<
-        typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3
-      >>;
-      try {
-        conform = await createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3({
-          asset,
-          storedObjectReader: ports.storedObjectReader,
-          firstFrameOrdinal: sourceStart.toString(),
-          endExclusiveFrameOrdinal: sourceEnd.toString(),
-          windowResourcePolicy: policy.epochWindow,
-          projectRate: projectRate.rate,
-          timelineStartFrame: String(overlay.from),
-          timelineFrameQueries: timelineQueries,
-          sourceAnchorFrameOrdinal: sourceStart.toString(),
-          resourcePolicy: policy.conform,
-          ...(audioEvidence === null ? {} : {
-            audio: {
-              evidence: audioEvidence.evidence,
-              endExclusiveTimelineFrame: String(overlay.from + overlay.durationInFrames),
-            },
-          }),
-        });
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_CONFORM_FAILED');
-      }
-      if (conform.disposition !== 'CONFORM_CREATED') {
-        return fail(`NATIVE_MEDIA_FINAL_RENDER_CONFORM_${conform.reason}`);
-      }
-      let transform: VideoSourceTimestampConformV3;
-      try {
-        transform = assertVideoSourceTimestampConformV3(conform.transform);
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_TRANSFORM_INVALID');
-      }
-      if (transform.sourceBinding.bindingSha256 !== binding.bindingSha256
-        || transform.timelineStartFrame !== String(overlay.from)
-        || transform.queryCount !== String(overlay.durationInFrames)
-        || transform.frameSelections.length !== overlay.durationInFrames
-        || (scope.request.renderNativeAudio ? transform.audioMapping === null
-          : transform.audioMapping !== null)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_TRANSFORM_SCOPE_MISMATCH');
-      }
-
-      let encodedResult: Awaited<ReturnType<typeof ports.encoder.encode>>;
-      try {
-        encodedResult = await ports.encoder.encode({ asset, transform, audioEvidence });
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED');
-      }
-      if (!encodedResult || encodedResult.disposition !== 'ARTIFACT_ENCODED') {
-        return fail(encodedResult?.disposition === 'UNVERIFIABLE'
-          ? safeDiagnostic(encodedResult.diagnostic)
-            ?? 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED'
-          : 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED');
-      }
-      const encoded = encodedResult.encoded;
-      const artifactByteLength = readPositiveIntegerText(encoded?.artifactByteLength);
-      if (encoded.videoFrameCount !== String(overlay.durationInFrames)
-        || artifactByteLength === null
-        || artifactByteLength > BigInt(policy.maxArtifactBytes)
-        || !encodedAudioMatches(encoded.audio, transform.audioMapping)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_ENCODED_ARTIFACT_SCOPE_MISMATCH');
-      }
-      let artifact: NativeMediaFinalRenderArtifactV1;
-      try {
-        artifact = createNativeMediaFinalRenderArtifactV1({
-          schemaVersion: 1,
-          kind: 'EDITRON_NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_V1',
-          artifactHandle: encoded.artifactHandle,
-          projectId: scope.projectId,
-          sequenceId: scope.sequenceId,
-          projectRevision: scope.projectRevision,
-          overlayId: scope.request.overlayId,
-          assetId: scope.request.assetId,
-          overlayTimingSha256: scope.request.overlayTimingSha256,
-          assetTimingStateSha256: scope.request.assetTimingStateSha256,
-          sourceVersionSha256: scope.request.sourceVersionSha256,
-          storageVersionSha256: scope.request.storageVersionSha256,
-          sourceBindingSha256: scope.request.sourceBindingSha256,
-          sourcePtsCadenceMapStateSha256V3:
-            scope.request.sourcePtsCadenceMapStateSha256V3,
-          transformSha256: transform.transformSha256,
-          projectRate: transform.projectRate,
-          timelineStartFrame: String(overlay.from),
-          timelineFrameCount: String(overlay.durationInFrames),
-          artifactProfile: 'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1',
-          container: encoded.container,
-          videoCodec: encoded.videoCodec,
-          pixelFormat: encoded.pixelFormat,
-          videoFrameCount: encoded.videoFrameCount,
-          decodedFrameSequenceSha256: encoded.decodedFrameSequenceSha256,
-          remotionCompatibilityReceiptSha256: encoded.remotionCompatibilityReceiptSha256,
-          audio: encoded.audio,
-          contentType: encoded.contentType,
-          artifactContentSha256: encoded.artifactContentSha256,
-          artifactByteLength: encoded.artifactByteLength,
-        });
-      } catch (error) {
-        return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_INVALID');
-      }
-
+      const prepared = await prepareArtifact(ports, policy, input);
+      if (prepared.disposition !== 'ARTIFACT_PREPARED_INTERNAL') return prepared;
       let published: Awaited<ReturnType<typeof ports.publisher.publish>>;
       try {
         published = await ports.publisher.publish({
-          artifact,
-          publishHandle: encoded.publishHandle,
-          minimumExpiresAtEpochMs: scope.minimumExpiresAtEpochMs,
+          artifact: prepared.artifact,
+          publishHandle: prepared.publishHandle,
+          minimumExpiresAtEpochMs,
         });
       } catch (error) {
         return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_PUBLISH_FAILED');
@@ -365,38 +222,288 @@ export function createNativeMediaFinalRenderSourceMaterializerV1(
       }
       if (lease.leaseBindingSha256 !== published.lease.leaseBindingSha256
         || lease.sourceUrlSha256 !== published.lease.sourceUrlSha256
-        || lease.artifact.artifactBindingSha256 !== artifact.artifactBindingSha256
-        || lease.expiresAtEpochMs < scope.minimumExpiresAtEpochMs) {
+        || lease.artifact.artifactBindingSha256
+          !== prepared.artifact.artifactBindingSha256
+        || lease.expiresAtEpochMs < minimumExpiresAtEpochMs) {
         return fail('NATIVE_MEDIA_FINAL_RENDER_LEASE_SCOPE_MISMATCH');
       }
-
-      let freshAsset: MediaSourceAudioArtifactAssetStateInputV1 | null;
-      try {
-        freshAsset = await ports.assetReader.load(scope.request.assetId, scope.userId);
-      } catch {
-        freshAsset = null;
-      }
-      if (!freshAsset
-        || nativeMediaFinalRenderAssetTimingStateSha256V1(freshAsset)
-          !== scope.request.assetTimingStateSha256
-        || !freshAudioStateMatches(freshAsset, audioEvidence)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_ASSET_CHANGED_DURING_MATERIALIZATION');
-      }
-      let freshRevision: ProjectRevisionV1;
-      try {
-        freshRevision = await ports.projectRevisionReader.getProjectRevision(
-          scope.userId,
-          scope.projectId,
-        );
-      } catch {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_CHANGED_DURING_MATERIALIZATION');
-      }
-      if (!sameRevision(freshRevision, scope.projectRevision)) {
-        return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_CHANGED_DURING_MATERIALIZATION');
-      }
+      const freshnessDiagnostic = await verifyFreshScope(
+        ports,
+        prepared.scope,
+        prepared.audioEvidence,
+      );
+      if (freshnessDiagnostic) return fail(freshnessDiagnostic);
       return Object.freeze({ disposition: 'SOURCE_MATERIALIZED' as const, lease });
     },
   };
+}
+
+async function prepareArtifact(
+  ports: NativeMediaFinalRenderArtifactPreparationPortsV1,
+  policy: NativeMediaFinalRenderMaterializerPolicyV1,
+  input: Parameters<NativeMediaFinalRenderArtifactPreparerPortV1['prepare']>[0],
+) {
+  let scope: ReturnType<typeof normalizePreparationScope>;
+  try {
+    scope = normalizePreparationScope(input);
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_INPUT_INVALID');
+  }
+  if (scope.abortSignal?.aborted) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+  }
+  let snapshot: Awaited<ReturnType<
+    typeof ports.projectSnapshotReader.loadProjectForMutation
+  >>;
+  try {
+    snapshot = await ports.projectSnapshotReader.loadProjectForMutation(
+      scope.userId,
+      scope.projectId,
+    );
+  } catch {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_UNAVAILABLE');
+  }
+  if (snapshot.project.projectId !== scope.projectId
+    || scope.sequenceId !== 'main'
+    || !sameRevision(snapshot.revision, scope.projectRevision)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_SCOPE_STALE');
+  }
+  const candidate = snapshot.project.overlays.find(
+    (overlay) => String(overlay.id) === scope.request.overlayId,
+  );
+  if (!candidate) return fail('NATIVE_MEDIA_FINAL_RENDER_OVERLAY_UNAVAILABLE');
+  let overlay: ReturnType<typeof readNativeMediaFinalRenderVideoOverlayV1>;
+  try {
+    overlay = readNativeMediaFinalRenderVideoOverlayV1(candidate);
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_OVERLAY_INVALID');
+  }
+  if (overlay.assetId !== scope.request.assetId
+    || overlay.overlayTimingSha256 !== scope.request.overlayTimingSha256
+    || overlay.renderNativeAudio !== scope.request.renderNativeAudio) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_OVERLAY_SCOPE_STALE');
+  }
+  if (overlay.retimed) return fail('NATIVE_MEDIA_FINAL_RENDER_RETIME_UNSUPPORTED');
+  if (overlay.durationInFrames > policy.maxTimelineFrames) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_TIMELINE_RESOURCE_LIMIT');
+  }
+
+  let asset: MediaSourceAudioArtifactAssetStateInputV1 | null;
+  try {
+    asset = await ports.assetReader.load(scope.request.assetId, scope.userId);
+  } catch {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_ASSET_UNAVAILABLE');
+  }
+  if (!asset || asset.assetId !== scope.request.assetId || asset.type !== 'video'
+    || nativeMediaFinalRenderAssetTimingStateSha256V1(asset)
+      !== scope.request.assetTimingStateSha256
+    || classifyMediaSourceTimestampManagementV1(asset) !== 'V3') {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_ASSET_SCOPE_STALE');
+  }
+  let binding: NonNullable<ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>>;
+  try {
+    binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset)!;
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_V3_BINDING_INVALID');
+  }
+  if (!binding || binding.assetId !== scope.request.assetId
+    || binding.sourceVersionSha256 !== scope.request.sourceVersionSha256
+    || binding.storageVersionSha256 !== scope.request.storageVersionSha256
+    || binding.sourceBindingSha256 !== scope.request.sourceBindingSha256
+    || binding.sourcePtsCadenceMapStateSha256V3
+      !== scope.request.sourcePtsCadenceMapStateSha256V3) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_V3_BINDING_STALE');
+  }
+
+  let projectRate: ReturnType<typeof readCanonicalFrameRateV1>;
+  try {
+    projectRate = readCanonicalFrameRateV1(snapshot.project.fps);
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_PROJECT_RATE_INVALID');
+  }
+  if (projectRate.provenance === 'LEGACY_NUMERIC_DECIMAL_V1'
+    && !Number.isSafeInteger(snapshot.project.fps)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_PROJECT_RATE_AMBIGUOUS');
+  }
+
+  const sourceStart = BigInt(overlay.sourceStartFrame);
+  const sourceEnd = overlay.sourceEndFrame === null
+    ? BigInt(binding.totalSourceFrameCount)
+    : BigInt(overlay.sourceEndFrame);
+  if (sourceStart >= sourceEnd || sourceEnd > BigInt(binding.totalSourceFrameCount)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_SOURCE_RANGE_INVALID');
+  }
+  if (sourceEnd - sourceStart > BigInt(policy.epochWindow.maxFrameRecords)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_SOURCE_RESOURCE_LIMIT');
+  }
+
+  let audio: Awaited<ReturnType<typeof resolveNativeMediaExactAudioEvidenceV1>>;
+  try {
+    audio = await resolveNativeMediaExactAudioEvidenceV1({
+      asset,
+      required: scope.request.renderNativeAudio,
+      reader: ports.audioArtifactReader,
+    });
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_AUDIO_EVIDENCE_FAILED');
+  }
+  if (audio.disposition === 'UNVERIFIABLE') {
+    return fail(`NATIVE_MEDIA_FINAL_RENDER_${audio.reason}`);
+  }
+  const audioEvidence = audio.disposition === 'EXACT_AUDIO_EVIDENCE_READY'
+    ? audio.selected
+    : null;
+  const timelineStart = BigInt(overlay.from);
+  const timelineQueries = Array.from(
+    { length: overlay.durationInFrames },
+    (_, index) => String(timelineStart + BigInt(index)),
+  );
+  let conform: Awaited<ReturnType<
+    typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3
+  >>;
+  try {
+    conform = await createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3({
+      asset,
+      storedObjectReader: ports.storedObjectReader,
+      firstFrameOrdinal: sourceStart.toString(),
+      endExclusiveFrameOrdinal: sourceEnd.toString(),
+      windowResourcePolicy: policy.epochWindow,
+      projectRate: projectRate.rate,
+      timelineStartFrame: String(overlay.from),
+      timelineFrameQueries: timelineQueries,
+      sourceAnchorFrameOrdinal: sourceStart.toString(),
+      resourcePolicy: policy.conform,
+      ...(audioEvidence === null ? {} : {
+        audio: {
+          evidence: audioEvidence.evidence,
+          endExclusiveTimelineFrame: String(overlay.from + overlay.durationInFrames),
+        },
+      }),
+    });
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_CONFORM_FAILED');
+  }
+  if (conform.disposition !== 'CONFORM_CREATED') {
+    return fail(`NATIVE_MEDIA_FINAL_RENDER_CONFORM_${conform.reason}`);
+  }
+  let transform: VideoSourceTimestampConformV3;
+  try {
+    transform = assertVideoSourceTimestampConformV3(conform.transform);
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_TRANSFORM_INVALID');
+  }
+  if (transform.sourceBinding.bindingSha256 !== binding.bindingSha256
+    || transform.timelineStartFrame !== String(overlay.from)
+    || transform.queryCount !== String(overlay.durationInFrames)
+    || transform.frameSelections.length !== overlay.durationInFrames
+    || (scope.request.renderNativeAudio ? transform.audioMapping === null
+      : transform.audioMapping !== null)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_TRANSFORM_SCOPE_MISMATCH');
+  }
+
+  let encodedResult: Awaited<ReturnType<typeof ports.encoder.encode>>;
+  try {
+    encodedResult = await ports.encoder.encode({
+      asset,
+      transform,
+      audioEvidence,
+      abortSignal: scope.abortSignal,
+    });
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED');
+  }
+  if (scope.abortSignal?.aborted) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+  }
+  if (!encodedResult || encodedResult.disposition !== 'ARTIFACT_ENCODED') {
+    return fail(encodedResult?.disposition === 'UNVERIFIABLE'
+      ? safeDiagnostic(encodedResult.diagnostic)
+        ?? 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED'
+      : 'NATIVE_MEDIA_FINAL_RENDER_ENCODER_FAILED');
+  }
+  const encoded = encodedResult.encoded;
+  const artifactByteLength = readPositiveIntegerText(encoded?.artifactByteLength);
+  if (encoded.videoFrameCount !== String(overlay.durationInFrames)
+    || artifactByteLength === null
+    || artifactByteLength > BigInt(policy.maxArtifactBytes)
+    || !encodedAudioMatches(encoded.audio, transform.audioMapping)) {
+    return fail('NATIVE_MEDIA_FINAL_RENDER_ENCODED_ARTIFACT_SCOPE_MISMATCH');
+  }
+  let artifact: NativeMediaFinalRenderArtifactV1;
+  try {
+    artifact = createNativeMediaFinalRenderArtifactV1({
+      schemaVersion: 1,
+      kind: 'EDITRON_NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_V1',
+      artifactHandle: encoded.artifactHandle,
+      projectId: scope.projectId,
+      sequenceId: scope.sequenceId,
+      projectRevision: scope.projectRevision,
+      overlayId: scope.request.overlayId,
+      assetId: scope.request.assetId,
+      overlayTimingSha256: scope.request.overlayTimingSha256,
+      assetTimingStateSha256: scope.request.assetTimingStateSha256,
+      sourceVersionSha256: scope.request.sourceVersionSha256,
+      storageVersionSha256: scope.request.storageVersionSha256,
+      sourceBindingSha256: scope.request.sourceBindingSha256,
+      sourcePtsCadenceMapStateSha256V3:
+        scope.request.sourcePtsCadenceMapStateSha256V3,
+      transformSha256: transform.transformSha256,
+      projectRate: transform.projectRate,
+      timelineStartFrame: String(overlay.from),
+      timelineFrameCount: String(overlay.durationInFrames),
+      artifactProfile: 'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1',
+      container: encoded.container,
+      videoCodec: encoded.videoCodec,
+      pixelFormat: encoded.pixelFormat,
+      videoFrameCount: encoded.videoFrameCount,
+      decodedFrameSequenceSha256: encoded.decodedFrameSequenceSha256,
+      remotionCompatibilityReceiptSha256: encoded.remotionCompatibilityReceiptSha256,
+      audio: encoded.audio,
+      contentType: encoded.contentType,
+      artifactContentSha256: encoded.artifactContentSha256,
+      artifactByteLength: encoded.artifactByteLength,
+    });
+  } catch (error) {
+    return fail(diagnostic(error) ?? 'NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_INVALID');
+  }
+  return Object.freeze({
+    disposition: 'ARTIFACT_PREPARED_INTERNAL' as const,
+    artifact,
+    publishHandle: encoded.publishHandle,
+    scope,
+    audioEvidence,
+  });
+}
+
+async function verifyFreshScope(
+  ports: NativeMediaFinalRenderArtifactPreparationPortsV1,
+  scope: ReturnType<typeof normalizePreparationScope>,
+  audioEvidence: NativeMediaExactAudioEvidenceV1 | null,
+): Promise<string | null> {
+  let freshAsset: MediaSourceAudioArtifactAssetStateInputV1 | null;
+  try {
+    freshAsset = await ports.assetReader.load(scope.request.assetId, scope.userId);
+  } catch {
+    freshAsset = null;
+  }
+  if (!freshAsset
+    || nativeMediaFinalRenderAssetTimingStateSha256V1(freshAsset)
+      !== scope.request.assetTimingStateSha256
+    || !freshAudioStateMatches(freshAsset, audioEvidence)) {
+    return 'NATIVE_MEDIA_FINAL_RENDER_ASSET_CHANGED_DURING_MATERIALIZATION';
+  }
+  let freshRevision: ProjectRevisionV1;
+  try {
+    freshRevision = await ports.projectRevisionReader.getProjectRevision(
+      scope.userId,
+      scope.projectId,
+    );
+  } catch {
+    return 'NATIVE_MEDIA_FINAL_RENDER_PROJECT_CHANGED_DURING_MATERIALIZATION';
+  }
+  return sameRevision(freshRevision, scope.projectRevision)
+    ? null
+    : 'NATIVE_MEDIA_FINAL_RENDER_PROJECT_CHANGED_DURING_MATERIALIZATION';
 }
 
 function encodedAudioMatches(
@@ -424,11 +531,10 @@ function freshAudioStateMatches(
   }
 }
 
-function normalizeScope(
-  input: Parameters<NativeMediaFinalRenderSourceMaterializerPortV1['materialize']>[0],
+function normalizePreparationScope(
+  input: Parameters<NativeMediaFinalRenderArtifactPreparerPortV1['prepare']>[0],
 ) {
-  if (!input || !input.request || !Number.isSafeInteger(input.minimumExpiresAtEpochMs)
-    || input.minimumExpiresAtEpochMs < 0) {
+  if (!input || !input.request) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_INPUT_INVALID');
   }
   return Object.freeze({
@@ -437,8 +543,18 @@ function normalizeScope(
     sequenceId: identifier(input.sequenceId),
     projectRevision: normalizeRevision(input.projectRevision),
     request: input.request,
-    minimumExpiresAtEpochMs: input.minimumExpiresAtEpochMs,
+    abortSignal: input.abortSignal,
   });
+}
+
+function normalizeMinimumExpiresAtEpochMs(
+  input: Parameters<NativeMediaFinalRenderSourceMaterializerPortV1['materialize']>[0],
+): number {
+  if (!input || !Number.isSafeInteger(input.minimumExpiresAtEpochMs)
+    || input.minimumExpiresAtEpochMs < 0) {
+    throw new Error('NATIVE_MEDIA_FINAL_RENDER_INPUT_INVALID');
+  }
+  return input.minimumExpiresAtEpochMs;
 }
 
 function normalizePolicy(
@@ -458,13 +574,12 @@ function normalizePolicy(
   return value;
 }
 
-function assertPorts(value: NativeMediaFinalRenderMaterializerPortsV1): void {
+function assertPreparationPorts(value: NativeMediaFinalRenderArtifactPreparationPortsV1): void {
   if (!value || typeof value.projectSnapshotReader?.loadProjectForMutation !== 'function'
     || typeof value.projectRevisionReader?.getProjectRevision !== 'function'
     || typeof value.assetReader?.load !== 'function'
     || typeof value.storedObjectReader?.read !== 'function'
-    || typeof value.encoder?.encode !== 'function'
-    || typeof value.publisher?.publish !== 'function') {
+    || typeof value.encoder?.encode !== 'function') {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_PORTS_INVALID');
   }
 }

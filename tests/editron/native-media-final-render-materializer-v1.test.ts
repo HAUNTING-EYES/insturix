@@ -33,6 +33,7 @@ import {
   readNativeMediaFinalRenderVideoOverlayV1,
 } from '@/lib/editron/services/native-media-final-render-admission-v1';
 import {
+  createNativeMediaFinalRenderArtifactPreparerV1,
   createNativeMediaFinalRenderSourceMaterializerV1,
   type NativeMediaFinalRenderEncodedArtifactV1,
 } from '@/lib/editron/services/native-media-final-render-materializer-v1';
@@ -151,7 +152,7 @@ function setup(overrides: Readonly<{
   const loadAsset = vi.fn()
     .mockResolvedValueOnce(firstAsset)
     .mockResolvedValueOnce(secondAsset);
-  const materializer = createNativeMediaFinalRenderSourceMaterializerV1({
+  const ports = {
     projectSnapshotReader: { loadProjectForMutation: vi.fn(async () => ({
       project: { projectId: 'project-1', fps: 30, overlays: [projectOverlay] },
       revision,
@@ -163,8 +164,18 @@ function setup(overrides: Readonly<{
     storedObjectReader: { read: vi.fn() },
     encoder,
     publisher,
-  } as never);
-  return { materializer, encoder, publisher, loadAsset, projectOverlay, firstAsset };
+  } as never;
+  const artifactPreparer = createNativeMediaFinalRenderArtifactPreparerV1(ports);
+  const materializer = createNativeMediaFinalRenderSourceMaterializerV1(ports);
+  return {
+    artifactPreparer,
+    materializer,
+    encoder,
+    publisher,
+    loadAsset,
+    projectOverlay,
+    firstAsset,
+  };
 }
 
 async function materialize(setupResult = setup()) {
@@ -173,6 +184,18 @@ async function materialize(setupResult = setup()) {
     projectRevision: revision,
     request: request(setupResult.projectOverlay, setupResult.firstAsset),
     minimumExpiresAtEpochMs: 1_300_000,
+  });
+}
+
+async function prepareArtifact(
+  setupResult = setup(),
+  abortSignal?: AbortSignal,
+) {
+  return setupResult.artifactPreparer.prepare({
+    userId: 'user-1', projectId: 'project-1', sequenceId: 'main',
+    projectRevision: revision,
+    request: request(setupResult.projectOverlay, setupResult.firstAsset),
+    abortSignal,
   });
 }
 
@@ -205,6 +228,43 @@ describe('native media final-render materializer v1', () => {
     expect(runtime.encoder.encode).toHaveBeenCalledTimes(1);
     expect(runtime.publisher.publish).toHaveBeenCalledTimes(1);
     expect(runtime.loadAsset).toHaveBeenCalledTimes(2);
+  });
+
+  it('prepares the identical immutable artifact without minting a source URL', async () => {
+    const runtime = setup();
+    const controller = new AbortController();
+    const result = await prepareArtifact(runtime, controller.signal);
+
+    expect(result.disposition).toBe('ARTIFACT_PREPARED');
+    if (result.disposition !== 'ARTIFACT_PREPARED') return;
+    expect(result).toMatchObject({
+      publishHandle: 'local-file-1',
+      artifact: {
+        projectId: 'project-1', overlayId: 'video-1', assetId: 'asset-1',
+        transformSha256: SHA.transform, timelineStartFrame: '30',
+        timelineFrameCount: '3', videoFrameCount: '3',
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('https://');
+    expect(runtime.publisher.publish).not.toHaveBeenCalled();
+    expect(runtime.encoder.encode).toHaveBeenCalledWith(expect.objectContaining({
+      abortSignal: controller.signal,
+    }));
+    expect(runtime.loadAsset).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects pre-cancelled artifact preparation before project access', async () => {
+    const runtime = setup();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(prepareArtifact(runtime, controller.signal)).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      diagnostic: 'NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED',
+    });
+    expect(runtime.encoder.encode).not.toHaveBeenCalled();
+    expect(runtime.publisher.publish).not.toHaveBeenCalled();
+    expect(runtime.loadAsset).not.toHaveBeenCalled();
   });
 
   it('blocks retimed V3 overlays instead of approximating them', async () => {
