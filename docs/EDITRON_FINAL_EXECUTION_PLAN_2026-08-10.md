@@ -8071,6 +8071,16 @@ FFmpeg cancellation/recovery run or live storage cleanup was performed. Those
 remain Queue item 3 work; this checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before changing the 536-line private exact-render R2 adapter, commit
+`10569ebb2` performs its mandated Step 0 cleanup. It makes the internally used
+default-policy constant and aggregate return type private after repository-wide
+reference searches found no external consumer; the public policy type,
+presigner type, policy-version identity and factory remain unchanged. No R2
+command, key, metadata, lease, value or failure behavior changes. The adapter
+and runtime-factory suites pass 17/17; repository TypeScript and repository-wide
+quiet ESLint pass. This is behavior-neutral API cleanup only and does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
