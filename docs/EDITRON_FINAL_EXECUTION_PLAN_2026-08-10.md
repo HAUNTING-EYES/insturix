@@ -8761,6 +8761,32 @@ wallet movement, partial-attempt telemetry, rate calibration or live
 redelivery proof exists yet. Queue item 3 therefore remains in progress and
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render Finance-policy and transactional Mongo adapters Phase
+3F-C7azh (2026-08-30):** commit `0c20eae3c` adds the concrete Mongo locator for
+an exact immutable Finance policy and the concrete Mongo ledger adapter for
+the transactional owner. The locator has no default or “latest” behavior: it
+queries the exact owner/version/hash tuple, creates a unique identity index and
+canonically revalidates the stored row. The ledger uses snapshot transactions,
+majority writes and primary reads; a deterministic `$setOnInsert` plus content
+comparison handles an identical reservation redelivery, while settlement
+replaces only the exact reserved record hash. Persisted summary fields, scope,
+timestamps and the nested canonical record are cross-checked on every read.
+Sessions are closed on success and failure.
+
+Missing or foreign policy rows, failed index initialization, conflicting
+insert, corrupt persisted envelopes, uncommitted transactions and stale
+compare-and-set writers fail closed. The focused suites pass 9/9, every
+`native-media-final-render` suite passes 161/161, and repository TypeScript
+plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_BUDGET_MONGO_ADAPTERS_VERIFIED_LIVE_ATLAS_AND_WORKER_BINDING_OPEN`.
+
+These proofs use injected Mongo-compatible test doubles. No Finance-approved
+policy row or exact-render reservation has been written to the configured
+Atlas database, no live transaction/redelivery has been observed, and no
+worker budget adapter, partial-attempt telemetry, calibrated rate card,
+customer wallet movement or product composition root exists yet. Queue item 3
+remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
