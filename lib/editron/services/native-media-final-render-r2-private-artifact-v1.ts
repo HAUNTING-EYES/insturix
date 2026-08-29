@@ -35,7 +35,7 @@ export type NativeMediaFinalRenderR2PrivateArtifactPolicyV1 = Readonly<{
   maximumLeaseTtlMs: number;
 }>;
 
-export const NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1:
+const NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1:
 NativeMediaFinalRenderR2PrivateArtifactPolicyV1 = Object.freeze({
   policyVersion: NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
   maxArtifactBytes: R2_MAX_SINGLE_UPLOAD_BYTES,
@@ -51,7 +51,7 @@ export type NativeMediaFinalRenderR2PresignGetObjectV1 = (
   }>,
 ) => Promise<string>;
 
-export type NativeMediaFinalRenderR2PrivateArtifactPortsV1 = Readonly<{
+type NativeMediaFinalRenderR2PrivateArtifactPortsV1 = Readonly<{
   stager: NativeMediaFinalRenderArtifactStagerPortV1;
   publisher: NativeMediaFinalRenderPublisherPortV1;
 }>;
