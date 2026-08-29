@@ -8296,6 +8296,28 @@ all dependent fixtures, then seals V1.3 and enforces exact owner/digest equality
 inside the worker before Queue item 3 dispatch work. This checkpoint does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render runtime-policy job-binding bridge Phase 3F-C7aq
+(2026-08-30):** commit `01b3e7997` makes the existing V1.2 preparation-job
+contract accept the canonical runtime-policy receipt created by `c76aaacd1`.
+When that receipt is present, its complete value is part of the job payload and
+therefore the operation identity, and the job dependency set separately binds
+the execution-budget owner policy, retry owner policy, heartbeat policy and
+aggregate runtime-policy hash. A forged aggregate hash fails canonical receipt
+validation, and owner/policy drift changes the operation identity.
+
+This is an intentional migration bridge, not sealed enforcement. V1.2 still
+accepts the exact legacy six-field policy-binding object so the four existing
+dependent test fixtures can be migrated without a repository-wide flag day;
+no production caller exists, so this compatibility branch cannot authorize
+live work. The full 16-file native-media integration cluster passes 113/113,
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`V1_2_RUNTIME_POLICY_BINDING_MIGRATION_BRIDGE_VERIFIED_V1_3_ENFORCEMENT_OPEN`.
+Next migrate every dependent fixture, then issue V1.3 with a mandatory receipt
+and exact worker-side equality checks for injected budget, retry and heartbeat
+owner/version/policy hashes. Live calibrated owners, redelivery evidence and
+dispatch remain open. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
