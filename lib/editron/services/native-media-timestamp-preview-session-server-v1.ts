@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 
 import {
   assertNativeMediaTimestampPreviewMaterializeCommandV2,
+  assertNativeMediaTimestampPreviewMaterializeSessionCommandV3,
   assertNativeMediaTimestampPreviewReleaseCommandV1,
   assertNativeMediaTimestampPreviewReleaseCommandV2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
   type NativeMediaTimestampPreviewMaterializeCommandV2,
+  type NativeMediaTimestampPreviewMaterializeSessionCommandV3,
   type NativeMediaTimestampPreviewReleaseCommandV1,
   type NativeMediaTimestampPreviewReleaseCommandV2,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
@@ -31,14 +34,21 @@ import type { NativeMediaTimestampPreviewMaterializerInputV1 } from './native-me
 
 export {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
 };
 export type {
   NativeMediaTimestampPreviewMaterializeCommandV2,
+  NativeMediaTimestampPreviewMaterializeSessionCommandV3,
   NativeMediaTimestampPreviewReleaseCommandV1,
   NativeMediaTimestampPreviewReleaseCommandV2,
 };
+
+export type NativeMediaTimestampPreviewSessionMaterializerInputV1 =
+  NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
+    deliveryContract: 'PAIRED_SESSION_V3';
+  }>;
 
 export type NativeMediaTimestampPreviewReleaseResultV1 = Readonly<
   | {
@@ -94,6 +104,23 @@ export function parseNativeMediaTimestampPreviewMaterializeCommandV2(
     expectedProjectRevision: command.expectedProjectRevision,
     windowLocalStartFrame: command.windowLocalStartFrame,
     windowDurationInFrames: command.windowDurationInFrames,
+  });
+}
+
+export function parseNativeMediaTimestampPreviewMaterializeSessionCommandV3(
+  value: unknown,
+  userId: string,
+): NativeMediaTimestampPreviewSessionMaterializerInputV1 {
+  const command = assertNativeMediaTimestampPreviewMaterializeSessionCommandV3(value);
+  return Object.freeze({
+    userId: identifier(userId, 'NATIVE_MEDIA_PREVIEW_SESSION_USER_INVALID'),
+    projectId: command.projectId,
+    sequenceId: command.sequenceId,
+    overlayId: command.overlayId,
+    expectedProjectRevision: command.expectedProjectRevision,
+    windowLocalStartFrame: command.windowLocalStartFrame,
+    windowDurationInFrames: command.windowDurationInFrames,
+    deliveryContract: 'PAIRED_SESSION_V3' as const,
   });
 }
 
