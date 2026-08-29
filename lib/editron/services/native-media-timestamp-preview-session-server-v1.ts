@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 
 import {
+  assertNativeMediaTimestampPreviewMaterializeCommandV1,
+  assertNativeMediaTimestampPreviewReleaseCommandV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
+  type NativeMediaTimestampPreviewMaterializeCommandV1,
+  type NativeMediaTimestampPreviewReleaseCommandV1,
+} from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
+import {
   assertNativeMediaTimestampPreviewWindowV2,
   type NativeMediaTimestampPreviewWindowV2,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-window-v2';
@@ -9,26 +17,14 @@ import type { NativeMediaTimestampPreviewSurfaceStorePortV1 } from './native-med
 import type { NativeMediaTimestampPreviewSurfaceReaderPortV1 } from './native-media-timestamp-r2-preview-surface-v1';
 import type { NativeMediaTimestampPreviewMaterializerInputV1 } from './native-media-timestamp-preview-materializer-v1';
 
-export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1 =
-  'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V1' as const;
-export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1 =
-  'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_V1' as const;
-
-export type NativeMediaTimestampPreviewMaterializeCommandV1 = Readonly<{
-  schemaVersion: 1;
-  kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1;
-  projectId: string;
-  sequenceId: string;
-  overlayId: string;
-  windowLocalStartFrame: number;
-  windowDurationInFrames: number;
-}>;
-
-export type NativeMediaTimestampPreviewReleaseCommandV1 = Readonly<{
-  schemaVersion: 1;
-  kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1;
-  window: NativeMediaTimestampPreviewWindowV2;
-}>;
+export {
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
+};
+export type {
+  NativeMediaTimestampPreviewMaterializeCommandV1,
+  NativeMediaTimestampPreviewReleaseCommandV1,
+};
 
 export type NativeMediaTimestampPreviewReleaseResultV1 = Readonly<
   | {
@@ -51,47 +47,21 @@ export function parseNativeMediaTimestampPreviewMaterializeCommandV1(
   value: unknown,
   userId: string,
 ): NativeMediaTimestampPreviewMaterializerInputV1 {
-  const record = exactRecord(value, [
-    'kind', 'overlayId', 'projectId', 'schemaVersion', 'sequenceId',
-    'windowDurationInFrames', 'windowLocalStartFrame',
-  ], 'NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_INVALID');
-  if (record.schemaVersion !== 1
-    || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1) {
-    throw new Error('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_INVALID');
-  }
+  const command = assertNativeMediaTimestampPreviewMaterializeCommandV1(value);
   return Object.freeze({
     userId: identifier(userId, 'NATIVE_MEDIA_PREVIEW_SESSION_USER_INVALID'),
-    projectId: identifier(record.projectId, 'NATIVE_MEDIA_PREVIEW_SESSION_PROJECT_INVALID'),
-    sequenceId: identifier(record.sequenceId, 'NATIVE_MEDIA_PREVIEW_SESSION_SEQUENCE_INVALID'),
-    overlayId: identifier(record.overlayId, 'NATIVE_MEDIA_PREVIEW_SESSION_OVERLAY_INVALID'),
-    windowLocalStartFrame: nonNegativeInteger(
-      record.windowLocalStartFrame,
-      'NATIVE_MEDIA_PREVIEW_SESSION_WINDOW_START_INVALID',
-    ),
-    windowDurationInFrames: positiveInteger(
-      record.windowDurationInFrames,
-      'NATIVE_MEDIA_PREVIEW_SESSION_WINDOW_DURATION_INVALID',
-    ),
+    projectId: command.projectId,
+    sequenceId: command.sequenceId,
+    overlayId: command.overlayId,
+    windowLocalStartFrame: command.windowLocalStartFrame,
+    windowDurationInFrames: command.windowDurationInFrames,
   });
 }
 
 export function parseNativeMediaTimestampPreviewReleaseCommandV1(
   value: unknown,
 ): NativeMediaTimestampPreviewReleaseCommandV1 {
-  const record = exactRecord(
-    value,
-    ['kind', 'schemaVersion', 'window'],
-    'NATIVE_MEDIA_PREVIEW_RELEASE_COMMAND_INVALID',
-  );
-  if (record.schemaVersion !== 1
-    || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1) {
-    throw new Error('NATIVE_MEDIA_PREVIEW_RELEASE_COMMAND_INVALID');
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
-    window: assertNativeMediaTimestampPreviewWindowV2(record.window),
-  });
+  return assertNativeMediaTimestampPreviewReleaseCommandV1(value);
 }
 
 export async function releaseNativeMediaTimestampPreviewWindowV1(
@@ -195,33 +165,12 @@ function digestText(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-function exactRecord(value: unknown, keys: readonly string[], code: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(code);
-  const record = value as Record<string, unknown>;
-  const actual = Object.keys(record).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length
-    || actual.some((key, index) => key !== expected[index])) throw new Error(code);
-  return record;
-}
-
 function identifier(value: unknown, code: string): string {
   if (typeof value !== 'string') throw new Error(code);
   const normalized = value.trim();
   if (!normalized || normalized.length > 256 || /[\u0000-\u001F\u007F]/.test(normalized)) {
     throw new Error(code);
   }
-  return normalized;
-}
-
-function nonNegativeInteger(value: unknown, code: string): number {
-  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error(code);
-  return Number(value);
-}
-
-function positiveInteger(value: unknown, code: string): number {
-  const normalized = nonNegativeInteger(value, code);
-  if (normalized < 1) throw new Error(code);
   return normalized;
 }
 
