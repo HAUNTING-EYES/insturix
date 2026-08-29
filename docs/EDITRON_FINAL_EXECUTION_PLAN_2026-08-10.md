@@ -8712,6 +8712,31 @@ terminal usage settlement, partial-attempt telemetry, live database operation
 or route composition exists yet. Queue item 3 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain open.
 
+**Exact-render execution-budget terminal settlement Phase 3F-C7azf
+(2026-08-30):** commit `3fb76b822` defines the terminal reconciliation that the
+future durable budget owner must persist. A completed PASS with exact artifact
+usage receives a policy-metered settlement and releases the unused internal
+cost envelope. A cancellation with zero attempts releases the whole envelope.
+A failed, cancelled-after-attempt or otherwise accounting-unknown terminal
+uses the explicitly named conservative-maximum mode; missing evidence is never
+silently priced as zero. Each outcome binds the terminal job/status/
+disposition/attempt count and artifact evidence to the exact policy,
+authorization and reservation.
+
+Usage above any authorized meter, metering without a completed PASS, release
+after execution, conservative settlement of a PASS, unexpected usage,
+malformed terminal combinations, forged hashes and extra fields fail closed.
+The focused suite passes 9/9, every `native-media-final-render` suite passes
+146/146, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_SETTLEMENT_CONTRACT_VERIFIED_ATOMIC_LEDGER_AND_WORKER_OWNER_OPEN`.
+
+This still performs no database transition, wallet/customer charge, partial-
+attempt measurement or live cost lookup. Queue item 3 next requires the sole
+atomic reservation/settlement ledger, exact Finance policy locator and worker
+budget adapter; then the product runner can compose them. No live operation or
+readiness-status change is claimed, so `FROZEN_MODIFY_DECISION_ISSUED` remains.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
