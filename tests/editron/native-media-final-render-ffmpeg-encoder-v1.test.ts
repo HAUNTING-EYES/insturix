@@ -253,6 +253,25 @@ describe.sequential('native media final-render FFmpeg encoder v1', () => {
     expect(runtime.stage).not.toHaveBeenCalled();
   });
 
+  it('rejects caller cancellation before opening or staging source media', async () => {
+    const runtime = setup();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runtime.encoder.encode({
+      asset: asset() as never,
+      transform: transform(null) as never,
+      audioEvidence: null,
+      abortSignal: controller.signal,
+    });
+
+    expect(result).toEqual({
+      disposition: 'UNVERIFIABLE',
+      diagnostic: 'NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED',
+    });
+    expect(runtime.openLease).not.toHaveBeenCalled();
+    expect(runtime.stage).not.toHaveBeenCalled();
+  });
+
   it('rejects a source that changes before staging', async () => {
     const runtime = setup({ revalidate: vi.fn(async () => false) });
     const result = await runtime.encoder.encode({

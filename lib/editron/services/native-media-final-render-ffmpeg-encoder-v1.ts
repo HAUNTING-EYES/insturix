@@ -82,6 +82,7 @@ export interface NativeMediaFinalRenderArtifactStagerPortV1 {
     artifactByteLength: string;
     transformSha256: string;
     profileReceiptSha256: string;
+    abortSignal?: AbortSignal;
   }>): Promise<Readonly<{
     publishHandle: string;
     artifactHandle: string;
@@ -122,8 +123,10 @@ export function createNativeMediaFinalRenderFfmpegEncoderV1(input: Readonly<{
   return {
     async encode(encodeInput) {
       try {
+        throwIfAborted(encodeInput.abortSignal);
         runtimeQualification ??= qualifyRuntime({ ffmpegPath, ffprobePath, profile, policy });
         await runtimeQualification;
+        throwIfAborted(encodeInput.abortSignal);
         return Object.freeze({
           disposition: 'ARTIFACT_ENCODED' as const,
           encoded: await encodeArtifact({
@@ -140,7 +143,9 @@ export function createNativeMediaFinalRenderFfmpegEncoderV1(input: Readonly<{
       } catch (error) {
         return Object.freeze({
           disposition: 'UNVERIFIABLE' as const,
-          diagnostic: diagnostic(error),
+          diagnostic: encodeInput.abortSignal?.aborted
+            ? 'NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED'
+            : diagnostic(error),
         });
       }
     },
@@ -151,6 +156,7 @@ async function encodeArtifact(input: Readonly<{
   asset: MediaSourceAudioArtifactAssetStateInputV1;
   transform: VideoSourceTimestampConformV3;
   audioEvidence: NativeMediaExactAudioEvidenceV1 | null;
+  abortSignal?: AbortSignal;
   ffmpegPath: string;
   ffprobePath: string;
   profile: NativeMediaFinalRenderProfileReceiptV1;
@@ -176,11 +182,13 @@ async function encodeArtifact(input: Readonly<{
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_TIMELINE_RESOURCE_LIMIT');
   }
   assertSupportedSourceVideo(input.asset, transform, input.policy);
+  throwIfAborted(input.abortSignal);
   const sourceLease = input.sourceLeaseFactory(input.asset);
   if (!sourceLease || typeof sourceLease.open !== 'function') {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_SOURCE_LEASE_INVALID');
   }
   const lease = await sourceLease.open(sourceVersion);
+  throwIfAborted(input.abortSignal);
   if (!sameMediaSourceStorageVersionV1(lease.storageVersion, sourceVersion.storageVersion)) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_SOURCE_VERSION_STALE');
   }
@@ -194,6 +202,7 @@ async function encodeArtifact(input: Readonly<{
       sourceVersion,
       maximumBytes: input.policy.maxSourceBytes,
       timeoutMs: input.policy.timeoutMs,
+      abortSignal: input.abortSignal,
       errorCodes: {
         sourceByteLimitExceeded: 'NATIVE_MEDIA_FINAL_RENDER_SOURCE_BYTE_LIMIT_EXCEEDED',
         sourceUrlInvalid: 'NATIVE_MEDIA_FINAL_RENDER_SOURCE_URL_INVALID',
@@ -203,6 +212,7 @@ async function encodeArtifact(input: Readonly<{
         outputWriteFailed: 'NATIVE_MEDIA_FINAL_RENDER_SOURCE_WRITE_FAILED',
       },
     });
+    throwIfAborted(input.abortSignal);
     if (!await lease.revalidate()) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_SOURCE_VERSION_STALE');
     }
@@ -212,14 +222,18 @@ async function encodeArtifact(input: Readonly<{
       outputDirectory: directory,
       transform,
       policy: input.policy,
+      abortSignal: input.abortSignal,
     });
+    throwIfAborted(input.abortSignal);
     const audio = await assembleAudio({
       outputDirectory: directory,
       transform,
       audioEvidence: input.audioEvidence,
       pcmReader: input.pcmReader,
       policy: input.policy,
+      abortSignal: input.abortSignal,
     });
+    throwIfAborted(input.abortSignal);
     const artifactPath = path.join(directory, 'artifact.mkv');
     await encodeMezzanine({
       ffmpegPath: input.ffmpegPath,
@@ -229,7 +243,9 @@ async function encodeArtifact(input: Readonly<{
       transform,
       audio,
       timeoutMs: input.policy.timeoutMs,
+      abortSignal: input.abortSignal,
     });
+    throwIfAborted(input.abortSignal);
     const proof = await verifyMezzanine({
       ffmpegPath: input.ffmpegPath,
       ffprobePath: input.ffprobePath,
@@ -241,13 +257,16 @@ async function encodeArtifact(input: Readonly<{
       transformSha256: transform.transformSha256,
       audio,
       policy: input.policy,
+      abortSignal: input.abortSignal,
     });
+    throwIfAborted(input.abortSignal);
     const artifactStats = await stat(artifactPath);
     if (!artifactStats.isFile() || artifactStats.size < 1
       || artifactStats.size > input.policy.maxArtifactBytes) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_BYTE_LIMIT_EXCEEDED');
     }
-    const artifactContentSha256 = await hashFile(artifactPath);
+    const artifactContentSha256 = await hashFile(artifactPath, input.abortSignal);
+    throwIfAborted(input.abortSignal);
     const artifactByteLength = String(artifactStats.size);
     const staged = await input.artifactStager.stage({
       localPath: artifactPath,
@@ -256,7 +275,9 @@ async function encodeArtifact(input: Readonly<{
       artifactByteLength,
       transformSha256: transform.transformSha256,
       profileReceiptSha256: input.profile.receiptSha256,
+      abortSignal: input.abortSignal,
     });
+    throwIfAborted(input.abortSignal);
     if (!staged || staged.artifactContentSha256 !== artifactContentSha256
       || staged.artifactByteLength !== artifactByteLength) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_STAGE_SCOPE_MISMATCH');
@@ -264,6 +285,7 @@ async function encodeArtifact(input: Readonly<{
     if (!await lease.revalidate()) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_SOURCE_VERSION_STALE');
     }
+    throwIfAborted(input.abortSignal);
     return Object.freeze({
       publishHandle: handle(staged.publishHandle),
       artifactHandle: handle(staged.artifactHandle),
@@ -297,6 +319,7 @@ async function decodeTimelineFrames(input: Readonly<{
   outputDirectory: string;
   transform: VideoSourceTimestampConformV3;
   policy: NativeMediaFinalRenderFfmpegEncoderPolicyV1;
+  abortSignal?: AbortSignal;
 }>): Promise<DecodedTimelineFramesV1> {
   const unique: Array<Readonly<{
     sourceFrameOrdinal: string;
@@ -346,7 +369,7 @@ async function decodeTimelineFrames(input: Readonly<{
     '-map', '[png]', '-an', '-sn', '-dn', '-c:v', 'png', '-pix_fmt', 'rgb24',
     '-vsync', '0', '-frames:v', String(unique.length), '-start_number', '0',
     '-f', 'image2', '-y', uniquePattern,
-  ], input.policy.timeoutMs, 'stderr');
+  ], input.policy.timeoutMs, 'stderr', input.abortSignal);
   const metadata = parseShowInfo(stderr);
   if (metadata.length !== unique.length) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_DECODED_FRAME_COUNT_MISMATCH');
@@ -386,6 +409,7 @@ async function decodeTimelineFrames(input: Readonly<{
   const timelinePattern = path.join(input.outputDirectory, 'timeline-%08d.png');
   try {
     for (let index = 0; index < input.transform.frameSelections.length; index += 1) {
+      throwIfAborted(input.abortSignal);
       const selection = input.transform.frameSelections[index]!;
       const sourceIndex = uniqueIndex.get(selection.sourceFrameOrdinal);
       if (sourceIndex === undefined) {
@@ -430,6 +454,7 @@ async function assembleAudio(input: Readonly<{
   audioEvidence: NativeMediaExactAudioEvidenceV1 | null;
   pcmReader?: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
   policy: NativeMediaFinalRenderFfmpegEncoderPolicyV1;
+  abortSignal?: AbortSignal;
 }>): Promise<AssembledAudioV1 | null> {
   const mapping = input.transform.audioMapping;
   if (mapping === null) {
@@ -473,6 +498,7 @@ async function assembleAudio(input: Readonly<{
   let writtenBytes = BigInt(0);
   try {
     for (let index = 0; index < mapping.segments.length; index += 1) {
+      throwIfAborted(input.abortSignal);
       const segment = mapping.segments[index]!;
       const segmentStart = integerPosition(segment.canonicalStartSamplePosition);
       const segmentEnd = integerPosition(segment.canonicalEndExclusiveSamplePosition);
@@ -481,7 +507,13 @@ async function assembleAudio(input: Readonly<{
       }
       const sampleFrames = segmentEnd - segmentStart;
       if (segment.kind === 'SILENCE') {
-        await writeSilence(output, digest, sampleFrames, bytesPerFrame);
+        await writeSilence(
+          output,
+          digest,
+          sampleFrames,
+          bytesPerFrame,
+          input.abortSignal,
+        );
         silenceRanges.push(Object.freeze({
           segmentOrdinal: String(index),
           sampleFrameCount: sampleFrames.toString(),
@@ -497,6 +529,7 @@ async function assembleAudio(input: Readonly<{
           startSampleFrame: sourceStart.toString(),
           endExclusiveSampleFrame: sourceEnd.toString(),
         });
+        throwIfAborted(input.abortSignal);
         const rangeHash = createHash('sha256').update(range.pcmBytes).digest('hex');
         if (range.manifestSha256 !== evidence.record.manifestSha256
           || range.audioSampleEpochMapSha256 !== mapping.audioSampleEpochMapSha256
@@ -510,7 +543,7 @@ async function assembleAudio(input: Readonly<{
           || range.pcmBytes.byteLength !== Number(sampleFrames) * bytesPerFrame) {
           throw new Error('NATIVE_MEDIA_FINAL_RENDER_PCM_RANGE_SCOPE_MISMATCH');
         }
-        await writeExact(output, range.pcmBytes);
+        await writeExact(output, range.pcmBytes, input.abortSignal);
         digest.update(range.pcmBytes);
         pcmRanges.push(Object.freeze({
           segmentOrdinal: String(index),
@@ -551,6 +584,7 @@ async function encodeMezzanine(input: Readonly<{
   transform: VideoSourceTimestampConformV3;
   audio: AssembledAudioV1 | null;
   timeoutMs: number;
+  abortSignal?: AbortSignal;
 }>): Promise<void> {
   const args = [
     '-hide_banner', '-loglevel', 'error', '-nostdin',
@@ -570,7 +604,7 @@ async function encodeMezzanine(input: Readonly<{
   );
   if (input.audio !== null) args.push('-map', '1:a:0', '-c:a', 'pcm_s32le');
   args.push('-f', 'matroska', '-y', input.artifactPath);
-  await execute(input.ffmpegPath, args, input.timeoutMs, 'none');
+  await execute(input.ffmpegPath, args, input.timeoutMs, 'none', input.abortSignal);
 }
 
 async function verifyMezzanine(input: Readonly<{
@@ -584,10 +618,11 @@ async function verifyMezzanine(input: Readonly<{
   transformSha256: string;
   audio: AssembledAudioV1 | null;
   policy: NativeMediaFinalRenderFfmpegEncoderPolicyV1;
+  abortSignal?: AbortSignal;
 }>): Promise<Readonly<{ audio: NativeMediaFinalRenderEncodedArtifactV1['audio'] }>> {
   const probe = JSON.parse(await capture(input.ffprobePath, [
     '-v', 'error', '-count_frames', '-show_streams', '-of', 'json', input.artifactPath,
-  ], input.policy.timeoutMs)) as { streams?: Array<Record<string, unknown>> };
+  ], input.policy.timeoutMs, input.abortSignal)) as { streams?: Array<Record<string, unknown>> };
   const streams = Array.isArray(probe.streams) ? probe.streams : [];
   const video = streams.filter((stream) => stream.codec_type === 'video');
   const audioStreams = streams.filter((stream) => stream.codec_type === 'audio');
@@ -601,11 +636,11 @@ async function verifyMezzanine(input: Readonly<{
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', input.artifactPath,
     '-map', '0:v:0', '-an', '-sn', '-dn', '-pix_fmt', 'rgb24',
     '-f', 'rawvideo', '-y', decodedRgbPath,
-  ], input.policy.timeoutMs, 'none');
+  ], input.policy.timeoutMs, 'none', input.abortSignal);
   const decodedRgb = await stat(decodedRgbPath);
   const expectedRgbBytes = input.frameCount * input.width * input.height * 3;
   if (!decodedRgb.isFile() || decodedRgb.size !== expectedRgbBytes
-    || await hashFile(decodedRgbPath) !== input.expectedRgbSha256) {
+    || await hashFile(decodedRgbPath, input.abortSignal) !== input.expectedRgbSha256) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_RGB_NOT_LOSSLESS');
   }
   if (input.audio === null) {
@@ -636,11 +671,11 @@ async function verifyMezzanine(input: Readonly<{
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', input.artifactPath,
     '-map', '0:a:0', '-vn', '-sn', '-dn', '-c:a', 'pcm_s32le',
     '-f', 's32le', '-y', decodedPcmPath,
-  ], input.policy.timeoutMs, 'none');
+  ], input.policy.timeoutMs, 'none', input.abortSignal);
   const decodedPcm = await stat(decodedPcmPath);
   const expectedPcmBytes = BigInt(input.audio.sampleFrameCount)
     * BigInt(input.audio.channelCount * 4);
-  const artifactDecodedPcmSha256 = await hashFile(decodedPcmPath);
+  const artifactDecodedPcmSha256 = await hashFile(decodedPcmPath, input.abortSignal);
   if (!decodedPcm.isFile() || BigInt(decodedPcm.size) !== expectedPcmBytes
     || artifactDecodedPcmSha256 !== input.audio.assembledPcmSha256) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PCM_NOT_LOSSLESS');
@@ -795,14 +830,16 @@ async function writeSilence(
   digest: ReturnType<typeof createHash>,
   sampleFrames: bigint,
   bytesPerFrame: number,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   let remaining = sampleFrames * BigInt(bytesPerFrame);
   const chunkSize = 1024 * 1024 - (1024 * 1024) % bytesPerFrame;
   const zeroes = Buffer.alloc(chunkSize);
   while (remaining > BigInt(0)) {
+    throwIfAborted(abortSignal);
     const length = Number(remaining < BigInt(chunkSize) ? remaining : BigInt(chunkSize));
     const chunk = zeroes.subarray(0, length);
-    await writeExact(output, chunk);
+    await writeExact(output, chunk, abortSignal);
     digest.update(chunk);
     remaining -= BigInt(length);
   }
@@ -811,9 +848,11 @@ async function writeSilence(
 async function writeExact(
   output: Awaited<ReturnType<typeof open>>,
   bytes: Uint8Array,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   let offset = 0;
   while (offset < bytes.byteLength) {
+    throwIfAborted(abortSignal);
     const result = await output.write(bytes, offset, bytes.byteLength - offset);
     if (result.bytesWritten < 1) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_PCM_WRITE_INCOMPLETE');
@@ -840,9 +879,12 @@ function integerPosition(value: Readonly<{
   return numerator / denominator;
 }
 
-async function hashFile(filePath: string): Promise<string> {
+async function hashFile(filePath: string, abortSignal?: AbortSignal): Promise<string> {
   const digest = createHash('sha256');
-  for await (const chunk of createReadStream(filePath)) digest.update(chunk as Buffer);
+  for await (const chunk of createReadStream(filePath)) {
+    throwIfAborted(abortSignal);
+    digest.update(chunk as Buffer);
+  }
   return digest.digest('hex');
 }
 
@@ -850,8 +892,9 @@ async function capture(
   command: string,
   args: readonly string[],
   timeoutMs: number,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
-  return execute(command, args, timeoutMs, 'stdout');
+  return execute(command, args, timeoutMs, 'stdout', abortSignal);
 }
 
 async function execute(
@@ -859,7 +902,9 @@ async function execute(
   args: readonly string[],
   timeoutMs: number,
   capture: 'none' | 'stderr' | 'stdout',
+  abortSignal?: AbortSignal,
 ): Promise<string> {
+  throwIfAborted(abortSignal);
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       windowsHide: true,
@@ -869,13 +914,22 @@ async function execute(
     let stderr = '';
     let termination: Error | null = null;
     let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finish = (error: Error | null, value = '') => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      abortSignal?.removeEventListener('abort', onAbort);
       if (error) reject(error); else resolve(value);
     };
-    const timer = setTimeout(() => {
+    const onAbort = () => {
+      if (settled || termination) return;
+      termination = new Error('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+      child.kill('SIGKILL');
+    };
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    if (abortSignal?.aborted) onAbort();
+    timer = setTimeout(() => {
       termination = new Error('NATIVE_MEDIA_FINAL_RENDER_PROCESS_TIMEOUT');
       child.kill();
     }, timeoutMs);
@@ -940,6 +994,12 @@ function diagnostic(error: unknown): string | null {
   return error instanceof Error && /^[A-Z0-9_]{1,200}$/.test(error.message)
     ? error.message
     : null;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+  }
 }
 
 async function removeOwnedDirectory(directory: string): Promise<void> {

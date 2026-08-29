@@ -81,6 +81,7 @@ export interface NativeMediaFinalRenderEncoderPortV1 {
     asset: MediaSourceAudioArtifactAssetStateInputV1;
     transform: VideoSourceTimestampConformV3;
     audioEvidence: NativeMediaExactAudioEvidenceV1 | null;
+    abortSignal?: AbortSignal;
   }>): Promise<Readonly<
     | { disposition: 'ARTIFACT_ENCODED'; encoded: NativeMediaFinalRenderEncodedArtifactV1 }
     | { disposition: 'UNVERIFIABLE'; diagnostic: string | null }

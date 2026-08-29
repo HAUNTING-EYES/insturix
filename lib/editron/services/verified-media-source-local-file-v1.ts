@@ -98,6 +98,7 @@ export async function materializeVerifiedMediaSourceLocalFileV1(input: Readonly<
   maximumBytes: number;
   timeoutMs: number;
   errorCodes: VerifiedMediaSourceFileErrorCodesV1;
+  abortSignal?: AbortSignal;
   fetcher?: typeof fetch;
 }>): Promise<VerifiedMediaSourceLocalFileEvidenceV1> {
   const sourceVersion = assertMediaSourceVersionV1(input.sourceVersion);
@@ -123,13 +124,17 @@ export async function materializeVerifiedMediaSourceLocalFileV1(input: Readonly<
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error(errorCodes.sourceUrlInvalid);
   }
+  const signal = input.abortSignal
+    ? AbortSignal.any([input.abortSignal, AbortSignal.timeout(input.timeoutMs)])
+    : AbortSignal.timeout(input.timeoutMs);
+  if (signal.aborted) throw new Error(errorCodes.sourceReadFailed);
   let response: Response;
   try {
     response = await (input.fetcher ?? fetch)(url, {
       cache: 'no-store',
       headers: { 'accept-encoding': 'identity' },
       redirect: 'error',
-      signal: AbortSignal.timeout(input.timeoutMs),
+      signal,
     });
   } catch {
     throw new Error(errorCodes.sourceReadFailed);
@@ -156,11 +161,13 @@ export async function materializeVerifiedMediaSourceLocalFileV1(input: Readonly<
       Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
       verifier,
       createWriteStream(input.outputPath, { flags: 'wx' }),
+      { signal },
     );
   } catch (error) {
     if (error instanceof Error && error.message === errorCodes.sourceByteLengthMismatch) {
       throw error;
     }
+    if (signal.aborted) throw new Error(errorCodes.sourceReadFailed);
     throw new Error(errorCodes.outputWriteFailed);
   }
   const contentSha256 = digest.digest('hex');

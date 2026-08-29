@@ -135,6 +135,44 @@ describe('verified media source local file v1', () => {
     })).rejects.toThrow('TEST_SOURCE_WRITE_FAILED');
     expect(await readFile(existingPath, 'utf8')).toBe('do-not-overwrite');
   });
+
+  it('forwards caller cancellation through fetch and fails without writing bytes', async () => {
+    const bytes = Buffer.from('source');
+    const directory = await temporaryDirectory();
+    const outputPath = path.join(directory, 'cancelled.bin');
+    const controller = new AbortController();
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { started = resolve; });
+    const fetcher = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
+      const signal = init?.signal;
+      if (!signal) return Promise.reject(new Error('missing signal'));
+      started();
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    });
+
+    const pending = materializeVerifiedMediaSourceLocalFileV1({
+      sourceUrl: 'https://private.example/cancelled',
+      outputPath,
+      sourceVersion: version(bytes),
+      maximumBytes: bytes.byteLength,
+      timeoutMs: 1_000,
+      errorCodes: errors,
+      abortSignal: controller.signal,
+      fetcher: fetcher as typeof fetch,
+    });
+    await fetchStarted;
+    controller.abort();
+
+    await expect(pending).rejects.toThrow('TEST_SOURCE_READ_FAILED');
+    const forwardedSignal = fetcher.mock.calls[0]?.[1]?.signal;
+    expect(forwardedSignal).not.toBe(controller.signal);
+    expect(forwardedSignal?.aborted).toBe(true);
+    await expect(readFile(outputPath)).rejects.toThrow();
+  });
 });
 
 function version(bytes: Buffer) {
