@@ -7782,6 +7782,41 @@ qualification, partial-epoch/edit-list/timestamp-wrap handling and long-form
 browser/device A/V proof remain open. Queue item 3 therefore continues, and
 this checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Concrete exact-source encoder Phase 3F-C7aa (2026-08-29):** commit
+`cabb6d540` implements the materializer's concrete FFmpeg encoder port for the
+qualified Windows profile. It revalidates immutable source identity around a
+bounded download, decodes the exact selected source-frame ordinals, represents
+timeline repeats explicitly, assembles selected native PCM ranges plus declared
+silence, and encodes lossless RGB H.264 (`libx264rgb`, CRF 0, intra-only) with
+optional 48 kHz stereo PCM-S32LE in Matroska. It then independently decodes the
+artifact and requires exact timeline RGB hashes/frame counts and, when audio is
+present, exact PCM hashes/sample-frame counts before a content-addressed stager
+may accept it. The PCM-equivalence receipt binds the source mapping, every PCM
+and silence range, source and artifact hashes, count, format and transform.
+
+The concrete profile is deliberately narrow: project rate 30/1, SDR 8-bit
+allowlisted source pixels, 48 kHz stereo S32LE native audio with integer sample
+boundaries, no retime, at most 10,000 project frames, and the exact certified
+Windows FFmpeg/Remotion/compositor identities. Unsupported rates, HDR/alpha or
+high-bit-depth input, variable geometry, decreasing frame order, fractional
+audio boundaries, stale source versions and altered receipts block instead of
+being approximated or silently transcoded by another policy. Real-media tests
+prove exact repeated-frame materialization, explicit silence, native PCM
+equivalence and source-version race rejection; the expanded materializer,
+source-preparation, Remotion-profile and encoder set passes 19/19, and repository
+TypeScript plus repository-wide quiet ESLint pass.
+
+This result is
+`WINDOWS_EXACT_FINAL_RENDER_ENCODER_VERIFIED_PRIVATE_PUBLISHER_OPEN`. It is not
+a live export path: the stager remains a port, no durable private artifact was
+published, the authenticated route is not composed, Linux/Lambda is not
+qualified, and partial epochs/edit lists/timestamp wrap plus long-form
+browser/device A/V remain unsupported. Queue item 3 proceeds to the private
+artifact publisher/runtime factory and live composition; Queue item 4 still
+owns durable private storage/lifecycle, V3 migration and qualified proxy/master
+relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
