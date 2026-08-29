@@ -7177,6 +7177,50 @@ complete. Queue item 4 continues to own the production V3 scanner/finalizer,
 private object lifecycle, V2-to-V3 migration and qualified proxy/master
 invalidation.
 
+**Private chunked audio evidence artifact Phase 3F-C7g (2026-08-29):** commit
+`f4ae5cd80` adds the first durable-storage contract and R2-compatible owner for
+the source-bound audio sample/epoch evidence produced in Phase 3F-C7e. The
+owner does not buffer a long programme into one object. It derives a fixed,
+sample-frame-aligned chunk plan from the verified channel count and decoded
+sample count; writes content-addressed immutable S32LE PCM chunks; writes the
+canonical epoch map only after every chunk has been reread and verified; and
+publishes the content-addressed manifest last as the only complete-set commit
+marker. Conditional `If-None-Match: *` writes make an identical retry
+idempotent, while a conflicting pre-existing object is reread and must match
+the expected byte count, private cache policy, artifact metadata and SHA-256.
+
+The bounded reader first verifies the manifest and epoch map as one exact
+source/storage/observation/audio-stream set. It then accepts integer sample-
+frame ranges only, fetches the intersecting complete chunks, revalidates every
+chunk and returns the exact sliced PCM bytes plus a range hash. Storage must be
+an explicitly isolated `NO_BROWSER_ROUTE` bucket; the known browser-facing
+`editron-cdn` bucket is refused. Missing, extra or reordered chunks, wrong map
+scope, malformed or noncanonical manifests, aggregate PCM mismatch, stored
+byte or header tampering, unsafe chunk policy and over-limit reads all fail
+closed. Failed pre-manifest attempts can leave unreachable content-addressed
+chunks; lifecycle collection for those orphans remains a required queue-item
+4 responsibility and is not described as cleanup proof.
+
+The new contract/R2 suite passes 5/5, repository TypeScript passes with the
+declared 8 GiB heap and repository-wide quiet ESLint passes. A broader audio
+run passes 123/124; its sole failure is the older CAP-2 media/audio current-
+truth evidence seal, whose 23-file normalized hash has legitimately drifted
+from immutable V5 after later source-owner changes. Historical V5 must not be
+rewritten. Queue item 7 must issue a new chained capability reconciliation and
+update the media/audio vertical to include the current source/time/artifact
+owners before claiming that vertical certified.
+
+No live R2 object was written because a dedicated production private-artifact
+scope and credentials were not configured, and no provider or customer media
+was touched. The FFmpeg materializer does not yet stream its temporary decoded
+PCM into this owner; no authenticated audio route, leased browser surface,
+swap-continuity scheduler, analysis reader or final-render reader consumes the
+manifest. This result is therefore
+`CHUNKED_PRIVATE_AUDIO_ARTIFACT_OWNER_VERIFIED_FFMPEG_AND_RUNTIME_WIRING_OPEN`.
+Queue item 3 remains open and proceeds next to source-bound FFmpeg streaming
+into this owner, then bounded materializer/preview, analysis and final-render
+consumers. It does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
