@@ -7817,6 +7817,39 @@ owns durable private storage/lifecycle, V3 migration and qualified proxy/master
 relink/invalidation. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Private exact-render artifact adapter Phase 3F-C7ab (2026-08-29):** commit
+`154dfd74f` composes the encoder's stager and materializer's publisher over the
+existing dedicated private-media R2 scope rather than the generic/public R2
+owner. The stager streams a local Matroska artifact to a content-addressed,
+conditional-create key, binds its content hash, byte length, transform and
+qualified profile in private metadata, and rereads/hashes the complete stored
+body before returning opaque artifact/publish handles. An existing key is
+idempotently reused only when the remote bytes and metadata match exactly.
+
+The publisher independently reconstructs the artifact binding and rereads the
+stored body before signing. It accepts only the configured Cloudflare R2 API
+origin, the exact bucket/key, SigV4 `GetObject` fields and a lease between the
+caller-required minimum and the seven-day provider ceiling. Generic credentials,
+the public CDN bucket, unsigned URLs, wrong origins, wrong hashes/lengths/
+metadata, stale handle bindings and excessive expiry all fail closed. The sole
+private-media R2 runtime now exposes these two ports beside its PTS, audio and
+preview adapters. The expanded private-R2/final-render set passes 36/36, and
+repository TypeScript plus repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_EXACT_RENDER_ARTIFACT_ADAPTER_VERIFIED_LIVE_R2_AND_ROUTE_OPEN`. It is
+source-level and in-memory-adapter proof, not a deployed-object claim: no live
+private bucket write/read/delete, bucket-route isolation canary, lifecycle/GC,
+multipart/resume, cancellation, runtime materializer composition or
+authenticated render-route invocation occurred. The current adapter therefore
+blocks artifacts above Cloudflare's 4.995-GiB single-upload ceiling; its one-hour
+default lease and provider-bounded seven-day maximum are infrastructure policy,
+not content-duration or render-SLO certification. Queue item 3 next composes the
+current ProjectService/asset readers, exact encoder, private publisher and route;
+Queue item 4 retains live private-bucket/lifecycle proof, scalable large-object
+policy, V3 migration and proxy/master relink/invalidation. This checkpoint does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a

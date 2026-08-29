@@ -1,9 +1,9 @@
 # Editron Codex hardcodes, assumptions and evidence-debt register
 
-Opened: 2026-08-20; last reconciled: 2026-08-25
+Opened: 2026-08-20; last reconciled: 2026-08-29
 Authority: code-grounded programme audit; status register, not runtime authority
 Audit lane: editron-worktree / infrastructure-improvs-+Editron
-Audit HEAD: findings rechecked through `a20f052a9`;
+Audit HEAD: findings rechecked through `154dfd74f`;
 latest route-ablation paid-cohort receipt `9583de5c0eb3281ea780e82cca4d0b735c1ec36f41970d6d7d3bfbe5031a498f`
 
 ## Purpose
@@ -260,6 +260,7 @@ the later two-editor moving-reference pilot.
 | MEDIA-20 | The V2 manifest index's 8-MiB/100,000-entry parser ceilings or deterministic object-key shape establish a scalable private storage deployment. | PROVISIONAL_INFRASTRUCTURE_POLICY | False. Commit `923fd6fc6` uses the ceilings only to bound hostile index input; per-index policy is explicitly named and must be calibrated with real media. Its `private/.../v2/...` keys are deterministic input to a future reader/writer, not proof of a deployed private bucket, object existence, mapper capacity, source-duration support or product eligibility. |
 | MEDIA-21 | A verified V2 manifest index proves complete qualified-source coverage or source-wide CFR/VFR. | PARTIAL_CONVERGENCE | Still false by itself. Commit `650d46b82` supplies the missing pure qualified-observation start/end and map-binding comparison over `3cd22d54f`'s injected-reader result; partial ranges, forged coverage and cross-map indexes fail closed. No storage-owner reader, V2 state owner or terminal state write exists, so this is not an observed production source-wide conclusion. |
 | MEDIA-22 | A pure source-coverage result from an injected reader proves a deployed resumable mapper or long-form product support. | MISSING_WIRING | False. `650d46b82` has no storage backend, continuous scanner, persistent checkpoint, asset-state transition, worker dispatch/retry, deployment proof, ProjectService source binding or renderer consumer. It is a prerequisite contract for those owners, not their substitute. |
+| MEDIA-23 | The exact-render R2 adapter's 4.995-GiB maximum, one-hour default lease and seven-day maximum lease are universal content-duration or render-SLO policy. | PROVISIONAL_INFRASTRUCTURE_POLICY | False. Commit `154dfd74f` deliberately limits its conditional single PUT to Cloudflare's documented single-upload ceiling and its signed GET to the provider's documented 1-second-to-7-day expiry range; the one-hour default is uncalibrated. These guards are not a source/project duration, raster, codec or customer-tier limit. The in-memory proof covers exact streamed hash/length/metadata reread, idempotent collision, signed origin/key and rejection; it does not prove live bucket isolation, object lifecycle, multipart/resume, cancellation, throughput, latency or cost. Calibrate a large-object strategy and render lease SLO using real private R2 telemetry before promotion. Sources: [R2 limits](https://developers.cloudflare.com/r2/platform/limits/), [presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), [S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/). |
 
 ## J. Product execution-root boundaries
 
