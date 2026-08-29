@@ -7976,6 +7976,15 @@ evidence. Queue item 4 retains scalable object lifecycle, V3 ingest/migration
 and proxy/master invalidation. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before versioning the 340-line preparation-job contract for an executable
+budget binding, commit `b1e19c528` performs the mandated Step 0 cleanup. It
+makes the internally consumed seven-day TTL constant and binding-error class
+private after a repository-wide reference search found no external consumers.
+No value, identity, stored record, error message or control flow changes. The
+focused contract remains 5/5; repository TypeScript and repository-wide quiet
+ESLint pass. This is behavior-neutral API-surface cleanup only and does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
