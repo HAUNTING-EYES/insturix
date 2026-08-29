@@ -8390,6 +8390,18 @@ one calibrated/versioned delivery-and-retry policy, then the exact-render
 dispatcher and signed worker composition. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before changing the existing 371-line cadence dispatcher, commit `edf4b350d`
+performs the mandated Step 0 cleanup. It makes the module-internal worker-path
+constant, two aggregate return aliases and dispatch error class private after
+direct, type, test/mock, dynamic-import, string and re-export searches found no
+external consumer. Commit `f83cca5c0` applies the same audit to the 330-line
+shared QStash owner and makes its internally consumed aggregate result alias and
+error class private. No publish field, URL, message, lifecycle state, receipt,
+diagnostic or recovery control flow changes. The respective focused suites pass
+8/8 and 5/5; repository TypeScript and repository-wide quiet ESLint pass. These
+are behavior-neutral API-surface cleanup commits only and do not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
