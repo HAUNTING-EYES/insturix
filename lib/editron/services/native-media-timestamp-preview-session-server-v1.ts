@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 
 import {
   assertNativeMediaTimestampPreviewMaterializeCommandV1,
+  assertNativeMediaTimestampPreviewMaterializeCommandV2,
   assertNativeMediaTimestampPreviewReleaseCommandV1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
   type NativeMediaTimestampPreviewMaterializeCommandV1,
+  type NativeMediaTimestampPreviewMaterializeCommandV2,
   type NativeMediaTimestampPreviewReleaseCommandV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
 import {
@@ -19,10 +22,12 @@ import type { NativeMediaTimestampPreviewMaterializerInputV1 } from './native-me
 
 export {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
 };
 export type {
   NativeMediaTimestampPreviewMaterializeCommandV1,
+  NativeMediaTimestampPreviewMaterializeCommandV2,
   NativeMediaTimestampPreviewReleaseCommandV1,
 };
 
@@ -56,6 +61,39 @@ export function parseNativeMediaTimestampPreviewMaterializeCommandV1(
     windowLocalStartFrame: command.windowLocalStartFrame,
     windowDurationInFrames: command.windowDurationInFrames,
   });
+}
+
+export function parseNativeMediaTimestampPreviewMaterializeCommandV2(
+  value: unknown,
+  userId: string,
+): NativeMediaTimestampPreviewMaterializerInputV1 {
+  const command = assertNativeMediaTimestampPreviewMaterializeCommandV2(value);
+  return Object.freeze({
+    userId: identifier(userId, 'NATIVE_MEDIA_PREVIEW_SESSION_USER_INVALID'),
+    projectId: command.projectId,
+    sequenceId: command.sequenceId,
+    overlayId: command.overlayId,
+    expectedProjectRevision: command.expectedProjectRevision,
+    windowLocalStartFrame: command.windowLocalStartFrame,
+    windowDurationInFrames: command.windowDurationInFrames,
+  });
+}
+
+export function parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2(
+  value: unknown,
+  userId: string,
+): NativeMediaTimestampPreviewMaterializerInputV1 {
+  if (isCommandIdentity(
+    value,
+    2,
+    NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+  )) return parseNativeMediaTimestampPreviewMaterializeCommandV2(value, userId);
+  if (isCommandIdentity(
+    value,
+    1,
+    NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  )) return parseNativeMediaTimestampPreviewMaterializeCommandV1(value, userId);
+  throw new Error('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_IDENTITY_INVALID');
 }
 
 export function parseNativeMediaTimestampPreviewReleaseCommandV1(
@@ -172,6 +210,12 @@ function identifier(value: unknown, code: string): string {
     throw new Error(code);
   }
   return normalized;
+}
+
+function isCommandIdentity(value: unknown, schemaVersion: number, kind: string): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.schemaVersion === schemaVersion && record.kind === kind;
 }
 
 function unverifiable(

@@ -96,6 +96,7 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'INPUT_INVALID'
   | 'PROJECT_UNAVAILABLE'
   | 'PROJECT_SCOPE_INVALID'
+  | 'PROJECT_REVISION_STALE'
   | 'PROJECT_RATE_AMBIGUOUS'
   | 'OVERLAY_NOT_FOUND'
   | 'OVERLAY_INVALID'
@@ -121,6 +122,7 @@ export type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
   | {
       disposition: 'NOT_APPLICABLE';
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
+      projectRevision?: ProjectRevisionV1;
     }
   | {
       disposition: 'WINDOW_MATERIALIZED';
@@ -141,6 +143,7 @@ export type NativeMediaTimestampPreviewMaterializerInputV1 = Readonly<{
   projectId: string;
   sequenceId: string;
   overlayId: string | number;
+  expectedProjectRevision?: ProjectRevisionV1;
   windowLocalStartFrame: number;
   windowDurationInFrames: number;
 }>;
@@ -191,6 +194,10 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   if (snapshot.project.projectId !== scope.projectId || scope.sequenceId !== 'main') {
     return unverifiable('PROJECT_SCOPE_INVALID', null);
   }
+  if (scope.expectedProjectRevision
+    && !sameRevision(snapshot.revision, scope.expectedProjectRevision)) {
+    return unverifiable('PROJECT_REVISION_STALE', null);
+  }
   const projectRateRead = readCanonicalFrameRateV1(snapshot.project.fps);
   if (projectRateRead.provenance === 'LEGACY_NUMERIC_DECIMAL_V1'
     && !Number.isSafeInteger(snapshot.project.fps)) {
@@ -223,6 +230,7 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       return Object.freeze({
         disposition: 'NOT_APPLICABLE' as const,
         reason: 'ASSET_NOT_TIMESTAMP_MANAGED' as const,
+        ...(scope.expectedProjectRevision ? { projectRevision: snapshot.revision } : {}),
       });
     }
     if (management === 'EARLIER') {
@@ -457,8 +465,26 @@ function normalizeInput(input: NativeMediaTimestampPreviewMaterializerInputV1) {
     projectId: identifier(input.projectId, 'NATIVE_MEDIA_PREVIEW_PROJECT_INVALID'),
     sequenceId: identifier(input.sequenceId, 'NATIVE_MEDIA_PREVIEW_SEQUENCE_INVALID'),
     overlayId: identifier(String(input.overlayId), 'NATIVE_MEDIA_PREVIEW_OVERLAY_INVALID'),
+    expectedProjectRevision: input.expectedProjectRevision
+      ? normalizeProjectRevision(input.expectedProjectRevision)
+      : null,
     windowLocalStartFrame: nonNegativeSafeInteger(input.windowLocalStartFrame),
     windowDurationInFrames: positiveSafeInteger(input.windowDurationInFrames),
+  });
+}
+
+function normalizeProjectRevision(value: ProjectRevisionV1): ProjectRevisionV1 {
+  if (!value || value.schemaVersion !== 1
+    || !Number.isSafeInteger(value.value) || value.value < 0
+    || typeof value.compatibilityUpdatedAt !== 'string'
+    || value.compatibilityUpdatedAt.length > 128
+    || Number.isNaN(Date.parse(value.compatibilityUpdatedAt))) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_REVISION_INVALID');
+  }
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    value: value.value,
+    compatibilityUpdatedAt: value.compatibilityUpdatedAt,
   });
 }
 

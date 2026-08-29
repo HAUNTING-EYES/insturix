@@ -5,6 +5,8 @@ import {
 
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V1' as const;
+export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2 =
+  'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V2' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_V1' as const;
 
@@ -14,6 +16,17 @@ export type NativeMediaTimestampPreviewMaterializeCommandV1 = Readonly<{
   projectId: string;
   sequenceId: string;
   overlayId: string;
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+}>;
+
+export type NativeMediaTimestampPreviewMaterializeCommandV2 = Readonly<{
+  schemaVersion: 2;
+  kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2;
+  projectId: string;
+  sequenceId: string;
+  overlayId: string;
+  expectedProjectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'];
   windowLocalStartFrame: number;
   windowDurationInFrames: number;
 }>;
@@ -49,6 +62,58 @@ export function assertNativeMediaTimestampPreviewMaterializeCommandV1(
       record.windowDurationInFrames,
       'NATIVE_MEDIA_PREVIEW_SESSION_WINDOW_DURATION_INVALID',
     ),
+  });
+}
+
+export function assertNativeMediaTimestampPreviewMaterializeCommandV2(
+  value: unknown,
+): NativeMediaTimestampPreviewMaterializeCommandV2 {
+  const record = exactRecord(value, [
+    'expectedProjectRevision', 'kind', 'overlayId', 'projectId', 'schemaVersion',
+    'sequenceId', 'windowDurationInFrames', 'windowLocalStartFrame',
+  ], 'NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
+  if (record.schemaVersion !== 2
+    || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
+  }
+  return Object.freeze({
+    schemaVersion: 2 as const,
+    kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+    projectId: identifier(record.projectId, 'NATIVE_MEDIA_PREVIEW_SESSION_PROJECT_INVALID'),
+    sequenceId: identifier(record.sequenceId, 'NATIVE_MEDIA_PREVIEW_SESSION_SEQUENCE_INVALID'),
+    overlayId: identifier(record.overlayId, 'NATIVE_MEDIA_PREVIEW_SESSION_OVERLAY_INVALID'),
+    expectedProjectRevision: projectRevision(record.expectedProjectRevision),
+    windowLocalStartFrame: nonNegativeInteger(
+      record.windowLocalStartFrame,
+      'NATIVE_MEDIA_PREVIEW_SESSION_WINDOW_START_INVALID',
+    ),
+    windowDurationInFrames: positiveInteger(
+      record.windowDurationInFrames,
+      'NATIVE_MEDIA_PREVIEW_SESSION_WINDOW_DURATION_INVALID',
+    ),
+  });
+}
+
+function projectRevision(
+  value: unknown,
+): NativeMediaTimestampPreviewWindowV2['projectRevision'] {
+  const record = exactRecord(
+    value,
+    ['compatibilityUpdatedAt', 'schemaVersion', 'value'],
+    'NATIVE_MEDIA_PREVIEW_SESSION_REVISION_INVALID',
+  );
+  if (record.schemaVersion !== 1
+    || !Number.isSafeInteger(record.value)
+    || Number(record.value) < 0
+    || typeof record.compatibilityUpdatedAt !== 'string'
+    || record.compatibilityUpdatedAt.length > 128
+    || Number.isNaN(Date.parse(record.compatibilityUpdatedAt))) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_SESSION_REVISION_INVALID');
+  }
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    value: Number(record.value),
+    compatibilityUpdatedAt: record.compatibilityUpdatedAt,
   });
 }
 

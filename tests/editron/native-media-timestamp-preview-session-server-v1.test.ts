@@ -15,8 +15,11 @@ import {
 } from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
 import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
+  parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2,
   parseNativeMediaTimestampPreviewMaterializeCommandV1,
+  parseNativeMediaTimestampPreviewMaterializeCommandV2,
   parseNativeMediaTimestampPreviewReleaseCommandV1,
   releaseNativeMediaTimestampPreviewWindowV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-session-server-v1';
@@ -25,12 +28,13 @@ import type { Project } from '@/lib/editron/services/project-service';
 
 describe('native media timestamp preview session server V1', () => {
   it('parses exact materialize and release commands', () => {
-    expect(parseNativeMediaTimestampPreviewMaterializeCommandV1({
-      schemaVersion: 1,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+    expect(parseNativeMediaTimestampPreviewMaterializeCommandV2({
+      schemaVersion: 2,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
       projectId: 'project-1',
       sequenceId: 'main',
       overlayId: '42',
+      expectedProjectRevision: revision(),
       windowLocalStartFrame: 120,
       windowDurationInFrames: 120,
     }, 'user-1')).toEqual({
@@ -38,19 +42,38 @@ describe('native media timestamp preview session server V1', () => {
       projectId: 'project-1',
       sequenceId: 'main',
       overlayId: '42',
+      expectedProjectRevision: revision(),
       windowLocalStartFrame: 120,
       windowDurationInFrames: 120,
     });
-    expect(() => parseNativeMediaTimestampPreviewMaterializeCommandV1({
-      schemaVersion: 1,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+    expect(() => parseNativeMediaTimestampPreviewMaterializeCommandV2({
+      schemaVersion: 2,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
       projectId: 'project-1',
       sequenceId: 'main',
       overlayId: '42',
       windowLocalStartFrame: 0,
       windowDurationInFrames: 120,
       ignored: true,
-    }, 'user-1')).toThrow('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_INVALID');
+    }, 'user-1')).toThrow('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
+
+    expect(parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2({
+      schemaVersion: 1,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+      projectId: 'project-1',
+      sequenceId: 'main',
+      overlayId: '42',
+      windowLocalStartFrame: 120,
+      windowDurationInFrames: 120,
+    }, 'user-1')).toEqual(parseNativeMediaTimestampPreviewMaterializeCommandV1({
+      schemaVersion: 1,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+      projectId: 'project-1',
+      sequenceId: 'main',
+      overlayId: '42',
+      windowLocalStartFrame: 120,
+      windowDurationInFrames: 120,
+    }, 'user-1'));
 
     const window = previewWindow();
     expect(parseNativeMediaTimestampPreviewReleaseCommandV1({
@@ -65,9 +88,11 @@ describe('native media timestamp preview session server V1', () => {
       assetId: 'asset-1', type: 'video',
     };
     await expect(materializeNativeMediaTimestampPreviewWindowV1(
-      materializerInput(), materializerPorts(ordinaryAsset),
+      materializerInput(revision()), materializerPorts(ordinaryAsset),
     )).resolves.toEqual({
-      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      disposition: 'NOT_APPLICABLE',
+      reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      projectRevision: revision(),
     });
     await expect(materializeNativeMediaTimestampPreviewWindowV1(
       materializerInput(),
@@ -79,6 +104,17 @@ describe('native media timestamp preview session server V1', () => {
     )).resolves.toMatchObject({
       disposition: 'UNVERIFIABLE', reason: 'LEGACY_TIME_MAP_MIGRATION_REQUIRED',
     });
+  });
+
+  it('rejects a stale expected project revision before reading the asset', async () => {
+    const ports = materializerPorts({ assetId: 'asset-1', type: 'video' });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput({ ...revision(), value: 0 }),
+      ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'PROJECT_REVISION_STALE',
+    });
+    expect(ports.assetReader.load).not.toHaveBeenCalled();
   });
 
   it('preflights every binding before deleting and treats missing pictures idempotently', async () => {
@@ -139,9 +175,10 @@ describe('native media timestamp preview session server V1', () => {
   });
 });
 
-function materializerInput() {
+function materializerInput(expectedProjectRevision?: ReturnType<typeof revision>) {
   return {
     userId: 'user-1', projectId: 'project-1', sequenceId: 'main', overlayId: '42',
+    ...(expectedProjectRevision ? { expectedProjectRevision } : {}),
     windowLocalStartFrame: 0, windowDurationInFrames: 2,
   } as const;
 }
@@ -149,19 +186,27 @@ function materializerInput() {
 function materializerPorts(
   asset: MediaSourcePtsCadenceMapAssetStateInputV3,
 ): NativeMediaTimestampPreviewMaterializerPortsV1 {
-  const revision = {
-    schemaVersion: 1 as const, value: 1, compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
-  };
+  const currentRevision = revision();
   return {
     projectSnapshotReader: {
-      loadProjectForMutation: vi.fn(async () => ({ project: projectFixture(), revision })),
+      loadProjectForMutation: vi.fn(async () => ({
+        project: projectFixture(), revision: currentRevision,
+      })),
     },
-    projectRevisionReader: { getProjectRevision: vi.fn(async () => revision) },
+    projectRevisionReader: { getProjectRevision: vi.fn(async () => currentRevision) },
     assetReader: { load: vi.fn(async () => asset) },
     storedObjectReader: { read: vi.fn(async () => { throw new Error('UNEXPECTED_READ'); }) },
     createDecoder: vi.fn(() => { throw new Error('UNEXPECTED_DECODE'); }),
     policy: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
     now: () => 1_000,
+  };
+}
+
+function revision() {
+  return {
+    schemaVersion: 1 as const,
+    value: 1,
+    compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
   };
 }
 

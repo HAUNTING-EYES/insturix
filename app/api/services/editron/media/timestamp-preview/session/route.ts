@@ -6,7 +6,7 @@ import {
 } from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
 import { createMediaSourcePtsCadenceR2RuntimePortsV1 } from '@/lib/editron/services/media-source-pts-cadence-r2-runtime-v1';
 import {
-  parseNativeMediaTimestampPreviewMaterializeCommandV1,
+  parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2,
   parseNativeMediaTimestampPreviewReleaseCommandV1,
   releaseNativeMediaTimestampPreviewWindowV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-session-server-v1';
@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let input;
   try {
-    input = parseNativeMediaTimestampPreviewMaterializeCommandV1(
+    input = parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2(
       await readCommand(request),
       userId,
     );
