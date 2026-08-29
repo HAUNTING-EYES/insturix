@@ -7407,6 +7407,42 @@ proof. Queue item 4 still owns production private-storage configuration and
 live lifecycle evidence. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact mapping-to-leased-audio-window materialization Phase 3F-C7m
+(2026-08-29):** commit `f3036ddbe` adds the server owner and browser-safe
+contract that turn one already-verified V3 audio epoch map into a bounded
+preview window. The owner clips PCM and declared-silence epochs against the
+requested project-frame window using exact rational positions, reads only the
+integer floor/ceiling PCM coverage required to represent fractional sample
+phase without rounding timeline time, and publishes each PCM portion through
+the existing private leased-WAV surface. Silence remains an explicit typed
+segment and neither triggers a PCM read nor invents media.
+
+The returned contract binds project/revision/sequence/overlay identity,
+source asset and storage identity, V3 map and full-PCM hashes, sample rate,
+channel count, exact timeline coverage, opaque handles, content hashes and
+lease expiry. It rejects gaps, overlaps, duplicate handles, stale or tampered
+mapping/asset/range evidence, excessive windows or segment counts and
+inconsistent byte coverage. A later write failure deletes every earlier
+handle in reverse order; a failed cleanup is reported as `CLEANUP_FAILED`
+rather than being hidden by the original error.
+
+The focused materializer suite passes 7/7 and the wider private-audio,
+surface, route, timestamp-consumer and preview-window cluster passes 39/39.
+Repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. No live R2 object, customer media, browser decoder,
+playback scheduler, analysis consumer or final-render consumer was used.
+
+This result is
+`EXACT_AUDIO_MAPPING_TO_LEASED_WINDOW_MATERIALIZATION_VERIFIED_SESSION_INTEGRATION_OPEN`.
+The main preview materializer/session/release path does not yet call this owner
+or expose its contract to a browser player, so playable preview audio is still
+not claimed. Queue item 3 remains open for that real integration, decode and
+swap-continuity scheduling, analysis/final-render consumers, unsupported
+partial-epoch/edit-list/wrap handling and real private-runtime proof. Queue
+item 4 still owns production private-storage configuration and live lifecycle
+evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
