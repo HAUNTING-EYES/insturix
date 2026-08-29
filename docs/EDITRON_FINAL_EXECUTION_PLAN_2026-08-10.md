@@ -7221,6 +7221,52 @@ Queue item 3 remains open and proceeds next to source-bound FFmpeg streaming
 into this owner, then bounded materializer/preview, analysis and final-render
 consumers. It does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Source-bound FFmpeg-to-private-audio publication Phase 3F-C7h
+(2026-08-29):** commits `906961d15` and `fca435ff5` close the ephemeral-PCM
+handoff identified in Phase 3F-C7g. A storage-neutral stream-writer port now
+separates the FFmpeg evidence producer from the R2 implementation. The private
+store owns canonical sample-aligned chunk boundaries and incrementally
+reassembles arbitrary producer fragmentation; the decoder does not know or
+duplicate the storage chunk policy and the store retains only its current
+canonical output chunk in addition to the caller-owned input fragment.
+
+The FFmpeg adapter now exposes two deliberate APIs. The historical map-only
+measurement remains available and does not pretend to persist audio. The new
+private-artifact materializer leases and hashes the immutable source, scans
+and decodes the selected stream once, builds the canonical sample/epoch map,
+streams the owned temporary S32LE file through the neutral writer before
+cleanup, independently canonicalizes and scope-verifies the returned manifest,
+and revalidates the source lease a third time after publication before it can
+return success. A slow writer is awaited inside the temporary-directory
+`try/finally`; the file cannot be deleted while it is still being consumed.
+
+The real-media integration generates a rights-free 0.1-second 48 kHz stereo
+sine fixture, measures exactly 4,800 sample frames and 38,400 decoded bytes,
+publishes them through the real private R2 owner over an in-memory command
+transport, rereads the complete PCM range with the map-bound SHA-256, verifies
+manifest-last order and proves the temporary PCM path is absent after return.
+An invalid writer is rejected before the source lease opens. A forged writer
+reference and a lease that becomes stale only after a complete immutable
+publish both return no success; the latter can leave a content-addressed set
+for the old source identity, but cannot falsely bind it to current source
+state.
+
+The focused map/artifact/FFmpeg cluster passes 13/13. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+The broader audio run is now 128/129; its sole failure remains the already
+recorded immutable CAP-2 V5 media/audio evidence-seal drift assigned to queue
+item 7. No live R2 object, provider, customer media, project mutation or
+browser surface was used.
+
+This result is
+`SOURCE_BOUND_FFMPEG_PCM_PRIVATE_ARTIFACT_MATERIALIZED_RUNTIME_CONSUMERS_OPEN`.
+Queue item 3 remains open for the bounded ProjectService materializer input,
+authenticated leased browser audio surface/route, swap-continuity scheduler,
+analysis reader and final-render reader plus real private-runtime proof. Queue
+item 4 still owns dedicated production private-storage configuration, orphan
+lifecycle and live object proof. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
