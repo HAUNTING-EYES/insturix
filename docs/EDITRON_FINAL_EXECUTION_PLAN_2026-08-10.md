@@ -7267,6 +7267,43 @@ item 4 still owns dedicated production private-storage configuration, orphan
 lifecycle and live object proof. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Private audio artifact asset authority Phase 3F-C7i (2026-08-29):** commit
+`b4daaf90d` adds the asset-level authority that was missing between the
+source-bound private publication owner and runtime consumers. A canonical
+manifest can now be attached to the current measured `media_assets` source
+only when its source version, storage version, qualification binding,
+technical observation and exact audio-stream binding all still match. The
+persisted record independently binds the sample/epoch-map hash, decoded PCM
+hash and sample count, manifest material hash, serialized-manifest reference,
+sample rate and channel count. Multiple audio streams are stored as one
+bounded, canonical, stream-index-sorted set with exactly one immutable record
+per stream.
+
+The Mongo owner uses compare-and-set predicates over the expected audio-state
+hash and the current source/qualification identities. First publication
+requires both audio-state fields to be absent or null. An identical artifact
+retry is idempotent even if the request has a later publication clock; a
+different artifact for an already-bound stream, stale expected hash, malformed
+or partially persisted current state, wrong source, duplicate stream or lost
+CAS race cannot overwrite the asset. The manifest material SHA and serialized
+object-content SHA remain deliberately separate and are both hash-bound; the
+owner does not infer one from the other.
+
+The new adversarial owner suite passes 3/3 and the complete source-audio
+map/private-store/FFmpeg/asset cluster passes 18/18. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No live MongoDB/R2 object, authenticated browser, project mutation, provider or
+customer media was used.
+
+This result is
+`SOURCE_BOUND_PRIVATE_AUDIO_ARTIFACT_ASSET_AUTHORITY_VERIFIED_PREVIEW_CONSUMER_OPEN`.
+Queue item 3 remains open for the current-ProjectService-revision materializer
+reader, authenticated leased browser-audio route and swap-continuity scheduler,
+plus analysis and final-render readers and real private-runtime proof. Queue
+item 4 still owns source-change invalidation, orphan lifecycle, dedicated
+production private storage and live object proof. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
