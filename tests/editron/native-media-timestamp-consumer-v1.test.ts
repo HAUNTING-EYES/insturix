@@ -58,8 +58,15 @@ import {
 import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 import {
+  createNativeMediaTimestampAnalysisEngineOutputV1,
+  type NativeMediaTimestampAnalysisEnginePortV1,
+  type NativeMediaTimestampAnalysisRequestV1,
+} from '@/lib/editron/services/native-media-timestamp-analysis-contract-v1';
+import {
   materializeNativeMediaTimestampPreviewWindowV1,
+  NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
+  type NativeMediaTimestampAnalysisMaterializerPolicyV1,
   type NativeMediaTimestampPreviewMaterializerPolicyV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
 import {
@@ -605,6 +612,86 @@ describe('native media timestamp preview materializer V1', () => {
       diagnostic: 'ASSET_CHANGED_DURING_MATERIALIZATION',
     });
   });
+
+  it('hands sparse exact V3 pictures to analysis and binds both child receipts', async () => {
+    const fixture = await verifiedFixture('materializer-analysis', { withAudio: true });
+    const runtime = materializerPorts(fixture, { withAnalysis: true });
+
+    const result = await materializeNativeMediaTimestampPreviewWindowV1({
+      ...materializerInput(),
+      deliveryContract: 'ANALYSIS_RECEIPT_V1',
+    }, runtime.ports);
+
+    expect(result.disposition).toBe('ANALYSIS_MATERIALIZED');
+    if (result.disposition !== 'ANALYSIS_MATERIALIZED') throw new Error(JSON.stringify(result));
+    expect(result.samplePlan.samples.map(({ timelineFrame }) => timelineFrame))
+      .toEqual(['10', '11']);
+    expect(result.analysisReceipt.observations).toEqual([
+      expect.objectContaining({
+        kind: 'POINT', signal: 'SCENE_CHANGE', timelineFrame: '11',
+      }),
+    ]);
+    expect(result.analysisReceipt.frameMap).toHaveLength(2);
+    expect(result.samplePlanSha256).toBe(result.samplePlan.samplePlanSha256);
+    expect(result.analysisReceiptSha256).toBe(result.analysisReceipt.receiptSha256);
+    expect(result.materializationSha256).toBe(hashEditronCanonicalJsonV1({
+      schemaVersion: 1,
+      kind: result.kind,
+      samplePlanSha256: result.samplePlanSha256,
+      analysisReceiptSha256: result.analysisReceiptSha256,
+      sourcePtsCadenceMapStateSha256V3: result.sourcePtsCadenceMapStateSha256V3,
+      transformSha256: result.transformSha256,
+      materializedPictureCount: result.materializedPictureCount,
+    }));
+    expect(runtime.readPicture).toHaveBeenCalledTimes(2);
+    expect(runtime.analysisEngine.analyze).toHaveBeenCalledTimes(1);
+    expect(runtime.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks absent analysis ports before decode and rejects a late source change', async () => {
+    const fixture = await verifiedFixture('materializer-analysis-stops');
+    const absent = materializerPorts(fixture);
+    await expect(materializeNativeMediaTimestampPreviewWindowV1({
+      ...materializerInput(),
+      deliveryContract: 'ANALYSIS_RECEIPT_V1',
+    }, absent.ports)).resolves.toEqual({
+      disposition: 'UNVERIFIABLE', reason: 'ANALYSIS_RUNTIME_REQUIRED', diagnostic: null,
+    });
+    expect(absent.decodePictures).not.toHaveBeenCalled();
+
+    const unsupportedInterval = materializerPorts(fixture, {
+      withAnalysis: true,
+      analysisPolicy: {
+        ...NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1,
+        sample: {
+          ...NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1.sample,
+          sampleIntervalSeconds: { numerator: '2', denominator: '1' },
+        },
+      },
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1({
+      ...materializerInput(),
+      deliveryContract: 'ANALYSIS_RECEIPT_V1',
+    }, unsupportedInterval.ports)).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'ANALYSIS_SAMPLE_PLAN_FAILED',
+      diagnostic: 'NATIVE_MEDIA_ANALYSIS_SAMPLE_INTERVAL_UNSUPPORTED',
+    });
+    expect(unsupportedInterval.decodePictures).not.toHaveBeenCalled();
+
+    const changed = materializerPorts(fixture, {
+      withAnalysis: true,
+      assetReads: [fixture.asset, fixture.asset, fixture.baseAsset],
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1({
+      ...materializerInput(),
+      deliveryContract: 'ANALYSIS_RECEIPT_V1',
+    }, changed.ports)).resolves.toEqual({
+      disposition: 'UNVERIFIABLE', reason: 'ASSET_CHANGED_DURING_ANALYSIS', diagnostic: null,
+    });
+    expect(changed.analysisEngine.analyze).toHaveBeenCalledTimes(1);
+    expect(changed.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+  });
 });
 
 function materializerInput() {
@@ -628,6 +715,9 @@ function materializerPorts(
     releaseFailure?: boolean;
     policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
     audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
+    withAnalysis?: boolean;
+    analysisEngine?: NativeMediaTimestampAnalysisEnginePortV1;
+    analysisPolicy?: NativeMediaTimestampAnalysisMaterializerPolicyV1;
   }> = {},
 ) {
   const project = options.project ?? projectFixture(fixture.sourceVersion.assetId);
@@ -640,9 +730,56 @@ function materializerPorts(
     ? vi.fn(async () => { throw new Error('TEST_RELEASE_FAILED'); })
     : vi.fn(async () => undefined);
   const decoder = { decodePictures, releaseDecodedBatch };
+  const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const readPicture = vi.fn(async (pictureHandle: string) => {
+    const batchRequest = decodePictures.mock.calls[0]?.[0];
+    if (!batchRequest) throw new Error('TEST_DECODER_REQUEST_REQUIRED');
+    const decoded = decoderOutput(batchRequest).pictures.find(
+      (picture) => picture.pictureHandle === pictureHandle,
+    );
+    if (!decoded) return { disposition: 'NOT_FOUND' as const, pictureHandle };
+    return {
+      disposition: 'AVAILABLE' as const,
+      binding: {
+        schemaVersion: 1 as const,
+        storage: 'R2_PRIVATE' as const,
+        pictureHandle,
+        userId: 'user-1',
+        projectId: 'project-1',
+        projectRevision: projectRevision(9),
+        sequenceIdSha256: hashUtf8('main'),
+        overlayIdSha256: hashUtf8('42'),
+        decoderRequestSha256: batchRequest.decoderRequestSha256,
+        decoderPictureRequestSha256: decoded.decoderPictureRequestSha256,
+        sourceVersionSha256: decoded.sourceVersionSha256,
+        storageVersionSha256: decoded.storageVersionSha256,
+        decodedPictureContentSha256: decoded.decodedPictureContentSha256,
+        pngContentSha256: hashBytes(pngBytes),
+        pngByteLength: pngBytes.byteLength,
+        width: decoded.displayWidth,
+        height: decoded.displayHeight,
+        expiresAtEpochMs: 3_601_000,
+      },
+      pngBytes,
+    };
+  });
+  const analysisEngine = options.analysisEngine ?? {
+    analyze: vi.fn(async (request: NativeMediaTimestampAnalysisRequestV1) => (
+      createNativeMediaTimestampAnalysisEngineOutputV1({
+        engineVersion: 'TEST_MATERIALIZER_ANALYSIS_ENGINE_V1',
+        analysisRequestSha256: request.analysisRequestSha256,
+        frameCount: request.frames.length,
+        observations: [{
+          kind: 'POINT', sampleIndex: 1, signal: 'SCENE_CHANGE', detail: 'Cut',
+        }],
+      })
+    )),
+  };
   return {
     decodePictures,
     releaseDecodedBatch,
+    readPicture,
+    analysisEngine,
     ports: {
       projectSnapshotReader: {
         loadProjectForMutation: vi.fn(async () => ({ project, revision: projectRevision(9) })),
@@ -667,6 +804,14 @@ function materializerPorts(
         surfaceExpiresAtEpochMs: materializationStartedAtEpochMs
           + (options.expiresInMs ?? 60 * 60 * 1_000),
       })),
+      ...(options.withAnalysis ? {
+        analysis: {
+          pictureReader: { readPicture },
+          engine: analysisEngine,
+          policy: options.analysisPolicy
+            ?? NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1,
+        },
+      } : {}),
       policy: options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
       now: () => 1_000,
     },
@@ -1291,4 +1436,8 @@ function stored(value: StoredObject): StoredObject {
 
 function hashUtf8(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function hashBytes(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
 }

@@ -32,6 +32,18 @@ import {
 } from './media-source-audio-private-artifact-v1';
 import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 } from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import type { MediaSourcePtsCadenceEpochWindowResourcePolicyV3 } from './media-source-pts-cadence-epoch-window-reader-v3';
+import type { NativeMediaTimestampAnalysisEnginePortV1 } from './native-media-timestamp-analysis-contract-v1';
+import {
+  analyzeNativeMediaTimestampReceiptV1,
+  type NativeMediaTimestampAnalysisConsumerPolicyV1,
+  type NativeMediaTimestampAnalysisReceiptV1,
+} from './native-media-timestamp-analysis-consumer-v1';
+import {
+  createNativeMediaTimestampAnalysisSamplePlanV1,
+  type NativeMediaTimestampAnalysisSamplePlanV1,
+  type NativeMediaTimestampAnalysisSamplePolicyV1,
+} from './native-media-timestamp-analysis-sample-plan-v1';
+import { createNativeMediaTimestampLegacyVideoAnalysisEngineV1 } from './native-media-timestamp-analysis-video-engine-v1';
 import {
   materializeNativeMediaTimestampPreviewAudioWindowV1,
 } from './native-media-timestamp-preview-audio-materializer-v1';
@@ -55,6 +67,7 @@ import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
   type NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
   type NativeMediaTimestampPreviewSurfacePolicyV1,
+  type NativeMediaTimestampPreviewSurfaceReaderPortV1,
 } from './native-media-timestamp-r2-preview-surface-v1';
 import {
   createMediaSourcePtsCadenceR2RuntimePortsV1,
@@ -69,6 +82,8 @@ import {
 
 const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_V1' as const;
+export const NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1 =
+  'EDITRON_NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_V1' as const;
 
 export type NativeMediaTimestampPreviewMaterializerPolicyV1 = Readonly<{
   policyVersion: string;
@@ -122,6 +137,27 @@ NativeMediaTimestampPreviewMaterializerPolicyV1 = Object.freeze({
   surface: NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
 });
 
+export type NativeMediaTimestampAnalysisMaterializerPolicyV1 = Readonly<{
+  sample: NativeMediaTimestampAnalysisSamplePolicyV1;
+  consumer: NativeMediaTimestampAnalysisConsumerPolicyV1;
+}>;
+
+export const NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1:
+NativeMediaTimestampAnalysisMaterializerPolicyV1 = Object.freeze({
+  sample: Object.freeze({
+    policyVersion: 'EDITRON_NATIVE_ANALYSIS_ONE_SECOND_120_V1',
+    sampleIntervalSeconds: Object.freeze({ numerator: '1', denominator: '1' }),
+    maxWindowDurationSeconds: '120',
+    maxSampleFrames: 120,
+  }),
+  consumer: Object.freeze({
+    policyVersion: 'EDITRON_NATIVE_ANALYSIS_CONSUMER_V1',
+    maxSampleFrames: 120,
+    maxSinglePngBytes: 64 * 1024 * 1024,
+    maxTotalPngBytes: 512 * 1024 * 1024,
+  }),
+});
+
 export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'INPUT_INVALID'
   | 'PROJECT_UNAVAILABLE'
@@ -147,6 +183,10 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'WINDOW_BUILD_FAILED'
   | 'AUDIO_WINDOW_MATERIALIZATION_FAILED'
   | 'SESSION_WINDOW_BUILD_FAILED'
+  | 'ANALYSIS_RUNTIME_REQUIRED'
+  | 'ANALYSIS_SAMPLE_PLAN_FAILED'
+  | 'ANALYSIS_UNVERIFIABLE'
+  | 'ASSET_CHANGED_DURING_ANALYSIS'
   | 'CLEANUP_FAILED'
   | 'RUNTIME_UNAVAILABLE';
 
@@ -186,9 +226,27 @@ type NativeMediaTimestampPreviewSessionMaterializerResultV1 =
     }
 >;
 
+type NativeMediaTimestampAnalysisMaterializerResultV1 =
+  NativeMediaTimestampPreviewMaterializerSharedResultV1 | Readonly<
+  | {
+      disposition: 'ANALYSIS_MATERIALIZED';
+      schemaVersion: 1;
+      kind: typeof NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1;
+      samplePlan: NativeMediaTimestampAnalysisSamplePlanV1;
+      analysisReceipt: NativeMediaTimestampAnalysisReceiptV1;
+      samplePlanSha256: string;
+      analysisReceiptSha256: string;
+      sourcePtsCadenceMapStateSha256V3: string;
+      transformSha256: string;
+      materializedPictureCount: number;
+      materializationSha256: string;
+    }
+>;
+
 type NativeMediaTimestampPreviewMaterializerResultV1 =
   | NativeMediaTimestampPreviewPictureMaterializerResultV1
-  | NativeMediaTimestampPreviewSessionMaterializerResultV1;
+  | NativeMediaTimestampPreviewSessionMaterializerResultV1
+  | NativeMediaTimestampAnalysisMaterializerResultV1;
 
 export type NativeMediaTimestampPreviewMaterializerInputV1 = Readonly<{
   userId: string;
@@ -204,6 +262,17 @@ export type NativeMediaTimestampPreviewSessionMaterializerInputV1 =
   NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
     deliveryContract: 'PAIRED_SESSION_V3';
   }>;
+
+export type NativeMediaTimestampAnalysisMaterializerInputV1 =
+  NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
+    deliveryContract: 'ANALYSIS_RECEIPT_V1';
+  }>;
+
+export type NativeMediaTimestampAnalysisMaterializerPortsV1 = Readonly<{
+  pictureReader: NativeMediaTimestampPreviewSurfaceReaderPortV1;
+  engine: NativeMediaTimestampAnalysisEnginePortV1;
+  policy: NativeMediaTimestampAnalysisMaterializerPolicyV1;
+}>;
 
 export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
   projectSnapshotReader: Readonly<{
@@ -236,10 +305,15 @@ export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
     decoder: NativeMediaTimestampMaterializingDecoderV1;
     surfaceExpiresAtEpochMs: number;
   }>;
+  analysis?: NativeMediaTimestampAnalysisMaterializerPortsV1;
   policy: NativeMediaTimestampPreviewMaterializerPolicyV1;
   now?: () => number;
 }>;
 
+export function materializeNativeMediaTimestampPreviewWindowV1(
+  input: NativeMediaTimestampAnalysisMaterializerInputV1,
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1,
+): Promise<NativeMediaTimestampAnalysisMaterializerResultV1>;
 export function materializeNativeMediaTimestampPreviewWindowV1(
   input: NativeMediaTimestampPreviewSessionMaterializerInputV1,
   ports: NativeMediaTimestampPreviewMaterializerPortsV1,
@@ -251,13 +325,15 @@ export function materializeNativeMediaTimestampPreviewWindowV1(
 export function materializeNativeMediaTimestampPreviewWindowV1(
   input:
     | NativeMediaTimestampPreviewMaterializerInputV1
-    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1
+    | NativeMediaTimestampAnalysisMaterializerInputV1,
   ports: NativeMediaTimestampPreviewMaterializerPortsV1,
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1>;
 export async function materializeNativeMediaTimestampPreviewWindowV1(
   input:
     | NativeMediaTimestampPreviewMaterializerInputV1
-    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1
+    | NativeMediaTimestampAnalysisMaterializerInputV1,
   ports: NativeMediaTimestampPreviewMaterializerPortsV1,
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
   let scope: ReturnType<typeof normalizeInput>;
@@ -267,6 +343,15 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     policy = normalizePolicy(ports.policy);
   } catch (error) {
     return unverifiable('INPUT_INVALID', diagnostic(error));
+  }
+  const analysisPorts = scope.deliveryContract === 'ANALYSIS_RECEIPT_V1'
+    ? ports.analysis ?? null
+    : null;
+  if (scope.deliveryContract === 'ANALYSIS_RECEIPT_V1'
+    && (!analysisPorts || !analysisPorts.policy
+      || typeof analysisPorts.pictureReader?.readPicture !== 'function'
+      || typeof analysisPorts.engine?.analyze !== 'function')) {
+    return unverifiable('ANALYSIS_RUNTIME_REQUIRED', null);
   }
   const now = ports.now ?? Date.now;
   let snapshot: Awaited<ReturnType<typeof ports.projectSnapshotReader.loadProjectForMutation>>;
@@ -300,7 +385,8 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   if (overlay.retimed) return unverifiable('OVERLAY_RETIME_UNSUPPORTED', null);
   if (BigInt(scope.windowLocalStartFrame) + BigInt(scope.windowDurationInFrames)
       > BigInt(overlay.durationInFrames)
-    || scope.windowDurationInFrames > policy.maxWindowFrames) {
+    || (scope.deliveryContract !== 'ANALYSIS_RECEIPT_V1'
+      && scope.windowDurationInFrames > policy.maxWindowFrames)) {
     return unverifiable('INPUT_INVALID', 'NATIVE_MEDIA_PREVIEW_WINDOW_RANGE_INVALID');
   }
   let asset: MediaSourceAudioArtifactAssetStateInputV1 | null;
@@ -400,7 +486,8 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     record: MediaSourceAudioArtifactAssetRecordV1;
     evidence: ReturnType<typeof verifyMediaSourceAudioPrivateArtifactSetV1>;
   }> | null = null;
-  if (audioStreamIndexes.length > 0) {
+  if (audioStreamIndexes.length > 0
+    && scope.deliveryContract !== 'ANALYSIS_RECEIPT_V1') {
     if (audioStreamIndexes.length !== 1) {
       return unverifiable(
         'EXACT_AUDIO_MAPPING_REQUIRED',
@@ -433,12 +520,32 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       return unverifiable('EXACT_AUDIO_MAPPING_REQUIRED', diagnostic(error));
     }
   }
-  const timelineQueries = Array.from(
-    { length: scope.windowDurationInFrames },
-    (_, index) => (
-      BigInt(overlay.from) + BigInt(scope.windowLocalStartFrame) + BigInt(index)
-    ).toString(),
-  );
+  const timelineStartFrame = BigInt(overlay.from) + BigInt(scope.windowLocalStartFrame);
+  const timelineEndExclusiveFrame = timelineStartFrame + BigInt(scope.windowDurationInFrames);
+  let analysisSamplePlan: NativeMediaTimestampAnalysisSamplePlanV1 | null = null;
+  let timelineQueries: readonly string[];
+  if (scope.deliveryContract === 'ANALYSIS_RECEIPT_V1') {
+    try {
+      analysisSamplePlan = createNativeMediaTimestampAnalysisSamplePlanV1({
+        projectRate: projectRateRead.rate,
+        timelineStartFrame: timelineStartFrame.toString(),
+        timelineEndExclusiveFrame: timelineEndExclusiveFrame.toString(),
+        policy: analysisPorts!.policy.sample,
+      });
+      if (analysisSamplePlan.policy.sampleIntervalSeconds.numerator !== '1'
+        || analysisSamplePlan.policy.sampleIntervalSeconds.denominator !== '1') {
+        throw new Error('NATIVE_MEDIA_ANALYSIS_SAMPLE_INTERVAL_UNSUPPORTED');
+      }
+      timelineQueries = analysisSamplePlan.samples.map(({ timelineFrame }) => timelineFrame);
+    } catch (error) {
+      return unverifiable('ANALYSIS_SAMPLE_PLAN_FAILED', diagnostic(error));
+    }
+  } else {
+    timelineQueries = Array.from(
+      { length: scope.windowDurationInFrames },
+      (_, index) => (timelineStartFrame + BigInt(index)).toString(),
+    );
+  }
   let conform: Awaited<ReturnType<
     typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3
   >>;
@@ -537,6 +644,57 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       !== (audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null)) {
     return releaseThen(created.decoder, consumed.receipt.decoderRequestSha256,
       'ASSET_CHANGED_DURING_MATERIALIZATION');
+  }
+  if (scope.deliveryContract === 'ANALYSIS_RECEIPT_V1') {
+    if (!analysisPorts || !analysisSamplePlan) {
+      return releaseThen(
+        created.decoder,
+        consumed.receipt.decoderRequestSha256,
+        'ANALYSIS_RUNTIME_REQUIRED',
+      );
+    }
+    const analyzed = await analyzeNativeMediaTimestampReceiptV1({
+      userId: scope.userId,
+      receipt: consumed.receipt,
+      timelineEndExclusiveFrame: timelineEndExclusiveFrame.toString(),
+      policy: analysisPorts.policy.consumer,
+      pictureReader: analysisPorts.pictureReader,
+      engine: analysisPorts.engine,
+      decoderRelease: created.decoder,
+      projectRevisionReader: ports.projectRevisionReader,
+    });
+    if (analyzed.disposition === 'UNVERIFIABLE') {
+      return unverifiable(
+        analyzed.reason === 'CLEANUP_FAILED' ? 'CLEANUP_FAILED' : 'ANALYSIS_UNVERIFIABLE',
+        `NATIVE_MEDIA_ANALYSIS_${analyzed.reason}`,
+      );
+    }
+    if (!await assetStillMatches({
+      assetReader: ports.assetReader,
+      assetId: overlay.assetId,
+      userId: scope.userId,
+      bindingSha256: binding.bindingSha256,
+      audioArtifactStateSha256:
+        audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null,
+    })) {
+      return unverifiable('ASSET_CHANGED_DURING_ANALYSIS', null);
+    }
+    const material = {
+      schemaVersion: 1 as const,
+      kind: NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1,
+      samplePlanSha256: analysisSamplePlan.samplePlanSha256,
+      analysisReceiptSha256: analyzed.receipt.receiptSha256,
+      sourcePtsCadenceMapStateSha256V3: binding.sourcePtsCadenceMapStateSha256V3,
+      transformSha256: conform.transform.transformSha256,
+      materializedPictureCount: consumed.receipt.decodedPictures.length,
+    };
+    return Object.freeze({
+      disposition: 'ANALYSIS_MATERIALIZED' as const,
+      ...material,
+      samplePlan: analysisSamplePlan,
+      analysisReceipt: analyzed.receipt,
+      materializationSha256: hashEditronCanonicalJsonV1(material),
+    });
   }
   const issuedAtEpochMs = epochMs(now());
   const remainingLeaseMs = created.surfaceExpiresAtEpochMs - issuedAtEpochMs;
@@ -729,8 +887,14 @@ type NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1 = Readonly<{
   ffmpegPath?: string;
   now?: () => number;
   audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
+  analysisEngine?: NativeMediaTimestampAnalysisEnginePortV1;
+  analysisPolicy?: NativeMediaTimestampAnalysisMaterializerPolicyV1;
 }>;
 
+export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
+  input: NativeMediaTimestampAnalysisMaterializerInputV1,
+  options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
+): Promise<NativeMediaTimestampAnalysisMaterializerResultV1>;
 export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
   input: NativeMediaTimestampPreviewSessionMaterializerInputV1,
   options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
@@ -742,13 +906,15 @@ export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
 export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
   input:
     | NativeMediaTimestampPreviewMaterializerInputV1
-    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1
+    | NativeMediaTimestampAnalysisMaterializerInputV1,
   options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1>;
 export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
   input:
     | NativeMediaTimestampPreviewMaterializerInputV1
-    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1
+    | NativeMediaTimestampAnalysisMaterializerInputV1,
   options: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1 = {},
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
   try {
@@ -757,6 +923,8 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
     );
     const runtime = createMediaSourcePtsCadenceR2RuntimePortsV1(options.environment);
     const assetPorts = await createMediaSourceAudioArtifactAssetMongoPortsV1();
+    const analysisRequested = 'deliveryContract' in input
+      && input.deliveryContract === 'ANALYSIS_RECEIPT_V1';
     return materializeNativeMediaTimestampPreviewWindowV1(input, {
       projectSnapshotReader: {
         async loadProjectForMutation(userId, projectId) {
@@ -797,6 +965,17 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
             materializationStartedAtEpochMs + policy.surface.leaseTtlMs,
         };
       },
+      ...(analysisRequested ? {
+        analysis: {
+          pictureReader: runtime.previewSurface.createReader({ now: options.now }),
+          engine: options.analysisEngine
+            ?? createNativeMediaTimestampLegacyVideoAnalysisEngineV1({
+              ffmpegPath: options.ffmpegPath,
+            }),
+          policy: options.analysisPolicy
+            ?? NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZER_DEFAULT_POLICY_V1,
+        },
+      } : {}),
       policy,
       now: options.now,
     });
@@ -808,12 +987,15 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
 function normalizeInput(
   input:
     | NativeMediaTimestampPreviewMaterializerInputV1
-    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1
+    | NativeMediaTimestampAnalysisMaterializerInputV1,
 ) {
   const deliveryContract = 'deliveryContract' in input
     ? input.deliveryContract
     : 'PICTURE_ONLY_V2' as const;
-  if (deliveryContract !== 'PICTURE_ONLY_V2' && deliveryContract !== 'PAIRED_SESSION_V3') {
+  if (deliveryContract !== 'PICTURE_ONLY_V2'
+    && deliveryContract !== 'PAIRED_SESSION_V3'
+    && deliveryContract !== 'ANALYSIS_RECEIPT_V1') {
     throw new Error('NATIVE_MEDIA_PREVIEW_DELIVERY_CONTRACT_INVALID');
   }
   return Object.freeze({
