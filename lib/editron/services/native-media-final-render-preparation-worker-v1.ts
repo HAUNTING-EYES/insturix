@@ -28,7 +28,7 @@ import {
 import type { NativeMediaFinalRenderArtifactV1 }
   from './native-media-final-render-source-preparation-v1';
 
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RECEIPT_VERSION_V1 =
+const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RECEIPT_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RECEIPT_V1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1 =
   'NATIVE_MEDIA_FINAL_RENDER_SOURCE_MATERIALIZER' as const;
@@ -38,12 +38,12 @@ const OPERATION_KIND = 'native_media_final_render_prepare_source';
 const SHA256 = /^[a-f0-9]{64}$/;
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 
-export type NativeMediaFinalRenderPreparationRuntimeContractV1 = Readonly<{
+type NativeMediaFinalRenderPreparationRuntimeContractV1 = Readonly<{
   policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
 }>;
 
-export type NativeMediaFinalRenderPreparationBudgetAuthorizationV1 = Readonly<
+type NativeMediaFinalRenderPreparationBudgetAuthorizationV1 = Readonly<
   | {
       disposition: 'AUTHORIZED';
       reservationId: string;
@@ -91,7 +91,7 @@ export interface NativeMediaFinalRenderArtifactPreparationOwnerV1 {
   >>;
 }
 
-export interface NativeMediaFinalRenderPreparationRetryPolicyOwnerV1 {
+interface NativeMediaFinalRenderPreparationRetryPolicyOwnerV1 {
   ownerId: string;
   ownerVersion: string;
   policySha256: string;
@@ -102,14 +102,7 @@ export interface NativeMediaFinalRenderPreparationRetryPolicyOwnerV1 {
   }>): Promise<Date>;
 }
 
-export class NativeMediaFinalRenderPreparationRetryableErrorV1 extends Error {
-  constructor(public readonly code: string) {
-    super(requireIdentity(code, 'RETRYABLE_ERROR_CODE'));
-    this.name = 'NativeMediaFinalRenderPreparationRetryableErrorV1';
-  }
-}
-
-export type NativeMediaFinalRenderPreparationWorkerResultV1 = Readonly<
+type NativeMediaFinalRenderPreparationWorkerResultV1 = Readonly<
   | { kind: 'skipped'; reason: string }
   | { kind: 'lease_lost'; reason: string }
   | { kind: 'cancelled'; jobId: string }
@@ -571,9 +564,7 @@ async function settleFailure(input: Readonly<{
   ownerBindingsVerified: boolean;
 }>): Promise<NativeMediaFinalRenderPreparationWorkerResultV1> {
   let failure = toWorkerFailure(input.error);
-  if (!(input.error instanceof WorkerFailureV1)
-    && !(input.error instanceof NativeMediaFinalRenderPreparationRetryableErrorV1)
-    && input.current?.resumeState) {
+  if (!(input.error instanceof WorkerFailureV1) && input.current?.resumeState) {
     failure = new WorkerFailureV1(
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_POST_RESUME_TRANSITION_FAILED',
       true,
@@ -625,9 +616,6 @@ async function settleFailure(input: Readonly<{
 
 function toWorkerFailure(error: unknown): WorkerFailureV1 {
   if (error instanceof WorkerFailureV1) return error;
-  if (error instanceof NativeMediaFinalRenderPreparationRetryableErrorV1) {
-    return new WorkerFailureV1(error.code, true);
-  }
   return new WorkerFailureV1(
     'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_EXECUTION_FAILED',
     false,
