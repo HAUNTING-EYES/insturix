@@ -8519,6 +8519,36 @@ publisher suite passes 10/10; repository TypeScript and repository-wide quiet
 ESLint pass. This behavior-neutral cleanup does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render durable lifecycle-policy enforcement Phase 3F-C7ay
+(2026-08-30):** commit `e304a4563` removes the preparation job's active
+five-attempt and seven-day literals. `createOrGetNativeMediaFinalRenderPreparationJobV1`
+now requires the complete no-default policy declaration, proves its owner,
+version and content hash equal the retry binding already sealed into the V1.3
+job identity, and derives `maxAttempts` and exact expiry from that declaration.
+Policy drift fails before `createOrGet`, so it cannot persist a differently
+governed job under the same operation identity.
+
+The prepared-source publication owner independently requires the complete
+declaration and rechecks owner/version/hash, maximum attempts and the exact
+`expiresAt - createdAt` retention interval before project, asset, PCM, rights,
+storage or lease access. The focused policy/job/worker/publication cluster
+passes 40/40; every `native-media-final-render` suite passes 94/94; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_JOB_AND_PUBLICATION_LIFECYCLE_POLICY_ENFORCED_WORKER_AND_DISPATCH_OPEN`.
+
+This is partial control-flow convergence, not a calibrated or deployed policy.
+The worker still calls its older injected `nextRetryAt` port instead of the
+new hash-bound retry/dead-letter decision, QStash dispatch does not consume the
+policy, and no production composition root or live telemetry selects the
+numbers. Because the full declaration is resolved outside the durable payload,
+production also needs an immutable registry that can resolve every retained
+owner/version/hash after a policy rotation; using only the current deployment
+value would strand or mis-govern older jobs. Queue item 3 next migrates the
+worker decision and retry cursor, then implements the fixed exact-render
+dispatcher, signed ingress and explicit historical-policy resolution. No live
+QStash, Atlas, R2, media or project operation occurred. This checkpoint does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
