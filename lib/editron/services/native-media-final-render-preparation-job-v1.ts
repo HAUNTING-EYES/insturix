@@ -4,6 +4,7 @@ import {
 } from './canonical-json-v1';
 import {
   hashDurableWorkflowJobJsonV1,
+  type DurableWorkflowJobBudgetReservationV1,
   type DurableWorkflowJobSnapshotV1,
 } from './durable-workflow-job-v1';
 import type { DurableWorkflowJobStoreV1 } from './durable-workflow-job-store-v1';
@@ -23,7 +24,7 @@ import type {
 import type { ProjectRevisionV1 } from './project-service';
 
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
-  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1' as const;
+  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_2' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1 = 5;
@@ -60,6 +61,7 @@ export type NativeMediaFinalRenderPreparationJobInputV1 = Readonly<{
   sequenceId: string;
   projectRevision: ProjectRevisionV1;
   admissionReceiptSha256: string;
+  budgetReservation: DurableWorkflowJobBudgetReservationV1;
   exactSourceRequest: NativeMediaFinalRenderExactSourceRequestV1;
   exactSourceRequestSha256: string;
   artifactProfile: typeof NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1;
@@ -77,6 +79,7 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
   sequenceId: string;
   projectRevision: ProjectRevisionV1;
   admissionReceiptSha256: string;
+  budgetReservation: DurableWorkflowJobBudgetReservationV1;
   exactSourceRequest: NativeMediaFinalRenderExactSourceRequestV1;
   policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
@@ -91,6 +94,7 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     sequenceId: input.sequenceId,
     projectRevision: input.projectRevision,
     admissionReceiptSha256: input.admissionReceiptSha256,
+    budgetReservation: input.budgetReservation,
     exactSourceRequest: request,
     exactSourceRequestSha256: hashEditronCanonicalJsonV1(request),
     artifactProfile: NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
@@ -106,6 +110,7 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     dependency('admission-receipt', '1', payload.admissionReceiptSha256),
     dependency('encoder-policy', '1', payload.policyBindings.encoderPolicySha256),
     dependency('exact-source-request', '1', payload.exactSourceRequestSha256),
+    dependency('execution-budget', '1', payload.budgetReservation.bindingSha256),
     dependency('materializer-policy', '1', payload.policyBindings.materializerPolicySha256),
     dependency('private-artifact-policy', '1', payload.policyBindings.privateArtifactPolicySha256),
     dependency('project-revision', '1', hashEditronCanonicalJsonV1(payload.projectRevision)),
@@ -152,7 +157,7 @@ export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: R
       payload: contract.payload,
     },
     dependencies: contract.dependencies,
-    budgetReservation: null,
+    budgetReservation: contract.payload.budgetReservation,
     maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
     expiresAt: new Date(now.getTime() + NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1),
   }, now);
@@ -163,7 +168,7 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
 ): NativeMediaFinalRenderPreparationJobInputV1 {
   const record = asRecord(value, 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_INVALID');
   exactKeys(record, [
-    'admissionReceiptSha256', 'artifactProfile', 'exactSourceRequest',
+    'admissionReceiptSha256', 'artifactProfile', 'budgetReservation', 'exactSourceRequest',
     'exactSourceRequestSha256', 'executionProfile', 'orgId', 'policyBindings',
     'projectId', 'projectRevision', 'sequenceId', 'tenantId', 'userId', 'version',
   ], 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_FIELDS_INVALID');
@@ -185,6 +190,7 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
     sequenceId: durableIdentity(record.sequenceId, 'SEQUENCE_ID'),
     projectRevision: normalizeRevision(record.projectRevision),
     admissionReceiptSha256: sha256(record.admissionReceiptSha256, 'ADMISSION_RECEIPT'),
+    budgetReservation: normalizeBudgetReservation(record.budgetReservation),
     exactSourceRequest: request,
     exactSourceRequestSha256,
     artifactProfile: NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
@@ -196,6 +202,19 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
     fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_PAYLOAD_TOO_LARGE');
   }
   return deepFreezeEditronJsonV1(normalized);
+}
+
+function normalizeBudgetReservation(value: unknown): DurableWorkflowJobBudgetReservationV1 {
+  const record = asRecord(
+    value,
+    'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_INVALID',
+  );
+  exactKeys(record, ['bindingSha256', 'reservationId'],
+    'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_FIELDS_INVALID');
+  return Object.freeze({
+    reservationId: durableIdentity(record.reservationId, 'BUDGET_RESERVATION_ID'),
+    bindingSha256: sha256(record.bindingSha256, 'BUDGET_RESERVATION_BINDING'),
+  });
 }
 
 function normalizeRequest(value: unknown): NativeMediaFinalRenderExactSourceRequestV1 {

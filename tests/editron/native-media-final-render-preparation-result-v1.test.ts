@@ -28,6 +28,7 @@ function contract() {
     tenantId: 'tenant_1', userId: 'user_1', orgId: null,
     projectId: 'project_1', sequenceId: 'main', projectRevision: revision,
     admissionReceiptSha256: sha('7'),
+    budgetReservation: { reservationId: 'render_budget_1', bindingSha256: sha('0') },
     exactSourceRequest: {
       overlayId: 'overlay_1', assetId: 'asset_1', overlayTimingSha256: sha('1'),
       assetTimingStateSha256: sha('2'), sourceVersionSha256: sha('3'),

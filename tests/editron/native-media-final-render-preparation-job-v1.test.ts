@@ -46,6 +46,7 @@ function input() {
       compatibilityUpdatedAt: '2026-08-30T00:00:00.000Z',
     },
     admissionReceiptSha256: sha('7'),
+    budgetReservation: { reservationId: 'render_budget_1', bindingSha256: sha('d') },
     exactSourceRequest: request(),
     policyBindings: {
       materializerPolicyVersion: NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
@@ -89,7 +90,7 @@ describe('native final-render durable preparation job binding v1', () => {
       operationKind: 'native_media_final_render_prepare_source',
       projectId: 'project_1',
       maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
-      budgetReservation: null,
+      budgetReservation: { reservationId: 'render_budget_1', bindingSha256: sha('d') },
       input: { schemaId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 },
     });
     expect(JSON.stringify(first.job.input.payload)).not.toMatch(/sourceUrl|https?:\/\//i);
@@ -112,6 +113,7 @@ describe('native final-render durable preparation job binding v1', () => {
       'admission-receipt',
       'encoder-policy',
       'exact-source-request',
+      'execution-budget',
       'materializer-policy',
       'private-artifact-policy',
       'project-revision',
@@ -149,6 +151,10 @@ describe('native final-render durable preparation job binding v1', () => {
       ...input(),
       exactSourceRequest: request('overlay_exact_2'),
     }).operationIdentity).not.toBe(first.operationIdentity);
+    expect(buildNativeMediaFinalRenderPreparationJobContractV1({
+      ...input(),
+      budgetReservation: { reservationId: 'render_budget_2', bindingSha256: sha('e') },
+    }).operationIdentity).not.toBe(first.operationIdentity);
   });
 
   it('rejects forged fields, request hashes, aggregate inputs and execution profiles', () => {
@@ -165,6 +171,22 @@ describe('native final-render durable preparation job binding v1', () => {
       ...valid,
       exactSourceRequest: [request(), request()],
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      budgetReservation: null,
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      budgetReservation: { ...valid.budgetReservation, unexpected: true },
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_FIELDS_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      budgetReservation: { ...valid.budgetReservation, bindingSha256: 'not-a-sha' },
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_RESERVATION_BINDING_SHA256_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      version: 'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1',
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_VERSION_INVALID');
     expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
       executionProfile: {
