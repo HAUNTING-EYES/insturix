@@ -4,6 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OverlayType } from '@/components/editron/editor/version-7.0.0/types';
 import {
+  assertNativeMediaTimestampPreviewSessionWindowV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_SESSION_WINDOW_KIND_V1,
+} from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-window-v1';
+import {
+  assertNativeMediaTimestampPreviewAudioWindowV1,
+} from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-audio-window-v1';
+import {
   assertNativeMediaTimestampPreviewWindowV2,
   type NativeMediaTimestampPreviewWindowV2,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-window-v2';
@@ -16,10 +23,14 @@ import {
 import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
   parseNativeMediaTimestampPreviewMaterializeCommandV2,
   parseNativeMediaTimestampPreviewReleaseCommandV1,
+  parseNativeMediaTimestampPreviewReleaseCommandV2,
+  releaseNativeMediaTimestampPreviewSessionWindowV2,
   releaseNativeMediaTimestampPreviewWindowV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-session-server-v1';
+import type { NativeMediaTimestampPreviewAudioSurfaceBindingV1 } from '@/lib/editron/services/native-media-timestamp-r2-preview-audio-surface-v1';
 import type { NativeMediaTimestampPreviewSurfaceBindingV1 } from '@/lib/editron/services/native-media-timestamp-r2-preview-surface-v1';
 import type { Project } from '@/lib/editron/services/project-service';
 
@@ -70,6 +81,13 @@ describe('native media timestamp preview session server V1', () => {
       kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
       window,
     }).window).toEqual(window);
+
+    const sessionWindow = exactSessionWindow();
+    expect(parseNativeMediaTimestampPreviewReleaseCommandV2({
+      schemaVersion: 2,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
+      sessionWindow,
+    }).sessionWindow).toEqual(sessionWindow);
   });
 
   it('distinguishes ordinary assets from legacy timing state that requires migration', async () => {
@@ -182,6 +200,102 @@ describe('native media timestamp preview session server V1', () => {
       disposition: 'UNVERIFIABLE', reason: 'RELEASE_INCOMPLETE', failedPictureCount: 1,
     });
   });
+
+  it('preflights and releases picture plus exact audio as one session lease', async () => {
+    const sessionWindow = exactSessionWindow();
+    const pictureReader = {
+      readPicture: vi.fn(async (handle: string) => ({
+        disposition: 'AVAILABLE' as const,
+        binding: surfaceBinding(
+          sessionWindow.pictureWindow,
+          handle === sessionWindow.pictureWindow.frames[0]!.pictureHandle ? 0 : 1,
+        ),
+        pngBytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      })),
+    };
+    const audioSegment = sessionWindow.audioWindow!.segments[0];
+    if (audioSegment?.kind !== 'PCM') throw new Error('TEST_PCM_SEGMENT_REQUIRED');
+    const audioReader = {
+      readAudioSegment: vi.fn(async () => ({
+        disposition: 'AVAILABLE' as const,
+        binding: audioSurfaceBinding(sessionWindow, audioSegment),
+        wavBytes: new Uint8Array(60),
+      })),
+    };
+    const deletePicture = vi.fn(async () => undefined);
+    const deleteAudioSegment = vi.fn(async () => undefined);
+
+    await expect(releaseNativeMediaTimestampPreviewSessionWindowV2(
+      { userId: 'user-1', sessionWindow },
+      {
+        pictureReader,
+        pictureDeleter: { deletePicture },
+        audioReader,
+        audioDeleter: { deleteAudioSegment },
+      },
+    )).resolves.toEqual({
+      disposition: 'RELEASED',
+      deletedPictureCount: 2,
+      alreadyAbsentPictureCount: 0,
+      deletedAudioCount: 1,
+      alreadyAbsentAudioCount: 0,
+    });
+    expect(deleteAudioSegment).toHaveBeenCalledWith(audioSegment.audioHandle);
+
+    audioReader.readAudioSegment.mockResolvedValue({
+      disposition: 'AVAILABLE' as const,
+      binding: { ...audioSurfaceBinding(sessionWindow, audioSegment),
+        projectIdSha256: digest('wrong-project') },
+      wavBytes: new Uint8Array(60),
+    });
+    deletePicture.mockClear();
+    deleteAudioSegment.mockClear();
+    await expect(releaseNativeMediaTimestampPreviewSessionWindowV2(
+      { userId: 'user-1', sessionWindow },
+      {
+        pictureReader,
+        pictureDeleter: { deletePicture },
+        audioReader,
+        audioDeleter: { deleteAudioSegment },
+      },
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'AUDIO_SURFACE_SCOPE_MISMATCH',
+    });
+    expect(deletePicture).not.toHaveBeenCalled();
+    expect(deleteAudioSegment).not.toHaveBeenCalled();
+  });
+
+  it('reports failed audio deletion after idempotent picture release', async () => {
+    const sessionWindow = exactSessionWindow();
+    const audioSegment = sessionWindow.audioWindow!.segments[0];
+    if (audioSegment?.kind !== 'PCM') throw new Error('TEST_PCM_SEGMENT_REQUIRED');
+    await expect(releaseNativeMediaTimestampPreviewSessionWindowV2(
+      { userId: 'user-1', sessionWindow },
+      {
+        pictureReader: {
+          readPicture: vi.fn(async (handle: string) => ({
+            disposition: 'NOT_FOUND' as const, pictureHandle: handle,
+          })),
+        },
+        pictureDeleter: { deletePicture: vi.fn(async () => undefined) },
+        audioReader: {
+          readAudioSegment: vi.fn(async () => ({
+            disposition: 'AVAILABLE' as const,
+            binding: audioSurfaceBinding(sessionWindow, audioSegment),
+            wavBytes: new Uint8Array(60),
+          })),
+        },
+        audioDeleter: {
+          deleteAudioSegment: vi.fn(async () => { throw new Error('PROVIDER_FAILED'); }),
+        },
+      },
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'RELEASE_INCOMPLETE',
+      failedPictureCount: 0,
+      failedAudioCount: 1,
+    });
+  });
 });
 
 function materializerInput(expectedProjectRevision?: ReturnType<typeof revision>) {
@@ -260,6 +374,104 @@ function previewWindow(): NativeMediaTimestampPreviewWindowV2 {
       decodedPictureContentSha256: String(localFrame + 5).repeat(64),
     })),
   });
+}
+
+function exactSessionWindow() {
+  const base = previewWindow();
+  const pictureWindow = assertNativeMediaTimestampPreviewWindowV2({
+    ...base,
+    audioOwnership: {
+      disposition: 'EXACT_SAMPLE_MAPPING_BOUND',
+      audioMappingSha256: 'c'.repeat(64),
+      decoderMaySupplyOrReplaceAudio: false,
+    },
+  });
+  const audioWindow = assertNativeMediaTimestampPreviewAudioWindowV1({
+    schemaVersion: 1,
+    kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_WINDOW_V1',
+    windowSha256: 'd'.repeat(64),
+    projectId: pictureWindow.projectId,
+    sequenceId: pictureWindow.sequenceId,
+    overlayId: pictureWindow.overlayId,
+    projectRevision: pictureWindow.projectRevision,
+    audioMappingSha256: pictureWindow.audioOwnership.audioMappingSha256,
+    audioSampleEpochMapSha256: 'e'.repeat(64),
+    decodedPcmSha256: 'f'.repeat(64),
+    sampleRate: 48_000,
+    channelCount: 2,
+    windowLocalStartFrame: pictureWindow.windowLocalStartFrame,
+    windowDurationInFrames: pictureWindow.windowDurationInFrames,
+    windowProjectStartFrame: 0,
+    windowProjectEndExclusiveFrame: 2,
+    canonicalWindowStartSamplePosition: samplePosition('0'),
+    canonicalWindowEndExclusiveSamplePosition: samplePosition('3200'),
+    lease: pictureWindow.lease,
+    segments: [{
+      kind: 'PCM',
+      audioEpochId: 'audio-epoch-1',
+      audioHandle: `nmpa1_${'1'.repeat(64)}`,
+      segmentIdentitySha256: '2'.repeat(64),
+      sourceStartSampleFrame: '0',
+      sourceEndExclusiveSampleFrame: '3200',
+      decodedStartSamplePosition: samplePosition('0'),
+      decodedEndExclusiveSamplePosition: samplePosition('3200'),
+      timelineStartSamplePosition: samplePosition('0'),
+      timelineEndExclusiveSamplePosition: samplePosition('3200'),
+    }],
+  });
+  return assertNativeMediaTimestampPreviewSessionWindowV1({
+    schemaVersion: 1,
+    kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_SESSION_WINDOW_KIND_V1,
+    pictureWindow,
+    audioWindow,
+  });
+}
+
+function audioSurfaceBinding(
+  sessionWindow: ReturnType<typeof exactSessionWindow>,
+  segment: Extract<
+    NonNullable<ReturnType<typeof exactSessionWindow>['audioWindow']>['segments'][number],
+    { kind: 'PCM' }
+  >,
+): NativeMediaTimestampPreviewAudioSurfaceBindingV1 {
+  const window = sessionWindow.audioWindow!;
+  return {
+    schemaVersion: 1,
+    storage: 'R2_PRIVATE',
+    audioHandle: segment.audioHandle,
+    userIdSha256: digest('user-1'),
+    projectIdSha256: digest(window.projectId),
+    projectRevision: window.projectRevision,
+    sequenceIdSha256: digest(window.sequenceId),
+    overlayIdSha256: digest(window.overlayId),
+    audioMappingSha256: window.audioMappingSha256,
+    audioSampleEpochMapSha256: window.audioSampleEpochMapSha256,
+    sourceVersionSha256: '3'.repeat(64),
+    storageVersionSha256: '4'.repeat(64),
+    decodedPcmSha256: window.decodedPcmSha256,
+    sampleRate: window.sampleRate,
+    channelCount: window.channelCount,
+    sourceStartSampleFrame: segment.sourceStartSampleFrame,
+    sourceEndExclusiveSampleFrame: segment.sourceEndExclusiveSampleFrame,
+    decodedStartSamplePosition: segment.decodedStartSamplePosition,
+    decodedEndExclusiveSamplePosition: segment.decodedEndExclusiveSamplePosition,
+    timelineStartSamplePosition: segment.timelineStartSamplePosition,
+    timelineEndExclusiveSamplePosition: segment.timelineEndExclusiveSamplePosition,
+    segmentIdentitySha256: segment.segmentIdentitySha256,
+    segmentPcmSha256: '5'.repeat(64),
+    pcmByteLength: 16,
+    wavContentSha256: '6'.repeat(64),
+    wavByteLength: 60,
+    expiresAtEpochMs: window.lease.expiresAtEpochMs,
+  };
+}
+
+function samplePosition(numerator: string) {
+  return {
+    numerator,
+    denominator: '1',
+    disposition: 'INTEGER_SAMPLE_FRAME' as const,
+  };
 }
 
 function surfaceBinding(

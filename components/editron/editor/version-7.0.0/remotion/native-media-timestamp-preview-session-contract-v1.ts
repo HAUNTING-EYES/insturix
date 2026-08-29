@@ -2,11 +2,17 @@ import {
   assertNativeMediaTimestampPreviewWindowV2,
   type NativeMediaTimestampPreviewWindowV2,
 } from './native-media-timestamp-preview-window-v2';
+import {
+  assertNativeMediaTimestampPreviewSessionWindowV1,
+  type NativeMediaTimestampPreviewSessionWindowV1,
+} from './native-media-timestamp-preview-session-window-v1';
 
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V2' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_V1' as const;
+export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2 =
+  'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_V2' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_V1' as const;
 export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_MAX_TTL_MS_V1 =
@@ -27,6 +33,12 @@ export type NativeMediaTimestampPreviewReleaseCommandV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1;
   window: NativeMediaTimestampPreviewWindowV2;
+}>;
+
+export type NativeMediaTimestampPreviewReleaseCommandV2 = Readonly<{
+  schemaVersion: 2;
+  kind: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2;
+  sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
 }>;
 
 export type NativeMediaTimestampPreviewClassificationLeaseV1 = Readonly<{
@@ -165,6 +177,25 @@ export function assertNativeMediaTimestampPreviewReleaseCommandV1(
     schemaVersion: 1 as const,
     kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
     window: assertNativeMediaTimestampPreviewWindowV2(record.window),
+  });
+}
+
+export function assertNativeMediaTimestampPreviewReleaseCommandV2(
+  value: unknown,
+): NativeMediaTimestampPreviewReleaseCommandV2 {
+  const record = exactRecord(
+    value,
+    ['kind', 'schemaVersion', 'sessionWindow'],
+    'NATIVE_MEDIA_PREVIEW_RELEASE_COMMAND_V2_INVALID',
+  );
+  if (record.schemaVersion !== 2
+    || record.kind !== NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_RELEASE_COMMAND_V2_INVALID');
+  }
+  return Object.freeze({
+    schemaVersion: 2 as const,
+    kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
+    sessionWindow: assertNativeMediaTimestampPreviewSessionWindowV1(record.sessionWindow),
   });
 }
 
