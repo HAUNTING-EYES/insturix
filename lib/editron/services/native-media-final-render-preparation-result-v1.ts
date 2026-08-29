@@ -21,7 +21,7 @@ export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_RESULT_VERSION_V1 =
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_RESUME_SCHEMA_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_RESUME_V1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TERMINAL_RECEIPT_VERSION_V1 =
-  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TERMINAL_RECEIPT_V1' as const;
+  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TERMINAL_RECEIPT_V1_1' as const;
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const OPAQUE_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
@@ -122,12 +122,18 @@ export function createNativeMediaFinalRenderPreparationTerminalReceiptV1(input: 
   jobInput: NativeMediaFinalRenderPreparationJobInputV1;
   jobInputBindingSha256: string;
   result: NativeMediaFinalRenderPreparationResultV1;
+  executionAuthorizationReceiptSha256: string;
   completedAt: Date;
 }>): DurableWorkflowJobTerminalReceiptV1 {
   const result = assertNativeMediaFinalRenderPreparationResultV1(input.result, input);
   const job = boundJobInput(input.jobInput, input.jobInputBindingSha256);
   const completedAt = validDate(input.completedAt);
+  const executionAuthorizationReceiptSha256 = sha256(
+    input.executionAuthorizationReceiptSha256,
+    'EXECUTION_AUTHORIZATION_RECEIPT',
+  );
   const proofReferences = Object.freeze([
+    proof('execution-budget-authorization', executionAuthorizationReceiptSha256),
     proof('exact-render-artifact', result.artifact.artifactBindingSha256),
     proof('exact-render-result', result.resultBindingSha256),
     proof('runtime-profile-receipt', job.executionProfile.compatibilityReceiptSha256),
@@ -137,6 +143,9 @@ export function createNativeMediaFinalRenderPreparationTerminalReceiptV1(input: 
     jobId: opaqueIdentity(input.jobId, 'JOB_ID'),
     operationId: opaqueIdentity(input.operationId, 'OPERATION_ID'),
     jobInputBindingSha256: result.jobInputBindingSha256,
+    budgetReservationId: job.budgetReservation.reservationId,
+    budgetReservationBindingSha256: job.budgetReservation.bindingSha256,
+    executionAuthorizationReceiptSha256,
     resultBindingSha256: result.resultBindingSha256,
     proofReferences,
     completedAt: completedAt.toISOString(),

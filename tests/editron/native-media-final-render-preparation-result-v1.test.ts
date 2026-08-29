@@ -116,13 +116,15 @@ describe('native final-render durable preparation result v1', () => {
     const receipt = createNativeMediaFinalRenderPreparationTerminalReceiptV1({
       jobId: 'job_1', operationId: job.operationIdentity,
       jobInput: job.payload, jobInputBindingSha256: job.bindingSha256,
+      executionAuthorizationReceiptSha256: sha('b'),
       result: result(), completedAt: new Date('2026-08-30T00:05:00.000Z'),
     });
 
     expect(receipt.disposition).toBe('PASS');
     expect(receipt.receiptId).toMatch(/^nmfrprep_[a-f0-9]{24}$/);
     expect(receipt.proofReferences.map(({ proofId }) => proofId)).toEqual([
-      'exact-render-artifact', 'exact-render-result', 'runtime-profile-receipt',
+      'execution-budget-authorization', 'exact-render-artifact',
+      'exact-render-result', 'runtime-profile-receipt',
     ]);
     expect(receipt.proofReferences.every(({ disposition }) => disposition === 'PASS')).toBe(true);
   });
@@ -141,6 +143,12 @@ describe('native final-render durable preparation result v1', () => {
       jobInput: job.payload, jobInputBindingSha256: job.bindingSha256,
       publishHandle: `nmfrpubv1_${sha('e')}`, artifact: artifact(),
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_RESULT_PUBLISH_HANDLE_INVALID');
+    expect(() => createNativeMediaFinalRenderPreparationTerminalReceiptV1({
+      jobId: 'job_1', operationId: job.operationIdentity,
+      jobInput: job.payload, jobInputBindingSha256: job.bindingSha256,
+      executionAuthorizationReceiptSha256: 'not-a-sha',
+      result: result(), completedAt: new Date('2026-08-30T00:05:00.000Z'),
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_RESULT_EXECUTION_AUTHORIZATION_RECEIPT_SHA256_INVALID');
     expect(() => assertNativeMediaFinalRenderPreparationResultV1({
       ...result(), unexpected: true,
     }, { jobInput: job.payload, jobInputBindingSha256: job.bindingSha256 }))
