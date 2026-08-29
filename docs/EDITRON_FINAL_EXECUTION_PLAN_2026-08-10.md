@@ -7879,6 +7879,16 @@ existing Remotion render. Queue item 4 retains live private-storage lifecycle,
 scalable multipart/resume, V3 ingest/migration and proxy/master invalidation.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before the required structural render-route work, commit `c898d8a0b` performs
+the mandated Step 0 cleanup on the 500-plus-line authenticated render route. It
+removes seven groups of informational `console.log` output while retaining
+warnings/errors and every admission, billing, durable-job, provider and
+finalization branch. The focused render-startup and credit suites pass 53/53;
+repository TypeScript with the declared 8 GiB heap and repository-wide quiet
+ESLint pass. This is deliberately behavior-neutral cleanup, not source
+preparation or route composition, and does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
