@@ -58,7 +58,7 @@ export interface DurableWorkflowQStashPublisherV1 {
   }>): Promise<Readonly<{ messageId?: string; deduplicated?: boolean }>>;
 }
 
-export type DurableWorkflowQStashPublishResultV1 = Readonly<
+type DurableWorkflowQStashPublishResultV1 = Readonly<
   | { state: 'dispatched'; jobId: string; messageId: string }
   | { state: 'already_dispatched'; jobId: string; messageId: string }
   | {
@@ -82,7 +82,7 @@ export type DurableWorkflowQStashPublishResultV1 = Readonly<
     }
 >;
 
-export class DurableWorkflowQStashDispatchErrorV1 extends Error {
+class DurableWorkflowQStashDispatchErrorV1 extends Error {
   constructor(public readonly code: string) {
     super(code);
     this.name = 'DurableWorkflowQStashDispatchErrorV1';
