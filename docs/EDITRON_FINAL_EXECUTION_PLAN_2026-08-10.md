@@ -8188,17 +8188,54 @@ project/overlay/source/PCM, mid-publication source or rights drift and invalid
 lease bounds. This result is
 `COMPLETED_EXACT_RENDER_ARTIFACT_FRESH_LEASE_PUBLICATION_CONTRACT_VERIFIED_RIGHTS_AND_COMPOSITION_OPEN`.
 
-It does not supply the real project-media rights authority required by the new
-port. Current upload intake records the broad user consent through the native-
-audio rights shape, and the render rights authority verifies audio claims; that
-is not yet an explicit general visual-source clearance receipt. The new owner
-is not instantiated by a production composition root, no authenticated render
-route consumes its lease, no Remotion render consumes the prepared source and
-no live Atlas/R2/QStash/FFmpeg proof ran. Queue item 3 therefore remains open:
-next implement the real source-media rights authority, then bind durable
-budget/retry/heartbeat policy provenance and compose dispatch, publication and
-render-route consumption. This checkpoint does not change
-`FROZEN_MODIFY_DECISION_ISSUED`.
+At this checkpoint it did not supply the real project-media rights authority
+required by the new port. Current upload intake records broad user consent
+through the native-audio rights shape, and the render rights authority verifies
+audio claims; that was not an explicit general visual-source clearance
+receipt. The subsequent source-media-rights phase below supplies the bounded
+authority contract without retroactively promoting that legacy evidence.
+
+**Exact source-media rights authority Phase 3F-C7an (2026-08-30):** commit
+`31fedabbc` adds one canonical source-media rights owner and the adapter required
+by completed-result publication. Issuance now requires an injected principal-
+authorization owner and creates an immutable record bound to the exact tenant,
+attesting actor, user/org scope, project, permitted edit-and-render use,
+versioned/hash-bound terms and immutable source byte/storage/version identity.
+`OWNED_BY_USER`, `OWNED_BY_ORG` and `LICENSED_FOR_PROJECT` are distinct. A
+project licence requires its own issuer, licence ID, validity range and evidence
+hash. Revocation is a separately principal-authorized immutable receipt, and
+the asset state hash binds the grant plus its explicit null-or-revocation
+state. Partial, forged, wrong-owner and source-replaced state fails closed.
+
+The publication adapter independently recreates the prepared artifact, reads
+the canonical native-video overlay, rechecks project/sequence/revision/source
+scope, requires the current unrevoked rights state and evaluates licence time.
+An exact-PCM artifact additionally invokes the existing render-audio rights
+authority; visual clearance never substitutes for audio clearance. Only then
+does it issue the exact publication-rights receipt required by commit
+`6141909c6`. Legacy `audioRights`, including the existing broad upload
+checkbox, is deliberately not converted into general source clearance.
+
+The focused source-media rights, completed-result publisher and native-audio
+cluster passes 44/44; repository TypeScript and repository-wide quiet ESLint
+pass. The 18 new adversarial cases cover principal denial/malformed evidence,
+invalid ownership, missing licence evidence, invalid licence dates, org-owner
+drift, partial/forged/stale asset state, revocation and pre-issue revocation,
+legacy audio-only consent, collaborator/project-owner scope, tenant/project/org
+drift, expired rights, failed audio authority, forged artifacts and overlay/
+audio mismatch. This result is
+`EXACT_SOURCE_MEDIA_RIGHTS_AND_REVOCATION_AUTHORITY_VERIFIED_PERSISTENCE_AND_COMPOSITION_OPEN`.
+
+This is not route or storage convergence. No production principal/membership
+adapter issues the authorization receipt, no CAS writer persists the three-
+field rights state on `MEDIA_ASSETS`, no legal terms/disposition UI has replaced
+the current checkbox, and no existing asset is migrated or automatically
+eligible. The adapter is not instantiated by a production composition root;
+the authenticated render route, Remotion consumption and live Atlas/R2/QStash/
+FFmpeg proof remain open. Queue item 3 therefore continues with exact rights
+state persistence and explicit re-attestation, durable budget/retry/heartbeat
+policy provenance, then dispatch/publication/render-route composition. This
+checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
