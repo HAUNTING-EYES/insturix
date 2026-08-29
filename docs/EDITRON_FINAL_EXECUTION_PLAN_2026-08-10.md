@@ -8641,6 +8641,29 @@ composition is connected. No live QStash message, Atlas record, R2 object,
 media operation or project mutation occurred. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render signed preparation ingress Phase 3F-C7azc (2026-08-30):**
+commit `36934bc98` adds the request-time authenticated worker adapter for the
+fixed exact-render preparation message. It accepts only the versioned
+`{ version, jobId }` body, obtains no media URL or caller-authored policy from
+the request, and invokes only a product-supplied complete runner with the job
+identity and an adapter-owned worker identity. Missing signing configuration or
+runner, malformed/extra message fields and runner unavailability fail closed.
+Unknown jobs return `404`; retry-wait, lease-loss and retryable skip outcomes
+return `503` without an invented `Retry-After`; durable terminal/dead-letter
+outcomes acknowledge delivery without claiming success for the media result.
+
+The ingress test passes 10/10, every `native-media-final-render` suite passes
+117/117, and repository TypeScript plus repository-wide quiet ESLint pass. This
+result is
+`EXACT_RENDER_SIGNED_INGRESS_ADAPTER_VERIFIED_ROUTE_AND_COMPOSITION_OPEN`.
+The adapter is deliberately not exported as an application route: a production
+route must first supply the complete rights, current-project revision, source
+lease, budget, policy-registry, durable-store, artifact-preparation,
+publication and terminal-settlement composition. No calibrated Finance-backed
+budget owner, deployed route, live QStash delivery, Atlas/R2 operation, media
+render or ProjectService mutation is claimed. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain open.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
