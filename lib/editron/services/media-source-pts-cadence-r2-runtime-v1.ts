@@ -1,4 +1,5 @@
-import { S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1 } from './media-source-audio-private-artifact-v1';
 import { createMediaSourceAudioR2PrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
@@ -11,6 +12,11 @@ import {
   type MediaSourcePtsCadenceR2PrivateStorageScopeV1,
 } from './media-source-pts-cadence-r2-private-sidecar-v1';
 import { createMediaSourcePtsCadenceScanR2ReaderV1 } from './media-source-pts-cadence-scan-r2-reader-v1';
+import {
+  createNativeMediaFinalRenderR2PrivateArtifactPortsV1,
+  type NativeMediaFinalRenderR2PresignGetObjectV1,
+  type NativeMediaFinalRenderR2PrivateArtifactPolicyV1,
+} from './native-media-final-render-r2-private-artifact-v1';
 import {
   createNativeMediaTimestampR2PreviewAudioSurfaceReaderV1,
   createNativeMediaTimestampR2PreviewAudioSurfaceStoreV1,
@@ -94,6 +100,10 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
   environment: MediaSourcePtsCadenceR2RuntimeEnvironmentV1 = process.env,
   dependencies: Readonly<{
     clientFactory?: (input: ClientFactoryInputV1) => MediaSourcePtsCadenceR2CommandClientV1;
+    finalRenderPresignGetObject?: NativeMediaFinalRenderR2PresignGetObjectV1;
+    finalRenderArtifactPolicy?: NativeMediaFinalRenderR2PrivateArtifactPolicyV1;
+    finalRenderNow?: () => number;
+    finalRenderRandomIdentifier?: () => string;
   }> = {},
 ) {
   const configuration = resolveMediaSourcePtsCadenceR2RuntimeConfigurationV1(environment);
@@ -108,6 +118,19 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     credentials: { accessKeyId, secretAccessKey },
   });
   const scope = { privateStorage: configuration.privateStorage, client };
+  const finalRenderArtifact = createNativeMediaFinalRenderR2PrivateArtifactPortsV1({
+    ...scope,
+    endpoint: configuration.endpoint,
+    presignGetObject: dependencies.finalRenderPresignGetObject
+      ?? (async ({ bucketName, objectKey, expiresInSeconds }) => getSignedUrl(
+        client as S3Client,
+        new GetObjectCommand({ Bucket: bucketName, Key: objectKey }),
+        { expiresIn: expiresInSeconds },
+      )),
+    policy: dependencies.finalRenderArtifactPolicy,
+    now: dependencies.finalRenderNow,
+    randomIdentifier: dependencies.finalRenderRandomIdentifier,
+  });
   return Object.freeze({
     configuration,
     stagingReader: createMediaSourcePtsCadenceScanR2ReaderV1(scope),
@@ -119,6 +142,7 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
       ...scope,
       policy: MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1,
     }),
+    finalRenderArtifact,
     audioPreviewSurface: Object.freeze({
       createStore(
         leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
