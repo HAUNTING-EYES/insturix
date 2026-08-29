@@ -8106,6 +8106,31 @@ controller and calibrated heartbeat pump; source-lease and every PCM/storage
 dependency are not yet proven abortable. Those remain Queue item 3 work. This
 checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**URL-free exact-render artifact preparation Phase 3F-C7ak (2026-08-30):**
+commit `b94656858` splits lifecycle without creating another timing, audio or
+creative-form owner. One shared internal materialization core still reloads
+the current ProjectService snapshot, verifies the exact V3 source/overlay/audio
+bindings, creates the timestamp conform, calls the existing encoder and builds
+the same immutable artifact. A new artifact-preparer entry point returns only
+that hash-bound artifact plus its opaque publish handle and rechecks the asset
+and project revision; it neither invokes the publisher nor creates/persists a
+source URL. The existing synchronous source-materializer entry point uses that
+same core, publishes a short-lived lease and retains its post-publication
+freshness check. The caller signal is forwarded to the encoder/stager chain.
+
+The focused materializer/encoder/private-artifact/source-preparation/result/
+worker cluster passes 40/40; repository TypeScript and repository-wide quiet
+ESLint pass. Tests prove URL-free preparation, zero publisher calls, identical
+artifact scope, abort propagation, rejection before project access for a
+pre-cancelled request, and preservation of the synchronous publication path.
+This result is
+`EXACT_RENDER_ARTIFACT_PREPARATION_AND_FRESH_LEASE_LIFECYCLES_SEPARATED_ADAPTER_OPEN`.
+It does not compose the durable worker's preparation-owner adapter, own a
+heartbeat/abort pump, dispatch through QStash, issue or settle a live budget,
+publish a fresh lease from a completed durable result, or connect the render
+route. Those remain the next Queue item 3 phases. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
