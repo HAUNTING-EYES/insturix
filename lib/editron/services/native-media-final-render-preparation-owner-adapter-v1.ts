@@ -16,6 +16,10 @@ import {
   createNativeMediaFinalRenderPreparationResultV1,
 } from './native-media-final-render-preparation-result-v1';
 import {
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+} from './native-media-final-render-preparation-runtime-policy-v1';
+import {
   NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
   type NativeMediaFinalRenderArtifactPreparerPortV1,
 } from './native-media-final-render-materializer-v1';
@@ -24,8 +28,10 @@ import {
   type NativeMediaFinalRenderArtifactPreparationOwnerV1,
 } from './native-media-final-render-preparation-worker-v1';
 
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1 =
-  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_V1' as const;
+export {
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+} from './native-media-final-render-preparation-runtime-policy-v1';
 
 const MAX_HEARTBEAT_INTERVAL_MS_V1 = Math.floor(DURABLE_WORKFLOW_JOB_LEASE_MS_V1 / 3);
 const DIAGNOSTIC = /^[A-Z0-9_]{1,200}$/;
@@ -78,6 +84,11 @@ export function createNativeMediaFinalRenderPreparationOwnerAdapterV1(input: Rea
   const owner: NativeMediaFinalRenderArtifactPreparationOwnerV1 = {
     ownerId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1,
     ownerVersion: NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
+    heartbeatPolicyOwnerId:
+      NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+    heartbeatPolicyOwnerVersion:
+      NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+    heartbeatPolicySha256: heartbeatPolicy.policySha256,
     async prepare(ownerInput) {
       const jobInput = assertAdapterJobScope(ownerInput.job, ownerInput.jobInput);
       if (typeof ownerInput.lifecycle?.heartbeat !== 'function') {

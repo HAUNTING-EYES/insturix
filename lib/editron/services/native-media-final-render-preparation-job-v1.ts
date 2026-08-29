@@ -28,7 +28,7 @@ import type {
 import type { ProjectRevisionV1 } from './project-service';
 
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
-  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_2' as const;
+  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_3' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1 = 5;
@@ -48,7 +48,7 @@ export type NativeMediaFinalRenderPreparationPolicyBindingsV1 = Readonly<{
   privateArtifactPolicyVersion:
     typeof NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1;
   privateArtifactPolicySha256: string;
-  runtimePolicy?: NativeMediaFinalRenderPreparationRuntimePolicyV1;
+  runtimePolicy: NativeMediaFinalRenderPreparationRuntimePolicyV1;
 }>;
 
 export type NativeMediaFinalRenderPreparationExecutionProfileV1 = Readonly<{
@@ -111,20 +111,18 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     version: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
     bindingSha256,
   });
-  const runtimePolicyDependencies = payload.policyBindings.runtimePolicy
-    ? [
-        dependency('execution-budget-policy', '1', hashEditronCanonicalJsonV1(
-          payload.policyBindings.runtimePolicy.executionBudget,
-        )),
-        dependency('heartbeat-policy', '1', hashEditronCanonicalJsonV1(
-          payload.policyBindings.runtimePolicy.heartbeatPolicy,
-        )),
-        dependency('retry-policy', '1', hashEditronCanonicalJsonV1(
-          payload.policyBindings.runtimePolicy.retryPolicy,
-        )),
-        dependency('runtime-policy', '1', payload.policyBindings.runtimePolicy.bindingSha256),
-      ]
-    : [];
+  const runtimePolicyDependencies = [
+    dependency('execution-budget-policy', '1', hashEditronCanonicalJsonV1(
+      payload.policyBindings.runtimePolicy.executionBudget,
+    )),
+    dependency('heartbeat-policy', '1', hashEditronCanonicalJsonV1(
+      payload.policyBindings.runtimePolicy.heartbeatPolicy,
+    )),
+    dependency('retry-policy', '1', hashEditronCanonicalJsonV1(
+      payload.policyBindings.runtimePolicy.retryPolicy,
+    )),
+    dependency('runtime-policy', '1', payload.policyBindings.runtimePolicy.bindingSha256),
+  ];
   const dependencies = [
     dependency('admission-receipt', '1', payload.admissionReceiptSha256),
     dependency('encoder-policy', '1', payload.policyBindings.encoderPolicySha256),
@@ -268,12 +266,10 @@ function normalizeRequest(value: unknown): NativeMediaFinalRenderExactSourceRequ
 
 function normalizePolicyBindings(value: unknown): NativeMediaFinalRenderPreparationPolicyBindingsV1 {
   const record = asRecord(value, 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_INVALID');
-  const hasRuntimePolicy = Object.prototype.hasOwnProperty.call(record, 'runtimePolicy');
   exactKeys(record, [
     'encoderPolicySha256', 'encoderPolicyVersion', 'materializerPolicySha256',
     'materializerPolicyVersion', 'privateArtifactPolicySha256',
-    'privateArtifactPolicyVersion',
-    ...(hasRuntimePolicy ? ['runtimePolicy'] : []),
+    'privateArtifactPolicyVersion', 'runtimePolicy',
   ], 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_FIELDS_INVALID');
   if (record.materializerPolicyVersion
       !== NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1
@@ -292,11 +288,9 @@ function normalizePolicyBindings(value: unknown): NativeMediaFinalRenderPreparat
       record.privateArtifactPolicySha256,
       'PRIVATE_ARTIFACT_POLICY',
     ),
-    ...(hasRuntimePolicy && {
-      runtimePolicy: assertNativeMediaFinalRenderPreparationRuntimePolicyV1(
-        record.runtimePolicy,
-      ),
-    }),
+    runtimePolicy: assertNativeMediaFinalRenderPreparationRuntimePolicyV1(
+      record.runtimePolicy,
+    ),
   });
 }
 

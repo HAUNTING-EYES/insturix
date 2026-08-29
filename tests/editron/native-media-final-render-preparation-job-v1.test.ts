@@ -198,7 +198,7 @@ describe('native final-render durable preparation job binding v1', () => {
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_BUDGET_RESERVATION_BINDING_SHA256_INVALID');
     expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
       ...valid,
-      version: 'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1',
+      version: 'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_2',
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_VERSION_INVALID');
     expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
@@ -238,15 +238,10 @@ describe('native final-render durable preparation job binding v1', () => {
 
     const { runtimePolicy: _runtimePolicy, ...legacyPolicyBindings } = input().policyBindings;
     expect(_runtimePolicy).toBeDefined();
-    const legacy = buildNativeMediaFinalRenderPreparationJobContractV1({
+    expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
-      policyBindings: legacyPolicyBindings,
-    });
-    expect(legacy.payload.policyBindings.runtimePolicy).toBeUndefined();
-    expect(legacy.dependencies).not.toContainEqual(expect.objectContaining({
-      dependencyId: 'runtime-policy',
-    }));
-
+      policyBindings: legacyPolicyBindings as never,
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_FIELDS_INVALID');
   });
 });
 

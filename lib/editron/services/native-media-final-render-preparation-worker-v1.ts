@@ -21,6 +21,10 @@ import {
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_RESUME_SCHEMA_V1,
   type NativeMediaFinalRenderPreparationResultV1,
 } from './native-media-final-render-preparation-result-v1';
+import {
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+} from './native-media-final-render-preparation-runtime-policy-v1';
 import type { NativeMediaFinalRenderArtifactV1 }
   from './native-media-final-render-source-preparation-v1';
 
@@ -52,6 +56,7 @@ export type NativeMediaFinalRenderPreparationBudgetAuthorizationV1 = Readonly<
 export interface NativeMediaFinalRenderPreparationBudgetOwnerV1 {
   ownerId: string;
   ownerVersion: string;
+  policySha256: string;
   authorize(input: Readonly<{
     job: Readonly<DurableWorkflowJobSnapshotV1>;
     jobInput: NativeMediaFinalRenderPreparationJobInputV1;
@@ -63,6 +68,11 @@ export interface NativeMediaFinalRenderPreparationBudgetOwnerV1 {
 export interface NativeMediaFinalRenderArtifactPreparationOwnerV1 {
   ownerId: typeof NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1;
   ownerVersion: string;
+  heartbeatPolicyOwnerId:
+    typeof NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1;
+  heartbeatPolicyOwnerVersion:
+    typeof NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1;
+  heartbeatPolicySha256: string;
   prepare(input: Readonly<{
     job: Readonly<DurableWorkflowJobSnapshotV1>;
     jobInput: NativeMediaFinalRenderPreparationJobInputV1;
@@ -84,6 +94,7 @@ export interface NativeMediaFinalRenderArtifactPreparationOwnerV1 {
 export interface NativeMediaFinalRenderPreparationRetryPolicyOwnerV1 {
   ownerId: string;
   ownerVersion: string;
+  policySha256: string;
   nextRetryAt(input: Readonly<{
     job: Readonly<DurableWorkflowJobSnapshotV1>;
     errorCode: string;
@@ -144,11 +155,17 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
   });
   if (claim.kind === 'skipped') {
     if ('job' in claim && isTerminal(claim.job.status)) {
+      const jobInput = resolveClaimedJob(claim.job);
+      assertRuntimeContract(jobInput, input.runtimeContract);
+      assertOwnerBindings(input, jobInput);
       await settleTerminalSnapshot(input.budgetOwner, claim.job);
     }
     return { kind: 'skipped', reason: claim.reason };
   }
   if (claim.kind === 'cancel_claimed') {
+    const jobInput = resolveClaimedJob(claim.job);
+    assertRuntimeContract(jobInput, input.runtimeContract);
+    assertOwnerBindings(input, jobInput);
     await input.jobStore.markCancelled({
       jobId: input.jobId,
       leaseToken: claim.leaseToken,
@@ -160,6 +177,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
   }
 
   let cancellationRequested = false;
+  let ownerBindingsVerified = false;
   let terminalSettlementStarted = false;
   let resumeSequence = claim.job.resumeState?.sequence ?? 0;
   const heartbeat = async (): Promise<void> => {
@@ -181,6 +199,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
     const jobInput = resolveClaimedJob(claim.job);
     assertRuntimeContract(jobInput, input.runtimeContract);
     assertOwnerBindings(input, jobInput);
+    ownerBindingsVerified = true;
     const authorizationReceiptSha256 = await authorizeBudget(
       input.budgetOwner,
       claim.job,
@@ -273,7 +292,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
       userId: claim.job.userId,
     });
     if (current && isTerminal(current.status)) {
-      await settleTerminalSnapshot(input.budgetOwner, current);
+      if (ownerBindingsVerified) await settleTerminalSnapshot(input.budgetOwner, current);
       return { kind: 'skipped', reason: 'terminal' };
     }
     if (cancellationRequested || error instanceof CancellationRequestedV1
@@ -285,7 +304,9 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
           receipt: cancellationReceipt(current ?? claim.job, clock()),
           now: clock(),
         });
-        await settleCommittedTerminal(input, current ?? claim.job);
+        if (ownerBindingsVerified) {
+          await settleCommittedTerminal(input, current ?? claim.job);
+        }
         return { kind: 'cancelled', jobId: claim.job.jobId };
       } catch (cancelError) {
         if (cancelError instanceof DurableWorkflowJobLeaseLostErrorV1) {
@@ -294,8 +315,10 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
         throw cancelError;
       }
     }
-    const failure = await settleFailure({ input, claim, current, error, clock });
-    if (failure.kind === 'dead_letter') {
+    const failure = await settleFailure({
+      input, claim, current, error, clock, ownerBindingsVerified,
+    });
+    if (failure.kind === 'dead_letter' && ownerBindingsVerified) {
       await settleCommittedTerminal(input, current ?? claim.job);
     }
     return failure;
@@ -394,12 +417,21 @@ function assertOwnerBindings(
   input: Parameters<typeof runNativeMediaFinalRenderPreparationWorkerV1>[0],
   job: NativeMediaFinalRenderPreparationJobInputV1,
 ): void {
-  requireIdentity(input.budgetOwner.ownerId, 'BUDGET_OWNER_ID');
-  requireIdentity(input.budgetOwner.ownerVersion, 'BUDGET_OWNER_VERSION');
-  requireIdentity(input.retryPolicyOwner.ownerId, 'RETRY_POLICY_OWNER_ID');
-  requireIdentity(input.retryPolicyOwner.ownerVersion, 'RETRY_POLICY_OWNER_VERSION');
-  if (input.preparationOwner.ownerId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1
-    || input.preparationOwner.ownerVersion !== job.policyBindings.materializerPolicyVersion) {
+  const runtimePolicy = job.policyBindings.runtimePolicy;
+  if (input.budgetOwner.ownerId !== runtimePolicy.executionBudget.ownerId
+    || input.budgetOwner.ownerVersion !== runtimePolicy.executionBudget.ownerVersion
+    || input.budgetOwner.policySha256 !== runtimePolicy.executionBudget.policySha256
+    || input.retryPolicyOwner.ownerId !== runtimePolicy.retryPolicy.ownerId
+    || input.retryPolicyOwner.ownerVersion !== runtimePolicy.retryPolicy.ownerVersion
+    || input.retryPolicyOwner.policySha256 !== runtimePolicy.retryPolicy.policySha256
+    || input.preparationOwner.ownerId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1
+    || input.preparationOwner.ownerVersion !== job.policyBindings.materializerPolicyVersion
+    || input.preparationOwner.heartbeatPolicyOwnerId
+      !== runtimePolicy.heartbeatPolicy.ownerId
+    || input.preparationOwner.heartbeatPolicyOwnerVersion
+      !== runtimePolicy.heartbeatPolicy.ownerVersion
+    || input.preparationOwner.heartbeatPolicySha256
+      !== runtimePolicy.heartbeatPolicy.policySha256) {
     throw new WorkerFailureV1(
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_OWNER_BINDING_MISMATCH',
       false,
@@ -536,6 +568,7 @@ async function settleFailure(input: Readonly<{
   current: Readonly<DurableWorkflowJobSnapshotV1> | null;
   error: unknown;
   clock: () => Date;
+  ownerBindingsVerified: boolean;
 }>): Promise<NativeMediaFinalRenderPreparationWorkerResultV1> {
   let failure = toWorkerFailure(input.error);
   if (!(input.error instanceof WorkerFailureV1)
@@ -544,6 +577,12 @@ async function settleFailure(input: Readonly<{
     failure = new WorkerFailureV1(
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_POST_RESUME_TRANSITION_FAILED',
       true,
+    );
+  }
+  if (failure.retryable && !input.ownerBindingsVerified) {
+    failure = new WorkerFailureV1(
+      'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_OWNER_BINDING_NOT_VERIFIED',
+      false,
     );
   }
   const now = input.clock();

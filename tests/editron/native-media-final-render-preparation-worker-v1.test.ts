@@ -11,7 +11,11 @@ import {
   buildNativeMediaFinalRenderPreparationJobContractV1,
   createOrGetNativeMediaFinalRenderPreparationJobV1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
-import { createNativeMediaFinalRenderPreparationRuntimePolicyV1 }
+import {
+  createNativeMediaFinalRenderPreparationRuntimePolicyV1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+}
   from '@/lib/editron/services/native-media-final-render-preparation-runtime-policy-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 }
   from '@/lib/editron/services/native-media-final-render-materializer-v1';
@@ -188,6 +192,22 @@ describe('native final-render durable preparation worker v1', () => {
     expect(fixture.preparationOwner.prepare).not.toHaveBeenCalled();
   });
 
+  it.each(ownerBindingDrifts)(
+    'rejects %s drift before any policy owner or materializer access',
+    async (_label, mutate) => {
+      const fixture = await workerFixture();
+      expect(await fixture.run(mutate(fixture))).toEqual({
+        kind: 'dead_letter',
+        jobId: fixture.jobId,
+        errorCode: 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_OWNER_BINDING_MISMATCH',
+      });
+      expect(fixture.budgetOwner.authorize).not.toHaveBeenCalled();
+      expect(fixture.budgetOwner.settleTerminal).not.toHaveBeenCalled();
+      expect(fixture.retryPolicyOwner.nextRetryAt).not.toHaveBeenCalled();
+      expect(fixture.preparationOwner.prepare).not.toHaveBeenCalled();
+    },
+  );
+
   it('honours cancellation observed inside the long-running preparation owner', async () => {
     const fixture = await workerFixture();
     fixture.preparationOwner.prepare.mockImplementationOnce(async ({ lifecycle }) => {
@@ -231,6 +251,7 @@ async function workerFixture() {
   const budgetOwner = {
     ownerId: 'TEST_RENDER_BUDGET_OWNER',
     ownerVersion: 'TEST_RENDER_BUDGET_OWNER_V1',
+    policySha256: request.policyBindings.runtimePolicy.executionBudget.policySha256,
     authorize: vi.fn<
       Parameters<NativeMediaFinalRenderPreparationBudgetOwnerV1['authorize']>,
       ReturnType<NativeMediaFinalRenderPreparationBudgetOwnerV1['authorize']>
@@ -245,6 +266,12 @@ async function workerFixture() {
   const preparationOwner = {
     ownerId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1,
     ownerVersion: NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
+    heartbeatPolicyOwnerId:
+      NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_OWNER_ID_V1,
+    heartbeatPolicyOwnerVersion:
+      NATIVE_MEDIA_FINAL_RENDER_PREPARATION_HEARTBEAT_POLICY_VERSION_V1,
+    heartbeatPolicySha256:
+      request.policyBindings.runtimePolicy.heartbeatPolicy.policySha256,
     prepare: vi.fn<
       Parameters<NativeMediaFinalRenderArtifactPreparationOwnerV1['prepare']>,
       ReturnType<NativeMediaFinalRenderArtifactPreparationOwnerV1['prepare']>
@@ -257,6 +284,7 @@ async function workerFixture() {
   const retryPolicyOwner = {
     ownerId: 'TEST_RENDER_RETRY_POLICY',
     ownerVersion: 'TEST_RENDER_RETRY_POLICY_V1',
+    policySha256: request.policyBindings.runtimePolicy.retryPolicy.policySha256,
     nextRetryAt: vi.fn(async ({ now }: { now: Date }) => new Date(now.getTime() + 1_000)),
   };
   const base = {
@@ -278,12 +306,61 @@ async function workerFixture() {
     snapshot: () => jobStore.getAuthorized({
       jobId: created.job.jobId, tenantId: 'tenant_1', userId: 'user_1',
     }),
-    run: (overrides: Partial<Parameters<
-      typeof runNativeMediaFinalRenderPreparationWorkerV1>[0]> = {}) => (
+    run: (overrides: WorkerOverrides = {}) => (
       runNativeMediaFinalRenderPreparationWorkerV1({ ...base, ...overrides })
     ),
   };
 }
+
+type WorkerFixture = Awaited<ReturnType<typeof workerFixture>>;
+type WorkerOverrides = Partial<Parameters<
+  typeof runNativeMediaFinalRenderPreparationWorkerV1
+>[0]>;
+
+const ownerBindingDrifts: readonly Readonly<[
+  string,
+  (fixture: WorkerFixture) => WorkerOverrides,
+]>[] = [
+  ['budget owner ID', (fixture) => ({
+    budgetOwner: { ...fixture.budgetOwner, ownerId: 'OTHER_RENDER_BUDGET_OWNER' },
+  })],
+  ['budget owner version', (fixture) => ({
+    budgetOwner: { ...fixture.budgetOwner, ownerVersion: 'TEST_RENDER_BUDGET_OWNER_V2' },
+  })],
+  ['budget policy digest', (fixture) => ({
+    budgetOwner: { ...fixture.budgetOwner, policySha256: sha('1') },
+  })],
+  ['retry owner ID', (fixture) => ({
+    retryPolicyOwner: { ...fixture.retryPolicyOwner, ownerId: 'OTHER_RENDER_RETRY_POLICY' },
+  })],
+  ['retry owner version', (fixture) => ({
+    retryPolicyOwner: {
+      ...fixture.retryPolicyOwner,
+      ownerVersion: 'TEST_RENDER_RETRY_POLICY_V2',
+    },
+  })],
+  ['retry policy digest', (fixture) => ({
+    retryPolicyOwner: { ...fixture.retryPolicyOwner, policySha256: sha('1') },
+  })],
+  ['heartbeat owner ID', (fixture) => ({
+    preparationOwner: {
+      ...fixture.preparationOwner,
+      heartbeatPolicyOwnerId: 'OTHER_HEARTBEAT_POLICY_OWNER' as never,
+    },
+  })],
+  ['heartbeat owner version', (fixture) => ({
+    preparationOwner: {
+      ...fixture.preparationOwner,
+      heartbeatPolicyOwnerVersion: 'OTHER_HEARTBEAT_POLICY_VERSION' as never,
+    },
+  })],
+  ['heartbeat policy digest', (fixture) => ({
+    preparationOwner: { ...fixture.preparationOwner, heartbeatPolicySha256: sha('1') },
+  })],
+  ['materializer owner version', (fixture) => ({
+    preparationOwner: { ...fixture.preparationOwner, ownerVersion: 'OTHER_MATERIALIZER' },
+  })],
+];
 
 function jobRequest() {
   return {
