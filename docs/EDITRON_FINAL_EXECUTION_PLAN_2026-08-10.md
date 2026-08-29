@@ -8737,6 +8737,30 @@ atomic reservation/settlement ledger, exact Finance policy locator and worker
 budget adapter; then the product runner can compose them. No live operation or
 readiness-status change is claimed, so `FROZEN_MODIFY_DECISION_ISSUED` remains.
 
+**Exact-render transactional execution-budget ledger Phase 3F-C7azg
+(2026-08-30):** commit `b5790e0a5` adds the sole pure transactional owner for
+the internal exact-render reservation and terminal-settlement record. A
+reservation ID is deterministically derived from the content-bound
+authorization, so an identical redelivery resolves the same record rather
+than creating a second reservation. The owner resolves the exact historical
+Finance policy by owner/version/hash, verifies the authorization against that
+policy, persists the reserved record through one injected transaction, and
+later performs a reserved-record-hash compare-and-set to the content-bound
+terminal settlement. An identical terminal redelivery is idempotent; a
+different terminal result, a changed reservation, a foreign policy or a lost
+compare-and-set fails closed.
+
+The focused suite passes 6/6, every `native-media-final-render` suite passes
+152/152, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_BUDGET_TRANSACTIONAL_OWNER_VERIFIED_MONGO_ADAPTER_AND_WORKER_BINDING_OPEN`.
+
+This owner is deliberately storage-agnostic: no Mongo/Atlas adapter, live
+Finance-policy row, worker budget adapter, product composition root, customer
+wallet movement, partial-attempt telemetry, rate calibration or live
+redelivery proof exists yet. Queue item 3 therefore remains in progress and
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
