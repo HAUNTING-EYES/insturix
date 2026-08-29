@@ -58,6 +58,29 @@ export type NativeMediaFinalRenderAdmissionResultV1 = Readonly<
     }
 >;
 
+export function readNativeMediaFinalRenderProjectRevisionV1(
+  project: unknown,
+): ProjectRevisionV1 {
+  const state = record(project);
+  if (!state) throw new Error('NATIVE_MEDIA_RENDER_PROJECT_INVALID');
+  const updatedAt = state.updatedAt instanceof Date
+    ? state.updatedAt
+    : new Date(String(state.updatedAt ?? ''));
+  if (Number.isNaN(updatedAt.getTime())) {
+    throw new Error('NATIVE_MEDIA_RENDER_PROJECT_REVISION_INVALID');
+  }
+  const value = typeof state.projectRevision === 'number'
+    && Number.isSafeInteger(state.projectRevision)
+    && state.projectRevision >= 0
+    ? state.projectRevision
+    : 0;
+  return normalizeRevision({
+    schemaVersion: 1,
+    value,
+    compatibilityUpdatedAt: updatedAt.toISOString(),
+  });
+}
+
 export async function admitNativeMediaFinalRenderV1(input: Readonly<{
   userId: string;
   projectId: string;

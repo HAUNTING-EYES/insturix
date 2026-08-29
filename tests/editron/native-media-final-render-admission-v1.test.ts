@@ -18,6 +18,7 @@ vi.mock('@/lib/editron/services/video-source-time-transform-v1', async (importOr
 
 import {
   admitNativeMediaFinalRenderV1,
+  readNativeMediaFinalRenderProjectRevisionV1,
 } from '@/lib/editron/services/native-media-final-render-admission-v1';
 import {
   classifyMediaSourceTimestampManagementV1,
@@ -30,6 +31,20 @@ const revision = Object.freeze({
 });
 
 describe('native media final-render admission V1', () => {
+  it('derives the exact ProjectService-compatible revision from the loaded snapshot', () => {
+    expect(readNativeMediaFinalRenderProjectRevisionV1({
+      projectRevision: 7,
+      updatedAt: new Date('2026-08-29T00:00:00.000Z'),
+    })).toEqual(revision);
+    expect(readNativeMediaFinalRenderProjectRevisionV1({
+      updatedAt: '2026-08-29T00:00:00.000Z',
+    })).toEqual({ ...revision, value: 0 });
+    expect(() => readNativeMediaFinalRenderProjectRevisionV1({
+      projectRevision: 7,
+      updatedAt: 'not-a-date',
+    })).toThrow('NATIVE_MEDIA_RENDER_PROJECT_REVISION_INVALID');
+  });
+
   it('classifies absent, earlier, V3, and contradictory timestamp generations', () => {
     expect(classifyMediaSourceTimestampManagementV1({})).toBe('NONE');
     expect(classifyMediaSourceTimestampManagementV1({

@@ -18,6 +18,8 @@ const routeMocks = vi.hoisted(() => ({
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
   loadProject: vi.fn(),
+  admitNativeMediaFinalRender: vi.fn(),
+  readNativeMediaFinalRenderProjectRevision: vi.fn(),
   verifyAudioRights: vi.fn(),
   assertRemotionSiteFresh: vi.fn(),
   checkCredits: vi.fn(),
@@ -83,6 +85,12 @@ vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     loadProject: routeMocks.loadProject,
   },
+}));
+
+vi.mock('@/lib/editron/services/native-media-final-render-admission-v1', () => ({
+  admitNativeMediaFinalRenderUsingRuntimeV1: routeMocks.admitNativeMediaFinalRender,
+  readNativeMediaFinalRenderProjectRevisionV1:
+    routeMocks.readNativeMediaFinalRenderProjectRevision,
 }));
 
 vi.mock('@/lib/editron/services/render-audio-rights-authority', async (importOriginal) => {
@@ -151,6 +159,15 @@ describe('Editron render startup boundary', () => {
       playerDimensions: { width: 1920, height: 1080 },
     });
     routeMocks.verifyAudioRights.mockResolvedValue(undefined);
+    routeMocks.readNativeMediaFinalRenderProjectRevision.mockReturnValue({
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
+    });
+    routeMocks.admitNativeMediaFinalRender.mockResolvedValue({
+      disposition: 'ADMITTED_ORDINARY_MEDIA',
+      receipt: { receiptSha256: 'a'.repeat(64) },
+    });
     routeMocks.resolveProjectAssets.mockImplementation(async (overlays: Array<Record<string, unknown>>) =>
       overlays.map((overlay) => ({
         ...overlay,
@@ -211,6 +228,21 @@ describe('Editron render startup boundary', () => {
     });
     expect(admissionId).toMatch(/^rnd_[A-Za-z0-9_-]{12}$/);
     expect(routeMocks.checkCredits).toHaveBeenCalledTimes(1);
+    expect(routeMocks.admitNativeMediaFinalRender).toHaveBeenCalledWith({
+      userId: 'user_1',
+      projectId: 'project_1',
+      sequenceId: 'main',
+      projectRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
+      },
+      overlays: [expect.objectContaining({ id: 'video_1', assetId: 'asset_video_1' })],
+    });
+    expect(routeMocks.admitNativeMediaFinalRender.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.resolveProjectAssets.mock.invocationCallOrder[0]);
+    expect(routeMocks.admitNativeMediaFinalRender.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.checkCredits.mock.invocationCallOrder[0]);
     expect(routeMocks.deduct).toHaveBeenCalledTimes(1);
     expect(routeMocks.reserveJob).toHaveBeenCalledWith(
       admissionId,
@@ -1107,6 +1139,39 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reserveJob).not.toHaveBeenCalled();
     expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
+  });
+
+  it('CRITICAL: exact timestamp media without a render source stops before spend and dispatch', async () => {
+    routeMocks.admitNativeMediaFinalRender.mockResolvedValueOnce({
+      disposition: 'UNVERIFIABLE',
+      reason: 'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
+      overlayId: 'video_1',
+      assetId: 'asset_video_1',
+      diagnostic: null,
+    });
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      type: 'error',
+      code: 'NATIVE_MEDIA_FINAL_RENDER_NOT_READY',
+      message: 'This project contains video that is not ready for an exact final render.',
+      details: {
+        reason: 'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
+        overlayId: 'video_1',
+        assetId: 'asset_video_1',
+        diagnostic: null,
+      },
+    });
+    expect(routeMocks.resolveProjectAssets).not.toHaveBeenCalled();
+    expect(routeMocks.checkCredits).not.toHaveBeenCalled();
+    expect(routeMocks.reserveJob).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(routeMocks.shouldUseChapterRendering).not.toHaveBeenCalled();
+    expect(routeMocks.startChapterRender).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 
   it('returns redacted structured details for an audio-rights authority rejection', async () => {

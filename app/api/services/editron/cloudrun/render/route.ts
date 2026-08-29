@@ -33,6 +33,10 @@ import {
   resolveRenderDeliveryPlan,
 } from '@/lib/editron/services/render-delivery-manifest';
 import { resolveRenderFinalizationPipelineConfig } from '@/lib/editron/services/render-finalization-dispatch';
+import {
+  admitNativeMediaFinalRenderUsingRuntimeV1,
+  readNativeMediaFinalRenderProjectRevisionV1,
+} from '@/lib/editron/services/native-media-final-render-admission-v1';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { resolveBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
@@ -178,6 +182,30 @@ export async function POST(request: Request) {
     let renderOverlays = Array.isArray(resolvedProps.overlays)
       ? resolvedProps.overlays as any[]
       : [];
+
+    const nativeMediaAdmission = await admitNativeMediaFinalRenderUsingRuntimeV1({
+      userId,
+      projectId: canonicalProjectId,
+      sequenceId: 'main',
+      projectRevision: readNativeMediaFinalRenderProjectRevisionV1(project),
+      overlays: renderOverlays,
+    });
+    if (nativeMediaAdmission.disposition === 'UNVERIFIABLE') {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'NATIVE_MEDIA_FINAL_RENDER_NOT_READY',
+          message: 'This project contains video that is not ready for an exact final render.',
+          details: {
+            reason: nativeMediaAdmission.reason,
+            overlayId: nativeMediaAdmission.overlayId,
+            assetId: nativeMediaAdmission.assetId,
+            diagnostic: nativeMediaAdmission.diagnostic,
+          },
+        },
+        { status: 409 },
+      );
+    }
 
     if (renderOverlays.length > 0) {
       try {
