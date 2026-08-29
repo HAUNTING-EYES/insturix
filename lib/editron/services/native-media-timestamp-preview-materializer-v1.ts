@@ -551,9 +551,7 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
       projectRevisionReader: projectServiceNativeMediaProjectRevisionReaderV1,
       assetReader: assetPorts,
       storedObjectReader: runtime.epochArtifactReader,
-      ...(options.audioArtifactReader
-        ? { audioArtifactReader: options.audioArtifactReader }
-        : {}),
+      audioArtifactReader: options.audioArtifactReader ?? runtime.audioArtifact,
       createDecoder({ asset, leaseScope, materializationStartedAtEpochMs }) {
         const surfaceStore = runtime.previewSurface.createStore(leaseScope, {
           policy: policy.surface,

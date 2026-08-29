@@ -1,5 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3';
 
+import { MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1 } from './media-source-audio-private-artifact-v1';
+import { createMediaSourceAudioR2PrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
 import { createMediaSourcePtsCadenceR2LifecycleManifestReaderV1 } from './media-source-pts-cadence-r2-lifecycle-manifest-reader-v1';
 import {
   createMediaSourcePtsCadenceR2PrivateArtifactPortV2,
@@ -107,6 +109,10 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
     epochArtifactReader: createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3(scope),
     lifecycleManifestReader: createMediaSourcePtsCadenceR2LifecycleManifestReaderV1(scope),
+    audioArtifact: createMediaSourceAudioR2PrivateArtifactStoreV1({
+      ...scope,
+      policy: MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1,
+    }),
     previewSurface: Object.freeze({
       createStore(
         leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
