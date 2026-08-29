@@ -6687,6 +6687,49 @@ consumer display the exact selected picture while leaving native audio under
 the existing audio owner. Analysis and final-render consumers remain separate
 later subphases.
 
+**Transient timestamp-preview renderer hydration Phase 3F-C1
+(2026-08-29):** a browser-safe V1 hydration owner now converts one Phase 3E
+consumption receipt's project-absolute timeline pictures into the overlay-local
+frame domain used inside Remotion `Sequence`. It requires the supplied overlay
+start/duration, every local frame exactly once, safe numeric representation at
+the current Remotion boundary, and an exact cross-reference from each timeline
+picture to the receipt's decoded handle/request/content digest. Reordered
+receipt frames are canonicalized by local frame and intentional repeated-picture
+holds reuse the same verified handle; missing, duplicate, out-of-range,
+unsafe-integer, cross-picture or decoder-owned-audio records fail loudly. There
+is no sparse hold-previous or ordinary-video fallback.
+
+The hydration is immutable, versioned and serializable. It carries project,
+sequence, overlay, ProjectService revision, receipt identity and the explicit
+`SEPARATE_NATIVE_SAMPLE_DOMAIN_V1` disposition, but it is transient render
+input: no handle or route URL was added to `ClipOverlay`, ProjectService or
+saved project form. A strict per-overlay/local-frame index now lives in the
+existing `RenderingProvider`, and `Main` accepts the optional hydration array.
+`Main` explicitly rejects that preview-only input when `isRendering` is true;
+the authenticated same-origin browser route is not silently treated as a
+server final-render source.
+
+The focused suite passes 3/3 for absolute-to-local conversion, complete
+coverage, repeated-picture reuse, route-path construction, immutable indexing,
+missing/duplicate/unsafe/cross-picture maps, decoder-audio replacement, extra
+fields and duplicate overlays. Repository TypeScript and affected-file quiet
+ESLint pass. No project, private object, route request, browser or renderer was
+mutated/executed by this pure test.
+
+This result is
+`TRANSIENT_EXACT_PREVIEW_HYDRATION_IMPLEMENTED_VIDEO_LAYER_NOT_WIRED`.
+It is shared renderer plumbing, not visible playback. `VideoLayerContent` does
+not yet call the new local-frame hook, and no production coordinator yet feeds
+a freshly produced consumption receipt into the editor Player. The browser-
+safe shape validator carries the producer's receipt SHA-256 but deliberately
+does not duplicate the node-only canonical-hash implementation; the server
+producer/ingress must validate that receipt before hydration, while the image
+route independently reauthorizes user/project/current revision and stored
+bytes on every retrieval. Queue item 3 remains open: the next bounded subphase
+must make the existing video-layer consumer render the exact private picture
+for a hydrated frame while keeping the existing native-audio path underneath,
+with explicit loading/error behavior and no final-render claim.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source

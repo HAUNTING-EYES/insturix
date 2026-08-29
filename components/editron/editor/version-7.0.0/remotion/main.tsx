@@ -13,6 +13,7 @@ import {
   PreviewMediaWarmup,
   selectPreviewWarmSources,
 } from "./preview-media-warmup";
+import type { NativeMediaTimestampPreviewHydrationV1 } from "./native-media-timestamp-preview-hydration-v1";
 
 export type MainProps = {
   readonly overlays: Overlay[];
@@ -31,6 +32,7 @@ export type MainProps = {
   readonly baseUrl?: string;
   readonly isRendering?: boolean;
   readonly renderMediaMode?: RenderMediaMode;
+  readonly timestampPreviewHydrations?: readonly NativeMediaTimestampPreviewHydrationV1[];
 };
 
 const outer: React.CSSProperties = {
@@ -50,8 +52,12 @@ export const Main: React.FC<MainProps> = ({
   baseUrl,
   isRendering,
   renderMediaMode = "full",
+  timestampPreviewHydrations = [],
   fps,
 }) => {
+  if (isRendering && timestampPreviewHydrations.length > 0) {
+    throw new Error("Timestamp preview hydrations are not a final-render media source");
+  }
   const currentFrame = useCurrentFrame();
   const renderedOverlays = useMemo(
     () => overlays.filter(
@@ -88,6 +94,7 @@ export const Main: React.FC<MainProps> = ({
       isRendering={isRendering ?? false}
       mediaMode={renderMediaMode}
       overlays={overlays}
+      timestampPreviewHydrations={timestampPreviewHydrations}
     >
       <AbsoluteFill style={outer} onPointerDown={onPointerDown}>
         <PreviewMediaWarmup sources={previewWarmSources} />

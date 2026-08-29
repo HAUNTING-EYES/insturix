@@ -1,5 +1,11 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 import { OverlayType, type Overlay } from "../types";
+import {
+  createNativeMediaTimestampPreviewHydrationIndexV1,
+  type NativeMediaTimestampPreviewHydrationFrameV1,
+  type NativeMediaTimestampPreviewHydrationIndexV1,
+  type NativeMediaTimestampPreviewHydrationV1,
+} from "../remotion/native-media-timestamp-preview-hydration-v1";
 
 export type RenderMediaMode = "full" | "audio-only";
 
@@ -31,24 +37,44 @@ interface RenderingContextValue {
   isRendering: boolean;
   mediaMode: RenderMediaMode;
   overlays: Overlay[];
+  timestampPreviewIndex: NativeMediaTimestampPreviewHydrationIndexV1;
 }
 
 const RenderingContext = createContext<RenderingContextValue>({
   isRendering: false,
   mediaMode: "full",
   overlays: [],
+  timestampPreviewIndex: createNativeMediaTimestampPreviewHydrationIndexV1(),
 });
 
 export const RenderingProvider: React.FC<{
   isRendering: boolean;
   mediaMode?: RenderMediaMode;
   overlays?: Overlay[];
+  timestampPreviewHydrations?: readonly NativeMediaTimestampPreviewHydrationV1[];
   children: React.ReactNode;
-}> = ({ isRendering, mediaMode = "full", overlays = [], children }) => (
-  <RenderingContext.Provider value={{ isRendering, mediaMode, overlays }}>
-    {children}
-  </RenderingContext.Provider>
-);
+}> = ({
+  isRendering,
+  mediaMode = "full",
+  overlays = [],
+  timestampPreviewHydrations = [],
+  children,
+}) => {
+  const timestampPreviewIndex = useMemo(
+    () => createNativeMediaTimestampPreviewHydrationIndexV1(timestampPreviewHydrations),
+    [timestampPreviewHydrations],
+  );
+  return (
+    <RenderingContext.Provider value={{
+      isRendering,
+      mediaMode,
+      overlays,
+      timestampPreviewIndex,
+    }}>
+      {children}
+    </RenderingContext.Provider>
+  );
+};
 
 /** Returns `true` when inside a server-side render, `false` in the editor. */
 export const useIsRendering = (): boolean => useContext(RenderingContext).isRendering;
@@ -59,3 +85,10 @@ export const useRenderMediaMode = (): RenderMediaMode =>
 
 /** Returns all overlays in the project (for cross-track awareness like audio ducking). */
 export const useAllOverlays = (): Overlay[] => useContext(RenderingContext).overlays;
+
+/** Returns one exact, receipt-derived picture for an overlay-local frame. */
+export const useNativeMediaTimestampPreviewFrame = (
+  overlayId: string | number,
+  localFrame: number,
+): NativeMediaTimestampPreviewHydrationFrameV1 | null =>
+  useContext(RenderingContext).timestampPreviewIndex.frameFor(overlayId, localFrame);
