@@ -59,6 +59,10 @@ export type NativeMediaTimestampPreviewWindowLeaseDispositionV2 =
   | 'EXPIRED';
 
 export type NativeMediaTimestampPreviewWindowIndexV2 = Readonly<{
+  windowFor(
+    overlayId: string | number,
+    localFrame: number,
+  ): NativeMediaTimestampPreviewWindowV2 | null;
   frameFor(
     overlayId: string | number,
     localFrame: number,
@@ -291,6 +295,7 @@ export function createNativeMediaTimestampPreviewWindowIndexV2(
     )) ?? null;
   }
   return Object.freeze({
+    windowFor,
     frameFor(overlayId, localFrame) {
       const window = windowFor(overlayId, localFrame);
       if (!window) return null;

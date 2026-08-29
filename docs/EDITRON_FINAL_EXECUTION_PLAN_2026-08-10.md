@@ -6810,6 +6810,36 @@ remain open. Queue item 3 therefore remains open; the next bounded subphase is
 the fail-closed rendering-context/Main adoption followed by the current-
 revision server materializer and live Player session coordinator.
 
+**Fail-closed V2 rendering-context adoption Phase 3F-C4 (2026-08-29):** the
+existing `RenderingProvider`, `Main` composition root and video-layer selection
+hook now consume validated V2 rolling windows without flattening them into V1
+or ordinary media URLs. V1 full-overlay fixtures remain accepted. One overlay
+may never have competing V1 and V2 ownership; the provider rejects that state
+before rendering. The shared selection hook asks the V2 index for the validated
+owning window, rechecks its start/duration against the live overlay, enforces
+the lease at the active frame and returns the same exact picture/audio-
+ownership shape already consumed by `VideoLayerContent`.
+
+An active seek outside all loaded windows now throws
+`NATIVE_MEDIA_PREVIEW_WINDOW_FRAME_NOT_LOADED`; exact lease expiry, changed live
+overlay scope and inconsistent frame identity each stop separately. None falls
+through to ordinary `<Video>` playback or a poster. `Main` and the layer both
+reject V2 input in server final-render mode, so an expiring authenticated
+browser surface is still not promoted into a render source. The real V1 and V2
+contract/provider/video-layer cluster passes 18/18, repository TypeScript passes
+with the declared 8 GiB heap and repository-wide quiet ESLint passes. No route,
+private object, decoder, project, provider or customer data was touched.
+
+This result is
+`ROLLING_PREVIEW_WINDOW_RENDER_CONSUMER_WIRED_SERVER_AND_PLAYER_COORDINATORS_OPEN`.
+It proves shared downstream preview plumbing only. No current-revision server
+owner yet creates the V3 conform/decoder receipt and conservative lease, no live
+Player session requests active/prefetch windows or releases superseded batches,
+and no browser test proves a renewal swap without playback discontinuity. Exact
+sample-domain audio, analysis and production final-render consumers remain
+open. Queue item 3 therefore remains open; the current-revision server
+materializer is next, followed by the live Player session coordinator.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
