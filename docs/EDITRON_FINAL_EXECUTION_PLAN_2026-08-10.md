@@ -7129,6 +7129,54 @@ remains open. Queue item 4 still owns production private PTS storage and V3
 scan/migration/proxy-master invalidation; no convergence across those owners is
 claimed here.
 
+**Verified V3 timeline-to-audio evidence binding Phase 3F-C7f
+(2026-08-29):** the V3 timestamp-transform owner no longer accepts a caller-
+authored audio range or sample anchor and then labels it exact. Its only audio
+input is now the immutable source-bound sample/epoch evidence from Phase
+3F-C7e plus the requested exclusive project-timeline end. The historical V2
+input and serialization remain unchanged for backward-compatible reads.
+
+The transform revalidates the audio evidence hash and requires its asset,
+source version, provider storage version, source binding and technical-
+observation hashes to equal the current verified video binding. It pairs the
+complete verified video/audio epoch sequences and rejects missing, extra or
+incompatible `INITIAL`, `TIMESTAMP_RESET`, `OVERLAP` or `GAP` boundaries. Each
+audio epoch is aligned from the shared source timestamps into the verified
+video canonical timeline. Project-frame duration is then converted to the
+audio sample domain with signed rational arithmetic: fractional sample phase
+is preserved, never rounded. Real PTS gaps become explicit `SILENCE` segments;
+reset/overlap handoffs must be canonically contiguous. No resampling, channel
+remix, guessed anchor or hidden dropped/duplicated sample is permitted.
+
+The persisted V3 mapping binds the audio evidence, stream and decoded-PCM
+hashes; exact timeline and decoded sample positions; channel/rate identity;
+gap policy; and every PCM/silence segment. Its reader independently checks
+field closure, reduced rationals, project-duration equivalence, contiguous
+segment coverage, decoded-PCM bounds and mapping/source hashes. Wrong-source
+evidence and a tampered persisted segment both fail before video decode or any
+project mutation.
+
+The related timestamp/audio/preview cluster passes 73/73. It includes a
+three-epoch reset/gap fixture, explicit gap silence, an `8/15`-sample leading
+phase, wrong-source rejection, persisted-segment tamper rejection, legacy V2
+compatibility and the real FFmpeg audio/preview adapters. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No provider, private bucket, persisted project, authenticated browser or
+customer media was touched.
+
+This result is
+`VERIFIED_AUDIO_TIME_MAPPING_BOUND_PLAYABLE_RUNTIME_CONSUMPTION_OPEN`.
+Queue item 3 remains open: the decoded PCM still needs a durable private
+artifact owner/reader, a bounded ProjectService materializer input, an
+authenticated leased browser audio surface/route and swap-continuity
+scheduler, plus real analysis and final-render consumers. The strict paired-
+epoch rule also deliberately blocks partial epoch windows and unsupported
+`WRAP`/`EDIT_LIST` audio pairings until their evidence owners exist. It is a
+safe supported subset, not a claim that ordinary production audio playback is
+complete. Queue item 4 continues to own the production V3 scanner/finalizer,
+private object lifecycle, V2-to-V3 migration and qualified proxy/master
+invalidation.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
