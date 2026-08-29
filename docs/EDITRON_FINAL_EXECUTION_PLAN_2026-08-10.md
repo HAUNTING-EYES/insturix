@@ -8585,10 +8585,35 @@ dead letter. Therefore the terminal status and non-retryable failure are
 durable, but the exact retry-policy decision hash/reason is not yet retained in
 an atomic terminal-failure receipt. Add that versioned evidence boundary before
 production promotion; do not treat an in-memory decision or log line as proof.
-The immutable historical-policy registry, QStash dispatcher, signed ingress,
-Finance-backed budget owner, calibrated numbers and live redelivery/cost proof
+At this checkpoint, the immutable historical-policy registry, QStash dispatcher,
+signed ingress, Finance-backed budget owner, calibrated numbers and live redelivery/cost proof
 also remain open. No live QStash, Atlas, R2, media or project operation occurred.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render historical retry-policy registry Phase 3F-C7aza
+(2026-08-30):** commit `2117efc83` adds the immutable allowlisted resolver that
+was missing from V1.3 recovery. A registry must name one explicit active policy
+and every retained declaration. It reconstructs and validates each declaration,
+rejects duplicate complete bindings, canonicalizes retained entry order into a
+content-hashed manifest, and resolves only the exact owner ID, owner version and
+policy SHA-256 requested by a durable job. An unknown historical hash never
+falls back to the active declaration.
+
+The rotation proof builds an old-policy registry and a successor registry with
+a new active declaration plus the old retained declaration; the old job binding
+resolves to the old values after rotation. Forged declarations, duplicate
+bindings, incomplete/extra bindings and wrong-owner bindings fail closed. The
+focused suite passes 6/6; every `native-media-final-render` suite passes 101/101;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_HISTORICAL_POLICY_REGISTRY_CONTRACT_VERIFIED_COMPOSITION_AND_OPERATIONAL_RETENTION_OPEN`.
+
+No calibrated production declaration or deployed registry instance exists yet,
+and code presence does not prove operators will retain an old declaration for
+the lifetime of its longest job. The dispatcher/composition root must resolve
+the job's complete binding through this registry before claim, and deployment
+evidence must prove old entries remain available for the governed lifetime. No
+live QStash, Atlas, R2, media or project operation occurred. This checkpoint
+does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
