@@ -8615,6 +8615,32 @@ evidence must prove old entries remain available for the governed lifetime. No
 live QStash, Atlas, R2, media or project operation occurred. This checkpoint
 does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render state-bound QStash dispatcher Phase 3F-C7azb
+(2026-08-30):** commit `38fc8eaed` adds the exact-render preparation dispatcher
+on top of the one shared durable QStash transport owner. Initial dispatch first
+requires complete token/signing/origin configuration, resolves the registry's
+explicit active declaration, creates or reuses the policy-bound durable job,
+and publishes only `{ version, jobId }` to the fixed preparation-worker path.
+The declaration's exact QStash retry count, delay and timeout control delivery;
+no dispatcher-local defaults or media URLs enter the message.
+
+Recovery accepts only stale active jobs with the exact operation owner, kind and
+V1.3 schema. It parses the sealed job input, resolves that job's complete
+historical retry binding through the registry, and uses the shared state-bound
+recovery deduplication identity. A rotated old job demonstrably publishes with
+its retained old QStash values, not the new active values. An absent historical
+policy returns structured `policy_unavailable` evidence and publishes nothing;
+wrong-family jobs are skipped. The focused suite passes 6/6; every
+`native-media-final-render` suite passes 107/107; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_STATE_BOUND_DISPATCH_VERIFIED_SIGNED_INGRESS_AND_COMPOSITION_OPEN`.
+
+The worker URL is a fixed contract only: no route exports it yet, no calibrated
+registry is instantiated and no Finance-backed budget owner or complete media
+composition is connected. No live QStash message, Atlas record, R2 object,
+media operation or project mutation occurred. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
