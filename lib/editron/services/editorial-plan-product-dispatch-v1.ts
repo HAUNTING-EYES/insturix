@@ -1,10 +1,17 @@
-import { Client } from '@upstash/qstash';
 import { z } from 'zod';
 
 import type { DurableWorkflowJobSnapshotV1 }
   from './durable-workflow-job-v1';
 import { DurableWorkflowJobStoreV1 }
   from './durable-workflow-job-store-v1';
+import {
+  publishAndRecordDurableWorkflowQStashJobV1,
+  resolveDurableWorkflowQStashDispatchConfigurationV1,
+  type DurableWorkflowQStashDeliveryPolicyV1,
+  type DurableWorkflowQStashDispatchConfigurationV1,
+  type DurableWorkflowQStashDispatchEnvironmentV1,
+  type DurableWorkflowQStashPublisherV1,
+} from './durable-workflow-qstash-dispatch-v1';
 import {
   createOrGetEditorialPlanDurableJobV1,
   type EditorialPlanDurableJobRequestV1,
@@ -36,34 +43,20 @@ export function assertEditorialPlanProductWorkerMessageV1(
   return Object.freeze(result.data);
 }
 
-export interface EditorialPlanProductDispatchEnvironmentV1 {
-  QSTASH_TOKEN?: string;
-  QSTASH_URL?: string;
-  QSTASH_CURRENT_SIGNING_KEY?: string;
-  QSTASH_NEXT_SIGNING_KEY?: string;
-  VERCEL_URL?: string;
-  NEXT_PUBLIC_APP_URL?: string;
-}
+export type EditorialPlanProductDispatchEnvironmentV1 =
+  DurableWorkflowQStashDispatchEnvironmentV1;
 
 export type EditorialPlanProductDispatchConfigurationV1 = Readonly<
   | { configured: true; reason: null; workerUrl: string }
   | {
       configured: false;
-      reason: 'MISSING_QSTASH_TOKEN' | 'MISSING_QSTASH_SIGNING_KEYS'
-        | 'MISSING_PUBLIC_ORIGIN' | 'INVALID_PUBLIC_ORIGIN' | 'INVALID_QSTASH_URL';
+      reason: Extract<DurableWorkflowQStashDispatchConfigurationV1,
+        { configured: false }>['reason'];
       workerUrl: null;
     }
 >;
 
-export interface EditorialPlanQStashPublisherV1 {
-  publishJSON(input: Readonly<{
-    url: string;
-    body: Readonly<EditorialPlanProductWorkerMessageV1>;
-    retries: number;
-    deduplicationId: string;
-    headers: Readonly<Record<string, string>>;
-  }>): Promise<Readonly<{ messageId?: string }>>;
-}
+export type EditorialPlanQStashPublisherV1 = DurableWorkflowQStashPublisherV1;
 
 export type EditorialPlanProductDispatchResultV1 = Readonly<
   | {
@@ -82,7 +75,8 @@ export type EditorialPlanProductDispatchResultV1 = Readonly<
       state: 'dispatch_unconfirmed';
       jobId: string;
       created: boolean;
-      reason: 'QSTASH_PUBLISH_REJECTED' | 'QSTASH_MESSAGE_ID_MISSING';
+      reason: 'QSTASH_PUBLISH_REJECTED' | 'QSTASH_MESSAGE_ID_MISSING'
+        | 'QSTASH_MESSAGE_ID_INVALID';
     }
   | {
       state: 'delivery_unknown';
@@ -116,17 +110,13 @@ export async function dispatchEditorialPlanProductJobV1(input: Readonly<{
   planStore: Pick<EditorialPlanStoreV1,
     'getRevisionAuthorized' | 'getLatestAuthorized' | 'getExecutionDefinitionAuthorized'>;
   jobStore: Pick<DurableWorkflowJobStoreV1, 'createOrGet' | 'recordDispatch'>;
+  deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
   env?: EditorialPlanProductDispatchEnvironmentV1;
   publisher?: Readonly<EditorialPlanQStashPublisherV1>;
   now?: Date;
 }>): Promise<EditorialPlanProductDispatchResultV1> {
   const env = input.env ?? processEnvironment();
-  const config = resolveEditorialPlanProductDispatchConfigurationV1(env);
-  if (!config.configured) {
-    throw new EditorialPlanProductDispatchErrorV1(
-      `EDITORIAL_PLAN_PRODUCT_DISPATCH_${config.reason}`,
-    );
-  }
+  const configuration = requireConfiguration(env);
 
   const bound = await createOrGetEditorialPlanDurableJobV1({
     planStore: input.planStore,
@@ -138,98 +128,36 @@ export async function dispatchEditorialPlanProductJobV1(input: Readonly<{
     },
     ...(input.now ? { now: input.now } : {}),
   });
-  const existingMessageId = optionalIdentity(bound.job.dispatchMessageId);
-  if (existingMessageId) {
-    return {
-      state: 'already_dispatched', jobId: bound.job.jobId,
-      created: bound.created, messageId: existingMessageId,
-    };
-  }
-  if (bound.job.status !== 'queued') {
-    return {
-      state: 'not_dispatchable', jobId: bound.job.jobId,
-      created: bound.created, jobStatus: bound.job.status,
-    };
-  }
-
-  const publisher = input.publisher ?? createPublisher(env);
   const message = assertEditorialPlanProductWorkerMessageV1({
     version: EDITORIAL_PLAN_PRODUCT_WORKER_MESSAGE_VERSION_V1,
     jobId: bound.job.jobId,
   });
-  let published: Readonly<{ messageId?: string }>;
-  try {
-    published = await publisher.publishJSON({
-      url: config.workerUrl,
-      body: message,
-      retries: 3,
-      deduplicationId: bound.job.jobId,
-      headers: { 'Upstash-Timeout': '300s' },
-    });
-  } catch {
-    return {
-      state: 'dispatch_unconfirmed', jobId: bound.job.jobId,
-      created: bound.created, reason: 'QSTASH_PUBLISH_REJECTED',
-    };
-  }
-  const messageId = optionalIdentity(published.messageId);
-  if (!messageId) {
-    return {
-      state: 'dispatch_unconfirmed', jobId: bound.job.jobId,
-      created: bound.created, reason: 'QSTASH_MESSAGE_ID_MISSING',
-    };
-  }
-  try {
-    await input.jobStore.recordDispatch({
-      jobId: bound.job.jobId,
-      transport: 'qstash',
-      messageId,
-      ...(input.now ? { now: input.now } : {}),
-    });
-  } catch {
-    // Delivery may already be in progress; never misreport this as a failed send.
-    return {
-      state: 'delivery_unknown', jobId: bound.job.jobId,
-      created: bound.created, messageId,
-      reason: 'DISPATCH_RECEIPT_NOT_RECORDED',
-    };
-  }
-  return {
-    state: 'dispatched', jobId: bound.job.jobId,
-    created: bound.created, messageId,
-  };
+  const dispatched = await publishAndRecordDurableWorkflowQStashJobV1({
+    job: bound.job,
+    jobStore: input.jobStore,
+    configuration,
+    message,
+    deliveryPolicy: input.deliveryPolicy,
+    dispatchIntent: {
+      kind: 'INITIAL_QUEUED', deduplicationId: bound.job.jobId,
+    },
+    environment: env,
+    ...(input.publisher ? { publisher: input.publisher } : {}),
+    ...(input.now ? { now: input.now } : {}),
+  });
+  return Object.freeze({ ...dispatched, created: bound.created });
 }
 
 export function resolveEditorialPlanProductDispatchConfigurationV1(
   env: EditorialPlanProductDispatchEnvironmentV1 = processEnvironment(),
 ): EditorialPlanProductDispatchConfigurationV1 {
-  if (!clean(env.QSTASH_TOKEN)) return unconfigured('MISSING_QSTASH_TOKEN');
-  if (!clean(env.QSTASH_CURRENT_SIGNING_KEY)
-    || !clean(env.QSTASH_NEXT_SIGNING_KEY)) {
-    return unconfigured('MISSING_QSTASH_SIGNING_KEYS');
-  }
-  if (env.QSTASH_URL && !httpsOrigin(env.QSTASH_URL)) {
-    return unconfigured('INVALID_QSTASH_URL');
-  }
-  const candidate = clean(env.VERCEL_URL)
-    ? `https://${clean(env.VERCEL_URL)!.replace(/^https?:\/\//, '')}`
-    : clean(env.NEXT_PUBLIC_APP_URL);
-  if (!candidate) return unconfigured('MISSING_PUBLIC_ORIGIN');
-  const origin = httpsOrigin(candidate);
-  if (!origin) return unconfigured('INVALID_PUBLIC_ORIGIN');
-  return {
-    configured: true, reason: null,
-    workerUrl: `${origin}${EDITORIAL_PLAN_PRODUCT_WORKER_PATH_V1}`,
-  };
-}
-
-function createPublisher(
-  env: EditorialPlanProductDispatchEnvironmentV1,
-): EditorialPlanQStashPublisherV1 {
-  return new Client({
-    token: clean(env.QSTASH_TOKEN)!,
-    baseUrl: clean(env.QSTASH_URL),
+  const result = resolveDurableWorkflowQStashDispatchConfigurationV1({
+    workerPath: EDITORIAL_PLAN_PRODUCT_WORKER_PATH_V1,
+    environment: env,
   });
+  return result.configured
+    ? Object.freeze({ configured: true, reason: null, workerUrl: result.workerUrl })
+    : Object.freeze({ configured: false, reason: result.reason, workerUrl: null });
 }
 
 function processEnvironment(): EditorialPlanProductDispatchEnvironmentV1 {
@@ -243,36 +171,19 @@ function processEnvironment(): EditorialPlanProductDispatchEnvironmentV1 {
   };
 }
 
-function unconfigured(
-  reason: Exclude<EditorialPlanProductDispatchConfigurationV1,
-    { configured: true }>['reason'],
-): EditorialPlanProductDispatchConfigurationV1 {
-  return { configured: false, reason, workerUrl: null };
-}
-
-function httpsOrigin(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password
-      || url.search || url.hash) return null;
-    return url.origin;
-  } catch {
-    return null;
+function requireConfiguration(
+  env: EditorialPlanProductDispatchEnvironmentV1,
+): Extract<DurableWorkflowQStashDispatchConfigurationV1, { configured: true }> {
+  const result = resolveDurableWorkflowQStashDispatchConfigurationV1({
+    workerPath: EDITORIAL_PLAN_PRODUCT_WORKER_PATH_V1,
+    environment: env,
+  });
+  if (!result.configured) {
+    throw new EditorialPlanProductDispatchErrorV1(
+      `EDITORIAL_PLAN_PRODUCT_DISPATCH_${result.reason}`,
+    );
   }
-}
-
-function clean(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  return normalized || undefined;
-}
-
-function optionalIdentity(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    return requireIdentity(value, 'MESSAGE_ID');
-  } catch {
-    return null;
-  }
+  return result;
 }
 
 function requireIdentity(value: string, label: string): string {
