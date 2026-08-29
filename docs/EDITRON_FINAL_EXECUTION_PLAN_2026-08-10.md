@@ -8337,6 +8337,30 @@ heartbeat owner/version/policy hashes to the bound receipt before any budget
 or materialization access. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render runtime-policy enforcement Phase 3F-C7as (2026-08-30):**
+commit `912e4fd0b` seals preparation-job input V1.3. The canonical runtime-
+policy receipt is now mandatory and always participates in payload,
+dependencies, binding and operation identity; a V1.2 payload or omitted receipt
+fails instead of being promoted. The worker compares the injected execution-
+budget owner, retry owner and heartbeat policy owner by exact owner ID, owner
+version and policy SHA-256 before budget authorization, retry-policy access,
+terminal budget settlement or materialization. It also retains the exact
+materializer owner/version check.
+
+Terminal replay and cancellation now validate the same bindings before budget
+settlement. Any failure before owner validation cannot call an unverified retry
+or settlement owner. Ten adversarial ID/version/digest drift variants dead-
+letter before every policy-owner and materializer call. The sealed job/worker
+suites pass 22/22, the full native-media integration cluster passes 123/123,
+and repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_RUNTIME_POLICY_V1_3_ENFORCED_LIVE_OWNERS_AND_DISPATCH_OPEN`.
+
+This is contract and worker convergence only. No Finance-backed budget owner,
+calibrated retry/retention policy, measured heartbeat/lease policy, production
+composition root, live redelivery or hosted dispatch exists yet. Those must be
+supplied and proven before Queue item 3 can reach the authenticated render
+route. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
