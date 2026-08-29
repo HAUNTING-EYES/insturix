@@ -6,6 +6,7 @@ import { computeSpeedSegments } from '@/lib/editron/utils/keyframe-math';
 
 import {
   parseAudioSampleRangeV1,
+  parseCanonicalMediaTimeV1,
   parseExactRationalRateV1,
   parsePresentationEpochV1,
   parseSourcePositionV1,
@@ -24,6 +25,15 @@ import {
   readMediaSourcePtsCadenceMapAssetStateV2,
   type MediaSourcePtsCadenceMapAssetStateInputV2,
 } from './media-source-pts-cadence-map-asset-state-v2';
+import type {
+  MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3,
+} from './media-source-pts-cadence-epoch-artifact-verifier-v3';
+import {
+  readMediaSourcePtsCadenceEpochPresentationWindowV3,
+  type MediaSourcePtsCadenceEpochPresentationWindowResultV3,
+  type MediaSourcePtsCadenceEpochPresentationWindowV3,
+  type MediaSourcePtsCadenceEpochWindowResourcePolicyV3,
+} from './media-source-pts-cadence-epoch-window-reader-v3';
 import {
   readMediaSourcePtsCadencePresentationWindowV2,
   type MediaSourcePtsCadenceFrameBatchReaderV2,
@@ -34,6 +44,10 @@ import {
 import type {
   MediaSourcePtsCadenceManifestIndexSerializationV2,
 } from './media-source-pts-cadence-manifest-index-v2';
+import {
+  readMediaSourcePtsCadenceMapAssetStateV3,
+  type MediaSourcePtsCadenceMapAssetStateInputV3,
+} from './media-source-pts-cadence-map-asset-owner-v3';
 import {
   assertMediaSourceVersionV1,
 } from './media-source-version-v1';
@@ -51,6 +65,10 @@ export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2 =
   'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2' as const;
 export const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2 =
   'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V2' as const;
+export const VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3 =
+  'EDITRON_VERIFIED_VIDEO_SOURCE_EPOCH_TIME_BINDING_V3' as const;
+export const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3 =
+  'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V3' as const;
 export const VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2 =
   'PRESERVE_REAL_TIME_NEAREST' as const;
 export const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2 = 100_000;
@@ -120,6 +138,62 @@ export type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
       transform: VideoSourceTimestampConformV2;
     }
   | Extract<MediaSourcePtsCadencePresentationWindowResultV2, { disposition: 'UNVERIFIABLE' }>
+>;
+
+export type VerifiedVideoSourceEpochTimeBindingV3 = Readonly<{
+  schemaVersion: 3;
+  kind: typeof VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3;
+  assetId: string;
+  sourceVersionSha256: string;
+  storageVersionSha256: string;
+  sourceBindingSha256: string;
+  technicalObservationSha256: string;
+  sourcePtsCadenceMapStateSha256V3: string;
+  mapBindingSha256: string;
+  terminalReceiptSha256: string;
+  verificationSha256: string;
+  epochIndexContentSha256: string;
+  streamId: string;
+  videoStreamIndex: number;
+  sourceTimebase: ExactRationalRateV1;
+  sourceCadence: Readonly<
+    | { kind: 'CFR'; durationTicks: string }
+    | { kind: 'VFR' }
+  >;
+  totalSourceFrameCount: string;
+  bindingSha256: string;
+}>;
+
+export type VideoSourceTimestampConformV3 = Readonly<{
+  schemaVersion: 3;
+  kind: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3;
+  writerAuthority: typeof PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1;
+  policy: typeof VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2;
+  evidenceStatus: 'HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED';
+  sourceBinding: VerifiedVideoSourceEpochTimeBindingV3;
+  sourceWindowSha256: string;
+  presentationWindowEvidenceSha256: string;
+  streamId: string;
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  queryCount: string;
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  frameSelections: VideoSourceTimestampConformV2['frameSelections'];
+  audioMapping: VideoSourceTimestampConformV2['audioMapping'];
+  transformSha256: string;
+}>;
+
+export type VideoSourceTimestampConformFromEpochIndexResultV3 = Readonly<
+  | {
+      disposition: 'CONFORM_CREATED';
+      presentationWindow: MediaSourcePtsCadenceEpochPresentationWindowV3;
+      transform: VideoSourceTimestampConformV3;
+    }
+  | Extract<
+      MediaSourcePtsCadenceEpochPresentationWindowResultV3,
+      { disposition: 'UNVERIFIABLE' }
+    >
 >;
 
 type VideoSourceTimestampConformInputV2 = Readonly<{
@@ -328,6 +402,91 @@ function createVideoSourceTimestampConformWithEvidenceV2(
     input.presentationWindowEvidenceSha256,
     'VIDEO_SOURCE_CONFORM_WINDOW_EVIDENCE_INVALID',
   );
+  const core = createTimestampConformSelectionCoreV2({
+    sourceScope: sourceScopeForBindingV1(sourceBinding),
+    streamId: input.streamId,
+    epochs: input.epochs,
+    sourceFrames: input.sourceFrames,
+    projectRate: input.projectRate,
+    timelineStartFrame: input.timelineStartFrame,
+    timelineFrameQueries: input.timelineFrameQueries,
+    sourceAnchor: input.sourceAnchor,
+    resourcePolicy: input.resourcePolicy,
+    ...(input.audio === undefined ? {} : { audio: input.audio }),
+  });
+  const sourceWindowMaterial = {
+    sourceBindingSha256: sourceBinding.bindingSha256,
+    presentationWindowEvidenceSha256,
+    presentationWindowEvidenceStatus: input.presentationWindowEvidenceStatus,
+    streamId: core.streamId,
+    epochs: core.epochs,
+    sourceFrames: core.sourceFrames,
+    resourcePolicy: core.resourcePolicy,
+  };
+  const material = {
+    schemaVersion: 2 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2,
+    writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
+    policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
+    evidenceStatus,
+    sourceBindingSha256: sourceBinding.bindingSha256,
+    sourceVersionSha256: sourceBinding.sourceVersionSha256,
+    mapBindingSha256: sourceBinding.mapBindingSha256,
+    sourceWindowSha256: hashEditronCanonicalJsonV1(sourceWindowMaterial),
+    presentationWindowEvidenceSha256,
+    streamId: core.streamId,
+    projectRate: core.projectRate,
+    timelineStartFrame: core.timelineStartFrame,
+    queryCount: String(core.timelineFrameQueries.length),
+    sourceAnchor: core.sourceAnchor,
+    resourcePolicy: core.resourcePolicy,
+    frameSelections: core.frameSelections,
+    audioMapping: core.audioMapping,
+  };
+  return frozen({ ...material, transformSha256: hashEditronCanonicalJsonV1(material) });
+}
+
+type TimestampConformSourceScopeV2 = Readonly<{
+  bindingSha256: string;
+  sourceVersionSha256: string;
+  mapBindingSha256: string;
+  sourceTimebase: ExactRationalRateV1;
+  sourceCadence: Readonly<{ kind: 'CFR'; durationTicks: string } | { kind: 'VFR' }>;
+  totalSourceFrameCount: string;
+}>;
+
+type TimestampConformSelectionCoreInputV2 = Readonly<{
+  sourceScope: TimestampConformSourceScopeV2;
+  streamId: string;
+  epochs: readonly PresentationEpochV1[];
+  sourceFrames: readonly VideoSourceTimestampConformFrameV2[];
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  timelineFrameQueries: readonly string[];
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  audio?: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+  }>;
+}>;
+
+function createTimestampConformSelectionCoreV2(
+  input: TimestampConformSelectionCoreInputV2,
+): Readonly<{
+  streamId: string;
+  epochs: readonly PresentationEpochV1[];
+  sourceFrames: readonly VideoSourceTimestampConformFrameV2[];
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  timelineFrameQueries: readonly string[];
+  sourceAnchor: SourcePositionV1;
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  frameSelections: VideoSourceTimestampConformV2['frameSelections'];
+  audioMapping: VideoSourceTimestampConformV2['audioMapping'];
+}> {
+  const sourceScope = normalizeTimestampConformSourceScopeV2(input.sourceScope);
   const streamId = boundedText(input.streamId, 'VIDEO_SOURCE_CONFORM_STREAM_INVALID');
   const projectRate = parseExactRationalRateV1(input.projectRate);
   const timelineStartFrame = nonNegativeIntegerText(
@@ -340,16 +499,19 @@ function createVideoSourceTimestampConformWithEvidenceV2(
     timelineStartFrame,
     resourcePolicy.maxFrameQueries,
   );
-  const sourceTimebase = parseExactRationalRateV1(sourceBinding.sourceTimebase);
-  const epochs = normalizeTimestampConformEpochsV2(input.epochs, streamId, sourceTimebase);
+  const epochs = normalizeTimestampConformEpochsV2(
+    input.epochs,
+    streamId,
+    sourceScope.sourceTimebase,
+  );
   const sourceFrames = normalizeTimestampConformFramesV2(
     input.sourceFrames,
-    sourceBinding,
+    sourceScope,
     epochs,
     resourcePolicy.maxSourceFrames,
   );
   const sourceAnchor = parseSourcePositionV1(input.sourceAnchor);
-  if (sourceAnchor.sourceVersionSha256 !== sourceBinding.sourceVersionSha256
+  if (sourceAnchor.sourceVersionSha256 !== sourceScope.sourceVersionSha256
     || sourceAnchor.streamId !== streamId) {
     throw new Error('VIDEO_SOURCE_CONFORM_ANCHOR_SCOPE_MISMATCH');
   }
@@ -374,7 +536,6 @@ function createVideoSourceTimestampConformWithEvidenceV2(
     && anchorPts < BigInt(frame.presentationTimestampTicks) + BigInt(frame.durationTicks));
   if (!anchorFrame) throw new Error('VIDEO_SOURCE_CONFORM_ANCHOR_NOT_IN_WINDOW');
   const anchorTime = canonicalTimeForSourcePtsV2(anchorEpoch, anchorPts);
-
   const frameSelections = timelineFrameQueries.map((timelineFrameText) => {
     const timelineFrame = BigInt(timelineFrameText);
     const offset = timelineFrame - BigInt(timelineStartFrame);
@@ -397,43 +558,108 @@ function createVideoSourceTimestampConformWithEvidenceV2(
       selection: selected.selection,
     };
   });
-  const sourceWindowMaterial = {
-    sourceBindingSha256: sourceBinding.bindingSha256,
-    presentationWindowEvidenceSha256,
-    presentationWindowEvidenceStatus: input.presentationWindowEvidenceStatus,
+  const audioMapping = input.audio === undefined
+    ? null
+    : createTimestampConformAudioMappingV2(input.audio, projectRate, timelineStartFrame);
+  return frozen({
     streamId,
     epochs,
     sourceFrames,
-    resourcePolicy,
-  };
-  const audioMapping = input.audio === undefined
-    ? null
-    : createTimestampConformAudioMappingV2(
-        input.audio,
-        projectRate,
-        timelineStartFrame,
-      );
-  const material = {
-    schemaVersion: 2 as const,
-    kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2,
-    writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
-    policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
-    evidenceStatus,
-    sourceBindingSha256: sourceBinding.bindingSha256,
-    sourceVersionSha256: sourceBinding.sourceVersionSha256,
-    mapBindingSha256: sourceBinding.mapBindingSha256,
-    sourceWindowSha256: hashEditronCanonicalJsonV1(sourceWindowMaterial),
-    presentationWindowEvidenceSha256,
-    streamId,
     projectRate,
     timelineStartFrame,
-    queryCount: String(timelineFrameQueries.length),
+    timelineFrameQueries,
     sourceAnchor,
     resourcePolicy,
     frameSelections,
     audioMapping,
-  };
-  return frozen({ ...material, transformSha256: hashEditronCanonicalJsonV1(material) });
+  });
+}
+
+function sourceScopeForBindingV1(
+  binding: VerifiedVideoSourceTimeBindingV1,
+): TimestampConformSourceScopeV2 {
+  return normalizeTimestampConformSourceScopeV2({
+    bindingSha256: binding.bindingSha256,
+    sourceVersionSha256: binding.sourceVersionSha256,
+    mapBindingSha256: binding.mapBindingSha256,
+    sourceTimebase: parseExactRationalRateV1(binding.sourceTimebase),
+    sourceCadence: binding.sourceCadence,
+    totalSourceFrameCount: binding.totalSourceFrameCount,
+  });
+}
+
+function sourceScopeForEpochBindingV3(
+  binding: VerifiedVideoSourceEpochTimeBindingV3,
+): TimestampConformSourceScopeV2 {
+  return normalizeTimestampConformSourceScopeV2({
+    bindingSha256: binding.bindingSha256,
+    sourceVersionSha256: binding.sourceVersionSha256,
+    mapBindingSha256: binding.mapBindingSha256,
+    sourceTimebase: binding.sourceTimebase,
+    sourceCadence: binding.sourceCadence,
+    totalSourceFrameCount: binding.totalSourceFrameCount,
+  });
+}
+
+function normalizeTimestampConformSourceScopeV2(
+  value: TimestampConformSourceScopeV2,
+): TimestampConformSourceScopeV2 {
+  if (!value || typeof value !== 'object') {
+    throw new Error('VIDEO_SOURCE_CONFORM_SOURCE_SCOPE_INVALID');
+  }
+  const cadence = value.sourceCadence?.kind === 'VFR'
+    ? { kind: 'VFR' as const }
+    : value.sourceCadence?.kind === 'CFR'
+      ? {
+          kind: 'CFR' as const,
+          durationTicks: positiveIntegerText(
+            value.sourceCadence.durationTicks,
+            'VIDEO_SOURCE_CONFORM_SOURCE_CADENCE_INVALID',
+          ),
+        }
+      : (() => {
+          throw new Error('VIDEO_SOURCE_CONFORM_SOURCE_CADENCE_INVALID');
+        })();
+  return frozen({
+    bindingSha256: sha256Text(
+      value.bindingSha256,
+      'VIDEO_SOURCE_CONFORM_SOURCE_BINDING_INVALID',
+    ),
+    sourceVersionSha256: sha256Text(
+      value.sourceVersionSha256,
+      'VIDEO_SOURCE_CONFORM_SOURCE_VERSION_INVALID',
+    ),
+    mapBindingSha256: sha256Text(
+      value.mapBindingSha256,
+      'VIDEO_SOURCE_CONFORM_MAP_BINDING_INVALID',
+    ),
+    sourceTimebase: parseExactRationalRateV1(value.sourceTimebase),
+    sourceCadence: cadence,
+    totalSourceFrameCount: positiveIntegerText(
+      value.totalSourceFrameCount,
+      'VIDEO_SOURCE_CONFORM_SOURCE_FRAME_COUNT_INVALID',
+    ),
+  });
+}
+
+function epochBindingMatchesWindowV3(
+  binding: VerifiedVideoSourceEpochTimeBindingV3,
+  window: MediaSourcePtsCadenceEpochPresentationWindowV3,
+): boolean {
+  return binding.assetId === window.assetId
+    && binding.sourceVersionSha256 === window.sourceVersionSha256
+    && binding.storageVersionSha256 === window.storageVersionSha256
+    && binding.sourceBindingSha256 === window.sourceBindingSha256
+    && binding.technicalObservationSha256 === window.technicalObservationSha256
+    && binding.sourcePtsCadenceMapStateSha256V3 === window.sourcePtsCadenceMapStateSha256V3
+    && binding.mapBindingSha256 === window.mapBindingSha256
+    && binding.terminalReceiptSha256 === window.terminalReceiptSha256
+    && binding.verificationSha256 === window.verificationSha256
+    && binding.epochIndexContentSha256 === window.epochIndexContentSha256
+    && binding.streamId === window.streamId
+    && binding.videoStreamIndex === window.videoStreamIndex
+    && sameRateV2(binding.sourceTimebase, window.sourceTimebase)
+    && BigInt(window.endExclusiveFrameOrdinal) <= BigInt(binding.totalSourceFrameCount);
 }
 
 /**
@@ -510,6 +736,315 @@ export async function createVideoSourceTimestampConformFromManifestIndexV2(
     ...(input.audio === undefined ? {} : { audio: input.audio }),
   });
   return frozen({ disposition: 'CONFORM_CREATED' as const, presentationWindow, transform });
+}
+
+/**
+ * Derives the only V3 timestamp binding accepted by the native-media consumer
+ * from a current, source-bound, terminal MEDIA_ASSETS record. A caller cannot
+ * promote an index sidecar or verification hash into this binding by itself.
+ */
+export function resolveVerifiedVideoSourceEpochTimeBindingV3(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+): VerifiedVideoSourceEpochTimeBindingV3 | null {
+  const state = readMediaSourcePtsCadenceMapAssetStateV3(asset);
+  if (!state) return null;
+  const record = state.sourcePtsCadenceMapV3;
+  const terminal = record.terminalReceipt;
+  const verification = record.verificationReceipt;
+  if (record.status !== 'COMPLETE' || terminal === null || verification === null
+    || terminal.disposition !== 'PUBLISHED'
+    || terminal.verificationSha256 !== verification.verificationSha256) {
+    return null;
+  }
+  const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
+  const sourceCadence = verification.verifiedEpochCount === 1
+    && verification.observedCadence.kind === 'UNIFORM_FRAME_DURATIONS'
+    ? {
+        kind: 'CFR' as const,
+        durationTicks: verification.observedCadence.durationTicks,
+      }
+    : { kind: 'VFR' as const };
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3,
+    assetId: sourceVersion.assetId,
+    sourceVersionSha256: sourceVersion.sourceVersionSha256,
+    storageVersionSha256: sourceVersion.storageVersion.storageVersionSha256,
+    sourceBindingSha256: record.source.sourceBindingSha256,
+    technicalObservationSha256: record.source.technicalObservationSha256,
+    sourcePtsCadenceMapStateSha256V3: state.sourcePtsCadenceMapStateSha256V3,
+    mapBindingSha256: record.source.mapBindingSha256,
+    terminalReceiptSha256: terminal.terminalReceiptSha256,
+    verificationSha256: verification.verificationSha256,
+    epochIndexContentSha256: record.epochIndexSidecar.contentSha256,
+    streamId: `video-${String(record.source.videoStreamIndex)}`,
+    videoStreamIndex: record.source.videoStreamIndex,
+    sourceTimebase: parseExactRationalRateV1(record.source.sourceTimebase),
+    sourceCadence,
+    totalSourceFrameCount: verification.verifiedFrameCount,
+  };
+  return frozen({ ...material, bindingSha256: hashEditronCanonicalJsonV1(material) });
+}
+
+/**
+ * Converts a bounded V3 epoch window into exact preserve-real-time selections.
+ * The function reads no media bytes until the current asset state and any
+ * unqualified proxy/master relation have been rejected.
+ */
+export async function createVideoSourceTimestampConformFromVerifiedEpochIndexV3(
+  input: Readonly<{
+    asset: MediaSourcePtsCadenceMapAssetStateInputV3;
+    storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+    firstFrameOrdinal: string;
+    endExclusiveFrameOrdinal: string;
+    windowResourcePolicy: MediaSourcePtsCadenceEpochWindowResourcePolicyV3;
+    projectRate: ExactRationalRateV1;
+    timelineStartFrame: string;
+    timelineFrameQueries: readonly string[];
+    sourceAnchor: SourcePositionV1;
+    resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+    audio?: Readonly<{
+      sourceRange: AudioSampleRangeV1;
+      sourceAnchorSampleFrame: string;
+      endExclusiveTimelineFrame: string;
+    }>;
+    proxyMasterMapping?: Readonly<{
+      disposition: 'UNQUALIFIED';
+      relationSha256: string;
+    }>;
+  }>,
+): Promise<VideoSourceTimestampConformFromEpochIndexResultV3> {
+  if (input.proxyMasterMapping !== undefined) {
+    sha256Text(
+      input.proxyMasterMapping.relationSha256,
+      'VIDEO_SOURCE_CONFORM_PROXY_MASTER_RELATION_INVALID',
+    );
+    throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
+  }
+  const sourceBinding = resolveVerifiedVideoSourceEpochTimeBindingV3(input.asset);
+  if (sourceBinding === null) {
+    return frozen({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: 'WINDOW_ASSET_NOT_VERIFIED' as const,
+      failedObjectKey: null,
+      failedBatchSequence: null,
+      diagnostic: null,
+    });
+  }
+  const presentationWindow = await readMediaSourcePtsCadenceEpochPresentationWindowV3({
+    asset: input.asset,
+    storedObjectReader: input.storedObjectReader,
+    firstFrameOrdinal: input.firstFrameOrdinal,
+    endExclusiveFrameOrdinal: input.endExclusiveFrameOrdinal,
+    resourcePolicy: input.windowResourcePolicy,
+  });
+  if (presentationWindow.disposition === 'UNVERIFIABLE') return presentationWindow;
+  if (!epochBindingMatchesWindowV3(sourceBinding, presentationWindow)) {
+    return frozen({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: 'WINDOW_INDEX_SCOPE_MISMATCH' as const,
+      failedObjectKey: null,
+      failedBatchSequence: null,
+      diagnostic: 'VERIFIED_EPOCH_BINDING_WINDOW_MISMATCH',
+    });
+  }
+
+  const core = createTimestampConformSelectionCoreV2({
+    sourceScope: sourceScopeForEpochBindingV3(sourceBinding),
+    streamId: presentationWindow.streamId,
+    epochs: presentationWindow.epochs,
+    sourceFrames: presentationWindow.frames,
+    projectRate: input.projectRate,
+    timelineStartFrame: input.timelineStartFrame,
+    timelineFrameQueries: input.timelineFrameQueries,
+    sourceAnchor: input.sourceAnchor,
+    resourcePolicy: input.resourcePolicy,
+    ...(input.audio === undefined ? {} : { audio: input.audio }),
+  });
+  const sourceWindowMaterial = {
+    sourceBindingSha256: sourceBinding.bindingSha256,
+    presentationWindowEvidenceSha256:
+      presentationWindow.presentationWindowEvidenceSha256,
+    evidenceStatus: presentationWindow.evidenceStatus,
+    streamId: core.streamId,
+    epochs: core.epochs,
+    sourceFrames: core.sourceFrames,
+    resourcePolicy: core.resourcePolicy,
+  };
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3,
+    writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
+    policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
+    evidenceStatus: 'HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED' as const,
+    sourceBinding,
+    sourceWindowSha256: hashEditronCanonicalJsonV1(sourceWindowMaterial),
+    presentationWindowEvidenceSha256:
+      presentationWindow.presentationWindowEvidenceSha256,
+    streamId: core.streamId,
+    projectRate: core.projectRate,
+    timelineStartFrame: core.timelineStartFrame,
+    queryCount: String(core.timelineFrameQueries.length),
+    sourceAnchor: core.sourceAnchor,
+    resourcePolicy: core.resourcePolicy,
+    frameSelections: core.frameSelections,
+    audioMapping: core.audioMapping,
+  };
+  const transform = assertVideoSourceTimestampConformV3({
+    ...material,
+    transformSha256: hashEditronCanonicalJsonV1(material),
+  });
+  return frozen({ disposition: 'CONFORM_CREATED' as const, presentationWindow, transform });
+}
+
+export function assertVerifiedVideoSourceEpochTimeBindingV3(
+  value: unknown,
+): VerifiedVideoSourceEpochTimeBindingV3 {
+  const record = objectRecord(value, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_INVALID');
+  exactObjectKeys(record, [
+    'assetId', 'bindingSha256', 'epochIndexContentSha256', 'kind', 'mapBindingSha256',
+    'schemaVersion', 'sourceBindingSha256', 'sourceCadence',
+    'sourcePtsCadenceMapStateSha256V3', 'sourceTimebase', 'sourceVersionSha256',
+    'storageVersionSha256', 'streamId', 'technicalObservationSha256',
+    'terminalReceiptSha256', 'totalSourceFrameCount', 'verificationSha256',
+    'videoStreamIndex',
+  ], 'VIDEO_SOURCE_EPOCH_TIME_BINDING_FIELDS_INVALID');
+  if (record.schemaVersion !== 3 || record.kind !== VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3) {
+    throw new Error('VIDEO_SOURCE_EPOCH_TIME_BINDING_INVALID');
+  }
+  const sourceCadenceRecord = objectRecord(
+    record.sourceCadence,
+    'VIDEO_SOURCE_EPOCH_TIME_BINDING_CADENCE_INVALID',
+  );
+  const sourceCadence = sourceCadenceRecord.kind === 'VFR'
+    ? (() => {
+        exactObjectKeys(
+          sourceCadenceRecord,
+          ['kind'],
+          'VIDEO_SOURCE_EPOCH_TIME_BINDING_CADENCE_FIELDS_INVALID',
+        );
+        return { kind: 'VFR' as const };
+      })()
+    : (() => {
+        exactObjectKeys(
+          sourceCadenceRecord,
+          ['durationTicks', 'kind'],
+          'VIDEO_SOURCE_EPOCH_TIME_BINDING_CADENCE_FIELDS_INVALID',
+        );
+        if (sourceCadenceRecord.kind !== 'CFR') {
+          throw new Error('VIDEO_SOURCE_EPOCH_TIME_BINDING_CADENCE_INVALID');
+        }
+        return {
+          kind: 'CFR' as const,
+          durationTicks: positiveIntegerText(
+            sourceCadenceRecord.durationTicks,
+            'VIDEO_SOURCE_EPOCH_TIME_BINDING_DURATION_INVALID',
+          ),
+        };
+      })();
+  const videoStreamIndex = nonNegativeSafeInteger(
+    record.videoStreamIndex,
+    'VIDEO_SOURCE_EPOCH_TIME_BINDING_STREAM_INDEX_INVALID',
+  );
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3,
+    assetId: boundedText(record.assetId, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_ASSET_INVALID'),
+    sourceVersionSha256: sha256Text(record.sourceVersionSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_SOURCE_INVALID'),
+    storageVersionSha256: sha256Text(record.storageVersionSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_STORAGE_INVALID'),
+    sourceBindingSha256: sha256Text(record.sourceBindingSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_QUALIFICATION_INVALID'),
+    technicalObservationSha256: sha256Text(record.technicalObservationSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_OBSERVATION_INVALID'),
+    sourcePtsCadenceMapStateSha256V3: sha256Text(record.sourcePtsCadenceMapStateSha256V3, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_STATE_INVALID'),
+    mapBindingSha256: sha256Text(record.mapBindingSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_MAP_INVALID'),
+    terminalReceiptSha256: sha256Text(record.terminalReceiptSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_TERMINAL_INVALID'),
+    verificationSha256: sha256Text(record.verificationSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_VERIFICATION_INVALID'),
+    epochIndexContentSha256: sha256Text(record.epochIndexContentSha256, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_INDEX_INVALID'),
+    streamId: boundedText(record.streamId, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_STREAM_INVALID'),
+    videoStreamIndex,
+    sourceTimebase: parseExactRationalRateV1(record.sourceTimebase),
+    sourceCadence,
+    totalSourceFrameCount: positiveIntegerText(record.totalSourceFrameCount, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_FRAME_COUNT_INVALID'),
+  };
+  if (material.streamId !== `video-${String(videoStreamIndex)}`
+    || record.bindingSha256 !== hashEditronCanonicalJsonV1(material)) {
+    throw new Error('VIDEO_SOURCE_EPOCH_TIME_BINDING_HASH_OR_STREAM_MISMATCH');
+  }
+  return frozen({ ...material, bindingSha256: record.bindingSha256 as string });
+}
+
+export function assertVideoSourceTimestampConformV3(
+  value: unknown,
+): VideoSourceTimestampConformV3 {
+  const record = objectRecord(value, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_INVALID');
+  exactObjectKeys(record, [
+    'audioMapping', 'evidenceStatus', 'frameSelections', 'kind', 'policy',
+    'presentationWindowEvidenceSha256', 'projectRate', 'queryCount',
+    'resourcePolicy', 'schemaVersion', 'sourceAnchor', 'sourceBinding',
+    'sourceWindowSha256', 'streamId', 'timelineStartFrame', 'transformSha256',
+    'writerAuthority',
+  ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_FIELDS_INVALID');
+  if (record.schemaVersion !== 3
+    || record.kind !== VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3
+    || record.writerAuthority !== PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1
+    || record.policy !== VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2
+    || record.evidenceStatus !== 'HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED') {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_INVALID');
+  }
+  const sourceBinding = assertVerifiedVideoSourceEpochTimeBindingV3(record.sourceBinding);
+  const projectRate = parseExactRationalRateV1(record.projectRate);
+  const timelineStartFrame = nonNegativeIntegerText(
+    record.timelineStartFrame,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_TIMELINE_START_INVALID',
+  );
+  const resourcePolicy = normalizeTimestampConformResourcePolicyV2(
+    record.resourcePolicy as VideoSourceTimestampConformResourcePolicyV2,
+  );
+  const frameSelections = normalizePersistedFrameSelectionsV3(
+    record.frameSelections,
+    timelineStartFrame,
+    resourcePolicy.maxFrameQueries,
+    projectRate,
+  );
+  const queryCount = positiveIntegerText(
+    record.queryCount,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_QUERY_COUNT_INVALID',
+  );
+  if (BigInt(queryCount) !== BigInt(frameSelections.length)) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_QUERY_COUNT_MISMATCH');
+  }
+  const sourceAnchor = parseSourcePositionV1(record.sourceAnchor);
+  if (sourceAnchor.sourceVersionSha256 !== sourceBinding.sourceVersionSha256
+    || sourceAnchor.streamId !== sourceBinding.streamId) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_ANCHOR_SCOPE_MISMATCH');
+  }
+  const audioMapping = normalizePersistedAudioMappingV3(
+    record.audioMapping,
+    projectRate,
+    timelineStartFrame,
+  );
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3,
+    writerAuthority: PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1,
+    policy: VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2,
+    evidenceStatus: 'HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED' as const,
+    sourceBinding,
+    sourceWindowSha256: sha256Text(record.sourceWindowSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_WINDOW_INVALID'),
+    presentationWindowEvidenceSha256: sha256Text(record.presentationWindowEvidenceSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_EVIDENCE_INVALID'),
+    streamId: boundedText(record.streamId, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_STREAM_INVALID'),
+    projectRate,
+    timelineStartFrame,
+    queryCount,
+    sourceAnchor,
+    resourcePolicy,
+    frameSelections,
+    audioMapping,
+  };
+  if (material.streamId !== sourceBinding.streamId
+    || record.transformSha256 !== hashEditronCanonicalJsonV1(material)) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_HASH_OR_STREAM_MISMATCH');
+  }
+  return frozen({ ...material, transformSha256: record.transformSha256 as string });
 }
 
 export function createProjectVideoSourceTimeTransformV1(input: Readonly<{
@@ -819,7 +1354,7 @@ function normalizeTimestampConformEpochsV2(
 
 function normalizeTimestampConformFramesV2(
   value: readonly VideoSourceTimestampConformFrameV2[],
-  sourceBinding: VerifiedVideoSourceTimeBindingV1,
+  sourceBinding: TimestampConformSourceScopeV2,
   epochs: readonly PresentationEpochV1[],
   maximum: number,
 ): readonly VideoSourceTimestampConformFrameV2[] {
@@ -877,6 +1412,137 @@ function normalizeTimestampConformFramesV2(
     }
   }
   return frames;
+}
+
+function normalizePersistedFrameSelectionsV3(
+  value: unknown,
+  timelineStartFrame: string,
+  maximum: number,
+  projectRate: ExactRationalRateV1,
+): VideoSourceTimestampConformV3['frameSelections'] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTIONS_INVALID');
+  }
+  const start = BigInt(timelineStartFrame);
+  return value.map((candidate, index) => {
+    const record = objectRecord(
+      candidate,
+      'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_INVALID',
+    );
+    exactObjectKeys(record, [
+      'epochId', 'presentationTimestampTicks', 'selection', 'sourceCanonicalTime',
+      'sourceFrameOrdinal', 'timelineFrame', 'timelineTime',
+    ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_FIELDS_INVALID');
+    const timelineFrame = nonNegativeIntegerText(
+      record.timelineFrame,
+      'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_TIMELINE_INVALID',
+    );
+    if (BigInt(timelineFrame) < start
+      || (index > 0
+        && BigInt(timelineFrame)
+          <= BigInt((value[index - 1] as Record<string, unknown>).timelineFrame as string))) {
+      throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_ORDER_INVALID');
+    }
+    const timelineTime = parseCanonicalMediaTimeV1(record.timelineTime);
+    const expectedTimelineTime = canonicalTimeFromFractionV2(fractionV2(
+      BigInt(timelineFrame) * BigInt(projectRate.denominator),
+      BigInt(projectRate.numerator),
+    ));
+    if (timelineTime.ticks !== expectedTimelineTime.ticks
+      || timelineTime.timescale !== expectedTimelineTime.timescale) {
+      throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_TIME_MISMATCH');
+    }
+    const selection = record.selection;
+    if (selection !== 'COVERING_PRESENTATION'
+      && selection !== 'NEAREST_PREVIOUS'
+      && selection !== 'NEAREST_NEXT') {
+      throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_POLICY_INVALID');
+    }
+    return {
+      timelineFrame,
+      timelineTime,
+      sourceCanonicalTime: parseCanonicalMediaTimeV1(record.sourceCanonicalTime),
+      sourceFrameOrdinal: nonNegativeIntegerText(
+        record.sourceFrameOrdinal,
+        'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_ORDINAL_INVALID',
+      ),
+      epochId: boundedText(
+        record.epochId,
+        'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_EPOCH_INVALID',
+      ),
+      presentationTimestampTicks: integerText(
+        record.presentationTimestampTicks,
+        'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_SELECTION_PTS_INVALID',
+      ).toString(),
+      selection,
+    };
+  });
+}
+
+function normalizePersistedAudioMappingV3(
+  value: unknown,
+  projectRate: ExactRationalRateV1,
+  timelineStartFrame: string,
+): VideoSourceTimestampConformV3['audioMapping'] {
+  if (value === null) return null;
+  const record = objectRecord(value, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_INVALID');
+  exactObjectKeys(record, [
+    'endExclusiveSamplePosition', 'endExclusiveTimelineFrame', 'sourceAnchorSampleFrame',
+    'sourceRange', 'startSamplePosition',
+  ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_FIELDS_INVALID');
+  const sourceRange = parseAudioSampleRangeV1(record.sourceRange);
+  const sourceAnchorSampleFrame = nonNegativeIntegerText(
+    record.sourceAnchorSampleFrame,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_ANCHOR_INVALID',
+  );
+  const endExclusiveTimelineFrame = nonNegativeIntegerText(
+    record.endExclusiveTimelineFrame,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_END_INVALID',
+  );
+  const expected = createTimestampConformAudioMappingV2({
+    sourceRange,
+    sourceAnchorSampleFrame,
+    endExclusiveTimelineFrame,
+  }, projectRate, timelineStartFrame);
+  const startSamplePosition = normalizeExactAudioSamplePositionV3(record.startSamplePosition);
+  const endExclusiveSamplePosition = normalizeExactAudioSamplePositionV3(
+    record.endExclusiveSamplePosition,
+  );
+  if (hashEditronCanonicalJsonV1({
+    sourceRange,
+    sourceAnchorSampleFrame,
+    endExclusiveTimelineFrame,
+    startSamplePosition,
+    endExclusiveSamplePosition,
+  }) !== hashEditronCanonicalJsonV1(expected)) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_MISMATCH');
+  }
+  return expected;
+}
+
+function normalizeExactAudioSamplePositionV3(value: unknown): ExactAudioSamplePositionV2 {
+  const record = objectRecord(
+    value,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_INVALID',
+  );
+  exactObjectKeys(record, [
+    'denominator', 'disposition', 'numerator',
+  ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_FIELDS_INVALID');
+  const numerator = integerText(
+    record.numerator,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_NUMERATOR_INVALID',
+  ).toString();
+  const denominator = positiveIntegerText(
+    record.denominator,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_DENOMINATOR_INVALID',
+  );
+  const expectedDisposition = denominator === '1'
+    ? 'INTEGER_SAMPLE_FRAME' as const
+    : 'BETWEEN_SAMPLE_FRAMES' as const;
+  if (record.disposition !== expectedDisposition) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_DISPOSITION_INVALID');
+  }
+  return { numerator, denominator, disposition: expectedDisposition };
 }
 
 function normalizeTimestampConformQueriesV2(
@@ -1051,6 +1717,28 @@ function sameRateV2(left: ExactRationalRateV1, right: ExactRationalRateV1): bool
 function sha256Text(value: unknown, code: string): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error(code);
   return value;
+}
+
+function objectRecord(value: unknown, code: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(code);
+  return value as Record<string, unknown>;
+}
+
+function exactObjectKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  code: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new Error(code);
+  }
+}
+
+function nonNegativeSafeInteger(value: unknown, code: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error(code);
+  return Number(value);
 }
 
 function nonNegativeIntegerText(value: unknown, code: string): string {

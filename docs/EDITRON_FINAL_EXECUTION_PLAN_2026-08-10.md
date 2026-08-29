@@ -6489,6 +6489,63 @@ input/consumer behind the verified receipt. Dedicated live private storage,
 V3 scan/finalizer integration, V2-to-V3 migration policy, proxy/master relink
 and invalidation remain queue item 4.
 
+**Verified V3 epoch-window and native-decoder consumption contract Phase 3D
+(2026-08-29):** a bounded consumer can now proceed from the current terminal
+V3 `MEDIA_ASSETS` receipt to exact source-picture requests without accepting a
+caller-authored index or silently converting PTS to approximate frame numbers.
+`readMediaSourcePtsCadenceEpochPresentationWindowV3` rejects invalid,
+nonterminal or stale asset state before artifact access; preflights the verified
+index byte length; rereads and rechecks the selected index and immutable V2
+batch bytes against their recorded byte lengths, SHA-256 identities, source/
+map/stream/timebase scope and verification receipt; and issues a hash-bound,
+resource-bounded ordinal window containing the required explicit epochs. An
+oversized declared index stops before the injected storage reader is called.
+
+The existing `video-source-time-transform-v1` owner remains the sole picture-
+selection authority. It now derives a V3 binding only from the current
+`COMPLETE/PUBLISHED` source-bound state and can issue
+`HASH_VERIFIED_SOURCE_BOUND_EPOCH_V3_WINDOW_CONSUMED` nearest-conform
+selections across VFR durations, negative PTS, timestamp resets and declared
+gaps. Persisted V3 bindings/transforms have strict field, type, scope and
+canonical-hash validators. The frozen V1/V2 paths are unchanged, and an
+`UNQUALIFIED` proxy/master relation still stops before any sidecar read.
+
+`consumeNativeMediaTimestampTransformV1` adds a versioned decoder-batch port
+and consumption receipt. It re-derives the current source binding, rejects a
+stale transform before decode, deduplicates held/repeated pictures, and requests
+each unique picture by source/storage version, stream, epoch, frame ordinal and
+exact presentation timestamp. Decoder output must return the identical request
+scope plus bounded decoded bytes, geometry, orientation, pixel format, colour
+metadata, opaque picture handle and decoded-picture digest; missing, duplicate,
+cross-scope or over-budget output returns a named `UNVERIFIABLE` result. The
+receipt binds project/sequence/overlay identifiers, the declared ProjectService
+revision token, source and transform hashes, exact timeline-to-picture mapping
+and total decoded bytes. Audio is explicitly
+`SEPARATE_NATIVE_SAMPLE_DOMAIN_V1`: this video port may neither supply nor
+replace it, and any exact audio mapping is bound separately in the receipt.
+
+The real-lifecycle adversarial fixture uses a verified three-epoch VFR/reset/
+gap artifact and proves exact PTS requests, repeated-picture reuse, separate
+48 kHz audio ownership, tampered-batch rejection, pre-read byte ceilings,
+unqualified-proxy rejection, stale-source rejection, decoder-scope rejection,
+decoder resource enforcement and redacted decoder failure. Its focused suite
+passes 3/3. The expanded media/time regression cluster passes 211/211 across 35
+files; repository TypeScript passes with an explicit 8 GiB Node heap after the
+default 4 GiB process exhausted memory, and repository-wide quiet ESLint
+passes.
+
+This result is
+`V3_TIMESTAMP_WINDOW_AND_DECODER_CONSUMPTION_CONTRACT_IMPLEMENTED_RENDERERS_NOT_WIRED`.
+It is not visual playback or final-render proof. There is no production decoder
+adapter, ProjectService/preview/final-render caller, live current-revision check,
+production V3 scanner/finalizer, V2-to-V3 migration, dedicated private PTS
+write, or qualified proxy/master mapping. Queue item 3 therefore remains open:
+the next bounded subphase must implement one real timestamp-addressed native
+decoder/preview adapter behind this port and bind its input to the current
+ProjectService render revision without bypassing the existing renderer/form
+owners. Queue item 4 remains private storage, V3 ingest/finalization and exact
+proxy/master relink/invalidation.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
