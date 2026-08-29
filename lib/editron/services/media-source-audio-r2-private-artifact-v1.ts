@@ -19,6 +19,10 @@ import {
   type MediaSourceAudioPrivateArtifactPolicyV1,
   type MediaSourceAudioPrivateObjectReferenceV1,
 } from './media-source-audio-private-artifact-v1';
+import type {
+  MediaSourceAudioPcmByteStreamV1,
+  MediaSourceAudioPrivateArtifactStreamWriterV1,
+} from './media-source-audio-private-artifact-port-v1';
 import {
   serializeMediaSourceAudioSampleEpochMapV1,
   type MediaSourceAudioSampleEpochMapSerializationV1,
@@ -53,7 +57,8 @@ export type MediaSourceAudioPrivatePcmRangeReadV1 = Readonly<{
   rangeSha256: string;
 }>;
 
-export interface MediaSourceAudioPrivateArtifactStoreV1 {
+export interface MediaSourceAudioPrivateArtifactStoreV1
+  extends MediaSourceAudioPrivateArtifactStreamWriterV1 {
   writeArtifactSet(input: Readonly<{
     mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1;
     chunks: Iterable<MediaSourceAudioPcmChunkUploadV1>
@@ -108,16 +113,9 @@ export function createMediaSourceAudioR2PrivateArtifactStoreV1(input: Readonly<{
     return Object.freeze({ manifest, map, mapCanonicalJson });
   };
 
-  return {
+  const store: MediaSourceAudioPrivateArtifactStoreV1 = {
     async writeArtifactSet({ mapSerialization, chunks }) {
-      const canonicalMapSerialization = serializeMediaSourceAudioSampleEpochMapV1(
-        mapSerialization.map,
-      );
-      if (canonicalMapSerialization.canonicalJson !== mapSerialization.canonicalJson
-        || canonicalMapSerialization.byteLength !== mapSerialization.byteLength
-        || canonicalMapSerialization.contentSha256 !== mapSerialization.contentSha256) {
-        throw new Error('MEDIA_SOURCE_AUDIO_R2_MAP_SERIALIZATION_MISMATCH');
-      }
+      const canonicalMapSerialization = normalizeMapSerialization(mapSerialization);
       const map = canonicalMapSerialization.map;
       const mapReference = createMediaSourceAudioEpochMapArtifactReferenceV1({
         serialization: canonicalMapSerialization,
@@ -183,6 +181,21 @@ export function createMediaSourceAudioR2PrivateArtifactStoreV1(input: Readonly<{
         contentType: 'application/json; charset=utf-8',
       });
       return manifestSerialization;
+    },
+    async writeArtifactSetFromPcmStream({ mapSerialization, pcmBytes }) {
+      const canonicalMapSerialization = normalizeMapSerialization(mapSerialization);
+      const plan = createMediaSourceAudioPcmChunkPlanV1({
+        map: canonicalMapSerialization.map,
+        policy,
+      });
+      return store.writeArtifactSet({
+        mapSerialization: canonicalMapSerialization,
+        chunks: partitionPcmByteStream({
+          pcmBytes,
+          plan,
+          maximumInputChunkBytes: policy.maxChunkBytes,
+        }),
+      });
     },
     readArtifactSet,
     async readPcmSampleRange(rangeInput) {
@@ -252,6 +265,71 @@ export function createMediaSourceAudioR2PrivateArtifactStoreV1(input: Readonly<{
       });
     },
   };
+  return store;
+}
+
+function normalizeMapSerialization(
+  mapSerialization: MediaSourceAudioSampleEpochMapSerializationV1,
+): MediaSourceAudioSampleEpochMapSerializationV1 {
+  const canonical = serializeMediaSourceAudioSampleEpochMapV1(mapSerialization.map);
+  if (canonical.canonicalJson !== mapSerialization.canonicalJson
+    || canonical.byteLength !== mapSerialization.byteLength
+    || canonical.contentSha256 !== mapSerialization.contentSha256) {
+    throw new Error('MEDIA_SOURCE_AUDIO_R2_MAP_SERIALIZATION_MISMATCH');
+  }
+  return canonical;
+}
+
+async function* partitionPcmByteStream(input: Readonly<{
+  pcmBytes: MediaSourceAudioPcmByteStreamV1;
+  plan: readonly MediaSourceAudioPcmChunkPlanEntryV1[];
+  maximumInputChunkBytes: number;
+}>): AsyncIterable<MediaSourceAudioPcmChunkUploadV1> {
+  if (!isPcmByteStream(input.pcmBytes)) {
+    throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_INVALID');
+  }
+  let planIndex = 0;
+  let outputOffset = 0;
+  let output = new Uint8Array(input.plan[0]!.byteLength);
+  for await (const sourceChunk of input.pcmBytes) {
+    if (!(sourceChunk instanceof Uint8Array) || sourceChunk.byteLength < 1) {
+      throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_INVALID');
+    }
+    if (sourceChunk.byteLength > input.maximumInputChunkBytes) {
+      throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_LIMIT_EXCEEDED');
+    }
+    let sourceOffset = 0;
+    while (sourceOffset < sourceChunk.byteLength) {
+      const planEntry = input.plan[planIndex];
+      if (!planEntry) {
+        throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_EXTRA_BYTES');
+      }
+      const copyLength = Math.min(
+        sourceChunk.byteLength - sourceOffset,
+        output.byteLength - outputOffset,
+      );
+      output.set(sourceChunk.subarray(sourceOffset, sourceOffset + copyLength), outputOffset);
+      sourceOffset += copyLength;
+      outputOffset += copyLength;
+      if (outputOffset !== output.byteLength) continue;
+      yield Object.freeze({ planEntry, bytes: output });
+      planIndex += 1;
+      outputOffset = 0;
+      if (planIndex < input.plan.length) {
+        output = new Uint8Array(input.plan[planIndex]!.byteLength);
+      }
+    }
+  }
+  if (planIndex !== input.plan.length || outputOffset !== 0) {
+    throw new Error('MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_COVERAGE_INCOMPLETE');
+  }
+}
+
+function isPcmByteStream(value: unknown): value is MediaSourceAudioPcmByteStreamV1 {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false;
+  const candidate = value as Record<PropertyKey, unknown>;
+  return typeof candidate[Symbol.iterator] === 'function'
+    || typeof candidate[Symbol.asyncIterator] === 'function';
 }
 
 async function writeAndVerifyExactObject(input: Readonly<{

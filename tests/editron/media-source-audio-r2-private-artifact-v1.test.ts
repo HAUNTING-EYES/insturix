@@ -63,6 +63,63 @@ describe('media source audio R2 private artifact V1', () => {
     expect(range.pcmBytes).toEqual(fixture.pcm.subarray(24, 72));
   });
 
+  it('reassembles arbitrarily fragmented PCM input under the store-owned chunk policy', async () => {
+    const fixture = audioFixture();
+    const memory = memoryR2();
+    const store = createStore(memory, fixture.policy);
+    const manifest = await store.writeArtifactSetFromPcmStream({
+      mapSerialization: fixture.mapSerialization,
+      pcmBytes: fragmentedBytes(fixture.pcm, [5, 17, 3, 25, 30]),
+    });
+
+    expect(memory.putKeys.slice(0, 3).map((key) => key.endsWith('.pcm')))
+      .toEqual([true, true, true]);
+    const complete = await store.readPcmSampleRange({
+      manifestReference: manifest.reference,
+      startSampleFrame: '0',
+      endExclusiveSampleFrame: '10',
+    });
+    expect(complete.pcmBytes).toEqual(fixture.pcm);
+  });
+
+  it('fails closed for invalid, empty, oversized, short, or extra PCM streams', async () => {
+    const fixture = audioFixture();
+    const cases = [
+      {
+        pcmBytes: {} as never,
+        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_INVALID',
+      },
+      {
+        pcmBytes: [new Uint8Array(0)],
+        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_INVALID',
+      },
+      {
+        pcmBytes: [fixture.pcm.slice(0, 33)],
+        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_CHUNK_LIMIT_EXCEEDED',
+      },
+      {
+        pcmBytes: fragmentedBytes(fixture.pcm.slice(0, 79), [32, 32, 15]),
+        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_COVERAGE_INCOMPLETE',
+      },
+      {
+        pcmBytes: fragmentedBytes(
+          Uint8Array.from([...fixture.pcm, 80]),
+          [32, 32, 17],
+        ),
+        error: 'MEDIA_SOURCE_AUDIO_R2_PCM_STREAM_EXTRA_BYTES',
+      },
+    ];
+    for (const testCase of cases) {
+      const memory = memoryR2();
+      const store = createStore(memory, fixture.policy);
+      await expect(store.writeArtifactSetFromPcmStream({
+        mapSerialization: fixture.mapSerialization,
+        pcmBytes: testCase.pcmBytes,
+      })).rejects.toThrow(testCase.error);
+      expect(manifestKeys(memory), testCase.error).toHaveLength(0);
+    }
+  });
+
   it('rejects unsafe storage and incomplete, extra, or aggregate-invalid uploads before a manifest exists', async () => {
     const fixture = audioFixture();
     const unsafeMemory = memoryR2();
@@ -244,6 +301,18 @@ async function* byteChunks(value: Uint8Array): AsyncIterable<Uint8Array> {
   const midpoint = Math.max(1, Math.floor(value.byteLength / 2));
   yield value.slice(0, midpoint);
   if (midpoint < value.byteLength) yield value.slice(midpoint);
+}
+
+async function* fragmentedBytes(
+  value: Uint8Array,
+  fragmentLengths: readonly number[],
+): AsyncIterable<Uint8Array> {
+  let offset = 0;
+  for (const length of fragmentLengths) {
+    yield value.slice(offset, offset + length);
+    offset += length;
+  }
+  if (offset !== value.byteLength) throw new Error('TEST_FRAGMENT_COVERAGE_INVALID');
 }
 
 function manifestKeys(memory: ReturnType<typeof memoryR2>): string[] {
