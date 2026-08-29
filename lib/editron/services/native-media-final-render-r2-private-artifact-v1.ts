@@ -83,26 +83,41 @@ export function createNativeMediaFinalRenderR2PrivateArtifactPortsV1(input: Read
   const stager: NativeMediaFinalRenderArtifactStagerPortV1 = {
     async stage(stageInput) {
       const artifact = normalizeStageInput(stageInput, policy);
+      throwIfAborted(artifact.abortSignal);
       await verifyLocalArtifact(artifact);
       const key = objectKey(artifact.artifactContentSha256);
+      const body = createReadStream(artifact.localPath);
+      const stopBodyRead = () => body.destroy();
+      artifact.abortSignal?.addEventListener('abort', stopBodyRead, { once: true });
       try {
-        await storage.client.send(new PutObjectCommand({
+        throwIfAborted(artifact.abortSignal);
+        await sendR2Command(storage.client, new PutObjectCommand({
           Bucket: storage.bucketName,
           Key: key,
-          Body: createReadStream(artifact.localPath),
+          Body: body,
           ContentLength: artifact.artifactByteLength,
           ContentType: artifact.contentType,
           CacheControl: PRIVATE_CACHE_CONTROL,
           ContentDisposition: 'inline',
           IfNoneMatch: '*',
           Metadata: objectMetadata(artifact),
-        }));
+        }), artifact.abortSignal);
       } catch (error) {
+        throwIfAborted(artifact.abortSignal);
         if (!isPreconditionFailed(error)) {
           throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_WRITE_FAILED');
         }
+      } finally {
+        artifact.abortSignal?.removeEventListener('abort', stopBodyRead);
+        body.destroy();
       }
-      await verifyStoredArtifact({ ...storage, key, expected: artifact });
+      throwIfAborted(artifact.abortSignal);
+      await verifyStoredArtifact({
+        ...storage,
+        key,
+        expected: artifact,
+        abortSignal: artifact.abortSignal,
+      });
       return Object.freeze({
         publishHandle: `nmfrpubv1_${artifact.artifactContentSha256}`,
         artifactHandle: `nmfrv1_${artifact.artifactContentSha256}`,
@@ -181,14 +196,20 @@ type StoredArtifactExpectationV1 = Readonly<{
 }>;
 
 async function verifyLocalArtifact(
-  artifact: StoredArtifactExpectationV1 & Readonly<{ localPath: string }>,
+  artifact: StoredArtifactExpectationV1 & Readonly<{
+    localPath: string;
+    abortSignal?: AbortSignal;
+  }>,
 ): Promise<void> {
+  throwIfAborted(artifact.abortSignal);
   let metadata: Awaited<ReturnType<typeof lstat>>;
   try {
     metadata = await lstat(artifact.localPath);
   } catch {
+    throwIfAborted(artifact.abortSignal);
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_LOCAL_ARTIFACT_INVALID');
   }
+  throwIfAborted(artifact.abortSignal);
   if (!metadata.isFile() || metadata.isSymbolicLink()
     || metadata.size !== artifact.artifactByteLength) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_LOCAL_ARTIFACT_INVALID');
@@ -198,10 +219,13 @@ async function verifyLocalArtifact(
     observed = await digestByteStream(
       createReadStream(artifact.localPath),
       artifact.artifactByteLength,
+      artifact.abortSignal,
     );
   } catch {
+    throwIfAborted(artifact.abortSignal);
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_LOCAL_ARTIFACT_READ_FAILED');
   }
+  throwIfAborted(artifact.abortSignal);
   if (observed.contentSha256 !== artifact.artifactContentSha256) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_LOCAL_ARTIFACT_HASH_MISMATCH');
   }
@@ -212,16 +236,20 @@ async function verifyStoredArtifact(input: Readonly<{
   bucketName: string;
   key: string;
   expected: StoredArtifactExpectationV1;
+  abortSignal?: AbortSignal;
 }>): Promise<void> {
+  throwIfAborted(input.abortSignal);
   let response: unknown;
   try {
-    response = await input.client.send(new GetObjectCommand({
+    response = await sendR2Command(input.client, new GetObjectCommand({
       Bucket: input.bucketName,
       Key: input.key,
-    }));
+    }), input.abortSignal);
   } catch {
+    throwIfAborted(input.abortSignal);
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_READ_FAILED');
   }
+  throwIfAborted(input.abortSignal);
   if (!response || typeof response !== 'object') {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_RESPONSE_INVALID');
   }
@@ -247,10 +275,16 @@ async function verifyStoredArtifact(input: Readonly<{
   }
   let observed: Awaited<ReturnType<typeof digestByteStream>>;
   try {
-    observed = await digestByteStream(candidate.Body, input.expected.artifactByteLength);
+    observed = await digestByteStream(
+      candidate.Body,
+      input.expected.artifactByteLength,
+      input.abortSignal,
+    );
   } catch {
+    throwIfAborted(input.abortSignal);
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_CONTENT_LENGTH_MISMATCH');
   }
+  throwIfAborted(input.abortSignal);
   if (observed.contentSha256 !== input.expected.artifactContentSha256) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_CONTENT_HASH_MISMATCH');
   }
@@ -259,10 +293,13 @@ async function verifyStoredArtifact(input: Readonly<{
 async function digestByteStream(
   body: unknown,
   expectedByteLength: number,
+  abortSignal?: AbortSignal,
 ): Promise<Readonly<{ byteLength: number; contentSha256: string }>> {
+  throwIfAborted(abortSignal);
   const digest = createHash('sha256');
   let byteLength = 0;
   if (body instanceof Uint8Array) {
+    throwIfAborted(abortSignal);
     byteLength = body.byteLength;
     if (byteLength > expectedByteLength) {
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_CONTENT_LENGTH_MISMATCH');
@@ -273,6 +310,7 @@ async function digestByteStream(
       throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_BODY_INVALID');
     }
     for await (const chunk of body) {
+      throwIfAborted(abortSignal);
       if (!(chunk instanceof Uint8Array)
         || byteLength + chunk.byteLength > expectedByteLength) {
         throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_CONTENT_LENGTH_MISMATCH');
@@ -281,6 +319,7 @@ async function digestByteStream(
       digest.update(chunk);
     }
   }
+  throwIfAborted(abortSignal);
   if (byteLength !== expectedByteLength) {
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_R2_CONTENT_LENGTH_MISMATCH');
   }
@@ -290,7 +329,10 @@ async function digestByteStream(
 function normalizeStageInput(
   value: Parameters<NativeMediaFinalRenderArtifactStagerPortV1['stage']>[0],
   policy: NativeMediaFinalRenderR2PrivateArtifactPolicyV1,
-): StoredArtifactExpectationV1 & Readonly<{ localPath: string }> {
+): StoredArtifactExpectationV1 & Readonly<{
+  localPath: string;
+  abortSignal?: AbortSignal;
+}> {
   if (!value || value.contentType !== 'video/x-matroska'
     || typeof value.localPath !== 'string' || !path.isAbsolute(value.localPath)
     || !value.localPath.trim() || value.localPath.length > 4_096
@@ -311,6 +353,7 @@ function normalizeStageInput(
     artifactByteLength,
     transformSha256: sha256(value.transformSha256),
     profileReceiptSha256: sha256(value.profileReceiptSha256),
+    abortSignal: value.abortSignal,
   });
 }
 
@@ -523,6 +566,27 @@ function isPreconditionFailed(error: unknown): boolean {
   const candidate = error as { name?: unknown; $metadata?: { httpStatusCode?: unknown } };
   return candidate.name === 'PreconditionFailed'
     || candidate.$metadata?.httpStatusCode === 412;
+}
+
+async function sendR2Command(
+  client: MediaSourcePtsCadenceR2CommandClientV1,
+  command: unknown,
+  abortSignal?: AbortSignal,
+): Promise<unknown> {
+  throwIfAborted(abortSignal);
+  const abortableClient = client as unknown as Readonly<{
+    send(
+      value: unknown,
+      options?: Readonly<{ abortSignal?: AbortSignal }>,
+    ): Promise<unknown>;
+  }>;
+  return abortableClient.send(command, abortSignal ? { abortSignal } : undefined);
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+  }
 }
 
 function defaultRandomIdentifier(): string {

@@ -150,6 +150,23 @@ function createPorts(input: Readonly<{
   return { memory, ports, presignGetObject };
 }
 
+function createPortsWithClient(client: Readonly<{
+  send(
+    command: unknown,
+    options?: Readonly<{ abortSignal?: AbortSignal }>,
+  ): Promise<unknown>;
+}>) {
+  return createNativeMediaFinalRenderR2PrivateArtifactPortsV1({
+    privateStorage,
+    endpoint: ENDPOINT,
+    client,
+    presignGetObject: vi.fn(async (request) => signedUrl(request)),
+    policy: policy(),
+    now: () => NOW,
+    randomIdentifier: () => '1'.repeat(32),
+  });
+}
+
 async function withArtifactFile<T>(
   run: (localPath: string) => Promise<T>,
 ): Promise<T> {
@@ -257,6 +274,92 @@ describe('native final-render private R2 artifact V1', () => {
         },
       });
       expect(memory.objects).toHaveLength(1);
+    });
+  });
+
+  it('rejects a pre-cancelled staging request before private-storage access', async () => {
+    await withArtifactFile(async (localPath) => {
+      const controller = new AbortController();
+      controller.abort();
+      const { memory, ports } = createPorts();
+
+      await expect(ports.stager.stage(stageInput(localPath, {
+        abortSignal: controller.signal,
+      }))).rejects.toThrow('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+      expect(memory.commands).toHaveLength(0);
+    });
+  });
+
+  it('propagates cancellation into an in-flight conditional upload', async () => {
+    await withArtifactFile(async (localPath) => {
+      const controller = new AbortController();
+      const commands: unknown[] = [];
+      let markUploadStarted: (() => void) | undefined;
+      const uploadStarted = new Promise<void>((resolve) => {
+        markUploadStarted = resolve;
+      });
+      const client = {
+        async send(
+          command: unknown,
+          options?: Readonly<{ abortSignal?: AbortSignal }>,
+        ): Promise<unknown> {
+          commands.push(command);
+          if (!(command instanceof PutObjectCommand)) {
+            throw new Error('unexpected command');
+          }
+          markUploadStarted?.();
+          return new Promise<unknown>((_resolve, reject) => {
+            const rejectAbort = () => reject(new Error('transport aborted'));
+            options?.abortSignal?.addEventListener('abort', rejectAbort, { once: true });
+            if (options?.abortSignal?.aborted) rejectAbort();
+          });
+        },
+      };
+      const ports = createPortsWithClient(client);
+      const pending = ports.stager.stage(stageInput(localPath, {
+        abortSignal: controller.signal,
+      }));
+
+      await uploadStarted;
+      controller.abort();
+
+      await expect(pending).rejects.toThrow(
+        'NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED',
+      );
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toBeInstanceOf(PutObjectCommand);
+    });
+  });
+
+  it('stops exact stored-byte verification when cancellation arrives', async () => {
+    await withArtifactFile(async (localPath) => {
+      const controller = new AbortController();
+      const memory = createMemoryClient();
+      const observedSignals: Array<AbortSignal | undefined> = [];
+      const client = {
+        async send(
+          command: unknown,
+          options?: Readonly<{ abortSignal?: AbortSignal }>,
+        ): Promise<unknown> {
+          observedSignals.push(options?.abortSignal);
+          const response = await memory.client.send(command);
+          if (!(command instanceof GetObjectCommand)) return response;
+          return {
+            ...(response as Record<string, unknown>),
+            Body: (async function* streamThenCancel() {
+              yield BYTES.subarray(0, BYTES.byteLength / 2);
+              controller.abort();
+              yield BYTES.subarray(BYTES.byteLength / 2);
+            })(),
+          };
+        },
+      };
+      const ports = createPortsWithClient(client);
+
+      await expect(ports.stager.stage(stageInput(localPath, {
+        abortSignal: controller.signal,
+      }))).rejects.toThrow('NATIVE_MEDIA_FINAL_RENDER_EXECUTION_CANCELLED');
+      expect(observedSignals).toEqual([controller.signal, controller.signal]);
     });
   });
 
