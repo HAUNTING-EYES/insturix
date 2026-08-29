@@ -8549,6 +8549,18 @@ dispatcher, signed ingress and explicit historical-policy resolution. No live
 QStash, Atlas, R2, media or project operation occurred. This checkpoint does
 not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before changing the 770-line preparation worker's retry control flow, commit
+`1de2dc212` performs the mandated Step 0 cleanup. Direct, type, literal,
+dynamic-import, re-export, test and mock searches show that the worker receipt
+constant, three aggregate worker-only types and the legacy retry port have no
+external consumer, so those declarations are private. The never-constructed
+retryable-error class and its unreachable branches are removed. No claim,
+heartbeat, cancellation, preparation, resume, completion, retry, dead-letter
+or budget-settlement behavior changes. The focused worker suite passes 17/17;
+repository TypeScript and repository-wide quiet ESLint pass. This cleanup is
+only preparation for the separately verified retry-decision migration and does
+not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
