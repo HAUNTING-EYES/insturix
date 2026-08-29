@@ -6840,6 +6840,34 @@ sample-domain audio, analysis and production final-render consumers remain
 open. Queue item 3 therefore remains open; the current-revision server
 materializer is next, followed by the live Player session coordinator.
 
+**Private R2 V3 epoch-artifact reader Phase 3F-C5 (2026-08-29):** the
+existing dedicated server-only R2 runtime now exposes a typed read-only adapter
+for the immutable artifact families required by V3 epoch verification. Its
+allow-list is deliberately exact: canonical V2 frame batches, V3 epoch indexes
+and V3 boundary evidence. A V2 manifest index, unrelated/private-looking key,
+path traversal, non-R2 storage reference, invalid byte length or invalid
+content hash is rejected before storage access. Retrieved objects remain
+bounded by declared length and the family absolute limit, and both exact byte
+length and SHA-256 are rechecked before canonical JSON is returned. Provider
+read failure and immutable-content mismatch have separate stable errors.
+
+The focused new reader plus existing V2 artifact/runtime compatibility cluster
+passes 21/21; repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. This phase used an injected in-memory
+S3-compatible client. It did not contact a bucket, expose a browser route,
+write or finalize a V3 artifact, scan media, mutate ProjectService, or use
+provider/customer data.
+
+This result is
+`PRIVATE_R2_V3_EPOCH_ARTIFACT_READER_WIRED_LIVE_STORAGE_AND_WRITER_OPEN`.
+It is private-storage consumption plumbing, not a claim that the V3 production
+scanner/finalizer or physical object lifecycle exists. Queue item 3 remains
+open: the current-revision server materializer must now bind the real V3
+verification/conform/decoder chain to these reads, then the live Player session
+coordinator must renew/swap/release rolling windows. Queue item 4 still owns
+the production V3 scanner/finalizer, immutable V3 writes, live private-bucket
+proof, V2-to-V3 migration and qualified proxy/master mapping.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source

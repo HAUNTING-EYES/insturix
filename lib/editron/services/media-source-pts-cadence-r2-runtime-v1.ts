@@ -3,6 +3,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { createMediaSourcePtsCadenceR2LifecycleManifestReaderV1 } from './media-source-pts-cadence-r2-lifecycle-manifest-reader-v1';
 import {
   createMediaSourcePtsCadenceR2PrivateArtifactPortV2,
+  createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3,
   createMediaSourcePtsCadenceR2PrivateSidecarPortV1,
   type MediaSourcePtsCadenceR2CommandClientV1,
   type MediaSourcePtsCadenceR2PrivateStorageScopeV1,
@@ -104,6 +105,7 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     stagingReader: createMediaSourcePtsCadenceScanR2ReaderV1(scope),
     descriptorPort: createMediaSourcePtsCadenceR2PrivateSidecarPortV1(scope),
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
+    epochArtifactReader: createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3(scope),
     lifecycleManifestReader: createMediaSourcePtsCadenceR2LifecycleManifestReaderV1(scope),
     previewSurface: Object.freeze({
       createStore(

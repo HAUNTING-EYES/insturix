@@ -3,6 +3,15 @@ import { createHash } from 'node:crypto';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 import {
+  MEDIA_SOURCE_PTS_CADENCE_BOUNDARY_EVIDENCE_ABSOLUTE_MAX_BYTES_V3,
+} from './media-source-pts-cadence-epoch-boundary-v3';
+import type {
+  MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3,
+} from './media-source-pts-cadence-epoch-artifact-verifier-v3';
+import {
+  MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_ABSOLUTE_MAX_BYTES_V3,
+} from './media-source-pts-cadence-epoch-index-v3';
+import {
   MEDIA_SOURCE_PTS_CADENCE_FRAME_BATCH_ABSOLUTE_MAX_BYTES_V2,
   type MediaSourcePtsCadenceFrameBatchSerializationV2,
 } from './media-source-pts-cadence-frame-batch-v2';
@@ -56,6 +65,12 @@ type MediaSourcePtsCadencePrivateObjectReferenceV2 = Readonly<{
 
 const MEDIA_SOURCE_PTS_CADENCE_R2_PRIVATE_OBJECT_KEY_V2 =
   /^private\/editron\/media-source-pts-cadence\/v2\/[a-f0-9]{64}\/(?:frame-batches\/(?:0|[1-9]\d{0,15})\/[a-f0-9]{64}|manifest-indexes\/[a-f0-9]{64})\.json$/;
+const MEDIA_SOURCE_PTS_CADENCE_R2_FRAME_BATCH_OBJECT_KEY_V2 =
+  /^private\/editron\/media-source-pts-cadence\/v2\/[a-f0-9]{64}\/frame-batches\/(?:0|[1-9]\d{0,15})\/[a-f0-9]{64}\.json$/;
+const MEDIA_SOURCE_PTS_CADENCE_R2_EPOCH_INDEX_OBJECT_KEY_V3 =
+  /^private\/editron\/media-source-pts-cadence\/v3\/[a-f0-9]{64}\/[a-f0-9]{64}\/epoch-indexes\/[a-f0-9]{64}\.json$/;
+const MEDIA_SOURCE_PTS_CADENCE_R2_BOUNDARY_EVIDENCE_OBJECT_KEY_V3 =
+  /^private\/editron\/media-source-pts-cadence\/v3\/[a-f0-9]{64}\/boundary-evidence\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/;
 
 export type MediaSourcePtsCadenceR2PrivateArtifactPortV2 = Readonly<{
   writeImmutableFrameBatch(input: Readonly<{
@@ -68,6 +83,9 @@ export type MediaSourcePtsCadenceR2PrivateArtifactPortV2 = Readonly<{
   }>): Promise<Readonly<MediaSourcePtsCadenceManifestIndexSidecarV2>>;
   read(sidecar: MediaSourcePtsCadencePrivateObjectReferenceV2): Promise<MediaSourcePtsCadencePrivateStoredObjectV2>;
 }>;
+
+export type MediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3 =
+  MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
 
 /**
  * Creates a server-only sidecar port for an explicitly isolated R2 bucket.
@@ -157,6 +175,30 @@ export function createMediaSourcePtsCadenceR2PrivateArtifactPortV2(input: {
   };
 }
 
+/**
+ * Reads only canonical V3 epoch indexes/boundary evidence and the immutable V2
+ * frame batches they reference. It never writes, lists, signs, or exposes R2.
+ */
+export function createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3(input: {
+  privateStorage: MediaSourcePtsCadenceR2PrivateStorageScopeV1;
+  client: MediaSourcePtsCadenceR2CommandClientV1;
+}): MediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3 {
+  const privateStorage = assertPrivateStorageScopeV1(input.privateStorage);
+  const client = input.client;
+  if (!client || typeof client.send !== 'function') {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_CLIENT_INVALID');
+  }
+  return {
+    read: async (sidecar) => readExactStoredObject({
+      client,
+      bucketName: privateStorage.bucketName,
+      sidecar: assertPrivateEpochArtifactReferenceV3(sidecar),
+      readFailureCode: 'MEDIA_SOURCE_PTS_CADENCE_R2_V3_READ_FAILED',
+      contentMismatchCode: 'MEDIA_SOURCE_PTS_CADENCE_R2_V3_CONTENT_MISMATCH',
+    }),
+  };
+}
+
 async function writeAndVerifyExactObjectV2(input: {
   client: MediaSourcePtsCadenceR2CommandClientV1;
   bucketName: string;
@@ -194,22 +236,43 @@ async function readExactStoredObjectV2(input: {
   sidecar: MediaSourcePtsCadencePrivateObjectReferenceV2;
 }): Promise<MediaSourcePtsCadencePrivateStoredObjectV2> {
   const sidecar = assertPrivateObjectReferenceV2(input.sidecar);
+  return readExactStoredObject({
+    client: input.client,
+    bucketName: input.bucketName,
+    sidecar,
+    readFailureCode: 'MEDIA_SOURCE_PTS_CADENCE_R2_V2_READ_FAILED',
+    contentMismatchCode: 'MEDIA_SOURCE_PTS_CADENCE_R2_V2_CONTENT_MISMATCH',
+  });
+}
+
+async function readExactStoredObject(input: {
+  client: MediaSourcePtsCadenceR2CommandClientV1;
+  bucketName: string;
+  sidecar: MediaSourcePtsCadencePrivateObjectReferenceV2;
+  readFailureCode: string;
+  contentMismatchCode: string;
+}): Promise<MediaSourcePtsCadencePrivateStoredObjectV2> {
   let response: unknown;
   try {
     response = await input.client.send(new GetObjectCommand({
       Bucket: input.bucketName,
-      Key: sidecar.objectKey,
+      Key: input.sidecar.objectKey,
     }));
   } catch {
-    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V2_READ_FAILED');
+    throw new Error(input.readFailureCode);
   }
   const body = response && typeof response === 'object'
     ? (response as { Body?: unknown }).Body
     : undefined;
-  const bytes = await readExactlyBoundedBytesV1(body, sidecar.byteLength);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readExactlyBoundedBytesV1(body, input.sidecar.byteLength);
+  } catch {
+    throw new Error(input.contentMismatchCode);
+  }
   const contentSha256 = createHash('sha256').update(bytes).digest('hex');
-  if (contentSha256 !== sidecar.contentSha256) {
-    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V2_CONTENT_MISMATCH');
+  if (contentSha256 !== input.sidecar.contentSha256) {
+    throw new Error(input.contentMismatchCode);
   }
   return {
     canonicalJson: Buffer.from(bytes).toString('utf8'),
@@ -406,6 +469,44 @@ function assertPrivateObjectReferenceV2(
   if (typeof candidate.contentSha256 !== 'string'
     || !/^[a-f0-9]{64}$/.test(candidate.contentSha256)) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V2_CONTENT_HASH_INVALID');
+  }
+  return {
+    storage: 'R2_PRIVATE',
+    objectKey: candidate.objectKey,
+    byteLength: Number(candidate.byteLength),
+    contentSha256: candidate.contentSha256,
+  };
+}
+
+function assertPrivateEpochArtifactReferenceV3(
+  value: unknown,
+): MediaSourcePtsCadencePrivateObjectReferenceV2 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_REFERENCE_INVALID');
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.storage !== 'R2_PRIVATE') {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_STORAGE_MISMATCH');
+  }
+  if (typeof candidate.objectKey !== 'string'
+    || (!MEDIA_SOURCE_PTS_CADENCE_R2_FRAME_BATCH_OBJECT_KEY_V2.test(candidate.objectKey)
+      && !MEDIA_SOURCE_PTS_CADENCE_R2_EPOCH_INDEX_OBJECT_KEY_V3.test(candidate.objectKey)
+      && !MEDIA_SOURCE_PTS_CADENCE_R2_BOUNDARY_EVIDENCE_OBJECT_KEY_V3.test(candidate.objectKey))) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_OBJECT_KEY_INVALID');
+  }
+  const maximumByteLength = Math.max(
+    MEDIA_SOURCE_PTS_CADENCE_FRAME_BATCH_ABSOLUTE_MAX_BYTES_V2,
+    MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_ABSOLUTE_MAX_BYTES_V3,
+    MEDIA_SOURCE_PTS_CADENCE_BOUNDARY_EVIDENCE_ABSOLUTE_MAX_BYTES_V3,
+  );
+  if (!Number.isSafeInteger(candidate.byteLength)
+    || Number(candidate.byteLength) < 1
+    || Number(candidate.byteLength) > maximumByteLength) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_BYTE_LENGTH_INVALID');
+  }
+  if (typeof candidate.contentSha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(candidate.contentSha256)) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_CONTENT_HASH_INVALID');
   }
   return {
     storage: 'R2_PRIVATE',
