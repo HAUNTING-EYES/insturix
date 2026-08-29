@@ -7072,6 +7072,63 @@ Queue item 4 still owns the production V3 scanner/finalizer, immutable private
 writes, live-bucket proof, V2-to-V3 migration and qualified proxy/master
 mapping.
 
+**Source-bound native-audio sample/epoch evidence Phase 3F-C7e
+(2026-08-29):** the first exact native-audio foundation now exists without
+weakening the current playback block. A new immutable contract selects one
+explicit audio stream from the measured technical observation and binds it to
+the asset, immutable source version, provider storage version, source binding
+and observation hash. A missing, duplicated or technically incomplete stream
+is rejected; the contract never chooses the first audio stream by convention.
+
+The evidence model preserves signed source PTS and exact rational sample
+positions, including a fractional initial sample phase. Consecutive decoded
+audio frames remain in one epoch only when the next source position equals the
+previous decoded end exactly. Positive displacement becomes a declared gap,
+negative displacement becomes a declared overlap, and regressing PTS becomes
+a timestamp-reset epoch. The decoded PCM remains packet-order PCM: the
+foundation records that no synthetic gap samples were inserted and no overlap
+samples were dropped. Priming, padding and edit-list effects are bound to the
+actual FFmpeg demuxed/decoded output timeline, rather than inferred from a
+browser duration or frame offset.
+
+The server-only FFmpeg adapter reuses the existing verified source-lease port,
+downloads and hashes the complete immutable source bytes, revalidates the
+provider object before and after measurement, streams an explicitly selected
+ffprobe frame scan, and decodes interleaved signed 32-bit little-endian PCM.
+It declares and enforces no resampling and no channel remix. The receipt binds
+the exact FFmpeg/ffprobe identities, decoded frame and sample counts, PCM byte
+count and SHA-256, epoch summaries, canonical policy and all source/stream
+hashes. Resource policy is validated before the lease opens or any subprocess
+runs; source, scan, epoch, sample, PCM, canonical-byte, diagnostic and timeout
+ceilings fail closed. Temporary files are deleted only under the adapter-owned
+temporary prefix.
+
+The focused pure/real-media suite passes 8/8. The real fixture uses an actual
+FFmpeg plus ffprobe decode of 4,800 stereo 48 kHz sample frames and proves the
+expected 38,400-byte S32LE receipt. Adversarial tests cover negative and
+fractional starts, gaps, overlaps, timestamp resets, missing/duplicate/
+incomplete streams, altered observations, changed storage, altered source
+bytes, a lease becoming stale during measurement, PCM/sample mismatch,
+malformed preflight policy and representative source/frame/sample/epoch/PCM/
+canonical-byte ceilings. Repository
+TypeScript and focused quiet ESLint pass. No provider, private bucket,
+persisted project or customer media was touched.
+
+This result is
+`SOURCE_BOUND_AUDIO_SAMPLE_EPOCH_EVIDENCE_MATERIALIZED_RUNTIME_CONSUMPTION_OPEN`.
+It is not yet playable audio. The receipt and PCM have no durable private
+artifact owner/reader, timeline-to-sample consumer, leased browser audio
+surface, authenticated audio route, swap-continuity scheduler, analysis
+consumer or final-render consumer. The existing timestamp-preview materializer
+therefore continues to return `EXACT_AUDIO_MAPPING_REQUIRED` for audio-bearing
+managed sources, and the legacy frame-domain Remotion `<Audio>` path is not
+promoted. Queue item 3 next makes the existing time-transform owner consume
+this verified evidence, then wires bounded materializer/preview, analysis and
+final-render consumers. Authenticated real-browser/private-runtime proof
+remains open. Queue item 4 still owns production private PTS storage and V3
+scan/migration/proxy-master invalidation; no convergence across those owners is
+claimed here.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
