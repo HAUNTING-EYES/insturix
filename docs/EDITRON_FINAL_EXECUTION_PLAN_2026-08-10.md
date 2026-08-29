@@ -7711,6 +7711,46 @@ migration and qualified proxy/master relink/invalidation needed to make that
 artifact durable. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact final-render source contract and producer core Phase 3F-C7v/C7w/C7x
+(2026-08-29):** commit `e58f7b43d` defines the immutable
+`EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1` artifact, expiring HTTPS source lease
+and render-time overlay rewrite contract. The artifact binds project/sequence
+revision, overlay timing, asset/source/storage/V3-map identities, exact conform
+transform, project rate, decoded frame-sequence proof, Remotion compatibility
+proof and—when native audio is requested—decoded-PCM equivalence. Signed source
+URLs remain ephemeral and are represented in receipts only by their hash.
+
+Commit `5a23b4fe1` makes final-render admission issue one exact-source request per
+verified V3 overlay after its second asset-state read. The authenticated render
+route still stops before asset hydration, credit work or dispatch with
+`NATIVE_MEDIA_FINAL_RENDER_NOT_READY`; this is intentional until a production
+materializer is composed. A valid V3 source is therefore no longer mislabelled
+invalid, but it is not yet renderable through the live route.
+
+Commit `dfd4bcb2c` adds the bounded producer core and shared exact-audio evidence
+selector. Against a current ProjectService snapshot it re-resolves the overlay,
+asset, V3 binding and single selected audio stream; rebuilds the existing exact
+timestamp conform from private epoch artifacts; delegates encoding and
+publication through explicit ports; validates the returned frame count,
+decoded-frame/PCM evidence, artifact size and lease; then rereads asset state
+and project revision before returning the lease. Retimed overlays, ambiguous
+legacy-decimal project rates, multiple/unknown audio selection, stale scope and
+requests above the declared 10,000-frame bound fail closed. The focused
+admission/source/materializer/route set passes 54/54; repository TypeScript and
+repository-wide quiet ESLint pass. No customer media, live private object,
+credit mutation, provider render or project mutation was used.
+
+This result is
+`EXACT_FINAL_RENDER_CONTRACT_AND_PRODUCER_CORE_VERIFIED_LIVE_COMPOSITION_OPEN`.
+It is shared downstream plumbing, not a merged or live final-render path: no
+concrete FFmpeg encoder profile, private artifact publisher/runtime factory,
+real Remotion decode/render compatibility receipt, route composition or live
+private-storage/browser-device A/V proof exists yet. Queue item 3 remains open
+for those owners plus partial-epoch/edit-list/timestamp-wrap support. Queue item
+4 still owns durable production storage/V3 lifecycle, migration and qualified
+proxy/master relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
