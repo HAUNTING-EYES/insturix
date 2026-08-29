@@ -8361,6 +8361,35 @@ composition root, live redelivery or hosted dispatch exists yet. Those must be
 supplied and proven before Queue item 3 can reach the authenticated render
 route. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Shared durable QStash dispatch owner Phase 3F-C7at (2026-08-30):** commit
+`7fccc4c22` adds one transport-level owner for durable workflow publication.
+It resolves only fixed internal-worker paths, requires the publisher token and
+both current/next worker-signing keys, accepts only exact HTTPS QStash/public
+origins and re-resolves the current environment at publication so a forged but
+similarly shaped configuration cannot redirect a job. The caller must supply
+an explicit delivery policy; the owner uses the installed SDK's first-class
+`retries`, `retryDelay`, `timeout` and `deduplicationId` fields and never sends
+an `Upstash-Timeout` destination header. It preserves separate results for an
+already-recorded dispatch, a non-queued job, provider rejection, absent/invalid
+provider message identity and a published message whose durable receipt could
+not be recorded.
+
+The focused suite passes 5/5; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`SHARED_DURABLE_QSTASH_DISPATCH_OWNER_VERIFIED_EXISTING_CALLER_MIGRATION_AND_EXACT_RENDER_DISPATCH_OPEN`.
+It is not dispatcher convergence or live delivery: no production caller imports
+the owner, no exact-render message was published and no QStash/Atlas/deployment
+proof ran. The existing cadence and editorial-plan dispatchers still duplicate
+transport logic and pass `Upstash-Timeout` as a destination header rather than
+the installed SDK's first-class timeout field. Migrate those owners without
+changing their public lifecycle/recovery semantics before adding the exact-
+render dispatcher. Provider-side deduplication duration is not a correctness
+boundary; the durable job record, exact operation identity and state-bound
+recovery remain authoritative. Queue item 3 next requires that caller migration,
+one calibrated/versioned delivery-and-retry policy, then the exact-render
+dispatcher and signed worker composition. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
