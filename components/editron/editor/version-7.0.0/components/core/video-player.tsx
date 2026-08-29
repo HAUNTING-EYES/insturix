@@ -3,12 +3,24 @@ import { Player, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/main";
 import { useEditorContext } from "../../contexts/editor-context";
 import { FPS } from "../../constants";
+import { OverlayType } from "../../types";
+import {
+  createNativeMediaTimestampPreviewAudioPlayerBridgeV1,
+  type NativeMediaTimestampPreviewAudioPlayerBridgeV1,
+} from "../../remotion/native-media-timestamp-preview-audio-player-bridge-v1";
+import {
+  createNativeMediaTimestampPreviewAudioSessionCoordinatorV1,
+} from "../../remotion/native-media-timestamp-preview-audio-session-v1";
+import {
+  createNativeMediaTimestampPreviewWebAudioRuntimeV1,
+} from "../../remotion/native-media-timestamp-preview-audio-scheduler-v1";
 import {
   createNativeMediaTimestampPreviewSessionCoordinatorV1,
   createNativeMediaTimestampPreviewSessionHttpPortV1,
   selectNativeMediaTimestampPreviewClientGateV1,
   selectNativeMediaTimestampPreviewPlayableOverlaysV1,
 } from "../../remotion/native-media-timestamp-preview-session-client-v1";
+import { createVideoNativeAudioMixV1 } from "../../utils/video-native-audio-mix-v1";
 
 /**
  * Props for the VideoPlayer component
@@ -47,11 +59,26 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
   const [timestampPreviewSnapshot, setTimestampPreviewSnapshot] = useState(
     () => timestampPreviewCoordinator.snapshot(),
   );
+  const [timestampPreviewAudioCoordinator] = useState(() => (
+    createNativeMediaTimestampPreviewAudioSessionCoordinatorV1(
+      createNativeMediaTimestampPreviewWebAudioRuntimeV1(),
+    )
+  ));
+  const [timestampPreviewAudioSnapshot, setTimestampPreviewAudioSnapshot] = useState(
+    () => timestampPreviewAudioCoordinator.snapshot(),
+  );
+  const timestampPreviewAudioBridge = useRef<
+    NativeMediaTimestampPreviewAudioPlayerBridgeV1 | null
+  >(null);
   const timestampPreviewLifecycle = useRef(0);
 
   useEffect(
     () => timestampPreviewCoordinator.subscribe(setTimestampPreviewSnapshot),
     [timestampPreviewCoordinator],
+  );
+  useEffect(
+    () => timestampPreviewAudioCoordinator.subscribe(setTimestampPreviewAudioSnapshot),
+    [timestampPreviewAudioCoordinator],
   );
 
   useEffect(() => {
@@ -59,11 +86,14 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     return () => {
       queueMicrotask(() => {
         if (timestampPreviewLifecycle.current === lifecycle) {
-          void timestampPreviewCoordinator.dispose();
+          void Promise.all([
+            timestampPreviewCoordinator.dispose(),
+            timestampPreviewAudioCoordinator.dispose(),
+          ]);
         }
       });
     };
-  }, [timestampPreviewCoordinator]);
+  }, [timestampPreviewAudioCoordinator, timestampPreviewCoordinator]);
 
   useEffect(() => {
     timestampPreviewCoordinator.update({
@@ -75,6 +105,53 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     });
   }, [currentFrame, overlays, projectId, projectRevision, timestampPreviewCoordinator]);
 
+  const timestampPreviewAudioMixes = useMemo(() => {
+    const pcmOverlayIds = new Set(timestampPreviewSnapshot.sessionWindows.flatMap((window) => (
+      window.audioWindow?.segments.some((segment) => segment.kind === "PCM")
+        ? [window.pictureWindow.overlayId]
+        : []
+    )));
+    const mixes = new Map<string, ReturnType<typeof createVideoNativeAudioMixV1>>();
+    for (const overlay of overlays) {
+      const overlayId = String(overlay.id);
+      if (overlay.type !== OverlayType.VIDEO || !pcmOverlayIds.has(overlayId)) continue;
+      mixes.set(overlayId, createVideoNativeAudioMixV1({
+        overlay,
+        allOverlays: overlays,
+        fps: FPS,
+        audioPresent: true,
+      }));
+    }
+    if (mixes.size !== pcmOverlayIds.size) {
+      throw new Error("NATIVE_MEDIA_PREVIEW_AUDIO_PLAYER_OVERLAY_MIX_MISSING");
+    }
+    return mixes;
+  }, [overlays, timestampPreviewSnapshot.sessionWindows]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const bridge = createNativeMediaTimestampPreviewAudioPlayerBridgeV1(
+      player,
+      timestampPreviewAudioCoordinator,
+    );
+    timestampPreviewAudioBridge.current = bridge;
+    return () => {
+      if (timestampPreviewAudioBridge.current === bridge) {
+        timestampPreviewAudioBridge.current = null;
+      }
+      bridge.dispose();
+    };
+  }, [playerRef, timestampPreviewAudioCoordinator]);
+
+  useEffect(() => {
+    timestampPreviewAudioBridge.current?.updateMedia({
+      sessionWindows: timestampPreviewSnapshot.sessionWindows,
+      mixesByOverlayId: timestampPreviewAudioMixes,
+      playbackRate,
+    });
+  }, [playbackRate, timestampPreviewAudioMixes, timestampPreviewSnapshot.sessionWindows]);
+
   const playableOverlays = useMemo(
     () => selectNativeMediaTimestampPreviewPlayableOverlaysV1({
       overlays,
@@ -83,7 +160,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     }),
     [currentFrame, overlays, timestampPreviewSnapshot],
   );
-  const timestampPreviewGate = useMemo(
+  const timestampPreviewPictureGate = useMemo(
     () => selectNativeMediaTimestampPreviewClientGateV1({
       overlays,
       currentFrame,
@@ -91,6 +168,35 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     }),
     [currentFrame, overlays, timestampPreviewSnapshot],
   );
+  const timestampPreviewGate = useMemo(() => {
+    if (timestampPreviewPictureGate.disposition !== "READY") {
+      return Object.freeze({ ...timestampPreviewPictureGate, retryOwner: "PICTURE" as const });
+    }
+    if (timestampPreviewAudioSnapshot.disposition === "PREPARING") {
+      return Object.freeze({
+        disposition: "PROBING" as const,
+        overlayId: null,
+        reason: timestampPreviewAudioSnapshot.reason
+          ?? "NATIVE_MEDIA_PREVIEW_AUDIO_PREPARING",
+        retryOwner: null,
+      });
+    }
+    if (timestampPreviewAudioSnapshot.disposition === "BLOCKED") {
+      return Object.freeze({
+        disposition: "BLOCKED" as const,
+        overlayId: null,
+        reason: timestampPreviewAudioSnapshot.reason
+          ?? "NATIVE_MEDIA_PREVIEW_AUDIO_BLOCKED",
+        retryOwner: "AUDIO" as const,
+      });
+    }
+    return Object.freeze({
+      disposition: "READY" as const,
+      overlayId: null,
+      reason: null,
+      retryOwner: null,
+    });
+  }, [timestampPreviewAudioSnapshot, timestampPreviewPictureGate]);
 
   useEffect(() => {
     if (timestampPreviewGate.disposition !== "READY") playerRef.current?.pause();
@@ -249,13 +355,17 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
                       <p className="mt-2 text-xs leading-5 text-zinc-300">
                         {timestampPreviewMessage(timestampPreviewGate.reason)}
                       </p>
-                      {timestampPreviewGate.overlayId ? (
+                      {timestampPreviewGate.retryOwner ? (
                         <button
                           type="button"
                           className="mt-3 rounded-md bg-white px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200"
-                          onClick={() => timestampPreviewCoordinator.retry(
-                            timestampPreviewGate.overlayId!,
-                          )}
+                          onClick={() => {
+                            if (timestampPreviewGate.retryOwner === "AUDIO") {
+                              timestampPreviewAudioCoordinator.retry();
+                            } else if (timestampPreviewGate.overlayId) {
+                              timestampPreviewCoordinator.retry(timestampPreviewGate.overlayId);
+                            }
+                          }}
                         >
                           Retry exact preview
                         </button>
@@ -301,6 +411,15 @@ function timestampPreviewMessage(reason: string): string {
     case "SESSION_CLASSIFICATION_REVISION_MISMATCH":
     case "SESSION_WINDOW_SCOPE_MISMATCH":
       return "The project changed while preview was being prepared. Reload or retry safely.";
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_CONTEXT_UNAVAILABLE":
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_CONTEXT_NOT_RUNNING":
+      return "The browser audio engine could not start exact preview audio.";
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_RESPONSE_INVALID":
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_RESPONSE_BYTES_INVALID":
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_INTEGRITY_MISMATCH":
+      return "The private preview audio failed integrity validation and was not played.";
+    case "NATIVE_MEDIA_PREVIEW_AUDIO_SCHEDULE_DEADLINE_MISSED":
+      return "Preview audio could not be aligned to the current frame, so playback stopped.";
     default:
       return `The clip could not be verified safely (${reason}).`;
   }
