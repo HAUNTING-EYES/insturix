@@ -7032,6 +7032,46 @@ render consumption. Queue item 4 retains production V3 scanner/finalizer,
 immutable private writes, live-bucket proof, migration and qualified proxy/
 master mapping.
 
+**Expiring ordinary-classification lease Phase 3F-C7d (2026-08-29):** an
+ordinary/non-managed decision is no longer an indefinitely cached revision
+echo. The materializer first verifies that the returned asset identity and
+media type match the active video overlay, then issues one exact-schema lease
+bound to project, sequence, overlay, asset and ProjectService revision. The
+lease carries a canonical decision-state hash, server issue/refresh/expiry
+times and a shared five-minute maximum TTL; the current policy issues a
+30-second lease and asks the client to renew ten seconds before expiry.
+
+The existing browser coordinator remains the only client decision owner. It
+validates every returned lease's schema, complete scope and revision and
+rejects a lease already expired under the conservative server-time-plus-
+monotonic-elapsed clock. Ordinary playback remains available while a soft
+renewal is pending, including while playback itself is paused. At hard expiry
+the active layer becomes `PROBING` and is withheld until a fresh scoped
+decision arrives. A hung renewal does not create an expired one-millisecond
+wake loop. Blocking clears the cached classification, and a later exact window
+clears it before exact playback begins.
+
+The focused classification client/server suite passes 16/16. The wider real
+timestamp-preview route/window/layer/consumer/decoder/transform compatibility
+cluster passes 64/64; repository TypeScript passes with the declared 8 GiB
+heap and repository-wide quiet ESLint passes. Adversarial tests cover wrong
+asset and revision, expired-on-arrival decisions, renewal while paused, hard
+expiry with a pending request, malformed results, window cleanup and late
+disposal. All ports, clocks and schedulers were injected; no authenticated
+browser, live private bucket, FFmpeg process, persisted project, provider or
+customer data was touched.
+
+This result is
+`EXPIRING_ORDINARY_CLASSIFICATION_LEASE_WIRED_PUSH_INVALIDATION_AND_LIVE_PROOF_OPEN`.
+It bounds the scanner-write race but does not eliminate it immediately: queue
+item 4 must make a production V3 state write invalidate or supersede any live
+ordinary classification. Queue item 3 remains open for authenticated private-
+runtime browser proof across a real VFR epoch/reset/gap and lease swap, exact
+native sample-domain audio, analysis consumption and final-render consumption.
+Queue item 4 still owns the production V3 scanner/finalizer, immutable private
+writes, live-bucket proof, V2-to-V3 migration and qualified proxy/master
+mapping.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
