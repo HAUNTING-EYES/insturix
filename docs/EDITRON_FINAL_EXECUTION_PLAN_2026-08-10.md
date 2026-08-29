@@ -6604,6 +6604,52 @@ analysis and final-render consumers. Queue item 4 remains dedicated private
 PTS/evidence storage, production V3 scan/finalization, V2-to-V3 migration and
 qualified proxy/master relink/invalidation.
 
+**Private expiring timestamp-preview surface owner Phase 3F-A (2026-08-29):**
+`native-media-timestamp-r2-preview-surface-v1.ts` now implements the real PNG
+surface store behind Phase 3E's injected decoder port. It writes only to the
+existing dedicated `NO_BROWSER_ROUTE` private media-evidence R2 scope, under a
+separate `private/editron/native-media-preview/v1/` prefix. It never returns a
+storage URL. Each picture receives a 256-bit opaque handle and an immutable
+write; nonce collisions retry rather than overwrite. The stored object binds
+the authenticated user, project and ProjectService revision, hashed sequence
+and overlay identities, decoder request, exact picture request, source/storage
+versions, RGBA proof digest, PNG digest/length/dimensions and lease expiry into
+one canonical binding hash. The writer rereads and verifies the exact stored
+bytes before returning the handle.
+
+The same private runtime now exposes least-privilege factories for a
+lease-scoped decoder store and a server-only reader without exposing the raw
+S3 client. Reads enforce exact metadata fields, the whole-binding hash,
+content type/cache policy, byte length, PNG signature, content hash and the
+shared one-hour/64 MiB resource policy. Missing surfaces return `NOT_FOUND`;
+expired surfaces return `EXPIRED` and trigger best-effort physical deletion;
+explicit decoder-batch cleanup remains idempotent at the decoder boundary.
+Invalid handles, altered claims, altered bytes, oversized objects and provider
+errors fail closed. The public `editron-cdn` bucket and generic R2 credentials
+remain forbidden.
+
+The expanded private-runtime suite passes 12/12 and, with the real FFmpeg
+decoder and revision-bound consumer, the focused cluster passes 19/19.
+Repository TypeScript and affected-file quiet ESLint pass. Tests exercise
+immutable command inputs, exact reread, opaque-handle collision retry, binding
+tamper rejection, expiry deletion, explicit deletion and invalid/missing
+handles. No live R2/GCS object, Atlas row, ProjectService mutation, provider or
+customer project was touched.
+
+This result is
+`PRIVATE_EXPIRING_PREVIEW_SURFACE_OWNER_IMPLEMENTED_AUTH_ROUTE_AND_RENDERER_NOT_WIRED`.
+It is not visible playback. No authenticated HTTP boundary yet verifies the
+requesting Clerk identity and current ProjectService revision before serving
+the PNG, and `VideoLayerContent` still consumes only ordinary media URLs. R2's
+HTTP `Expires` object metadata is not a physical-deletion guarantee, so the
+deployment must still prove a bounded lifecycle rule for this private prefix
+before live production use. There is also no rematerialization coordinator for
+an expired active-editor lease, no live private-bucket exercise, and no
+analysis or final-render consumer. Queue item 3 remains open: the next bounded
+subphase must add the authenticated revision-checking route and a transient
+renderer hydration contract without persisting picture handles as creative
+overlay form, then separately bind analysis and final-render consumers.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source

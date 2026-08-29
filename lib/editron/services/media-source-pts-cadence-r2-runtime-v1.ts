@@ -8,6 +8,13 @@ import {
   type MediaSourcePtsCadenceR2PrivateStorageScopeV1,
 } from './media-source-pts-cadence-r2-private-sidecar-v1';
 import { createMediaSourcePtsCadenceScanR2ReaderV1 } from './media-source-pts-cadence-scan-r2-reader-v1';
+import {
+  createNativeMediaTimestampR2PreviewSurfaceReaderV1,
+  createNativeMediaTimestampR2PreviewSurfaceStoreV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
+  type NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
+  type NativeMediaTimestampPreviewSurfacePolicyV1,
+} from './native-media-timestamp-r2-preview-surface-v1';
 
 export const MEDIA_SOURCE_PTS_CADENCE_R2_STORAGE_POLICY_VERSION_V1 =
   'EDITRON_MEDIA_SOURCE_PTS_PRIVATE_R2_V1' as const;
@@ -73,7 +80,7 @@ export function resolveMediaSourcePtsCadenceR2RuntimeConfigurationV1(
   });
 }
 
-/** Creates all private PTS storage adapters over one dedicated server client. */
+/** Creates all private media-evidence adapters over one dedicated server client. */
 export function createMediaSourcePtsCadenceR2RuntimePortsV1(
   environment: MediaSourcePtsCadenceR2RuntimeEnvironmentV1 = process.env,
   dependencies: Readonly<{
@@ -98,6 +105,36 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     descriptorPort: createMediaSourcePtsCadenceR2PrivateSidecarPortV1(scope),
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
     lifecycleManifestReader: createMediaSourcePtsCadenceR2LifecycleManifestReaderV1(scope),
+    previewSurface: Object.freeze({
+      createStore(
+        leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
+        options: Readonly<{
+          policy?: NativeMediaTimestampPreviewSurfacePolicyV1;
+          now?: () => number;
+          randomIdentifier?: () => string;
+        }> = {},
+      ) {
+        return createNativeMediaTimestampR2PreviewSurfaceStoreV1({
+          ...scope,
+          leaseScope,
+          policy: options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
+          now: options.now,
+          randomIdentifier: options.randomIdentifier,
+        });
+      },
+      createReader(
+        options: Readonly<{
+          policy?: NativeMediaTimestampPreviewSurfacePolicyV1;
+          now?: () => number;
+        }> = {},
+      ) {
+        return createNativeMediaTimestampR2PreviewSurfaceReaderV1({
+          ...scope,
+          policy: options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
+          now: options.now,
+        });
+      },
+    }),
   });
 }
 
