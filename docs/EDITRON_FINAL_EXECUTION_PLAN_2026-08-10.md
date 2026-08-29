@@ -7850,6 +7850,35 @@ Queue item 4 retains live private-bucket/lifecycle proof, scalable large-object
 policy, V3 migration and proxy/master relink/invalidation. This checkpoint does
 not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Linux exact-source compositor qualification Phase 3F-C7ac
+(2026-08-30):** the same committed Remotion-profile test was executed without
+modification in an isolated, disposable Linux-x64 container while the Editron
+worktree was mounted read-only. The container used Node 22 on Debian Trixie,
+system FFmpeg 7.1.5, Remotion and the Linux GNU compositor package at the
+repository-pinned 4.0.509 version, and Remotion's installed Chrome Headless
+Shell. The deterministic four-frame lossless RGB H.264 plus 6,400-sample-frame
+stereo PCM-S32LE Matroska source decoded byte-for-byte before rendering;
+Remotion consumed all four frames, emitted H.264/AAC with audio present and
+reported no browser error. The test passed 1/1 in 8.27 seconds. The explicitly
+named disposable npm-cache volume was verified and removed afterward; the
+repository remained unchanged by the qualification run.
+
+This result is
+`LINUX_X64_REMOTION_EXACT_SOURCE_PROFILE_CERTIFIED_DEPLOYMENT_IMAGE_AND_ROUTE_OPEN`.
+It closes the earlier generic Linux/compositor feasibility gap, not production
+deployment certification. The proof did not execute inside the deployed
+materialization worker or Remotion Lambda image, did not bind a worker-image
+digest or Chrome binary identity into a production qualification record, and
+did not publish or consume a live private object. Linux ARM, macOS, Alpine,
+other codec/rate/colour profiles and long-form resource behavior remain
+unqualified. The live render route must not encode a bounded programme inside
+the request: Queue item 3 next needs a durable, revision-bound preparation job
+that runs the existing materializer in an exactly qualified compute image,
+persists/reuses its immutable private lease result, and only then submits the
+existing Remotion render. Queue item 4 retains live private-storage lifecycle,
+scalable multipart/resume, V3 ingest/migration and proxy/master invalidation.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
