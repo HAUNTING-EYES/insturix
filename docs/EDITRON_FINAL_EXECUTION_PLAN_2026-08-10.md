@@ -8482,6 +8482,32 @@ delivery/retry policy required by exact-render job identity and then its fixed
 dispatcher/signed worker composition. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render delivery/retry policy authority Phase 3F-C7ax
+(2026-08-30):** commit `3ff5f760f` adds one immutable V1 declaration for the
+exact-render preparation job's attempt ceiling and retention, QStash delivery
+retries/delay/timeout, and worker retry delay. Every value is mandatory: the
+factory has no operational default, the declaration carries the sole named
+retry owner/version and a canonical content hash, and any field change changes
+policy identity. Its decision owner accepts only an exactly policy-bound
+running-job lifecycle; status, attempt-counter, max-attempt, created/expiry or
+retention drift fails before a retry decision. Exhausted attempts and a retry
+that would reach or cross job expiry produce distinct hash-bound
+`DEAD_LETTER` decisions instead of an approximate retry time.
+
+The focused adversarial suite passes 6/6; repository TypeScript and repository-
+wide quiet ESLint pass. This result is
+`EXACT_RENDER_DELIVERY_RETRY_POLICY_DECLARATION_VERIFIED_JOB_WORKER_DISPATCH_BINDING_OPEN`.
+It is policy representation, not calibration or live enforcement. The numeric
+test declaration is fixture-only; no measured encoder/QStash/Atlas/storage
+telemetry selected production values. V1.3 job creation still uses its former
+five-attempt/seven-day constants, the current worker still consumes the older
+`nextRetryAt` port, and no exact-render dispatcher imports this policy. Queue
+item 3 next migrates those lifecycle consumers without a compatibility
+fallback, then adds the fixed-message dispatcher and signed worker composition.
+No QStash message, provider call, database access, media render or project
+mutation occurred. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
