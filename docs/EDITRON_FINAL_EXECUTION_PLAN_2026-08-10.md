@@ -8664,6 +8664,33 @@ budget owner, deployed route, live QStash delivery, Atlas/R2 operation, media
 render or ProjectService mutation is claimed. Queue item 3 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain open.
 
+**Exact-render Finance-meter policy Phase 3F-C7azd (2026-08-30):** commit
+`37342c0ac` defines the previously absent Finance-owned policy identity and
+content-hashed rational meters for encoded frame attempts, artifact bytes
+written and artifact bytes verified. Rates have no defaults and no repository
+seed. Each meter uses decimal-string integer arithmetic and an explicit
+`CEIL_EACH_EXACT_METER_THEN_SUM_V1` rule, so no floating-point money or hidden
+FPS/codec/duration assumption enters the calculation. The cost receipt binds
+the exact policy, retry-inclusive usage quantities and source usage-evidence
+hash, while declaring that it performs no wallet or project mutation.
+
+Key-order equivalence, policy drift, forged/extra fields, wrong formula,
+invalid windows, zero/leading-zero/unbounded rates, malformed evidence and
+arithmetically unbounded totals fail closed. The focused suite passes 11/11,
+every `native-media-final-render` suite passes 128/128, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_FINANCE_METER_POLICY_VERIFIED_RESERVATION_SETTLEMENT_AND_CALIBRATION_OPEN`.
+
+This checkpoint is not a live budget owner. It deliberately does not choose
+Finance rates, reserve or move customer credits, create a durable hold, infer
+partial-attempt usage, persist a policy/authorization, or settle under
+redelivery. The existing `editron.render_export` customer charge remains
+unchanged, avoiding an accidental second charge. Queue item 3 next needs the
+exact reservation/authorization/terminal-settlement contract and durable
+ledger, followed by product composition. Finance rate approval and live cost
+calibration remain evidence/setup work; `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
