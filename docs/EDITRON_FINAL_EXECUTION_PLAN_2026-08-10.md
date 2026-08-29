@@ -8402,6 +8402,31 @@ diagnostic or recovery control flow changes. The respective focused suites pass
 are behavior-neutral API-surface cleanup commits only and do not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**State-bound shared recovery dispatch Phase 3F-C7au (2026-08-30):** commit
+`1277fda61` separates fresh `INITIAL_QUEUED` publication from explicit
+`RECOVERY_SELECTED` redelivery in the shared QStash owner. Initial dispatch now
+requires its deduplication identity to equal the exact durable job ID, refuses
+non-queued work and returns an existing valid dispatch receipt without another
+publish. Recovery can republish only an active `queued`, `retry_wait` or
+`running` snapshot selected by the lifecycle owner; its deduplication identity
+is a canonical SHA-256 over that complete selected snapshot and is rederived
+before provider access. A changed snapshot, forged binding, invalid persisted
+message identity, unknown lifecycle state, terminal job or extra intent field
+cannot publish.
+
+The focused suite passes 7/7; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`SHARED_DURABLE_QSTASH_INITIAL_AND_RECOVERY_INTENTS_VERIFIED_CALLER_MIGRATION_OPEN`.
+The binding is not a scan-to-publish database CAS: QStash publication and the
+late dispatch-receipt update remain separate operations. A job may change after
+selection and still receive a harmless message, but the store/worker must
+re-evaluate the current lifecycle state and cannot execute stale authority.
+No existing domain dispatcher calls this owner yet, no live message was sent
+and no exactly-once claim is made. Queue item 3 continues with cadence and
+editorial-plan caller migration, then a versioned calibrated delivery/retry
+policy and the exact-render dispatcher. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
