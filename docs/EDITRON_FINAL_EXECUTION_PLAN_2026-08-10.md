@@ -7586,6 +7586,55 @@ timestamp-wrap handling. Queue item 4 still owns production private-storage
 configuration and live object lifecycle evidence. This checkpoint does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact timestamp analysis consumer Phase 3F-C7r (2026-08-29):** commit
+`b6bd736de` adds a read-only analysis consumer for an already-issued V3 native-
+media timestamp consumption receipt. The existing receipt remains the source
+of exact project-frame, source-ordinal, epoch and presentation-timestamp
+coordinates; the new owner does not reconstruct those coordinates from FPS or
+sample-video seconds. Before analysis it binds the current ProjectService
+revision, private picture-surface scope, project/source/storage/decoder
+identities, decoded- and PNG-content hashes, geometry and declared byte/frame
+limits. It rechecks the project revision after semantic analysis and always
+attempts release of the decoded batch. It performs no project mutation.
+
+The versioned engine request removes PNG bytes from its identity hash while
+binding every exact frame coordinate and content hash. Engine point/range
+observations are projected back through that immutable frame map; summary,
+theme, gesture and text claims that the legacy analyzer does not localize are
+explicitly `GLOBAL / NO_RANGE_COORDINATE` and cannot masquerade as mutation-
+authorizing range evidence. A real isolated adapter writes the verified PNG
+sequence to an owned temporary directory, encodes a 1 fps 640-square H.264
+sample with FFmpeg and lazily delegates semantic interpretation to the existing
+legacy video-analysis owner. The adapter removes the temporary directory and
+does not require provider/database infrastructure merely to be imported or
+tested.
+
+The focused suite passes 9/9, including stale revision, expired/wrong-scope
+surface, malformed engine output, cleanup failure, forged reuse of one cached
+handle under conflicting decoded identities and an absent cleanup capability.
+The surrounding timestamp/PTS cluster passes 245/245 across 45 files;
+repository TypeScript and quiet ESLint pass. No provider call, customer media,
+live private-R2 object, production deep-analysis caller, final-render consumer
+or project mutation was exercised.
+
+This result is
+`EXACT_V3_ANALYSIS_CONSUMER_AND_FFMPEG_ADAPTER_VERIFIED_LIVE_CALLER_OPEN`.
+It is partial downstream integration, not completion of Queue item 3. Next wire
+the existing deep-analysis job through a bounded timestamp-analysis
+materializer without duplicating its semantic owner, then implement/prove the
+final-render consumer and the unsupported partial-epoch/edit-list/timestamp-
+wrap cases. Physical browser/device A/V timing and Queue item 4's live private-
+storage evidence also remain open. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+The same-day provider-off browser QA probe successfully served this worktree on
+isolated port 3002, loaded the public product surface and verified that
+`/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
+FalkorDB administration surface, not Editron. Because no authenticated,
+rights-cleared project fixture was available, no visible edit/playback/
+correction/undo/reload evidence bundle or exact browser A/V pass is claimed;
+that Q0/Q1 setup remains deferred to the end-of-queue human/setup lane.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
