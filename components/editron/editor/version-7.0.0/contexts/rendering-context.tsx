@@ -64,6 +64,7 @@ export const RenderingProvider: React.FC<{
   overlays?: Overlay[];
   timestampPreviewHydrations?: readonly NativeMediaTimestampPreviewHydrationV1[];
   timestampPreviewWindows?: readonly NativeMediaTimestampPreviewWindowV2[];
+  timestampPreviewNow?: () => number;
   children: React.ReactNode;
 }> = ({
   isRendering,
@@ -71,6 +72,7 @@ export const RenderingProvider: React.FC<{
   overlays = [],
   timestampPreviewHydrations = [],
   timestampPreviewWindows = [],
+  timestampPreviewNow = Date.now,
   children,
 }) => {
   const timestampPreviewState = useMemo(
@@ -85,6 +87,7 @@ export const RenderingProvider: React.FC<{
       }
       const windowIndex = createNativeMediaTimestampPreviewWindowIndexV2(
         timestampPreviewWindows,
+        { now: timestampPreviewNow },
       );
       for (const overlayId of byOverlay.keys()) {
         if (windowIndex.hasOverlay(overlayId)) {
@@ -93,7 +96,7 @@ export const RenderingProvider: React.FC<{
       }
       return Object.freeze({ index, byOverlay, windowIndex });
     },
-    [timestampPreviewHydrations, timestampPreviewWindows],
+    [timestampPreviewHydrations, timestampPreviewNow, timestampPreviewWindows],
   );
   return (
     <RenderingContext.Provider value={{

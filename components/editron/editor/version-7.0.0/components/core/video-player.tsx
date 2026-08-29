@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Player, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/main";
 import { useEditorContext } from "../../contexts/editor-context";
 import { FPS } from "../../constants";
+import {
+  createNativeMediaTimestampPreviewSessionCoordinatorV1,
+  createNativeMediaTimestampPreviewSessionHttpPortV1,
+  selectNativeMediaTimestampPreviewClientGateV1,
+  selectNativeMediaTimestampPreviewPlayableOverlaysV1,
+} from "../../remotion/native-media-timestamp-preview-session-client-v1";
 
 /**
  * Props for the VideoPlayer component
@@ -29,7 +35,64 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     getAspectRatioDimensions,
     durationInFrames,
     playbackRate,
+    currentFrame,
+    projectId,
   } = useEditorContext();
+  const [timestampPreviewCoordinator] = useState(() => (
+    createNativeMediaTimestampPreviewSessionCoordinatorV1(
+      createNativeMediaTimestampPreviewSessionHttpPortV1(),
+    )
+  ));
+  const [timestampPreviewSnapshot, setTimestampPreviewSnapshot] = useState(
+    () => timestampPreviewCoordinator.snapshot(),
+  );
+  const timestampPreviewLifecycle = useRef(0);
+
+  useEffect(
+    () => timestampPreviewCoordinator.subscribe(setTimestampPreviewSnapshot),
+    [timestampPreviewCoordinator],
+  );
+
+  useEffect(() => {
+    const lifecycle = ++timestampPreviewLifecycle.current;
+    return () => {
+      queueMicrotask(() => {
+        if (timestampPreviewLifecycle.current === lifecycle) {
+          void timestampPreviewCoordinator.dispose();
+        }
+      });
+    };
+  }, [timestampPreviewCoordinator]);
+
+  useEffect(() => {
+    timestampPreviewCoordinator.update({
+      projectId: projectId ?? "",
+      sequenceId: "main",
+      currentFrame,
+      overlays,
+    });
+  }, [currentFrame, overlays, projectId, timestampPreviewCoordinator]);
+
+  const playableOverlays = useMemo(
+    () => selectNativeMediaTimestampPreviewPlayableOverlaysV1({
+      overlays,
+      currentFrame,
+      snapshot: timestampPreviewSnapshot,
+    }),
+    [currentFrame, overlays, timestampPreviewSnapshot],
+  );
+  const timestampPreviewGate = useMemo(
+    () => selectNativeMediaTimestampPreviewClientGateV1({
+      overlays,
+      currentFrame,
+      snapshot: timestampPreviewSnapshot,
+    }),
+    [currentFrame, overlays, timestampPreviewSnapshot],
+  );
+
+  useEffect(() => {
+    if (timestampPreviewGate.disposition !== "READY") playerRef.current?.pause();
+  }, [playerRef, timestampPreviewGate.disposition]);
 
   /**
    * Updates the player dimensions when the container size or aspect ratio changes
@@ -65,7 +128,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
   // causing the Remotion Player to re-render and restart video playback
   const inputProps = useMemo(
     () => ({
-      overlays,
+      overlays: playableOverlays,
       setSelectedOverlayId,
       changeOverlay,
       selectedOverlayId,
@@ -73,15 +136,19 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
       fps: FPS,
       width: compositionWidth,
       height: compositionHeight,
+      timestampPreviewWindows: timestampPreviewSnapshot.windows,
+      timestampPreviewNow: timestampPreviewCoordinator.observedServerNowEpochMs,
     }),
     [
-      overlays,
+      playableOverlays,
       setSelectedOverlayId,
       changeOverlay,
       selectedOverlayId,
       durationInFrames,
       compositionWidth,
       compositionHeight,
+      timestampPreviewCoordinator,
+      timestampPreviewSnapshot.windows,
     ]
   );
 
@@ -122,7 +189,14 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
               durationInFrames={PLAYER_CONFIG.durationInFrames}
               fps={PLAYER_CONFIG.fps}
               inputProps={inputProps}
-              errorFallback={() => <></>}
+              errorFallback={() => (
+                <div
+                  className="flex h-full w-full items-center justify-center bg-zinc-950 p-6 text-center text-sm text-red-200"
+                  role="alert"
+                >
+                  Preview stopped because this frame could not be rendered safely.
+                </div>
+              )}
               // Render a custom white play/pause icon for the overlay controls so
               // it's clearly visible over the black video background in light
               // mode (and still visible in dark mode as well).
@@ -156,6 +230,47 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
               overflowVisible
               acknowledgeRemotionLicense
             />
+            {timestampPreviewGate.disposition !== "READY" ? (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 p-5">
+                <div
+                  className="max-w-sm rounded-xl border border-white/15 bg-zinc-950/95 p-4 text-center text-white shadow-2xl"
+                  role={timestampPreviewGate.disposition === "BLOCKED" ? "alert" : "status"}
+                  data-editron-timestamp-preview-gate={timestampPreviewGate.disposition}
+                >
+                  <p className="text-sm font-semibold">
+                    {timestampPreviewGate.disposition === "PROBING"
+                      ? "Preparing exact-timing preview…"
+                      : "Exact-timing preview stopped"}
+                  </p>
+                  {timestampPreviewGate.disposition === "BLOCKED" ? (
+                    <>
+                      <p className="mt-2 text-xs leading-5 text-zinc-300">
+                        {timestampPreviewMessage(timestampPreviewGate.reason)}
+                      </p>
+                      {timestampPreviewGate.overlayId ? (
+                        <button
+                          type="button"
+                          className="mt-3 rounded-md bg-white px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200"
+                          onClick={() => timestampPreviewCoordinator.retry(
+                            timestampPreviewGate.overlayId!,
+                          )}
+                        >
+                          Retry exact preview
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {timestampPreviewSnapshot.cleanupFailureCount > 0 ? (
+              <div
+                className="absolute right-2 top-2 z-20 rounded bg-amber-950/90 px-2 py-1 text-[11px] text-amber-100"
+                role="status"
+              >
+                Temporary preview cleanup is incomplete.
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -166,3 +281,19 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
 // Wrap with React.memo to prevent re-renders when parent state (like currentFrame) changes
 // The VideoPlayer should only re-render when its direct dependencies change
 export const VideoPlayer = React.memo(VideoPlayerInner);
+
+function timestampPreviewMessage(reason: string): string {
+  switch (reason) {
+    case "EXACT_AUDIO_MAPPING_REQUIRED":
+      return "This clip has audio, but its exact sample timing is not ready yet.";
+    case "LEGACY_TIME_MAP_MIGRATION_REQUIRED":
+      return "This clip’s older timing map must be migrated before exact playback.";
+    case "RUNTIME_UNAVAILABLE":
+    case "SESSION_REQUEST_FAILED":
+      return "The private preview service is unavailable. Your timeline was not changed.";
+    case "OVERLAY_ASSET_REQUIRED":
+      return "This video layer is missing its source asset.";
+    default:
+      return `The clip could not be verified safely (${reason}).`;
+  }
+}

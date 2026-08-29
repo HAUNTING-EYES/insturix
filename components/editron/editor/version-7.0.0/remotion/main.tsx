@@ -35,6 +35,7 @@ export type MainProps = {
   readonly renderMediaMode?: RenderMediaMode;
   readonly timestampPreviewHydrations?: readonly NativeMediaTimestampPreviewHydrationV1[];
   readonly timestampPreviewWindows?: readonly NativeMediaTimestampPreviewWindowV2[];
+  readonly timestampPreviewNow?: () => number;
 };
 
 const outer: React.CSSProperties = {
@@ -56,6 +57,7 @@ export const Main: React.FC<MainProps> = ({
   renderMediaMode = "full",
   timestampPreviewHydrations = [],
   timestampPreviewWindows = [],
+  timestampPreviewNow,
   fps,
 }) => {
   if (isRendering
@@ -100,6 +102,7 @@ export const Main: React.FC<MainProps> = ({
       overlays={overlays}
       timestampPreviewHydrations={timestampPreviewHydrations}
       timestampPreviewWindows={timestampPreviewWindows}
+      timestampPreviewNow={timestampPreviewNow}
     >
       <AbsoluteFill style={outer} onPointerDown={onPointerDown}>
         <PreviewMediaWarmup sources={previewWarmSources} />
