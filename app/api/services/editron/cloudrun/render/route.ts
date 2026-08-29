@@ -104,10 +104,6 @@ export async function POST(request: Request) {
     const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
     await setAWSCredentials();
 
-    console.log('Triggering distributed render on Lambda:', functionName);
-    console.log('Composition:', compositionId || REMOTION_COMPOSITION_ID);
-    console.log('Region:', region);
-
     // Resolve asset URLs before sending to Lambda - ensure all overlays have valid URLs.
     // Uses CDN proxy URLs (default) which Lambda was successfully using before.
     // forceGCS is NOT used - many assets lack gcsPath and would get empty URLs.
@@ -156,8 +152,6 @@ export async function POST(request: Request) {
       console.warn('[Render] MG preflight unavailable (non-blocking):', preflightErr instanceof Error ? preflightErr.message : preflightErr);
     }
     let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
-    console.log(`[Render] Hydrated render props from project ${canonicalProjectId} (${project.overlays?.length || 0} overlays)`);
-
     const deliveryPlan = resolveRenderDeliveryPlan({
       requestedMode: musicDeliveryMode,
       overlays: resolvedProps.overlays,
@@ -228,7 +222,6 @@ export async function POST(request: Request) {
       try {
         renderOverlays = await assetResolver.resolveProjectAssets(renderOverlays);
         resolvedProps = { ...resolvedProps, overlays: renderOverlays };
-        console.log(`[Render] Resolved ${renderOverlays.length} overlay asset URLs`);
       } catch (error) {
         console.error('[Render] Asset URL resolution failed:', error);
         throw new RenderAssetHydrationError();
@@ -288,7 +281,6 @@ export async function POST(request: Request) {
     }
 
     if (usesChapterRendering) {
-      console.log(`[Render] Long video detected (${totalFrames} frames). Using chapter-based rendering.`);
       const fps = renderFps;
       const width = Number(resolvedProps.width) || 1920;
       const height = Number(resolvedProps.height) || 1080;
@@ -361,8 +353,6 @@ export async function POST(request: Request) {
     });
 
     renderStarted = true;
-    console.log('Lambda render started:', { renderId, bucketName });
-
     let trackingStatus: 'durable' | 'degraded' = 'durable';
     try {
       await markJobStarted(
@@ -373,10 +363,6 @@ export async function POST(request: Request) {
         region,
         renderDeliveryManifest!,
       );
-      console.log('Render provider bound to durable admission:', {
-        renderAdmissionId,
-        renderId,
-      });
     } catch (dbError) {
       trackingStatus = 'degraded';
       console.error('CRITICAL: render started but provider binding failed:', {
