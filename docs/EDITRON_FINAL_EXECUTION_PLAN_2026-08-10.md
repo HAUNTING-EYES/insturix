@@ -7918,12 +7918,34 @@ materializer, encoder, private-artifact and render-route startup cluster passes
 is `DURABLE_EXACT_RENDER_PREPARATION_IDENTITY_BOUND_WORKER_AND_ROUTE_OPEN`. It
 does not create, lease, dispatch, execute or resume a job; does not store a
 prepared-artifact result; and does not connect the authenticated render route.
-The next bounded phase must define the URL-free prepared-artifact resume state
-and terminal receipt, followed by the exactly qualified worker, dispatcher and
+The next bounded phase was the URL-free prepared-artifact resume state and
+terminal receipt, followed by the exactly qualified worker, dispatcher and
 fresh-lease route consumption. Queue item 4 retains live private-storage
 lifecycle, scalable multipart/resume, V3 ingest/migration and proxy/master
 invalidation. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Durable exact-render prepared result Phase 3F-C7ae (2026-08-30):** commit
+`976beca8b` defines the completed state for one source job. It persists the full
+hash-verified artifact plus its content-matched private R2 publish handle, never
+the expiring signed source URL. The result is bound to the exact job input,
+request, project/sequence revision, source/storage/V3-map identities, qualified
+runtime receipt, native-audio disposition and the currently qualified
+Matroska/H.264/gbrp artifact profile. Artifact, result and resume-state hashes
+are independent, and the terminal PASS receipt cites the artifact, result and
+runtime-profile proofs.
+
+Top-level and nested schemas are closed. Stale input bindings, foreign source
+or revision, profile/audio drift, URL-like or content-mismatched publish
+handles, unknown nested fields and forged artifact/result hashes fail closed.
+The focused result suite passes 4/4; the expanded exact-render cluster passes
+67/67; repository TypeScript and repository-wide quiet ESLint pass. This result
+is `DURABLE_EXACT_RENDER_RESULT_AND_PASS_RECEIPT_BOUND_WORKER_STORE_ROUTE_OPEN`.
+It does not yet create or claim a durable job, invoke the materializer, save the
+state through Mongo CAS, complete a job, dispatch a worker, mint a fresh route
+lease or render through Remotion. Those are the next Queue item 3 phases. Queue
+item 4's live private-object lifecycle and scalable large-object policy remain
+open. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
