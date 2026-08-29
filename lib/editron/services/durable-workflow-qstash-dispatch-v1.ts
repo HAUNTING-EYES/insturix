@@ -2,12 +2,15 @@ import { Client } from '@upstash/qstash';
 
 import { isInternalQStashWorkerAuthConfigured }
   from '../security/internal-worker-auth';
-import type { DurableWorkflowJobSnapshotV1 }
-  from './durable-workflow-job-v1';
+import {
+  hashDurableWorkflowJobJsonV1,
+  type DurableWorkflowJobSnapshotV1,
+} from './durable-workflow-job-v1';
 import type { DurableWorkflowJobStoreV1 }
   from './durable-workflow-job-store-v1';
 
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const WORKER_PATH = /^\/api\/internal\/workers\/[A-Za-z0-9][A-Za-z0-9/_-]{0,255}$/;
 
 export interface DurableWorkflowQStashDispatchEnvironmentV1
@@ -46,6 +49,11 @@ export type DurableWorkflowQStashDeliveryPolicyV1 = Readonly<{
   retryDelayMs: number;
   timeoutSeconds: number;
 }>;
+
+export type DurableWorkflowQStashDispatchIntentV1 = Readonly<
+  | { kind: 'INITIAL_QUEUED'; deduplicationId: string }
+  | { kind: 'RECOVERY_SELECTED'; stateBindingSha256: string }
+>;
 
 export interface DurableWorkflowQStashPublisherV1 {
   publishJSON(input: Readonly<{
@@ -122,6 +130,19 @@ export function resolveDurableWorkflowQStashDispatchConfigurationV1(
   });
 }
 
+export function createDurableWorkflowQStashRecoveryStateBindingV1(
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+): string {
+  const jobId = identity(job?.jobId, 'RECOVERY_JOB_ID');
+  if (!knownJobStatus(job?.status)) fail('RECOVERY_JOB_STATUS_INVALID');
+  if (!recoveryStatus(job.status)) fail('RECOVERY_JOB_NOT_ACTIVE');
+  return hashDurableWorkflowJobJsonV1({
+    kind: 'EDITRON_DURABLE_WORKFLOW_QSTASH_RECOVERY_STATE_V1',
+    jobId,
+    job,
+  });
+}
+
 export async function publishAndRecordDurableWorkflowQStashJobV1(input: Readonly<{
   job: Readonly<DurableWorkflowJobSnapshotV1>;
   jobStore: Pick<DurableWorkflowJobStoreV1, 'recordDispatch'>;
@@ -129,7 +150,7 @@ export async function publishAndRecordDurableWorkflowQStashJobV1(input: Readonly
     { configured: true }>;
   message: unknown;
   deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
-  deduplicationId: string;
+  dispatchIntent: DurableWorkflowQStashDispatchIntentV1;
   environment?: DurableWorkflowQStashDispatchEnvironmentV1;
   publisher?: Readonly<DurableWorkflowQStashPublisherV1>;
   now?: Date;
@@ -137,23 +158,22 @@ export async function publishAndRecordDurableWorkflowQStashJobV1(input: Readonly
   const environment = input.environment ?? processEnvironment();
   const configuration = assertConfiguration(input.configuration, environment);
   const jobId = identity(input.job?.jobId, 'JOB_ID');
-  const existingMessageId = input.job.dispatchMessageId;
-  if (existingMessageId !== null) {
+  const admission = normalizeDispatchIntent(input.dispatchIntent, input.job, jobId);
+  if (admission.state === 'already_dispatched') {
     return Object.freeze({
       state: 'already_dispatched' as const,
       jobId,
-      messageId: identity(existingMessageId, 'PERSISTED_MESSAGE_ID'),
+      messageId: admission.messageId,
     });
   }
-  if (input.job.status !== 'queued') {
+  if (admission.state === 'not_dispatchable') {
     return Object.freeze({
       state: 'not_dispatchable' as const,
       jobId,
-      jobStatus: input.job.status,
+      jobStatus: admission.jobStatus,
     });
   }
   const deliveryPolicy = normalizeDeliveryPolicy(input.deliveryPolicy);
-  const deduplicationId = identity(input.deduplicationId, 'DEDUPLICATION_ID');
   const publisher = input.publisher ?? createPublisher(environment);
   let published: Readonly<{ messageId?: string; deduplicated?: boolean }>;
   try {
@@ -163,7 +183,7 @@ export async function publishAndRecordDurableWorkflowQStashJobV1(input: Readonly
       retries: deliveryPolicy.retries,
       retryDelay: String(deliveryPolicy.retryDelayMs),
       timeout: deliveryPolicy.timeoutSeconds,
-      deduplicationId,
+      deduplicationId: admission.deduplicationId,
     });
   } catch {
     return Object.freeze({
@@ -206,6 +226,60 @@ export async function publishAndRecordDurableWorkflowQStashJobV1(input: Readonly
     });
   }
   return Object.freeze({ state: 'dispatched' as const, jobId, messageId });
+}
+
+function normalizeDispatchIntent(
+  value: DurableWorkflowQStashDispatchIntentV1,
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  jobId: string,
+): Readonly<
+  | { state: 'dispatchable'; deduplicationId: string }
+  | { state: 'already_dispatched'; messageId: string }
+  | {
+      state: 'not_dispatchable';
+      jobStatus: DurableWorkflowJobSnapshotV1['status'];
+    }
+> {
+  const record = object(value, 'DISPATCH_INTENT');
+  if (!knownJobStatus(job?.status)) fail('JOB_STATUS_INVALID');
+  if (record.kind === 'INITIAL_QUEUED') {
+    exactKeys(record, ['kind', 'deduplicationId'], 'INITIAL_DISPATCH_INTENT');
+    const deduplicationId = identity(
+      record.deduplicationId,
+      'INITIAL_DEDUPLICATION_ID',
+    );
+    if (deduplicationId !== jobId) fail('INITIAL_DEDUPLICATION_ID_MISMATCH');
+    if (job.dispatchMessageId !== null) {
+      return Object.freeze({
+        state: 'already_dispatched' as const,
+        messageId: identity(job.dispatchMessageId, 'PERSISTED_MESSAGE_ID'),
+      });
+    }
+    if (job.status !== 'queued') {
+      return Object.freeze({ state: 'not_dispatchable' as const, jobStatus: job.status });
+    }
+    return Object.freeze({ state: 'dispatchable' as const, deduplicationId });
+  }
+  if (record.kind === 'RECOVERY_SELECTED') {
+    exactKeys(record, ['kind', 'stateBindingSha256'], 'RECOVERY_DISPATCH_INTENT');
+    const stateBindingSha256 = sha256(
+      record.stateBindingSha256,
+      'RECOVERY_STATE_BINDING_SHA256',
+    );
+    if (!recoveryStatus(job.status)) {
+      return Object.freeze({ state: 'not_dispatchable' as const, jobStatus: job.status });
+    }
+    if (job.dispatchMessageId !== null) {
+      identity(job.dispatchMessageId, 'PERSISTED_MESSAGE_ID');
+    }
+    const expected = createDurableWorkflowQStashRecoveryStateBindingV1(job);
+    if (stateBindingSha256 !== expected) fail('RECOVERY_STATE_BINDING_MISMATCH');
+    return Object.freeze({
+      state: 'dispatchable' as const,
+      deduplicationId: stateBindingSha256,
+    });
+  }
+  fail('DISPATCH_INTENT_KIND_INVALID');
 }
 
 function assertConfiguration(
@@ -300,6 +374,23 @@ function identity(value: unknown, label: string): string {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!IDENTITY.test(normalized)) fail(`${label}_INVALID`);
   return normalized;
+}
+
+function sha256(value: unknown, label: string): string {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!SHA256.test(normalized)) fail(`${label}_INVALID`);
+  return normalized;
+}
+
+function knownJobStatus(
+  value: unknown,
+): value is DurableWorkflowJobSnapshotV1['status'] {
+  return value === 'queued' || value === 'running' || value === 'retry_wait'
+    || value === 'completed' || value === 'cancelled' || value === 'dead_letter';
+}
+
+function recoveryStatus(value: DurableWorkflowJobSnapshotV1['status']): boolean {
+  return value === 'queued' || value === 'running' || value === 'retry_wait';
 }
 
 function nonNegativeInteger(value: unknown, label: string): number {
