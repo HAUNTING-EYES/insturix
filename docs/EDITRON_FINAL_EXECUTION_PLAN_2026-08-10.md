@@ -8039,6 +8039,17 @@ contracts and live proofs remain Queue item 3 work. Queue item 4 retains scalabl
 private-object lifecycle, V3 ingest/migration and proxy/master invalidation.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before splitting artifact preparation from expiring render-lease publication,
+commit `3dc25c029` performs the mandated Step 0 cleanup on the 521-line
+exact-source materializer and 952-line FFmpeg encoder. It makes five
+implementation-only policy/port type or default-policy declarations private
+after repository-wide direct, type, test/mock, string, dynamic-import and barrel
+searches found no external consumer. No value, failure code, owner, encoding,
+storage, audio, timing or lease behavior changes. The focused materializer,
+encoder and private-artifact suites pass 15/15; repository TypeScript and
+repository-wide quiet ESLint pass. This is behavior-neutral API-surface cleanup
+only and does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
