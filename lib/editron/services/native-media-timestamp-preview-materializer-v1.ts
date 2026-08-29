@@ -102,6 +102,7 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'OVERLAY_RETIME_UNSUPPORTED'
   | 'ASSET_UNAVAILABLE'
   | 'ASSET_SCOPE_INVALID'
+  | 'LEGACY_TIME_MAP_MIGRATION_REQUIRED'
   | 'EXACT_AUDIO_MAPPING_REQUIRED'
   | 'SOURCE_WINDOW_REQUIRES_EXPLICIT_END'
   | 'SOURCE_WINDOW_RESOURCE_LIMIT'
@@ -117,6 +118,10 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'RUNTIME_UNAVAILABLE';
 
 export type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
+  | {
+      disposition: 'NOT_APPLICABLE';
+      reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
+    }
   | {
       disposition: 'WINDOW_MATERIALIZED';
       window: NativeMediaTimestampPreviewWindowV2;
@@ -211,6 +216,18 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     asset = await ports.assetReader.load(overlay.assetId, scope.userId);
   } catch {
     return unverifiable('ASSET_UNAVAILABLE', null);
+  }
+  if (asset) {
+    const management = timestampManagement(asset);
+    if (management === 'NONE') {
+      return Object.freeze({
+        disposition: 'NOT_APPLICABLE' as const,
+        reason: 'ASSET_NOT_TIMESTAMP_MANAGED' as const,
+      });
+    }
+    if (management === 'EARLIER') {
+      return unverifiable('LEGACY_TIME_MAP_MIGRATION_REQUIRED', null);
+    }
   }
   let binding: ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>;
   try {
@@ -512,6 +529,21 @@ function sourceHasAudio(asset: MediaSourcePtsCadenceMapAssetStateInputV3): boole
   } | undefined;
   const streams = qualification?.observation?.audioStreams;
   return Array.isArray(streams) ? streams.length > 0 : null;
+}
+
+function timestampManagement(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+): 'NONE' | 'EARLIER' | 'V3' {
+  const state = asset as Record<string, unknown>;
+  const present = (key: string) => state[key] !== undefined && state[key] !== null;
+  if (present('sourcePtsCadenceMapV3') || present('sourcePtsCadenceMapStateSha256V3')) {
+    return 'V3';
+  }
+  if (present('sourcePtsCadenceMapV1') || present('sourcePtsCadenceMapStateSha256V1')
+    || present('sourcePtsCadenceMapV2') || present('sourcePtsCadenceMapStateSha256V2')) {
+    return 'EARLIER';
+  }
+  return 'NONE';
 }
 
 async function releaseThen(

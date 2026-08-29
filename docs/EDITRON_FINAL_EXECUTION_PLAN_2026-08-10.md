@@ -6912,6 +6912,42 @@ consumption. Queue item 4 still owns the production V3 scanner/finalizer,
 immutable writes, live private-bucket proof, migration and qualified proxy/
 master mapping.
 
+**Authenticated timestamp-preview session server Phase 3F-C7a
+(2026-08-29):** the materializer now distinguishes three routing states before
+the browser is allowed to choose anything. An asset with no V1/V2/V3 cadence
+state is explicitly `NOT_APPLICABLE` and may remain on its ordinary media path.
+An asset with V1/V2 cadence state is explicitly blocked with
+`LEGACY_TIME_MAP_MIGRATION_REQUIRED`. Any present or partial V3 state is treated
+as timing-managed and must pass the full V3 validator; corrupt, stale,
+incomplete or unsupported V3 state never becomes ordinary-media fallback.
+
+The authenticated Node session route accepts exact, 64 KiB-bounded commands.
+POST materializes one current-revision window through the server runtime.
+DELETE releases one returned window without relying on a process-local decoder
+instance. Before deletion, the release owner re-reads every unique private
+surface and matches tenant, project, revision, sequence hash, overlay hash,
+decoder batch, picture request, decoded content and exact lease expiry. It
+preflights the complete set before deleting anything. Missing objects are
+idempotently counted as already absent; provider partial deletion returns
+`RELEASE_INCOMPLETE` and never claims full cleanup.
+
+The session/materializer focused suites pass 12/12, repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+The release tests cover foreign ownership, zero-delete-on-scope-mismatch,
+already-absent objects and partial provider failure. They use injected storage;
+no authenticated browser request, live private bucket, FFmpeg process, project,
+provider or customer data was touched.
+
+This result is
+`AUTHENTICATED_PREVIEW_SESSION_SERVER_WIRED_LIVE_PLAYER_COORDINATOR_OPEN`.
+It proves the server command and cleanup boundary, not rolling playback. The
+editor does not yet plan active/prefetch requests, deduplicate in-flight work,
+swap only after complete coverage, renew before lease expiry, pause on a
+timing-managed block, or release superseded windows during a real Player
+session. Those are the next bounded Phase 3F-C7b responsibilities. Native
+sample-domain audio, browser discontinuity proof, analysis and final-render
+consumers remain open; queue item 3 is not complete.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
