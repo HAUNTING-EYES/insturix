@@ -7443,6 +7443,42 @@ item 4 still owns production private-storage configuration and live lifecycle
 evidence. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Paired picture/audio preview lease and release Phase 3F-C7n
+(2026-08-29):** Step-0 commit `b866c3d0b` first removes four unused public
+type exports from the existing browser session client without changing its
+control flow. Commit `b3cd71844` then adds a browser-safe session-window
+contract that binds the existing V2 picture window to either its exact V1
+audio window or an explicit no-audio disposition. Exact audio must match the
+same project, sequence, overlay, project revision, project-frame window,
+audio-mapping hash and every lease timestamp. Missing required audio,
+unexpected audio and any mapping/scope/lease mismatch fail validation.
+
+Commit `208a55469` adds an additive V2 release command and server cleanup
+owner. It preflights every PCM audio handle and its private binding before it
+allows the existing picture-release owner to delete anything, then deletes
+the paired audio handles. Missing objects are idempotent; cross-user/project,
+revision, mapping, sample-domain, segment-identity or lease tamper blocks
+before deletion. Partial picture or audio provider cleanup reports
+`RELEASE_INCOMPLETE`, with separate failed counts, and can be retried.
+The V1 picture-only command remains available during the bounded migration.
+
+The paired-contract/release focused suites pass 11/11 and the wider session,
+route and audio-surface cluster passes 40/40. Repository TypeScript passes
+with the declared 8 GiB heap and repository-wide quiet ESLint passes. No
+production route or client calls the V2 paired release yet; the main picture
+materializer also does not yet invoke the exact-audio materializer. No live R2
+object, browser decode or playback scheduling was exercised.
+
+This result is
+`PAIRED_PREVIEW_LEASE_AND_IDEMPOTENT_RELEASE_OWNER_VERIFIED_CALL_PATH_OPEN`.
+Queue item 3 remains open for an explicit paired-A/V materialize command, real
+materializer/route/client adoption, browser decode and exact swap-continuity
+scheduling, analysis/final-render consumers, unsupported partial-epoch,
+edit-list and timestamp-wrap handling, and real private-runtime proof. Queue
+item 4 still owns production private-storage configuration and live lifecycle
+evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
