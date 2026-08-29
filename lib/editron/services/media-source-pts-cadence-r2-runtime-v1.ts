@@ -12,6 +12,12 @@ import {
 } from './media-source-pts-cadence-r2-private-sidecar-v1';
 import { createMediaSourcePtsCadenceScanR2ReaderV1 } from './media-source-pts-cadence-scan-r2-reader-v1';
 import {
+  createNativeMediaTimestampR2PreviewAudioSurfaceReaderV1,
+  createNativeMediaTimestampR2PreviewAudioSurfaceStoreV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_SURFACE_DEFAULT_POLICY_V1,
+  type NativeMediaTimestampPreviewAudioSurfacePolicyV1,
+} from './native-media-timestamp-r2-preview-audio-surface-v1';
+import {
   createNativeMediaTimestampR2PreviewSurfaceReaderV1,
   createNativeMediaTimestampR2PreviewSurfaceStoreV1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
@@ -112,6 +118,38 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     audioArtifact: createMediaSourceAudioR2PrivateArtifactStoreV1({
       ...scope,
       policy: MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1,
+    }),
+    audioPreviewSurface: Object.freeze({
+      createStore(
+        leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
+        options: Readonly<{
+          policy?: NativeMediaTimestampPreviewAudioSurfacePolicyV1;
+          now?: () => number;
+          randomIdentifier?: () => string;
+        }> = {},
+      ) {
+        return createNativeMediaTimestampR2PreviewAudioSurfaceStoreV1({
+          ...scope,
+          leaseScope,
+          policy: options.policy
+            ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_SURFACE_DEFAULT_POLICY_V1,
+          now: options.now,
+          randomIdentifier: options.randomIdentifier,
+        });
+      },
+      createReader(
+        options: Readonly<{
+          policy?: NativeMediaTimestampPreviewAudioSurfacePolicyV1;
+          now?: () => number;
+        }> = {},
+      ) {
+        return createNativeMediaTimestampR2PreviewAudioSurfaceReaderV1({
+          ...scope,
+          policy: options.policy
+            ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_SURFACE_DEFAULT_POLICY_V1,
+          now: options.now,
+        });
+      },
     }),
     previewSurface: Object.freeze({
       createStore(
