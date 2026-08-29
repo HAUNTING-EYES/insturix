@@ -16,19 +16,19 @@ import {
 const SESSION_ENDPOINT = '/api/services/editron/media/timestamp-preview/session';
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
-export type NativeMediaTimestampPreviewClientDispositionV1 =
+type NativeMediaTimestampPreviewClientDispositionV1 =
   | 'PROBING'
   | 'ORDINARY'
   | 'EXACT'
   | 'BLOCKED';
 
-export type NativeMediaTimestampPreviewClientOverlayStateV1 = Readonly<{
+type NativeMediaTimestampPreviewClientOverlayStateV1 = Readonly<{
   overlayId: string;
   disposition: NativeMediaTimestampPreviewClientDispositionV1;
   reason: string | null;
 }>;
 
-export type NativeMediaTimestampPreviewClientSnapshotV1 = Readonly<{
+type NativeMediaTimestampPreviewClientSnapshotV1 = Readonly<{
   version: number;
   globalReason: string | null;
   cleanupFailureCount: number;
@@ -36,7 +36,7 @@ export type NativeMediaTimestampPreviewClientSnapshotV1 = Readonly<{
   windows: readonly NativeMediaTimestampPreviewWindowV2[];
 }>;
 
-export type NativeMediaTimestampPreviewClientGateV1 = Readonly<
+type NativeMediaTimestampPreviewClientGateV1 = Readonly<
   | { disposition: 'READY'; overlayId: null; reason: null }
   | { disposition: 'PROBING' | 'BLOCKED'; overlayId: string | null; reason: string }
 >;
