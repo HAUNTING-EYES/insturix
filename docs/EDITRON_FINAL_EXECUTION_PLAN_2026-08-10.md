@@ -8237,6 +8237,43 @@ state persistence and explicit re-attestation, durable budget/retry/heartbeat
 policy provenance, then dispatch/publication/render-route composition. This
 checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project-scoped source-rights ledger Phase 3F-C7ao (2026-08-30):** commit
+`6ec1a293a` supersedes the proposed single `MEDIA_ASSETS` rights slot with one
+dedicated authority ledger keyed by exact tenant, nullable organization,
+project, asset and immutable source-version hash. This correction is required
+because the same source version can be used by two projects whose clearances
+must not overwrite one another. The current head is compare-and-set by its
+canonical state hash; every initial issue, re-attestation and revocation also
+writes an immutable transition event in the same snapshot/majority Atlas
+transaction. Initial issue is insert-only, later writes are update-only, and
+reads validate the exact scope, head state, matching event, transition kind,
+chain hashes and timestamps. Re-attestation names both the superseded record
+and previous state; revocation chains to the prior state. A lost race never
+claims success.
+
+The native final-render source-rights adapter now reads this exact ledger scope
+through an injected owner rather than accepting rights fields from the media
+asset. Missing, forged, wrong-scope or revoked evidence blocks; legacy
+`audioRights` still cannot become visual clearance. The focused rights suites
+pass 25/25 and the complete native-final-render/source-identity cluster passes
+110/110; repository TypeScript and repository-wide quiet ESLint pass. Tests
+include the same immutable source used in two independent projects, stale CAS,
+invalid history, wrong-scope current state, lost race, exact re-attestation and
+revocation chains, final-render scope drift, licence expiry and audio-authority
+failure.
+
+This is `PROJECT_SCOPED_SOURCE_RIGHTS_LEDGER_IMPLEMENTED_PRODUCT_COMPOSITION_AND_LIVE_ATLAS_PROOF_OPEN`.
+It is not route or deployment convergence. No production Clerk/org/project
+principal adapter issues the authorization receipt; no authenticated issuance,
+re-attestation or revocation API/UI calls the ledger; no migration makes legacy
+assets eligible; and the final-render factory still has no production caller.
+The Mongo adapter has not been exercised against live Atlas, including
+transaction/redelivery/backup-recovery evidence. Queue item 3 therefore
+continues with the production composition root, policy provenance, dispatcher,
+fresh publication and render-route/Remotion consumption. The legal/product
+owner must still approve versioned terms and any cross-project library policy.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
