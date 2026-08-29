@@ -176,8 +176,9 @@ export function createNativeMediaTimestampPreviewWebAudioRuntimeV1(
         redirect: 'error',
         referrerPolicy: 'no-referrer',
       });
-      assertAudioResponse(response, entry);
+      const expectedWavContentSha256 = assertAudioResponse(response, entry);
       const bytes = await readExactResponseBytes(response, entry.expectedWavByteLength);
+      await assertWavContentSha256(bytes, expectedWavContentSha256);
       const decoded = decodeCanonicalS32LeWav(bytes, entry, audioContext());
       return Object.freeze({
         segmentIdentitySha256: entry.segmentIdentitySha256,
@@ -243,6 +244,7 @@ export function createNativeMediaTimestampPreviewWebAudioRuntimeV1(
               'NATIVE_MEDIA_PREVIEW_AUDIO_CONTEXT_TIME_INVALID',
             ),
             active.currentTime,
+            entry.contextStartTimeSeconds,
           );
           gainNode.gain.setValueAtTime(normalizedGain, when);
         },
@@ -315,12 +317,17 @@ function planPcmSegment(input: Readonly<{
     'NATIVE_MEDIA_PREVIEW_AUDIO_TIME_INVALID',
   );
   return Object.freeze({
-    scheduleId: [
-      input.leaseId,
+    scheduleId: JSON.stringify([
+      input.projectId,
+      input.overlayId,
       input.segment.segmentIdentitySha256,
+      bufferOffsetSamplePosition.numerator,
+      bufferOffsetSamplePosition.denominator,
+      contentDurationSamplePosition.numerator,
+      contentDurationSamplePosition.denominator,
       timelineDelaySamplePosition.numerator,
       timelineDelaySamplePosition.denominator,
-    ].join(':'),
+    ]),
     projectId: input.projectId,
     overlayId: input.overlayId,
     leaseId: input.leaseId,
@@ -374,15 +381,17 @@ function assertOneProjectRevisionAndNoOverlap(
 function assertAudioResponse(
   response: Response,
   entry: NativeMediaTimestampPreviewAudioScheduleEntryV1,
-): void {
+): string {
+  const etag = /^"sha256-([a-f0-9]{64})"$/.exec(response.headers.get('etag') ?? '');
   if (!response.ok || response.status !== 200 || response.redirected
     || response.headers.get('x-editron-preview-status') !== 'CURRENT'
     || response.headers.get('x-editron-audio-segment') !== entry.segmentIdentitySha256
     || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'audio/wav'
     || response.headers.get('content-length') !== String(entry.expectedWavByteLength)
-    || !/^"sha256-[a-f0-9]{64}"$/.test(response.headers.get('etag') ?? '')) {
+    || !etag) {
     throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_RESPONSE_INVALID');
   }
+  return etag[1];
 }
 
 async function readExactResponseBytes(response: Response, expected: number): Promise<Uint8Array> {
@@ -402,6 +411,16 @@ async function readExactResponseBytes(response: Response, expected: number): Pro
   }
   if (offset !== expected) throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_RESPONSE_BYTES_INVALID');
   return output;
+}
+
+async function assertWavContentSha256(bytes: Uint8Array, expected: string): Promise<void> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_INTEGRITY_UNAVAILABLE');
+  const payload = new Uint8Array(bytes.byteLength);
+  payload.set(bytes);
+  const digest = new Uint8Array(await subtle.digest('SHA-256', payload.buffer));
+  const actual = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  if (actual !== expected) throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_INTEGRITY_MISMATCH');
 }
 
 function decodeCanonicalS32LeWav(

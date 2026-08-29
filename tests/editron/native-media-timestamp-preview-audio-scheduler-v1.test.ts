@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -61,6 +63,23 @@ describe('native media timestamp preview audio scheduler V1', () => {
     })).toThrowError('NATIVE_MEDIA_PREVIEW_AUDIO_WINDOWS_OVERLAP');
   });
 
+  it('gives the same content on separate overlays distinct stable schedules', () => {
+    const first = smallPcmSession(0);
+    const second = assertNativeMediaTimestampPreviewSessionWindowV1({
+      ...first,
+      pictureWindow: { ...first.pictureWindow, overlayId: '84' },
+      audioWindow: first.audioWindow ? { ...first.audioWindow, overlayId: '84' } : null,
+    });
+    const entries = planNativeMediaTimestampPreviewAudioScheduleV1({
+      sessionWindows: [first, second],
+      currentProjectFrame: 0,
+      contextStartTimeSeconds: 1,
+      playbackRate: 1,
+    });
+    expect(entries).toHaveLength(2);
+    expect(new Set(entries.map(({ scheduleId }) => scheduleId)).size).toBe(2);
+  });
+
   it('validates and decodes canonical S32LE WAV before scheduling it', async () => {
     const entry = planNativeMediaTimestampPreviewAudioScheduleV1({
       sessionWindows: [smallPcmSession(0)],
@@ -122,6 +141,19 @@ describe('native media timestamp preview audio scheduler V1', () => {
       'NATIVE_MEDIA_PREVIEW_AUDIO_RESPONSE_INVALID',
     );
     await forged.close();
+
+    const tampered = createNativeMediaTimestampPreviewWebAudioRuntimeV1({
+      audioContextFactory: () => fakeAudioContext().context,
+      fetchImplementation: vi.fn(async () => audioResponse(
+        wav,
+        entry.segmentIdentitySha256,
+        hex('f'),
+      )),
+    });
+    await expect(tampered.loadSegment(entry)).rejects.toThrowError(
+      'NATIVE_MEDIA_PREVIEW_AUDIO_INTEGRITY_MISMATCH',
+    );
+    await tampered.close();
 
     const fake = fakeAudioContext();
     const runtime = createNativeMediaTimestampPreviewWebAudioRuntimeV1({
@@ -292,7 +324,11 @@ function sessionWindow(input: Readonly<{
   });
 }
 
-function audioResponse(bytes: Uint8Array, segmentIdentity: string): Response {
+function audioResponse(
+  bytes: Uint8Array,
+  segmentIdentity: string,
+  wavContentSha256 = createHash('sha256').update(bytes).digest('hex'),
+): Response {
   const body = new Uint8Array(bytes.byteLength);
   body.set(bytes);
   return new Response(body.buffer, {
@@ -300,7 +336,7 @@ function audioResponse(bytes: Uint8Array, segmentIdentity: string): Response {
     headers: {
       'content-type': 'audio/wav',
       'content-length': String(bytes.byteLength),
-      etag: `"sha256-${hex('d')}"`,
+      etag: `"sha256-${wavContentSha256}"`,
       'x-editron-preview-status': 'CURRENT',
       'x-editron-audio-segment': segmentIdentity,
     },
