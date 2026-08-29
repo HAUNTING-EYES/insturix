@@ -6868,6 +6868,50 @@ coordinator must renew/swap/release rolling windows. Queue item 4 still owns
 the production V3 scanner/finalizer, immutable V3 writes, live private-bucket
 proof, V2-to-V3 migration and qualified proxy/master mapping.
 
+**Current-revision timestamp-preview materializer Phase 3F-C6
+(2026-08-29):** a new server-only owner now composes the already separate
+ProjectService snapshot/revision, verified `MEDIA_ASSETS` V3 binding, private
+epoch-artifact reader, exact ordinal-anchored timestamp conform, materializing
+decoder consumer and private preview-surface lease into one bounded V2 rolling
+window. The selected source anchor is the verified frame ordinal itself; its
+epoch, PTS and source tick duration come from the immutable V3 artifact rather
+than frame-rate arithmetic. The materializer checks the ProjectService revision
+before and after decode and once more before return, re-reads the V3 asset after
+decode, compares its binding hash, and releases decoded surfaces when a late
+asset, revision, lease or window check fails.
+
+Legacy non-integer numeric project rates such as `29.97` stop as ambiguous
+instead of being silently treated as `30000/1001`. Video retimes, a source with
+audio but no exact native sample-domain mapping, an invalid or changed V3
+qualification, and a source extent too broad for the declared read budget all
+stop before an unsafe window can be returned. Runtime policies now require
+positive safe integers for every read, conform, decode, dimension, timeout and
+surface bound. Malformed initial V3 state becomes `ASSET_SCOPE_INVALID`;
+malformed refreshed state becomes a late asset-change stop with cleanup, never
+an escaping validator exception.
+
+The real conform/reader/window/FFmpeg-adapter compatibility cluster passes
+22/22, repository TypeScript passes with the declared 8 GiB heap and
+repository-wide quiet ESLint passes. The materializer tests use real canonical
+three-epoch VFR/reset/gap artifacts and the real verification/conform/consumer/
+window chain, with injected storage and decoder ports. No live database,
+private bucket, FFmpeg process, browser, project, provider or customer data was
+touched.
+
+This result is
+`CURRENT_REVISION_PREVIEW_WINDOW_MATERIALIZER_WIRED_LIVE_PLAYER_AND_AUDIO_OPEN`.
+It is a server production composition boundary, not proof of live playback.
+The Player does not yet request, prefetch, renew, swap or release these windows,
+and no browser run proves a discontinuity-free lease transition. Sources with
+native audio deliberately remain blocked until exact sample-domain mapping is
+owned. Missing explicit source end currently requires a fully bounded source
+extent rather than timestamp-addressed batch selection. Analysis and final-
+render consumers remain open. Queue item 3 therefore continues with the live
+Player session coordinator, followed by native audio, analysis and final-render
+consumption. Queue item 4 still owns the production V3 scanner/finalizer,
+immutable writes, live private-bucket proof, migration and qualified proxy/
+master mapping.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source

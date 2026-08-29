@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { OverlayType } from '@/components/editron/editor/version-7.0.0/types';
 import {
   CANONICAL_MEDIA_TIME_CONTRACT_VERSION_V1,
   type PresentationEpochV1,
@@ -37,6 +38,11 @@ import {
 import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 import {
+  materializeNativeMediaTimestampPreviewWindowV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
+  type NativeMediaTimestampPreviewMaterializerPolicyV1,
+} from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
+import {
   consumeNativeMediaTimestampTransformV1,
   NATIVE_MEDIA_TIMESTAMP_DECODER_BATCH_OUTPUT_KIND_V1,
   NATIVE_MEDIA_TIMESTAMP_DECODER_PORT_VERSION_V1,
@@ -44,8 +50,10 @@ import {
   type NativeMediaTimestampDecoderBatchRequestV1,
   type NativeMediaTimestampMaterializingDecoderV1,
 } from '@/lib/editron/services/native-media-timestamp-consumer-v1';
+import type { Project } from '@/lib/editron/services/project-service';
 import {
   createVideoSourceTimestampConformFromVerifiedEpochIndexV3,
+  createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
   type VideoSourceTimestampConformV3,
 } from '@/lib/editron/services/video-source-time-transform-v1';
 
@@ -95,6 +103,54 @@ describe('native media timestamp consumer V1', () => {
         result.receipt.timelinePictures[3]!.pictureHandle,
         result.receipt.timelinePictures[3]!.pictureHandle]);
     expect(result.receipt.receiptSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('derives a reset-side source anchor from the verified frame ordinal', async () => {
+    const fixture = await verifiedFixture('ordinal-anchor');
+    const input = {
+      asset: fixture.asset,
+      storedObjectReader: fixture.reader,
+      firstFrameOrdinal: '0',
+      endExclusiveFrameOrdinal: '6',
+      windowResourcePolicy: {
+        policyVersion: 'epoch-window-test-v3',
+        maxFrameRecords: 10,
+        maxBatchReads: 10,
+        maxTotalReadBytes: 1_000_000,
+      },
+      projectRate: { numerator: '1', denominator: '1' },
+      timelineStartFrame: '6',
+      timelineFrameQueries: ['6', '7'],
+      sourceAnchorFrameOrdinal: '4',
+      resourcePolicy: {
+        policyVersion: 'timestamp-conform-test-v3',
+        maxSourceFrames: 10,
+        maxFrameQueries: 10,
+      },
+    } as const;
+
+    await expect(createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3(input))
+      .resolves.toMatchObject({
+        disposition: 'CONFORM_CREATED',
+        transform: {
+          sourceAnchor: {
+            epochId: 'epoch-2',
+            presentationTimestampTicks: '2000',
+          },
+          frameSelections: [
+            { timelineFrame: '6', sourceFrameOrdinal: '4' },
+            { timelineFrame: '7', sourceFrameOrdinal: '5' },
+          ],
+        },
+      });
+    await expect(createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3({
+      ...input,
+      sourceAnchorFrameOrdinal: '6',
+    })).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE',
+      reason: 'WINDOW_COVERAGE_INCOMPLETE',
+      diagnostic: 'VIDEO_SOURCE_CONFORM_ANCHOR_ORDINAL_NOT_IN_WINDOW',
+    });
   });
 
   it('fails before decode for tampered bytes, oversized index reads, and unqualified proxies', async () => {
@@ -234,6 +290,239 @@ describe('native media timestamp consumer V1', () => {
   });
 });
 
+describe('native media timestamp preview materializer V1', () => {
+  it('binds the current project overlay to exact reset-side pictures and a conservative lease', async () => {
+    const fixture = await verifiedFixture('materializer-success');
+    const runtime = materializerPorts(fixture);
+
+    const result = await materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(),
+      runtime.ports,
+    );
+
+    expect(result).toMatchObject({
+      disposition: 'WINDOW_MATERIALIZED',
+      materializedPictureCount: 2,
+      window: {
+        overlayId: '42',
+        overlayFromFrame: 10,
+        windowLocalStartFrame: 0,
+        windowDurationInFrames: 2,
+        audioOwnership: { disposition: 'NO_AUDIO_MAPPING_REQUESTED' },
+        lease: {
+          issuedAtEpochMs: 1_000,
+          renewAfterEpochMs: 3_301_000,
+          expiresAtEpochMs: 3_601_000,
+        },
+        frames: [{ projectFrame: 10 }, { projectFrame: 11 }],
+      },
+    });
+    expect(runtime.decodePictures).toHaveBeenCalledTimes(1);
+    expect(runtime.decodePictures.mock.calls[0]![0].pictureRequests).toEqual([
+      expect.objectContaining({
+        sourceFrameOrdinal: '4', epochId: 'epoch-2', presentationTimestampTicks: '2000',
+      }),
+      expect.objectContaining({
+        sourceFrameOrdinal: '5', epochId: 'epoch-2', presentationTimestampTicks: '3000',
+      }),
+    ]);
+    expect(runtime.releaseDecodedBatch).not.toHaveBeenCalled();
+  });
+
+  it('blocks ambiguous rate, retime, source audio, and unbounded source extent before decode', async () => {
+    const fixture = await verifiedFixture('materializer-preflight');
+    const ambiguous = materializerPorts(fixture, {
+      project: projectFixture(fixture.sourceVersion.assetId, { fps: 29.97 }),
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), ambiguous.ports,
+    )).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'PROJECT_RATE_AMBIGUOUS' });
+
+    const baseProject = projectFixture(fixture.sourceVersion.assetId);
+    const baseVideo = baseProject.overlays[0]!;
+    if (baseVideo.type !== OverlayType.VIDEO) throw new Error('TEST_VIDEO_OVERLAY_REQUIRED');
+    const retimed = materializerPorts(fixture, {
+      project: projectFixture(fixture.sourceVersion.assetId, {
+        overlays: [{ ...baseVideo, speed: 2 }],
+      }),
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), retimed.ports,
+    )).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'OVERLAY_RETIME_UNSUPPORTED' });
+
+    const audioFixture = await verifiedFixture('materializer-audio', { withAudio: true });
+    const audio = materializerPorts(audioFixture);
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), audio.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'EXACT_AUDIO_MAPPING_REQUIRED',
+    });
+
+    const withoutEnd = {
+      ...baseProject.overlays[0]!, sourceStartFrame: 0, sourceEndFrame: undefined,
+    };
+    const unbounded = materializerPorts(fixture, {
+      project: projectFixture(fixture.sourceVersion.assetId, { overlays: [withoutEnd] }),
+      policy: {
+        ...NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
+        epochWindow: {
+          ...NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1.epochWindow,
+          maxFrameRecords: 5,
+        },
+      },
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), unbounded.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'SOURCE_WINDOW_REQUIRES_EXPLICIT_END',
+    });
+    expect(ambiguous.decodePictures).not.toHaveBeenCalled();
+    expect(retimed.decodePictures).not.toHaveBeenCalled();
+    expect(audio.decodePictures).not.toHaveBeenCalled();
+    expect(unbounded.decodePictures).not.toHaveBeenCalled();
+  });
+
+  it('releases decoded surfaces on stale asset, late revision, or unusable lease', async () => {
+    const fixture = await verifiedFixture('materializer-late-stop');
+    const staleAsset = materializerPorts(fixture, {
+      assetReads: [fixture.asset, fixture.baseAsset],
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), staleAsset.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'ASSET_CHANGED_DURING_MATERIALIZATION',
+    });
+    expect(staleAsset.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+
+    const revisionReader = vi.fn()
+      .mockResolvedValueOnce(projectRevision(9))
+      .mockResolvedValueOnce(projectRevision(9))
+      .mockResolvedValueOnce(projectRevision(10));
+    const staleProject = materializerPorts(fixture, { getProjectRevision: revisionReader });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), staleProject.ports,
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'PROJECT_CHANGED_DURING_MATERIALIZATION',
+    });
+    expect(staleProject.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+
+    const shortLease = materializerPorts(fixture, { expiresInMs: 1_000 });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), shortLease.ports,
+    )).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'LEASE_UNUSABLE' });
+    expect(shortLease.releaseDecodedBatch).toHaveBeenCalledTimes(1);
+
+    const cleanupFailure = materializerPorts(fixture, {
+      assetReads: [fixture.asset, fixture.baseAsset],
+      releaseFailure: true,
+    });
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), cleanupFailure.ports,
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'CLEANUP_FAILED',
+      diagnostic: 'ASSET_CHANGED_DURING_MATERIALIZATION',
+    });
+  });
+});
+
+function materializerInput() {
+  return {
+    userId: 'user-1',
+    projectId: 'project-1',
+    sequenceId: 'main',
+    overlayId: 42,
+    windowLocalStartFrame: 0,
+    windowDurationInFrames: 2,
+  } as const;
+}
+
+function materializerPorts(
+  fixture: VerifiedFixture,
+  options: Readonly<{
+    project?: Project;
+    assetReads?: readonly (MediaSourcePtsCadenceMapAssetStateInputV3 | null)[];
+    getProjectRevision?: () => Promise<ReturnType<typeof projectRevision>>;
+    expiresInMs?: number;
+    releaseFailure?: boolean;
+    policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
+  }> = {},
+) {
+  const project = options.project ?? projectFixture(fixture.sourceVersion.assetId);
+  const assetReads = options.assetReads ?? [fixture.asset, fixture.asset];
+  let assetReadIndex = 0;
+  const decodePictures = vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
+    decoderOutput(request)
+  ));
+  const releaseDecodedBatch = options.releaseFailure
+    ? vi.fn(async () => { throw new Error('TEST_RELEASE_FAILED'); })
+    : vi.fn(async () => undefined);
+  const decoder = { decodePictures, releaseDecodedBatch };
+  return {
+    decodePictures,
+    releaseDecodedBatch,
+    ports: {
+      projectSnapshotReader: {
+        loadProjectForMutation: vi.fn(async () => ({ project, revision: projectRevision(9) })),
+      },
+      projectRevisionReader: {
+        getProjectRevision: options.getProjectRevision
+          ?? vi.fn(async () => projectRevision(9)),
+      },
+      assetReader: {
+        load: vi.fn(async () => {
+          const value = assetReads[Math.min(assetReadIndex, assetReads.length - 1)] ?? null;
+          assetReadIndex += 1;
+          return value;
+        }),
+      },
+      storedObjectReader: fixture.reader,
+      createDecoder: vi.fn(({ materializationStartedAtEpochMs }) => ({
+        decoder,
+        surfaceExpiresAtEpochMs: materializationStartedAtEpochMs
+          + (options.expiresInMs ?? 60 * 60 * 1_000),
+      })),
+      policy: options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
+      now: () => 1_000,
+    },
+  };
+}
+
+function projectFixture(assetId: string, overrides: Partial<Project> = {}): Project {
+  return {
+    projectId: 'project-1',
+    userId: 'user-1',
+    name: 'Timestamp preview fixture',
+    overlays: [{
+      id: 42,
+      type: OverlayType.VIDEO,
+      content: 'fixture-video',
+      assetId,
+      from: 10,
+      durationInFrames: 2,
+      sourceStartFrame: 4,
+      sourceEndFrame: 6,
+      width: 1920,
+      height: 1080,
+      left: 0,
+      top: 0,
+      row: 0,
+      rotation: 0,
+      isDragging: false,
+      styles: {},
+    }],
+    aspectRatio: '16:9',
+    playerDimensions: { width: 1920, height: 1080 },
+    fps: 1,
+    durationInFrames: 12,
+    createdAt: new Date('2026-08-29T00:00:00.000Z'),
+    updatedAt: new Date('2026-08-29T12:00:00.000Z'),
+    projectRevision: 9,
+    visibility: 'private',
+    ...overrides,
+  };
+}
+
 async function consume(
   fixture: VerifiedFixture,
   transform: VideoSourceTimestampConformV3,
@@ -288,7 +577,7 @@ function decoderOutput(
       sourceFrameOrdinal: picture.sourceFrameOrdinal,
       epochId: picture.epochId,
       presentationTimestampTicks: picture.presentationTimestampTicks,
-      pictureHandle: `decoded://${picture.decoderPictureRequestSha256}`,
+      pictureHandle: `nmpv1_${picture.decoderPictureRequestSha256}`,
       decodedPictureContentSha256: hashEditronCanonicalJsonV1({
         request: picture.decoderPictureRequestSha256,
       }),
@@ -361,7 +650,10 @@ type StoredObject = Readonly<{
 
 type VerifiedFixture = Awaited<ReturnType<typeof verifiedFixture>>;
 
-async function verifiedFixture(tag: string) {
+async function verifiedFixture(
+  tag: string,
+  options: Readonly<{ withAudio?: boolean }> = {},
+) {
   const assetId = `asset-${tag}`;
   const sourceTimebase = { numerator: '1', denominator: '1000' } as const;
   const storageVersion = createMediaSourceStorageVersionV1({
@@ -377,7 +669,13 @@ async function verifiedFixture(tag: string) {
     contentSha256: hashUtf8(`source-${tag}`),
     storageVersion,
   });
-  const qualification = qualificationFixture(assetId, storageVersion, sourceTimebase, tag);
+  const qualification = qualificationFixture(
+    assetId,
+    storageVersion,
+    sourceTimebase,
+    tag,
+    options.withAudio ?? false,
+  );
   const mapper = {
     mapperVersion: 'pts-epoch-mapper-v3',
     ffprobeVersion: 'ffprobe-8.1',
@@ -620,6 +918,7 @@ function qualificationFixture(
   storageVersion: ReturnType<typeof createMediaSourceStorageVersionV1>,
   sourceTimebase: Readonly<{ numerator: string; denominator: string }>,
   tag: string,
+  withAudio: boolean,
 ) {
   const observation = {
     schemaVersion: 1 as const,
@@ -647,7 +946,16 @@ function qualificationFixture(
       timecode: null,
       reelId: null,
     }],
-    audioStreams: [],
+    audioStreams: withAudio ? [{
+      streamIndex: 1,
+      codec: 'pcm_s16le',
+      sampleRate: '48000',
+      channelCount: 2,
+      channelLayout: 'stereo',
+      sourceTimebase: { numerator: '1', denominator: '48000' },
+      sourceStartPts: '0',
+      sourceDurationTicks: '960000',
+    }] : [],
   };
   return {
     schemaVersion: 1 as const,

@@ -193,8 +193,40 @@ export type VideoSourceTimestampConformFromEpochIndexResultV3 = Readonly<
   | Extract<
       MediaSourcePtsCadenceEpochPresentationWindowResultV3,
       { disposition: 'UNVERIFIABLE' }
-    >
+  >
 >;
+
+type VideoSourceTimestampConformEpochBaseInputV3 = Readonly<{
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3;
+  storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+  firstFrameOrdinal: string;
+  endExclusiveFrameOrdinal: string;
+  windowResourcePolicy: MediaSourcePtsCadenceEpochWindowResourcePolicyV3;
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  timelineFrameQueries: readonly string[];
+  resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
+  audio?: Readonly<{
+    sourceRange: AudioSampleRangeV1;
+    sourceAnchorSampleFrame: string;
+    endExclusiveTimelineFrame: string;
+  }>;
+  proxyMasterMapping?: Readonly<{
+    disposition: 'UNQUALIFIED';
+    relationSha256: string;
+  }>;
+}>;
+
+type VideoSourceTimestampConformEpochUnverifiableV3 = Extract<
+  VideoSourceTimestampConformFromEpochIndexResultV3,
+  { disposition: 'UNVERIFIABLE' }
+>;
+
+type PreparedVideoSourceTimestampConformEpochV3 = Readonly<{
+  disposition: 'READY';
+  sourceBinding: VerifiedVideoSourceEpochTimeBindingV3;
+  presentationWindow: MediaSourcePtsCadenceEpochPresentationWindowV3;
+}>;
 
 type VideoSourceTimestampConformInputV2 = Readonly<{
   sourceBinding: VerifiedVideoSourceTimeBindingV1;
@@ -792,28 +824,69 @@ export function resolveVerifiedVideoSourceEpochTimeBindingV3(
  * unqualified proxy/master relation have been rejected.
  */
 export async function createVideoSourceTimestampConformFromVerifiedEpochIndexV3(
-  input: Readonly<{
-    asset: MediaSourcePtsCadenceMapAssetStateInputV3;
-    storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
-    firstFrameOrdinal: string;
-    endExclusiveFrameOrdinal: string;
-    windowResourcePolicy: MediaSourcePtsCadenceEpochWindowResourcePolicyV3;
-    projectRate: ExactRationalRateV1;
-    timelineStartFrame: string;
-    timelineFrameQueries: readonly string[];
-    sourceAnchor: SourcePositionV1;
-    resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
-    audio?: Readonly<{
-      sourceRange: AudioSampleRangeV1;
-      sourceAnchorSampleFrame: string;
-      endExclusiveTimelineFrame: string;
-    }>;
-    proxyMasterMapping?: Readonly<{
-      disposition: 'UNQUALIFIED';
-      relationSha256: string;
-    }>;
-  }>,
+  input: VideoSourceTimestampConformEpochBaseInputV3
+    & Readonly<{ sourceAnchor: SourcePositionV1 }>,
 ): Promise<VideoSourceTimestampConformFromEpochIndexResultV3> {
+  const prepared = await prepareVideoSourceTimestampConformEpochV3(input);
+  if (prepared.disposition === 'UNVERIFIABLE') return prepared;
+  return createVideoSourceTimestampConformFromPreparedEpochV3(
+    input,
+    prepared,
+    input.sourceAnchor,
+  );
+}
+
+/**
+ * Resolves a legacy project's source-frame anchor through the verified V3
+ * epoch window. The ordinal never becomes a timestamp by rate arithmetic.
+ */
+export async function createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3(
+  input: VideoSourceTimestampConformEpochBaseInputV3
+    & Readonly<{ sourceAnchorFrameOrdinal: string }>,
+): Promise<VideoSourceTimestampConformFromEpochIndexResultV3> {
+  const sourceAnchorFrameOrdinal = nonNegativeIntegerText(
+    input.sourceAnchorFrameOrdinal,
+    'VIDEO_SOURCE_CONFORM_ANCHOR_ORDINAL_INVALID',
+  );
+  const prepared = await prepareVideoSourceTimestampConformEpochV3(input);
+  if (prepared.disposition === 'UNVERIFIABLE') return prepared;
+  const anchorFrame = prepared.presentationWindow.frames.find(
+    (frame) => frame.sourceFrameOrdinal === sourceAnchorFrameOrdinal,
+  );
+  const anchorEpoch = anchorFrame === undefined
+    ? undefined
+    : prepared.presentationWindow.epochs.find(
+        (epoch) => epoch.epochId === anchorFrame.epochId,
+      );
+  if (!anchorFrame || !anchorEpoch) {
+    return frozen({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: 'WINDOW_COVERAGE_INCOMPLETE' as const,
+      failedObjectKey: null,
+      failedBatchSequence: null,
+      diagnostic: 'VIDEO_SOURCE_CONFORM_ANCHOR_ORDINAL_NOT_IN_WINDOW',
+    });
+  }
+  const sourceAnchor = parseSourcePositionV1({
+    sourceVersionSha256: prepared.sourceBinding.sourceVersionSha256,
+    streamId: prepared.presentationWindow.streamId,
+    epochId: anchorFrame.epochId,
+    presentationTimestampTicks: anchorFrame.presentationTimestampTicks,
+    secondsPerSourceTick: anchorEpoch.secondsPerSourceTick,
+  });
+  return createVideoSourceTimestampConformFromPreparedEpochV3(
+    input,
+    prepared,
+    sourceAnchor,
+  );
+}
+
+async function prepareVideoSourceTimestampConformEpochV3(
+  input: VideoSourceTimestampConformEpochBaseInputV3,
+): Promise<
+  PreparedVideoSourceTimestampConformEpochV3
+  | VideoSourceTimestampConformEpochUnverifiableV3
+> {
   if (input.proxyMasterMapping !== undefined) {
     sha256Text(
       input.proxyMasterMapping.relationSha256,
@@ -848,7 +921,19 @@ export async function createVideoSourceTimestampConformFromVerifiedEpochIndexV3(
       diagnostic: 'VERIFIED_EPOCH_BINDING_WINDOW_MISMATCH',
     });
   }
+  return frozen({
+    disposition: 'READY' as const,
+    sourceBinding,
+    presentationWindow,
+  });
+}
 
+function createVideoSourceTimestampConformFromPreparedEpochV3(
+  input: VideoSourceTimestampConformEpochBaseInputV3,
+  prepared: PreparedVideoSourceTimestampConformEpochV3,
+  sourceAnchor: SourcePositionV1,
+): VideoSourceTimestampConformFromEpochIndexResultV3 {
+  const { presentationWindow, sourceBinding } = prepared;
   const core = createTimestampConformSelectionCoreV2({
     sourceScope: sourceScopeForEpochBindingV3(sourceBinding),
     streamId: presentationWindow.streamId,
@@ -857,7 +942,7 @@ export async function createVideoSourceTimestampConformFromVerifiedEpochIndexV3(
     projectRate: input.projectRate,
     timelineStartFrame: input.timelineStartFrame,
     timelineFrameQueries: input.timelineFrameQueries,
-    sourceAnchor: input.sourceAnchor,
+    sourceAnchor,
     resourcePolicy: input.resourcePolicy,
     ...(input.audio === undefined ? {} : { audio: input.audio }),
   });
