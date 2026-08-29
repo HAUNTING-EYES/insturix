@@ -157,7 +157,7 @@ export function resolveAnalysisWindow(input: ResolveWindowInput): AnalysisWindow
   };
 }
 
-function resolveSourceStartFrame(overlay: AnalysisOverlayCoordinates): number {
+export function resolveSourceStartFrame(overlay: AnalysisOverlayCoordinates): number {
   const type = overlay.type?.toLowerCase();
   const candidates = type === 'sound' || type === 'audio'
     ? [overlay.sourceStartFrame, overlay.startFromSound, overlay.audioStartFrame, overlay.videoStartTime]
