@@ -7345,6 +7345,30 @@ private-runtime proof. Queue item 4 still owns dedicated production private
 storage, source-change invalidation, orphan lifecycle and live object proof.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Default private-audio preview reader runtime Phase 3F-C7k (2026-08-29):**
+commit `fee57a527` exposes the canonical audio artifact store on the existing
+dedicated private-media R2 runtime, using the same validated non-public storage
+scope and server client as the PTS evidence and transient picture surfaces.
+The current-ProjectService-revision preview materializer now uses that reader
+by default while retaining an explicit injection seam for deterministic tests.
+It no longer stops merely because the production call path forgot to supply a
+reader that already existed.
+
+The focused runtime/materializer/private-audio/route cluster passes 34/34.
+Repository TypeScript passes with the declared 8 GiB heap and repository-wide
+quiet ESLint passes. No separate ad-hoc credentials, generic/public bucket
+fallback, live R2 object, playable browser-audio response, provider or customer
+media was used.
+
+This result is
+`PRIVATE_AUDIO_ARTIFACT_READER_DEFAULT_RUNTIME_WIRED_BROWSER_PLAYBACK_OPEN`.
+Queue item 3 remains open: verified PCM still needs a project/revision/lease-
+scoped browser surface and authenticated byte route, exact playback/swap
+continuity, analysis and final-render consumers, unsupported partial-epoch and
+edit-list/wrap handling, and real private-runtime proof. Queue item 4 still
+owns production private-storage configuration and live lifecycle evidence.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
