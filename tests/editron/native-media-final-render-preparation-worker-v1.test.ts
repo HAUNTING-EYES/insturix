@@ -19,6 +19,8 @@ import {
   from '@/lib/editron/services/native-media-final-render-preparation-runtime-policy-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 }
   from '@/lib/editron/services/native-media-final-render-materializer-v1';
+import { createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1 }
+  from '@/lib/editron/services/native-media-final-render-preparation-delivery-retry-policy-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1 }
   from '@/lib/editron/services/native-media-final-render-profile-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1 }
@@ -238,9 +240,11 @@ async function workerFixture() {
   const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
   let nowMs = START.getTime();
   const request = jobRequest();
+  const deliveryRetryPolicy = deliveryRetryPolicyFixture();
   const created = await createOrGetNativeMediaFinalRenderPreparationJobV1({
     jobStore,
     request,
+    deliveryRetryPolicy,
     now: new Date(nowMs),
   });
   const contract = buildNativeMediaFinalRenderPreparationJobContractV1(request);
@@ -282,9 +286,9 @@ async function workerFixture() {
     })),
   };
   const retryPolicyOwner = {
-    ownerId: 'TEST_RENDER_RETRY_POLICY',
-    ownerVersion: 'TEST_RENDER_RETRY_POLICY_V1',
-    policySha256: request.policyBindings.runtimePolicy.retryPolicy.policySha256,
+    ownerId: deliveryRetryPolicy.ownerId,
+    ownerVersion: deliveryRetryPolicy.ownerVersion,
+    policySha256: deliveryRetryPolicy.policySha256,
     nextRetryAt: vi.fn(async ({ now }: { now: Date }) => new Date(now.getTime() + 1_000)),
   };
   const base = {
@@ -398,6 +402,7 @@ function jobRequest() {
 }
 
 function runtimePolicy() {
+  const policy = deliveryRetryPolicyFixture();
   return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
     executionBudget: {
       ownerId: 'TEST_RENDER_BUDGET_OWNER',
@@ -405,11 +410,19 @@ function runtimePolicy() {
       policySha256: sha('e'),
     },
     retryPolicy: {
-      ownerId: 'TEST_RENDER_RETRY_POLICY',
-      ownerVersion: 'TEST_RENDER_RETRY_POLICY_V1',
-      policySha256: sha('f'),
+      ownerId: policy.ownerId,
+      ownerVersion: policy.ownerVersion,
+      policySha256: policy.policySha256,
     },
     heartbeatPolicySha256: sha('0'),
+  });
+}
+
+function deliveryRetryPolicyFixture() {
+  return createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1({
+    durableJob: { maxAttempts: 5, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+    qstashDelivery: { retries: 2, retryDelayMs: 10_000, timeoutSeconds: 120 },
+    workerRetry: { delayMs: 1_000 },
   });
 }
 

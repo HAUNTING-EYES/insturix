@@ -16,6 +16,10 @@ import {
 } from './native-media-final-render-materializer-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1 } from './native-media-final-render-profile-v1';
 import {
+  assertNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+  type NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+} from './native-media-final-render-preparation-delivery-retry-policy-v1';
+import {
   assertNativeMediaFinalRenderPreparationRuntimePolicyV1,
   type NativeMediaFinalRenderPreparationRuntimePolicyV1,
 } from './native-media-final-render-preparation-runtime-policy-v1';
@@ -31,9 +35,6 @@ export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_3' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1 = 5;
-const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1 =
-  7 * 24 * 60 * 60 * 1_000;
 
 const DURABLE_JOB_MAX_JSON_PAYLOAD_BYTES = 256 * 1024;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -148,6 +149,7 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
 export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: Readonly<{
   jobStore: Pick<DurableWorkflowJobStoreV1, 'createOrGet'>;
   request: Parameters<typeof buildNativeMediaFinalRenderPreparationJobContractV1>[0];
+  deliveryRetryPolicy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1;
   now?: Date;
 }>): Promise<Readonly<{
   job: Readonly<DurableWorkflowJobSnapshotV1>;
@@ -157,7 +159,22 @@ export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: R
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_NOW_INVALID');
   }
+  const deliveryRetryPolicy =
+    assertNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1(
+      input.deliveryRetryPolicy,
+    );
   const contract = buildNativeMediaFinalRenderPreparationJobContractV1(input.request);
+  assertDeliveryRetryPolicyBinding(
+    deliveryRetryPolicy,
+    contract.payload.policyBindings.runtimePolicy.retryPolicy,
+  );
+  const expiresAtEpochMs = now.getTime()
+    + deliveryRetryPolicy.durableJob.retentionMs;
+  const expiresAt = new Date(expiresAtEpochMs);
+  if (!Number.isSafeInteger(expiresAtEpochMs)
+    || Number.isNaN(expiresAt.getTime())) {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_EXPIRY_INVALID');
+  }
   return input.jobStore.createOrGet({
     tenantId: contract.payload.tenantId,
     userId: contract.payload.userId,
@@ -176,9 +193,20 @@ export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: R
     },
     dependencies: contract.dependencies,
     budgetReservation: contract.payload.budgetReservation,
-    maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
-    expiresAt: new Date(now.getTime() + NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1),
+    maxAttempts: deliveryRetryPolicy.durableJob.maxAttempts,
+    expiresAt,
   }, now);
+}
+
+function assertDeliveryRetryPolicyBinding(
+  policy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+  binding: NativeMediaFinalRenderPreparationRuntimePolicyV1['retryPolicy'],
+): void {
+  if (binding.ownerId !== policy.ownerId
+    || binding.ownerVersion !== policy.ownerVersion
+    || binding.policySha256 !== policy.policySha256) {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_DELIVERY_RETRY_POLICY_BINDING_MISMATCH');
+  }
 }
 
 export function assertNativeMediaFinalRenderPreparationJobInputV1(

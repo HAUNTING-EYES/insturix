@@ -22,6 +22,8 @@ import {
 } from '@/lib/editron/services/native-media-final-render-admission-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-materializer-v1';
+import { createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1 }
+  from '@/lib/editron/services/native-media-final-render-preparation-delivery-retry-policy-v1';
 import {
   buildNativeMediaFinalRenderPreparationJobContractV1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
@@ -118,6 +120,7 @@ function contract(currentAsset = asset(), currentOverlay = overlay()) {
 }
 
 function runtimePolicy() {
+  const policy = deliveryRetryPolicy();
   return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
     executionBudget: {
       ownerId: 'TEST_RENDER_BUDGET_OWNER',
@@ -125,9 +128,9 @@ function runtimePolicy() {
       policySha256: sha('e'),
     },
     retryPolicy: {
-      ownerId: 'TEST_RENDER_RETRY_POLICY',
-      ownerVersion: 'TEST_RENDER_RETRY_POLICY_V1',
-      policySha256: sha('f'),
+      ownerId: policy.ownerId,
+      ownerVersion: policy.ownerVersion,
+      policySha256: policy.policySha256,
     },
     heartbeatPolicySha256: sha('0'),
   });
@@ -243,6 +246,7 @@ function setup(options: Readonly<{
   assets?: readonly ReturnType<typeof asset>[];
   rights?: readonly RightsDecision[];
   leaseExpiry?: number;
+  deliveryRetryPolicy?: ReturnType<typeof deliveryRetryPolicy>;
 }> = {}) {
   const currentOverlay = overlay();
   const currentAsset = asset();
@@ -296,6 +300,7 @@ function setup(options: Readonly<{
         .mockResolvedValueOnce(assets[0])
         .mockResolvedValueOnce(assets[1] ?? assets[0]),
     },
+    deliveryRetryPolicy: options.deliveryRetryPolicy ?? deliveryRetryPolicy(),
     rightsOwner,
     publisher,
     now: () => NOW,
@@ -451,7 +456,9 @@ describe('native final-render prepared source publisher v1', () => {
   it('rejects an expired job and invalid owner wiring deterministically', async () => {
     const expired = completedJob();
     const runtime = setup({ jobs: [{
-      ...expired, expiresAt: new Date(NOW - 1).toISOString(),
+      ...expired,
+      createdAt: new Date(NOW - 4_200_001).toISOString(),
+      expiresAt: new Date(NOW - 1).toISOString(),
     } as never] });
     expect(await publish(runtime)).toMatchObject({
       diagnostic: 'NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_JOB_EXPIRED',
@@ -464,6 +471,33 @@ describe('native final-render prepared source publisher v1', () => {
     } as never)).toThrow(
       'NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_OWNER_VERSION_INVALID',
     );
+  });
+
+  it('rejects delivery/retry policy or durable lifecycle drift before project access', async () => {
+    const differentPolicy = createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1({
+      durableJob: { maxAttempts: 5, retentionMs: 4_200_000 },
+      qstashDelivery: { retries: 2, retryDelayMs: 20_000, timeoutSeconds: 120 },
+      workerRetry: { delayMs: 1_000 },
+    });
+    const policyDrift = setup({ deliveryRetryPolicy: differentPolicy });
+    expect(await publish(policyDrift)).toMatchObject({
+      diagnostic:
+        'NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_DELIVERY_RETRY_POLICY_BINDING_INVALID',
+    });
+    expect(policyDrift.ports.projectSnapshotReader.loadProjectForMutation)
+      .not.toHaveBeenCalled();
+
+    const job = completedJob();
+    const retentionDrift = setup({ jobs: [{
+      ...job,
+      expiresAt: new Date(Date.parse(job.expiresAt) + 1).toISOString(),
+    } as never] });
+    expect(await publish(retentionDrift)).toMatchObject({
+      diagnostic:
+        'NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_DELIVERY_RETRY_POLICY_BINDING_INVALID',
+    });
+    expect(retentionDrift.ports.projectSnapshotReader.loadProjectForMutation)
+      .not.toHaveBeenCalled();
   });
 
   it('rejects a validly rehashed rights receipt for another project', async () => {
@@ -513,3 +547,11 @@ describe('native final-render prepared source publisher v1', () => {
     });
   });
 });
+
+function deliveryRetryPolicy() {
+  return createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1({
+    durableJob: { maxAttempts: 5, retentionMs: 4_200_000 },
+    qstashDelivery: { retries: 2, retryDelayMs: 10_000, timeoutSeconds: 120 },
+    workerRetry: { delayMs: 1_000 },
+  });
+}

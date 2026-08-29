@@ -8,8 +8,9 @@ import {
   createOrGetNativeMediaFinalRenderPreparationJobV1,
   NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
-  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
+import { createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1 }
+  from '@/lib/editron/services/native-media-final-render-preparation-delivery-retry-policy-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-materializer-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-profile-v1';
@@ -72,14 +73,16 @@ describe('native final-render durable preparation job binding v1', () => {
     const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
     const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
     const first = await createOrGetNativeMediaFinalRenderPreparationJobV1({
-      jobStore, request: input(), now: NOW,
+      jobStore, request: input(), deliveryRetryPolicy: deliveryRetryPolicy(), now: NOW,
     });
     const replay = await createOrGetNativeMediaFinalRenderPreparationJobV1({
-      jobStore, request: input(), now: new Date(NOW.getTime() + 1_000),
+      jobStore, request: input(), deliveryRetryPolicy: deliveryRetryPolicy(),
+      now: new Date(NOW.getTime() + 1_000),
     });
     const secondSource = await createOrGetNativeMediaFinalRenderPreparationJobV1({
       jobStore,
       request: { ...input(), exactSourceRequest: request('overlay_exact_2') },
+      deliveryRetryPolicy: deliveryRetryPolicy(),
       now: NOW,
     });
 
@@ -91,12 +94,29 @@ describe('native final-render durable preparation job binding v1', () => {
       operationOwner: 'NATIVE_MEDIA_FINAL_RENDER',
       operationKind: 'native_media_final_render_prepare_source',
       projectId: 'project_1',
-      maxAttempts: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
+      maxAttempts: deliveryRetryPolicy().durableJob.maxAttempts,
       budgetReservation: { reservationId: 'render_budget_1', bindingSha256: sha('d') },
       input: { schemaId: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 },
     });
     expect(JSON.stringify(first.job.input.payload)).not.toMatch(/sourceUrl|https?:\/\//i);
+    expect(Date.parse(first.job.expiresAt) - Date.parse(first.job.createdAt))
+      .toBe(deliveryRetryPolicy().durableJob.retentionMs);
     expect(collection.snapshot()).toHaveLength(2);
+  });
+
+  it('rejects delivery/retry policy drift before durable job creation', async () => {
+    const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
+    const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
+
+    await expect(createOrGetNativeMediaFinalRenderPreparationJobV1({
+      jobStore,
+      request: input(),
+      deliveryRetryPolicy: deliveryRetryPolicy({ workerRetryDelayMs: 2_000 }),
+      now: NOW,
+    })).rejects.toThrow(
+      'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_DELIVERY_RETRY_POLICY_BINDING_MISMATCH',
+    );
+    expect(collection.snapshot()).toEqual([]);
   });
 
   it('binds exact project, admission, source, policy and worker-image identity without URLs', () => {
@@ -248,6 +268,7 @@ describe('native final-render durable preparation job binding v1', () => {
 function runtimePolicy(overrides: Readonly<{
   retryPolicySha256?: string;
 }> = {}) {
+  const policy = deliveryRetryPolicy();
   return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
     executionBudget: {
       ownerId: 'EXACT_RENDER_BUDGET_OWNER',
@@ -255,10 +276,20 @@ function runtimePolicy(overrides: Readonly<{
       policySha256: sha('e'),
     },
     retryPolicy: {
-      ownerId: 'EXACT_RENDER_RETRY_OWNER',
-      ownerVersion: '2',
-      policySha256: overrides.retryPolicySha256 ?? sha('f'),
+      ownerId: policy.ownerId,
+      ownerVersion: policy.ownerVersion,
+      policySha256: overrides.retryPolicySha256 ?? policy.policySha256,
     },
     heartbeatPolicySha256: sha('0'),
+  });
+}
+
+function deliveryRetryPolicy(overrides: Readonly<{
+  workerRetryDelayMs?: number;
+}> = {}) {
+  return createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1({
+    durableJob: { maxAttempts: 5, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+    qstashDelivery: { retries: 2, retryDelayMs: 10_000, timeoutSeconds: 120 },
+    workerRetry: { delayMs: overrides.workerRetryDelayMs ?? 1_000 },
   });
 }

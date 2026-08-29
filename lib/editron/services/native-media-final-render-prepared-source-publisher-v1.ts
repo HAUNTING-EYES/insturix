@@ -17,10 +17,13 @@ import {
 } from './native-media-final-render-admission-v1';
 import type { NativeMediaFinalRenderPublisherPortV1 } from './native-media-final-render-materializer-v1';
 import {
+  assertNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+  type NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+} from './native-media-final-render-preparation-delivery-retry-policy-v1';
+import {
   assertNativeMediaFinalRenderPreparationJobInputV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
-  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1,
   type NativeMediaFinalRenderPreparationJobInputV1,
 } from './native-media-final-render-preparation-job-v1';
 import {
@@ -180,6 +183,7 @@ type Ports = Readonly<{
   assetReader: Readonly<{
     load(assetId: string, userId: string): Promise<MediaSourceAudioArtifactAssetStateInputV1 | null>;
   }>;
+  deliveryRetryPolicy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1;
   rightsOwner: Readonly<NativeMediaFinalRenderPublicationRightsOwnerV1>;
   publisher: NativeMediaFinalRenderPublisherPortV1;
   now?: () => number;
@@ -194,6 +198,10 @@ type CurrentScope = Readonly<{
 
 export function createNativeMediaFinalRenderPreparedSourcePublisherV1(ports: Ports) {
   assertPorts(ports);
+  const deliveryRetryPolicy =
+    assertNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1(
+      ports.deliveryRetryPolicy,
+    );
   const rightsOwnerId = identity(ports.rightsOwner.ownerId, 'RIGHTS_OWNER_ID');
   const rightsOwnerVersion = identity(
     ports.rightsOwner.ownerVersion,
@@ -213,7 +221,11 @@ export function createNativeMediaFinalRenderPreparedSourcePublisherV1(ports: Por
       try {
         const request = normalizeInput(input, now());
         const job = await readAuthorizedJob(ports, request);
-        const completed = resolveCompletedPreparation(job, request);
+        const completed = resolveCompletedPreparation(
+          job,
+          request,
+          deliveryRetryPolicy,
+        );
         const jobExpiry = dateEpoch(job.expiresAt, 'JOB_EXPIRY');
         if (jobExpiry <= request.nowEpochMs
           || request.minimumExpiresAtEpochMs > jobExpiry) {
@@ -312,6 +324,7 @@ async function readAuthorizedJob(
 function resolveCompletedPreparation(
   job: Readonly<DurableWorkflowJobSnapshotV1>,
   input: ReturnType<typeof normalizeInput>,
+  deliveryRetryPolicy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
 ) {
   if (job.version !== DURABLE_WORKFLOW_JOB_VERSION_V1 || job.status !== 'completed'
     || job.operationOwner !== OPERATION_OWNER || job.operationKind !== OPERATION_KIND
@@ -320,12 +333,12 @@ function resolveCompletedPreparation(
     || job.leaseOwnerId !== null || job.leaseExpiresAt !== null || job.error !== null
     || job.cancelRequestedAt !== null || !job.resumeState || !job.terminalReceipt
     || job.terminalReceipt.disposition !== 'PASS'
-    || job.maxAttempts !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1
     || job.attemptCount < 1 || job.attemptCount > job.maxAttempts
     || job.remainingAttempts !== job.maxAttempts - job.attemptCount) {
     fail('NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_JOB_NOT_COMPLETED');
   }
   const jobInput = assertNativeMediaFinalRenderPreparationJobInputV1(job.input.payload);
+  assertDeliveryRetryPolicyBinding(deliveryRetryPolicy, job, jobInput);
   const contract = buildNativeMediaFinalRenderPreparationJobContractV1({
     tenantId: jobInput.tenantId,
     userId: jobInput.userId,
@@ -365,6 +378,23 @@ function resolveCompletedPreparation(
   });
   validateTerminalReceipt(job, jobInput, result);
   return Object.freeze({ job, jobInput, result });
+}
+
+function assertDeliveryRetryPolicyBinding(
+  policy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+  jobInput: NativeMediaFinalRenderPreparationJobInputV1,
+): void {
+  const binding = jobInput.policyBindings.runtimePolicy.retryPolicy;
+  if (binding.ownerId !== policy.ownerId
+    || binding.ownerVersion !== policy.ownerVersion
+    || binding.policySha256 !== policy.policySha256
+    || job.maxAttempts !== policy.durableJob.maxAttempts
+    || dateEpoch(job.expiresAt, 'JOB_EXPIRY')
+      - dateEpoch(job.createdAt, 'JOB_CREATED_AT')
+        !== policy.durableJob.retentionMs) {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_DELIVERY_RETRY_POLICY_BINDING_INVALID');
+  }
 }
 
 function validateTerminalReceipt(
