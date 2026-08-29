@@ -7304,6 +7304,47 @@ item 4 still owns source-change invalidation, orphan lifecycle, dedicated
 production private storage and live object proof. This checkpoint does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project-revision-bound audio-evidence preview materializer Phase 3F-C7j
+(2026-08-29):** Step 0 commit `095d757d6` first removed two unused public
+exports from the existing preview materializer without changing runtime
+behaviour. Commit `23eb9adb6` then connects the source-bound private-audio
+artifact authority to the real current-ProjectService-revision preview
+materializer. The materializer reads the current asset through the audio-aware
+Mongo owner, identifies the exact qualified audio stream, retrieves the
+asset-bound private manifest/map through a neutral reader port, independently
+verifies the canonical artifact set and recomputes the complete manifest
+object reference before giving the verified sample evidence to the existing V3
+time-transform owner. The picture decoder remains explicitly forbidden from
+supplying or replacing native audio.
+
+The materializer now rejects malformed or duplicate qualification stream
+indices, multi-stream media without an explicit selector, missing artifact
+state, missing reader configuration, noncanonical/tampered artifact bytes,
+manifest-reference divergence and any audio-artifact state change during
+decode. It also rechecks the current project revision, video timing binding and
+audio-artifact state after materialization; a late asset change releases the
+decoded surface before returning no success. Safe-integer timeline additions
+use exact integer arithmetic instead of JavaScript number addition.
+
+The focused preview/audio cluster passes 66/66, including the authenticated
+session/window/client contracts, private-object verification, FFmpeg audio
+extraction, tamper, stream ambiguity and late-state-change cases. Repository
+TypeScript passes with the declared 8 GiB heap and repository-wide quiet ESLint
+passes. No live MongoDB/R2 object, authenticated browser audio playback,
+project mutation, provider or customer media was used.
+
+This result is
+`PROJECT_REVISION_BOUND_AUDIO_EVIDENCE_PREVIEW_MATERIALIZER_VERIFIED_BROWSER_AUDIO_SURFACE_OPEN`.
+It is an exact evidence/transform binding, not playable browser audio. The
+default authenticated runtime still has no configured private-audio reader,
+leased audio-byte route or swap-continuity scheduler, and the proved path is
+the single-selected-stream, completely paired-epoch subset. Queue item 3
+therefore remains open for those browser/runtime owners, partial-epoch and
+edit-list/wrap consumption, analysis and final-render readers, and real
+private-runtime proof. Queue item 4 still owns dedicated production private
+storage, source-change invalidation, orphan lifecycle and live object proof.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
