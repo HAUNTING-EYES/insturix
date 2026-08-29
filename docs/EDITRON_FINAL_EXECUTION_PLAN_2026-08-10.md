@@ -7627,6 +7627,51 @@ wrap cases. Physical browser/device A/V timing and Queue item 4's live private-
 storage evidence also remain open. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Durable exact timestamp analysis caller Phase 3F-C7s (2026-08-29):** commit
+`4529b4df0` first makes the existing runtime wrapper acquire the dedicated
+private PTS/audio/surface runtime only when an exact-media port is actually
+used. The current ProjectService snapshot and media-asset owner therefore can
+classify an ordinary asset as explicit
+`NOT_APPLICABLE / ASSET_NOT_TIMESTAMP_MANAGED` even when private R2 is not
+configured. Timing-managed media still reaches the same private runtime and
+fails closed; the change does not introduce a legacy downgrade.
+
+Commit `3ef516b95` then routes the durable chat video-analysis worker through
+that classification/materialization boundary. Before any provider work it
+reloads the exact current overlay through ProjectService, verifies project,
+rate, overlay, asset, edited-timeline range and source-range identity, and asks
+the timestamp materializer for `ANALYSIS_RECEIPT_V1` against the paired
+`ProjectRevisionV1`. An exact V3 result retains its sample plan, mapped analysis
+receipt, PTS-map state, conform transform and materialization hashes under
+`EXACT_V3_TIMESTAMP_BOUND`. That evidence is deliberately marked
+`REQUIRES_MUTATION_OWNER_PREREQUISITE_VALIDATION`; a coordinate receipt never
+authorizes a write by itself. Only a valid revision/scope-bound ordinary-media
+classification lease permits the historical 1 fps sampled path, whose result
+is now explicitly `LEGACY_RATE_SAMPLED_NOT_MUTATION_AUTHORITY`. An exact
+materialization failure never falls through to legacy sampling.
+
+The durable runner also reloads the canonical project after provider execution.
+If its revision changed during the asynchronous call, the provider output is
+discarded and the job becomes
+`stale / project-revision-changed-during-provider-run` instead of completed.
+The focused durable-job suite passes 15/15, including rate, asset, timeline and
+source-coordinate drift, forged materialization hash, exact-runtime failure
+without downgrade and mid-provider revision drift. The wider chat/timestamp
+regression set passes 44/44; the preceding private-runtime classification
+checkpoint passes the complete timestamp/PTS cluster at 258/258 across 47
+files. Repository TypeScript and quiet ESLint pass. No live provider call,
+customer media, live private-R2 object or project mutation was used.
+
+This result is
+`DURABLE_CHAT_ANALYSIS_BOUND_TO_EXACT_V3_RECEIPT_FINAL_RENDER_OPEN`. It closes
+the previously recorded live chat-caller gap but is still partial downstream
+integration, not Queue item 3 completion. The production final-render consumer,
+unsupported partial-epoch/edit-list/timestamp-wrap cases, and live private-
+runtime/browser-device proof remain open. Queue item 4 still owns production V3
+scanning/finalization, immutable private writes, migration and qualified proxy/
+master relink/invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
