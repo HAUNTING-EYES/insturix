@@ -27,7 +27,7 @@ export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_MAX_ATTEMPTS_V1 = 5;
-export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1 =
+const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_TTL_MS_V1 =
   7 * 24 * 60 * 60 * 1_000;
 
 const DURABLE_JOB_MAX_JSON_PAYLOAD_BYTES = 256 * 1024;
@@ -67,7 +67,7 @@ export type NativeMediaFinalRenderPreparationJobInputV1 = Readonly<{
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
 }>;
 
-export class NativeMediaFinalRenderPreparationJobBindingErrorV1 extends Error {}
+class NativeMediaFinalRenderPreparationJobBindingErrorV1 extends Error {}
 
 export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Readonly<{
   tenantId: string;
