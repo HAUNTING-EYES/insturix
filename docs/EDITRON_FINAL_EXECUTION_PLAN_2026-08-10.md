@@ -6775,6 +6775,41 @@ consumers remain unwired, and the expiring browser route remains forbidden as
 a final-render source. Queue item 3 therefore remains open; those owners are
 the next technical subphases.
 
+**Lease-bound rolling timestamp-preview window contract Phase 3F-C3
+(2026-08-29):** the first production-scale constraint discovered after the
+exact video-layer integration is now represented explicitly rather than hidden
+by the V1 fixture. The real FFmpeg preview adapter accepts at most 1,024 unique
+pictures in one decoder batch, while the required five-minute 30 fps proof has
+9,000 timeline pictures. V1 full-overlay hydration remains a valid bounded RHC
+proof but cannot be the long-form Player-session contract.
+
+The additive V2 owner therefore converts one already validated timestamp-
+consumption receipt into a partial overlay-local window of at most 1,024
+frames. Every window remains bound to project, sequence, overlay,
+ProjectService revision, exact receipt/decoder request, audio ownership and a
+server-issued conservative lease interval. Multiple adjacent windows may share
+one overlay scope; overlap, mixed revisions/audio scope, incomplete or duplicate
+coverage, cross-picture substitution, unsafe integers, malformed lease order,
+expired active coverage and over-budget requests fail with stable errors. No
+sparse hold-previous or ordinary-video fallback is introduced. A deterministic
+planner selects the aligned active window plus one bounded next window for
+prefetch, including exact tail truncation.
+
+The focused V2 suite passes 5/5, repository TypeScript passes with the declared
+8 GiB heap and repository-wide quiet ESLint passes. No browser, server route,
+private object, decoder process, project, provider or customer data was touched.
+This result is
+`ROLLING_PREVIEW_WINDOW_CONTRACT_IMPLEMENTED_LIVE_COORDINATOR_NOT_WIRED`.
+It does not yet prove that the server producer sets its conservative expiry no
+later than the earliest stored surface expiry, that the live Player can renew
+and swap windows without playback discontinuity, or that obsolete decoder
+batches are released. The V2 contract is not yet consumed by `Main` or the
+rendering context. Exact native sample-domain audio, analysis, production final
+render, live authenticated private-bucket exercise and physical object lifecycle
+remain open. Queue item 3 therefore remains open; the next bounded subphase is
+the fail-closed rendering-context/Main adoption followed by the current-
+revision server materializer and live Player session coordinator.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
