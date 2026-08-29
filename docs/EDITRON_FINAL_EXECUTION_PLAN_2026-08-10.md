@@ -6730,6 +6730,51 @@ must make the existing video-layer consumer render the exact private picture
 for a hydrated frame while keeping the existing native-audio path underneath,
 with explicit loading/error behavior and no final-render claim.
 
+**Exact timestamp-picture video-layer consumer Phase 3F-C2 (2026-08-29):**
+the existing `VideoLayerContent` owner now asks the existing rendering context
+for one receipt-derived picture at its current overlay-local frame. The context
+first proves that the hydrated overlay ID, start, duration, local frame and
+resulting project frame still match the live overlay. A hydration that exists
+but is stale, incomplete, out of range or internally inconsistent throws a
+stable error; it never falls through to ordinary `<Video>` playback or the
+poster placeholder.
+
+Interactive full-media playback now renders the authenticated same-origin
+private-picture route through Remotion `Img`, pauses playback while the image
+is loading, uses the library's bounded two-retry policy and turns terminal
+load failure into `NATIVE_MEDIA_PREVIEW_PICTURE_LOAD_FAILED`. The exact PNG is
+the visible picture. If the receipt disposition is
+`EXACT_SAMPLE_MAPPING_BOUND`, the existing native source remains the audio
+owner through the established `Audio`/speed-segment path. If it is
+`NO_AUDIO_MAPPING_REQUESTED`, no audio element is invented and a missing media
+URL does not suppress the valid picture. A mapped-audio picture with no native
+source fails closed. Direct server-render use also fails closed even though
+`Main` already rejects preview hydration globally when `isRendering` is true.
+
+The new integration suite executes the real hydration validator, rendering
+provider and video-layer consumer while mocking only browser media primitives.
+It passes 6/6 for exact local-frame selection, authenticated route construction,
+native-audio ownership, explicit no-audio behavior, audio-only omission, stale
+scope rejection, final-render rejection, missing native source and terminal
+image failure. With the existing hydration and video-layer suites the bounded
+cluster passes 14/14; repository TypeScript and affected-file quiet ESLint
+pass. No browser, Clerk session, private R2 object, ProjectService mutation,
+provider or customer project was touched.
+
+This result is
+`EXACT_TIMESTAMP_PICTURE_VIDEO_LAYER_WIRED_COORDINATOR_ANALYSIS_FINAL_RENDER_OPEN`.
+It proves shared downstream preview plumbing, not a complete timestamp media
+pipeline. No production coordinator yet takes a freshly validated consumption
+receipt, creates/renews the transient hydration lease and feeds it to the live
+editor Player. The route/private bucket still needs a real authenticated
+browser exercise and an expired-session rematerialization path. The reused
+native-audio player remains the legacy frame-domain playback path; carrying an
+exact sample-mapping hash proves separation/ownership but does not make that
+player an exact sample-domain consumer. Analysis and production final-render
+consumers remain unwired, and the expiring browser route remains forbidden as
+a final-render source. Queue item 3 therefore remains open; those owners are
+the next technical subphases.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source

@@ -1,4 +1,4 @@
-import { Audio, OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
+import { Audio, Img, OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
 import { useMemo } from "react";
 import { ClipOverlay } from "../../../types";
 import { computeSpeedSegments, evaluateAllTracks } from "../../../utils/keyframe-evaluator";
@@ -7,9 +7,11 @@ import { toAbsoluteUrl } from "../../../utils/url-helper";
 import {
   useAllOverlays,
   useIsRendering,
+  useNativeMediaTimestampPreviewFrame,
   useRenderMediaMode,
 } from "../../../contexts/rendering-context";
 import { createDuckingVolume } from "../../../utils/audio-ducking";
+import { nativeMediaTimestampPreviewRoutePathV1 } from "../../../remotion/native-media-timestamp-preview-hydration-v1";
 
 const CANONICAL_VOICEOVER_ROW = 3;
 const LEGACY_VOICEOVER_ROW = 4;
@@ -51,6 +53,12 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   const isRendering = useIsRendering();
   const renderMediaMode = useRenderMediaMode();
   const allOverlays = useAllOverlays();
+  const timestampPreviewSelection = useNativeMediaTimestampPreviewFrame({
+    overlayId: overlay.id,
+    overlayFromFrame: overlay.from,
+    overlayDurationInFrames: overlay.durationInFrames,
+    localFrame: frame,
+  });
   const fps = 30; // Matches sound-layer-content.tsx
 
   // Native Audio Ducking
@@ -178,14 +186,23 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     videoSrc = toAbsoluteUrl(videoSrc);
   }
 
+  if (timestampPreviewSelection && isRendering) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_FINAL_RENDER_FORBIDDEN');
+  }
+
   // Show placeholder if no valid source
   if (!videoSrc) {
-    console.warn('Video overlay has no src or content:', overlay);
-    return (
-      <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
-      </div>
-    );
+    if (timestampPreviewSelection?.audioOwnership.disposition === 'EXACT_SAMPLE_MAPPING_BOUND') {
+      throw new Error('NATIVE_MEDIA_PREVIEW_NATIVE_AUDIO_SOURCE_MISSING');
+    }
+    if (!timestampPreviewSelection) {
+      console.warn('Video overlay has no src or content:', overlay);
+      return (
+        <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
+        </div>
+      );
+    }
   }
 
   // In the editor, use <Video> (native HTML5 decoder) for faster, smoother
@@ -208,35 +225,38 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     && overlay.sourceEndFrame! > sourceStartFrame
     ? overlay.sourceEndFrame! - sourceStartFrame
     : overlay.durationInFrames;
-
-  if (renderMediaMode === "audio-only") {
-    if (hasSpeedCurve) {
-      const segments = computeSpeedSegments(
+  const speedSegments = hasSpeedCurve
+    ? computeSpeedSegments(
         speedCurve,
         overlay.durationInFrames,
         availableSourceFrames,
-      );
+      )
+    : [];
+  const renderNativeAudio = () => {
+    if (!videoSrc) {
+      throw new Error('NATIVE_MEDIA_PREVIEW_NATIVE_AUDIO_SOURCE_MISSING');
+    }
+    if (speedSegments.length > 0) {
       return (
         <>
-          {segments.map((seg, i) => (
+          {speedSegments.map((segment, index) => (
             <Sequence
-              key={i}
-              from={seg.compositionStartFrame}
-              durationInFrames={seg.compositionEndFrame - seg.compositionStartFrame}
+              key={index}
+              from={segment.compositionStartFrame}
+              durationInFrames={segment.compositionEndFrame - segment.compositionStartFrame}
               layout="none"
             >
               <Audio
                 src={videoSrc}
-                startFrom={sourceStartFrame + seg.sourceStartFrame}
+                startFrom={sourceStartFrame + segment.sourceStartFrame}
                 volume={resolvedVolume}
-                playbackRate={seg.playbackRate}
+                playbackRate={segment.playbackRate}
               />
             </Sequence>
           ))}
         </>
       );
     }
-
     return (
       <Audio
         src={videoSrc}
@@ -245,19 +265,45 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
         playbackRate={overlay.speed ?? 1}
       />
     );
+  };
+
+  if (renderMediaMode === "audio-only") {
+    if (timestampPreviewSelection?.audioOwnership.disposition === 'NO_AUDIO_MAPPING_REQUESTED') {
+      return null;
+    }
+    return renderNativeAudio();
+  }
+
+  if (timestampPreviewSelection) {
+    const timestampPreviewFrame = timestampPreviewSelection.frame;
+    return (
+      <div style={containerStyle}>
+        {timestampPreviewSelection.audioOwnership.disposition === 'EXACT_SAMPLE_MAPPING_BOUND'
+          ? renderNativeAudio()
+          : null}
+        <Img
+          src={nativeMediaTimestampPreviewRoutePathV1(timestampPreviewFrame.pictureHandle)}
+          style={videoStyle}
+          alt=""
+          draggable={false}
+          pauseWhenLoading={true}
+          maxRetries={2}
+          referrerPolicy="no-referrer"
+          data-editron-native-timestamp-picture={timestampPreviewFrame.decodedPictureContentSha256}
+          onError={() => {
+            throw new Error('NATIVE_MEDIA_PREVIEW_PICTURE_LOAD_FAILED');
+          }}
+        />
+      </div>
+    );
   }
 
   if (hasSpeedCurve) {
-    const segments = computeSpeedSegments(
-      speedCurve,
-      overlay.durationInFrames,
-      availableSourceFrames,
-    );
     const VideoComponent = isRendering ? OffthreadVideo : Video;
 
     return (
       <div style={containerStyle}>
-        {segments.map((seg, i) => (
+        {speedSegments.map((seg, i) => (
           <Sequence
             key={i}
             from={seg.compositionStartFrame}

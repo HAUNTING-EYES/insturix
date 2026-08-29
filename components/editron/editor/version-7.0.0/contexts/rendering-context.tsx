@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo } from "react";
 import { OverlayType, type Overlay } from "../types";
 import {
+  assertNativeMediaTimestampPreviewHydrationV1,
   createNativeMediaTimestampPreviewHydrationIndexV1,
   type NativeMediaTimestampPreviewHydrationFrameV1,
   type NativeMediaTimestampPreviewHydrationIndexV1,
@@ -38,6 +39,7 @@ interface RenderingContextValue {
   mediaMode: RenderMediaMode;
   overlays: Overlay[];
   timestampPreviewIndex: NativeMediaTimestampPreviewHydrationIndexV1;
+  timestampPreviewHydrationsByOverlay: ReadonlyMap<string, NativeMediaTimestampPreviewHydrationV1>;
 }
 
 const RenderingContext = createContext<RenderingContextValue>({
@@ -45,6 +47,7 @@ const RenderingContext = createContext<RenderingContextValue>({
   mediaMode: "full",
   overlays: [],
   timestampPreviewIndex: createNativeMediaTimestampPreviewHydrationIndexV1(),
+  timestampPreviewHydrationsByOverlay: new Map(),
 });
 
 export const RenderingProvider: React.FC<{
@@ -60,8 +63,18 @@ export const RenderingProvider: React.FC<{
   timestampPreviewHydrations = [],
   children,
 }) => {
-  const timestampPreviewIndex = useMemo(
-    () => createNativeMediaTimestampPreviewHydrationIndexV1(timestampPreviewHydrations),
+  const timestampPreviewState = useMemo(
+    () => {
+      const index = createNativeMediaTimestampPreviewHydrationIndexV1(
+        timestampPreviewHydrations,
+      );
+      const byOverlay = new Map<string, NativeMediaTimestampPreviewHydrationV1>();
+      for (const candidate of timestampPreviewHydrations) {
+        const hydration = assertNativeMediaTimestampPreviewHydrationV1(candidate);
+        byOverlay.set(hydration.overlayId, hydration);
+      }
+      return Object.freeze({ index, byOverlay });
+    },
     [timestampPreviewHydrations],
   );
   return (
@@ -69,7 +82,8 @@ export const RenderingProvider: React.FC<{
       isRendering,
       mediaMode,
       overlays,
-      timestampPreviewIndex,
+      timestampPreviewIndex: timestampPreviewState.index,
+      timestampPreviewHydrationsByOverlay: timestampPreviewState.byOverlay,
     }}>
       {children}
     </RenderingContext.Provider>
@@ -86,9 +100,46 @@ export const useRenderMediaMode = (): RenderMediaMode =>
 /** Returns all overlays in the project (for cross-track awareness like audio ducking). */
 export const useAllOverlays = (): Overlay[] => useContext(RenderingContext).overlays;
 
-/** Returns one exact, receipt-derived picture for an overlay-local frame. */
-export const useNativeMediaTimestampPreviewFrame = (
+export type NativeMediaTimestampPreviewFrameRequestV1 = Readonly<{
   overlayId: string | number,
-  localFrame: number,
-): NativeMediaTimestampPreviewHydrationFrameV1 | null =>
-  useContext(RenderingContext).timestampPreviewIndex.frameFor(overlayId, localFrame);
+  overlayFromFrame: number;
+  overlayDurationInFrames: number;
+  localFrame: number;
+}>;
+
+export type NativeMediaTimestampPreviewSelectionV1 = Readonly<{
+  frame: NativeMediaTimestampPreviewHydrationFrameV1;
+  audioOwnership: NativeMediaTimestampPreviewHydrationV1['audioOwnership'];
+}>;
+
+/** Returns one exact picture only when its receipt scope still matches the live overlay. */
+export const useNativeMediaTimestampPreviewFrame = (
+  request: NativeMediaTimestampPreviewFrameRequestV1,
+): NativeMediaTimestampPreviewSelectionV1 | null => {
+  const context = useContext(RenderingContext);
+  if (!context.timestampPreviewIndex.hasOverlay(request.overlayId)) return null;
+
+  const hydration = context.timestampPreviewHydrationsByOverlay.get(String(request.overlayId));
+  if (!hydration) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_HYDRATION_INDEX_STATE_INVALID');
+  }
+  const expectedProjectFrame = request.overlayFromFrame + request.localFrame;
+  if (!Number.isSafeInteger(request.overlayFromFrame) || request.overlayFromFrame < 0
+    || !Number.isSafeInteger(request.overlayDurationInFrames)
+    || request.overlayDurationInFrames < 1
+    || !Number.isSafeInteger(request.localFrame) || request.localFrame < 0
+    || request.localFrame >= request.overlayDurationInFrames
+    || !Number.isSafeInteger(expectedProjectFrame)
+    || hydration.overlayFromFrame !== request.overlayFromFrame
+    || hydration.overlayDurationInFrames !== request.overlayDurationInFrames) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_HYDRATION_OVERLAY_SCOPE_MISMATCH');
+  }
+  const frame = context.timestampPreviewIndex.frameFor(request.overlayId, request.localFrame);
+  if (!frame || frame.projectFrame !== expectedProjectFrame) {
+    throw new Error('NATIVE_MEDIA_PREVIEW_HYDRATION_FRAME_MISSING');
+  }
+  return Object.freeze({
+    frame,
+    audioOwnership: hydration.audioOwnership,
+  });
+};
