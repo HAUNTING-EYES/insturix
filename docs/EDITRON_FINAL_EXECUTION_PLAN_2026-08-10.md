@@ -8508,6 +8508,17 @@ No QStash message, provider call, database access, media render or project
 mutation occurred. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+Before changing the 709-line prepared-source publication owner, commit
+`0590a9c4c` performs the mandated Step 0 cleanup. Direct, type, literal,
+dynamic-import, re-export, test and mock searches show that its three version/
+kind constants and two aggregate publication result/receipt aliases have no
+consumer outside the module, so they are now private. The rights contract and
+the publisher factory remain public. No runtime value, receipt, validation,
+rights check, lease check or publication control flow changes. The focused
+publisher suite passes 10/10; repository TypeScript and repository-wide quiet
+ESLint pass. This behavior-neutral cleanup does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
