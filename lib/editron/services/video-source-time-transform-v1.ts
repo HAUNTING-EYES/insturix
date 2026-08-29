@@ -55,24 +55,24 @@ import type { ProjectRevisionV1 } from './project-service';
 
 export const VIDEO_SOURCE_TIME_BINDING_KIND_V1 =
   'EDITRON_VERIFIED_VIDEO_SOURCE_TIME_BINDING_V1' as const;
-export const PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_KIND_V1 =
+const PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_KIND_V1 =
   'EDITRON_PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_V1' as const;
 export const PROJECT_VIDEO_SOURCE_TIME_TRANSFORM_OWNER_V1 =
   'PROJECT_SERVICE_VIDEO_RETIME_WRITER_V1' as const;
-export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1 =
+const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V1 =
   'EDITRON_STEP_SPEED_SEGMENTS_V1' as const;
 export const VIDEO_RETIME_RENDERER_MAPPING_VERSION_V2 =
   'EDITRON_STEP_SPEED_SEGMENTS_SOURCE_SPAN_V2' as const;
-export const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2 =
+const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V2 =
   'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V2' as const;
-export const VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3 =
+const VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3 =
   'EDITRON_VERIFIED_VIDEO_SOURCE_EPOCH_TIME_BINDING_V3' as const;
-export const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3 =
+const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3 =
   'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V3' as const;
-export const VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2 =
+const VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2 =
   'PRESERVE_REAL_TIME_NEAREST' as const;
-export const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2 = 100_000;
-export const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_QUERIES_V2 = 10_000;
+const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2 = 100_000;
+const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_QUERIES_V2 = 10_000;
 
 export type VideoSourceTimestampConformFrameV2 = Readonly<{
   sourceFrameOrdinal: string;
@@ -87,7 +87,7 @@ export type VideoSourceTimestampConformResourcePolicyV2 = Readonly<{
   maxFrameQueries: number;
 }>;
 
-export type ExactAudioSamplePositionV2 = Readonly<{
+type ExactAudioSamplePositionV2 = Readonly<{
   numerator: string;
   denominator: string;
   disposition: 'INTEGER_SAMPLE_FRAME' | 'BETWEEN_SAMPLE_FRAMES';
@@ -131,7 +131,7 @@ export type VideoSourceTimestampConformV2 = Readonly<{
   transformSha256: string;
 }>;
 
-export type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
+type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
   | {
       disposition: 'CONFORM_CREATED';
       presentationWindow: MediaSourcePtsCadencePresentationWindowV2;
@@ -140,7 +140,7 @@ export type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
   | Extract<MediaSourcePtsCadencePresentationWindowResultV2, { disposition: 'UNVERIFIABLE' }>
 >;
 
-export type VerifiedVideoSourceEpochTimeBindingV3 = Readonly<{
+type VerifiedVideoSourceEpochTimeBindingV3 = Readonly<{
   schemaVersion: 3;
   kind: typeof VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3;
   assetId: string;
@@ -184,7 +184,7 @@ export type VideoSourceTimestampConformV3 = Readonly<{
   transformSha256: string;
 }>;
 
-export type VideoSourceTimestampConformFromEpochIndexResultV3 = Readonly<
+type VideoSourceTimestampConformFromEpochIndexResultV3 = Readonly<
   | {
       disposition: 'CONFORM_CREATED';
       presentationWindow: MediaSourcePtsCadenceEpochPresentationWindowV3;
@@ -319,7 +319,7 @@ export type SourcePresentationTimestampRebindV1 = Readonly<
     }
 >;
 
-export type VerifiedVideoSourceRateCompatibilityV1 = Readonly<
+type VerifiedVideoSourceRateCompatibilityV1 = Readonly<
   | { disposition: 'COMPATIBLE_SAME_RATE_CFR' }
   | {
       disposition: 'UNSUPPORTED';
@@ -982,7 +982,7 @@ function createVideoSourceTimestampConformFromPreparedEpochV3(
   return frozen({ disposition: 'CONFORM_CREATED' as const, presentationWindow, transform });
 }
 
-export function assertVerifiedVideoSourceEpochTimeBindingV3(
+function assertVerifiedVideoSourceEpochTimeBindingV3(
   value: unknown,
 ): VerifiedVideoSourceEpochTimeBindingV3 {
   const record = objectRecord(value, 'VIDEO_SOURCE_EPOCH_TIME_BINDING_INVALID');
