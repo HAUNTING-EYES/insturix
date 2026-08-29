@@ -47,7 +47,7 @@ import {
   type VideoSourceTimestampConformResourcePolicyV2,
 } from './video-source-time-transform-v1';
 
-export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_VERSION_V1 =
+const NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_V1' as const;
 
 export type NativeMediaTimestampPreviewMaterializerPolicyV1 = Readonly<{
@@ -128,7 +128,7 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'CLEANUP_FAILED'
   | 'RUNTIME_UNAVAILABLE';
 
-export type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
+type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
   | {
       disposition: 'NOT_APPLICABLE';
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
