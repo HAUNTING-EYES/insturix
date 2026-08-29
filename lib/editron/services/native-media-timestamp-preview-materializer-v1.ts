@@ -10,6 +10,11 @@ import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_MAX_TTL_MS_V1,
   type NativeMediaTimestampPreviewClassificationLeaseV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
+import {
+  assertNativeMediaTimestampPreviewSessionWindowV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_SESSION_WINDOW_KIND_V1,
+  type NativeMediaTimestampPreviewSessionWindowV1,
+} from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-window-v1';
 
 import { readCanonicalFrameRateV1 } from '../contracts/canonical-media-time-v1';
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
@@ -20,12 +25,16 @@ import {
   type MediaSourceAudioArtifactAssetStateInputV1,
 } from './media-source-audio-artifact-asset-owner-v1';
 import type { MediaSourceAudioPrivateArtifactReaderV1 } from './media-source-audio-private-artifact-port-v1';
+import type { MediaSourceAudioPrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
 import {
   serializeMediaSourceAudioPrivateArtifactManifestV1,
   verifyMediaSourceAudioPrivateArtifactSetV1,
 } from './media-source-audio-private-artifact-v1';
 import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 } from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import type { MediaSourcePtsCadenceEpochWindowResourcePolicyV3 } from './media-source-pts-cadence-epoch-window-reader-v3';
+import {
+  materializeNativeMediaTimestampPreviewAudioWindowV1,
+} from './native-media-timestamp-preview-audio-materializer-v1';
 import {
   createNativeMediaTimestampFfmpegPreviewDecoderV1,
   createVerifiedAssetNativeMediaTimestampPreviewSourceLeasePortV1,
@@ -38,6 +47,10 @@ import {
   type NativeMediaTimestampDecoderResourcePolicyV1,
   type NativeMediaTimestampMaterializingDecoderV1,
 } from './native-media-timestamp-consumer-v1';
+import {
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_SURFACE_DEFAULT_POLICY_V1,
+  type NativeMediaTimestampPreviewAudioSurfaceStorePortV1,
+} from './native-media-timestamp-r2-preview-audio-surface-v1';
 import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_SURFACE_DEFAULT_POLICY_V1,
   type NativeMediaTimestampPreviewSurfaceLeaseScopeV1,
@@ -132,21 +145,16 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'PROJECT_CHANGED_DURING_MATERIALIZATION'
   | 'LEASE_UNUSABLE'
   | 'WINDOW_BUILD_FAILED'
+  | 'AUDIO_WINDOW_MATERIALIZATION_FAILED'
+  | 'SESSION_WINDOW_BUILD_FAILED'
   | 'CLEANUP_FAILED'
   | 'RUNTIME_UNAVAILABLE';
 
-type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
+type NativeMediaTimestampPreviewMaterializerSharedResultV1 = Readonly<
   | {
       disposition: 'NOT_APPLICABLE';
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
       classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
-    }
-  | {
-      disposition: 'WINDOW_MATERIALIZED';
-      window: NativeMediaTimestampPreviewWindowV2;
-      sourcePtsCadenceMapStateSha256V3: string;
-      transformSha256: string;
-      materializedPictureCount: number;
     }
   | {
       disposition: 'UNVERIFIABLE';
@@ -154,6 +162,33 @@ type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
       diagnostic: string | null;
     }
 >;
+
+type NativeMediaTimestampPreviewPictureMaterializerResultV1 =
+  NativeMediaTimestampPreviewMaterializerSharedResultV1 | Readonly<
+  | {
+      disposition: 'WINDOW_MATERIALIZED';
+      window: NativeMediaTimestampPreviewWindowV2;
+      sourcePtsCadenceMapStateSha256V3: string;
+      transformSha256: string;
+      materializedPictureCount: number;
+    }
+>;
+
+type NativeMediaTimestampPreviewSessionMaterializerResultV1 =
+  NativeMediaTimestampPreviewMaterializerSharedResultV1 | Readonly<
+  | {
+      disposition: 'SESSION_WINDOW_MATERIALIZED';
+      sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
+      sourcePtsCadenceMapStateSha256V3: string;
+      transformSha256: string;
+      materializedPictureCount: number;
+      materializedAudioSegmentCount: number;
+    }
+>;
+
+type NativeMediaTimestampPreviewMaterializerResultV1 =
+  | NativeMediaTimestampPreviewPictureMaterializerResultV1
+  | NativeMediaTimestampPreviewSessionMaterializerResultV1;
 
 export type NativeMediaTimestampPreviewMaterializerInputV1 = Readonly<{
   userId: string;
@@ -164,6 +199,11 @@ export type NativeMediaTimestampPreviewMaterializerInputV1 = Readonly<{
   windowLocalStartFrame: number;
   windowDurationInFrames: number;
 }>;
+
+export type NativeMediaTimestampPreviewSessionMaterializerInputV1 =
+  NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
+    deliveryContract: 'PAIRED_SESSION_V3';
+  }>;
 
 export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
   projectSnapshotReader: Readonly<{
@@ -181,6 +221,13 @@ export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
   }>;
   storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
   audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
+  audioPreview?: Readonly<{
+    pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
+    createSurfaceStore(input: Readonly<{
+      leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
+      lease: NativeMediaTimestampPreviewWindowV2['lease'];
+    }>): NativeMediaTimestampPreviewAudioSurfaceStorePortV1;
+  }>;
   createDecoder(input: Readonly<{
     asset: MediaSourceAudioArtifactAssetStateInputV1;
     leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
@@ -193,8 +240,24 @@ export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
   now?: () => number;
 }>;
 
-export async function materializeNativeMediaTimestampPreviewWindowV1(
+export function materializeNativeMediaTimestampPreviewWindowV1(
+  input: NativeMediaTimestampPreviewSessionMaterializerInputV1,
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1,
+): Promise<NativeMediaTimestampPreviewSessionMaterializerResultV1>;
+export function materializeNativeMediaTimestampPreviewWindowV1(
   input: NativeMediaTimestampPreviewMaterializerInputV1,
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1,
+): Promise<NativeMediaTimestampPreviewPictureMaterializerResultV1>;
+export function materializeNativeMediaTimestampPreviewWindowV1(
+  input:
+    | NativeMediaTimestampPreviewMaterializerInputV1
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1,
+): Promise<NativeMediaTimestampPreviewMaterializerResultV1>;
+export async function materializeNativeMediaTimestampPreviewWindowV1(
+  input:
+    | NativeMediaTimestampPreviewMaterializerInputV1
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
   ports: NativeMediaTimestampPreviewMaterializerPortsV1,
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
   let scope: ReturnType<typeof normalizeInput>;
@@ -333,7 +396,10 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       null,
     );
   }
-  let audioEvidence: ReturnType<typeof verifyMediaSourceAudioPrivateArtifactSetV1> | null = null;
+  let selectedAudioArtifact: Readonly<{
+    record: MediaSourceAudioArtifactAssetRecordV1;
+    evidence: ReturnType<typeof verifyMediaSourceAudioPrivateArtifactSetV1>;
+  }> | null = null;
   if (audioStreamIndexes.length > 0) {
     if (audioStreamIndexes.length !== 1) {
       return unverifiable(
@@ -357,11 +423,12 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       const artifactSet = await ports.audioArtifactReader.readArtifactSet(
         audioRecord.manifestReference,
       );
-      audioEvidence = verifyMediaSourceAudioPrivateArtifactSetV1({
+      const audioEvidence = verifyMediaSourceAudioPrivateArtifactSetV1({
         manifest: artifactSet.manifest,
         mapCanonicalJson: artifactSet.mapCanonicalJson,
       });
       assertAudioArtifactMatchesAssetRecord(audioRecord, artifactSet.manifest, audioEvidence);
+      selectedAudioArtifact = Object.freeze({ record: audioRecord, evidence: audioEvidence });
     } catch (error) {
       return unverifiable('EXACT_AUDIO_MAPPING_REQUIRED', diagnostic(error));
     }
@@ -387,9 +454,9 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
       timelineFrameQueries: timelineQueries,
       sourceAnchorFrameOrdinal: sourceStart.toString(),
       resourcePolicy: policy.conform,
-      ...(audioEvidence === null ? {} : {
+      ...(selectedAudioArtifact === null ? {} : {
         audio: {
-          evidence: audioEvidence,
+          evidence: selectedAudioArtifact.evidence,
           endExclusiveTimelineFrame: (
             BigInt(overlay.from) + BigInt(overlay.durationInFrames)
           ).toString(),
@@ -516,6 +583,137 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     return releaseThen(created.decoder, consumed.receipt.decoderRequestSha256,
       'PROJECT_CHANGED_DURING_MATERIALIZATION');
   }
+  if (scope.deliveryContract === 'PAIRED_SESSION_V3') {
+    let audioWindow: NativeMediaTimestampPreviewSessionWindowV1['audioWindow'] = null;
+    let audioSurfaceStore: NativeMediaTimestampPreviewAudioSurfaceStorePortV1 | null = null;
+    if (window.audioOwnership.disposition === 'EXACT_SAMPLE_MAPPING_BOUND') {
+      if (!selectedAudioArtifact || !conform.transform.audioMapping
+        || !ports.audioPreview
+        || typeof ports.audioPreview.pcmReader?.readPcmSampleRange !== 'function'
+        || typeof ports.audioPreview.createSurfaceStore !== 'function') {
+        return releaseThen(
+          created.decoder,
+          consumed.receipt.decoderRequestSha256,
+          'AUDIO_WINDOW_MATERIALIZATION_FAILED',
+          'NATIVE_MEDIA_PREVIEW_AUDIO_RUNTIME_REQUIRED',
+        );
+      }
+      const leaseScope = {
+        userId: scope.userId,
+        projectId: scope.projectId,
+        sequenceId: scope.sequenceId,
+        overlayId: scope.overlayId,
+        projectRevision: snapshot.revision,
+      };
+      try {
+        audioSurfaceStore = ports.audioPreview.createSurfaceStore({
+          leaseScope,
+          lease: window.lease,
+        });
+      } catch (error) {
+        return releaseThen(
+          created.decoder,
+          consumed.receipt.decoderRequestSha256,
+          'AUDIO_WINDOW_MATERIALIZATION_FAILED',
+          diagnostic(error),
+        );
+      }
+      const audioResult = await materializeNativeMediaTimestampPreviewAudioWindowV1({
+        leaseScope,
+        lease: window.lease,
+        mapping: conform.transform.audioMapping,
+        projectRate: conform.transform.projectRate,
+        overlayFromFrame: overlay.from,
+        windowLocalStartFrame: scope.windowLocalStartFrame,
+        windowDurationInFrames: scope.windowDurationInFrames,
+        expectedAssetId: overlay.assetId,
+        manifestSha256: selectedAudioArtifact.record.manifestSha256,
+        manifestReference: selectedAudioArtifact.record.manifestReference,
+      }, {
+        pcmReader: ports.audioPreview.pcmReader,
+        surfaceStore: audioSurfaceStore,
+      });
+      if (audioResult.disposition === 'UNVERIFIABLE') {
+        return releaseThen(
+          created.decoder,
+          consumed.receipt.decoderRequestSha256,
+          audioResult.reason === 'CLEANUP_FAILED'
+            ? 'CLEANUP_FAILED'
+            : 'AUDIO_WINDOW_MATERIALIZATION_FAILED',
+          `NATIVE_MEDIA_PREVIEW_AUDIO_${audioResult.reason}`,
+        );
+      }
+      audioWindow = audioResult.window;
+    }
+
+    let sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
+    try {
+      sessionWindow = assertNativeMediaTimestampPreviewSessionWindowV1({
+        schemaVersion: 1,
+        kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_SESSION_WINDOW_KIND_V1,
+        pictureWindow: window,
+        audioWindow,
+      });
+    } catch (error) {
+      return releasePairedThen(
+        created.decoder,
+        consumed.receipt.decoderRequestSha256,
+        audioSurfaceStore,
+        audioWindow,
+        'SESSION_WINDOW_BUILD_FAILED',
+        diagnostic(error),
+      );
+    }
+    if (!await assetStillMatches({
+      assetReader: ports.assetReader,
+      assetId: overlay.assetId,
+      userId: scope.userId,
+      bindingSha256: binding.bindingSha256,
+      audioArtifactStateSha256:
+        audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null,
+    })) {
+      return releasePairedThen(
+        created.decoder,
+        consumed.receipt.decoderRequestSha256,
+        audioSurfaceStore,
+        audioWindow,
+        'ASSET_CHANGED_DURING_MATERIALIZATION',
+      );
+    }
+    try {
+      finalRevision = await ports.projectRevisionReader.getProjectRevision(
+        scope.userId,
+        scope.projectId,
+      );
+    } catch {
+      return releasePairedThen(
+        created.decoder,
+        consumed.receipt.decoderRequestSha256,
+        audioSurfaceStore,
+        audioWindow,
+        'PROJECT_CHANGED_DURING_MATERIALIZATION',
+      );
+    }
+    if (!sameRevision(finalRevision, snapshot.revision)) {
+      return releasePairedThen(
+        created.decoder,
+        consumed.receipt.decoderRequestSha256,
+        audioSurfaceStore,
+        audioWindow,
+        'PROJECT_CHANGED_DURING_MATERIALIZATION',
+      );
+    }
+    return Object.freeze({
+      disposition: 'SESSION_WINDOW_MATERIALIZED' as const,
+      sessionWindow,
+      sourcePtsCadenceMapStateSha256V3: binding.sourcePtsCadenceMapStateSha256V3,
+      transformSha256: conform.transform.transformSha256,
+      materializedPictureCount: consumed.receipt.decodedPictures.length,
+      materializedAudioSegmentCount: audioWindow?.segments.filter(
+        (segment) => segment.kind === 'PCM',
+      ).length ?? 0,
+    });
+  }
   return Object.freeze({
     disposition: 'WINDOW_MATERIALIZED' as const,
     window,
@@ -525,15 +723,33 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   });
 }
 
-export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
+type NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1 = Readonly<{
+  environment?: MediaSourcePtsCadenceR2RuntimeEnvironmentV1;
+  policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
+  ffmpegPath?: string;
+  now?: () => number;
+  audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
+}>;
+
+export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
+  input: NativeMediaTimestampPreviewSessionMaterializerInputV1,
+  options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
+): Promise<NativeMediaTimestampPreviewSessionMaterializerResultV1>;
+export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
   input: NativeMediaTimestampPreviewMaterializerInputV1,
-  options: Readonly<{
-    environment?: MediaSourcePtsCadenceR2RuntimeEnvironmentV1;
-    policy?: NativeMediaTimestampPreviewMaterializerPolicyV1;
-    ffmpegPath?: string;
-    now?: () => number;
-    audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
-  }> = {},
+  options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
+): Promise<NativeMediaTimestampPreviewPictureMaterializerResultV1>;
+export function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
+  input:
+    | NativeMediaTimestampPreviewMaterializerInputV1
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+  options?: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1,
+): Promise<NativeMediaTimestampPreviewMaterializerResultV1>;
+export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(
+  input:
+    | NativeMediaTimestampPreviewMaterializerInputV1
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+  options: NativeMediaTimestampPreviewMaterializerRuntimeOptionsV1 = {},
 ): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
   try {
     const policy = normalizePolicy(
@@ -552,6 +768,19 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
       assetReader: assetPorts,
       storedObjectReader: runtime.epochArtifactReader,
       audioArtifactReader: options.audioArtifactReader ?? runtime.audioArtifact,
+      audioPreview: {
+        pcmReader: runtime.audioArtifact,
+        createSurfaceStore({ leaseScope, lease }) {
+          const leaseTtlMs = lease.expiresAtEpochMs - lease.issuedAtEpochMs;
+          return runtime.audioPreviewSurface.createStore(leaseScope, {
+            policy: {
+              ...NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_SURFACE_DEFAULT_POLICY_V1,
+              leaseTtlMs,
+            },
+            now: () => lease.issuedAtEpochMs,
+          });
+        },
+      },
       createDecoder({ asset, leaseScope, materializationStartedAtEpochMs }) {
         const surfaceStore = runtime.previewSurface.createStore(leaseScope, {
           policy: policy.surface,
@@ -576,7 +805,17 @@ export async function materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1
   }
 }
 
-function normalizeInput(input: NativeMediaTimestampPreviewMaterializerInputV1) {
+function normalizeInput(
+  input:
+    | NativeMediaTimestampPreviewMaterializerInputV1
+    | NativeMediaTimestampPreviewSessionMaterializerInputV1,
+) {
+  const deliveryContract = 'deliveryContract' in input
+    ? input.deliveryContract
+    : 'PICTURE_ONLY_V2' as const;
+  if (deliveryContract !== 'PICTURE_ONLY_V2' && deliveryContract !== 'PAIRED_SESSION_V3') {
+    throw new Error('NATIVE_MEDIA_PREVIEW_DELIVERY_CONTRACT_INVALID');
+  }
   return Object.freeze({
     userId: identifier(input.userId, 'NATIVE_MEDIA_PREVIEW_USER_INVALID'),
     projectId: identifier(input.projectId, 'NATIVE_MEDIA_PREVIEW_PROJECT_INVALID'),
@@ -587,6 +826,7 @@ function normalizeInput(input: NativeMediaTimestampPreviewMaterializerInputV1) {
       : null,
     windowLocalStartFrame: nonNegativeSafeInteger(input.windowLocalStartFrame),
     windowDurationInFrames: positiveSafeInteger(input.windowDurationInFrames),
+    deliveryContract,
   });
 }
 
@@ -754,6 +994,57 @@ async function releaseThen(
     return unverifiable('CLEANUP_FAILED', reason);
   }
   return unverifiable(reason, detail);
+}
+
+async function releasePairedThen(
+  decoder: NativeMediaTimestampMaterializingDecoderV1,
+  decoderRequestSha256: string,
+  audioSurfaceStore: NativeMediaTimestampPreviewAudioSurfaceStorePortV1 | null,
+  audioWindow: NativeMediaTimestampPreviewSessionWindowV1['audioWindow'],
+  reason: NativeMediaTimestampPreviewMaterializerReasonV1,
+  detail: string | null = null,
+): Promise<NativeMediaTimestampPreviewMaterializerResultV1> {
+  let cleanupFailed = false;
+  if (audioWindow) {
+    if (!audioSurfaceStore) {
+      cleanupFailed = true;
+    } else {
+      for (const segment of audioWindow.segments) {
+        if (segment.kind !== 'PCM') continue;
+        try {
+          await audioSurfaceStore.deleteAudioSegment(segment.audioHandle);
+        } catch {
+          cleanupFailed = true;
+        }
+      }
+    }
+  }
+  try {
+    await decoder.releaseDecodedBatch(decoderRequestSha256);
+  } catch {
+    cleanupFailed = true;
+  }
+  return cleanupFailed ? unverifiable('CLEANUP_FAILED', reason) : unverifiable(reason, detail);
+}
+
+async function assetStillMatches(input: Readonly<{
+  assetReader: NativeMediaTimestampPreviewMaterializerPortsV1['assetReader'];
+  assetId: string;
+  userId: string;
+  bindingSha256: string;
+  audioArtifactStateSha256: string | null;
+}>): Promise<boolean> {
+  try {
+    const asset = await input.assetReader.load(input.assetId, input.userId);
+    if (!asset) return false;
+    const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
+    const audioState = readMediaSourceAudioArtifactAssetStateV1(asset);
+    return binding?.bindingSha256 === input.bindingSha256
+      && (audioState?.sourceAudioArtifactsStateSha256V1 ?? null)
+        === input.audioArtifactStateSha256;
+  } catch {
+    return false;
+  }
 }
 
 function sameRevision(left: ProjectRevisionV1, right: ProjectRevisionV1): boolean {

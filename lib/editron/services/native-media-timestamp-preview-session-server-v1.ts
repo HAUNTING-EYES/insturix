@@ -30,7 +30,10 @@ import type {
   NativeMediaTimestampPreviewAudioSurfaceStorePortV1,
 } from './native-media-timestamp-r2-preview-audio-surface-v1';
 import type { NativeMediaTimestampPreviewSurfaceReaderPortV1 } from './native-media-timestamp-r2-preview-surface-v1';
-import type { NativeMediaTimestampPreviewMaterializerInputV1 } from './native-media-timestamp-preview-materializer-v1';
+import type {
+  NativeMediaTimestampPreviewMaterializerInputV1,
+  NativeMediaTimestampPreviewSessionMaterializerInputV1,
+} from './native-media-timestamp-preview-materializer-v1';
 
 export {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
@@ -44,11 +47,6 @@ export type {
   NativeMediaTimestampPreviewReleaseCommandV1,
   NativeMediaTimestampPreviewReleaseCommandV2,
 };
-
-export type NativeMediaTimestampPreviewSessionMaterializerInputV1 =
-  NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
-    deliveryContract: 'PAIRED_SESSION_V3';
-  }>;
 
 export type NativeMediaTimestampPreviewReleaseResultV1 = Readonly<
   | {
