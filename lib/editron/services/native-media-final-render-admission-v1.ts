@@ -7,6 +7,9 @@ import {
 } from './media-source-audio-artifact-asset-owner-v1';
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
 import { classifyMediaSourceTimestampManagementV1 } from './media-source-timestamp-management-v1';
+import type {
+  NativeMediaFinalRenderExactSourceRequestV1,
+} from './native-media-final-render-source-preparation-v1';
 import type { ProjectRevisionV1 } from './project-service';
 import { resolveVerifiedVideoSourceEpochTimeBindingV3 } from './video-source-time-transform-v1';
 
@@ -39,8 +42,9 @@ export type NativeMediaFinalRenderAdmissionReceiptV1 = Readonly<{
     assetId: string;
     overlayTimingSha256: string;
     assetTimingStateSha256: string;
-    decision: 'ORDINARY_FRAME_RATE_RENDER_PATH';
+    decision: 'ORDINARY_FRAME_RATE_RENDER_PATH' | 'EXACT_TIMESTAMP_SOURCE_REQUIRED';
   }>[];
+  exactSourceRequests: readonly NativeMediaFinalRenderExactSourceRequestV1[];
   receiptSha256: string;
 }>;
 
@@ -48,6 +52,11 @@ export type NativeMediaFinalRenderAdmissionResultV1 = Readonly<
   | {
       disposition: 'ADMITTED_ORDINARY_MEDIA';
       receipt: NativeMediaFinalRenderAdmissionReceiptV1;
+    }
+  | {
+      disposition: 'EXACT_SOURCES_REQUIRED';
+      receipt: NativeMediaFinalRenderAdmissionReceiptV1;
+      exactSourceRequests: readonly NativeMediaFinalRenderExactSourceRequestV1[];
     }
   | {
       disposition: 'UNVERIFIABLE';
@@ -115,6 +124,7 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
   }
 
   const admitted: NativeMediaFinalRenderAdmissionReceiptV1['videoOverlays'][number][] = [];
+  const exactSourceRequests: NativeMediaFinalRenderExactSourceRequestV1[] = [];
   const firstReads = new Map<string, Readonly<{
     asset: MediaSourceAudioArtifactAssetStateInputV1;
     timingStateSha256: string;
@@ -160,8 +170,9 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
       );
     }
     if (management === 'V3') {
+      let binding: NonNullable<ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>>;
       try {
-        const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(assetRead.asset);
+        binding = resolveVerifiedVideoSourceEpochTimeBindingV3(assetRead.asset)!;
         if (!binding || binding.assetId !== overlay.assetId) {
           throw new Error('NATIVE_MEDIA_RENDER_V3_BINDING_INVALID');
         }
@@ -173,12 +184,26 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
           diagnostic(error),
         );
       }
-      return blocked(
-        'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
-        overlay.overlayId,
-        overlay.assetId,
-        null,
-      );
+      const exactSourceRequest = Object.freeze({
+        overlayId: overlay.overlayId,
+        assetId: overlay.assetId,
+        overlayTimingSha256: overlay.overlayTimingSha256,
+        assetTimingStateSha256: assetRead.timingStateSha256,
+        sourceVersionSha256: binding.sourceVersionSha256,
+        storageVersionSha256: binding.storageVersionSha256,
+        sourceBindingSha256: binding.sourceBindingSha256,
+        sourcePtsCadenceMapStateSha256V3: binding.sourcePtsCadenceMapStateSha256V3,
+        renderNativeAudio: overlay.renderNativeAudio,
+      } satisfies NativeMediaFinalRenderExactSourceRequestV1);
+      exactSourceRequests.push(exactSourceRequest);
+      admitted.push(Object.freeze({
+        overlayId: overlay.overlayId,
+        assetId: overlay.assetId,
+        overlayTimingSha256: overlay.overlayTimingSha256,
+        assetTimingStateSha256: assetRead.timingStateSha256,
+        decision: 'EXACT_TIMESTAMP_SOURCE_REQUIRED' as const,
+      }));
+      continue;
     }
 
     admitted.push(Object.freeze({
@@ -203,20 +228,31 @@ export async function admitNativeMediaFinalRenderV1(input: Readonly<{
     }
   }
 
+  const frozenVideoOverlays = Object.freeze([...admitted]);
+  const frozenExactSourceRequests = Object.freeze([...exactSourceRequests]);
   const material = {
     schemaVersion: 1 as const,
     kind: NATIVE_MEDIA_FINAL_RENDER_ADMISSION_KIND_V1,
     projectId,
     sequenceId,
     projectRevision,
-    videoOverlays: admitted,
+    videoOverlays: frozenVideoOverlays,
+    exactSourceRequests: frozenExactSourceRequests,
   };
+  const receipt = Object.freeze({
+    ...material,
+    receiptSha256: hashEditronCanonicalJsonV1(material),
+  });
+  if (exactSourceRequests.length > 0) {
+    return Object.freeze({
+      disposition: 'EXACT_SOURCES_REQUIRED' as const,
+      receipt,
+      exactSourceRequests: frozenExactSourceRequests,
+    });
+  }
   return Object.freeze({
     disposition: 'ADMITTED_ORDINARY_MEDIA' as const,
-    receipt: Object.freeze({
-      ...material,
-      receiptSha256: hashEditronCanonicalJsonV1(material),
-    }),
+    receipt,
   });
 }
 
@@ -245,6 +281,7 @@ type NormalizedVideoOverlayV1 = Readonly<{
   overlayId: string;
   assetId: string;
   overlayTimingSha256: string;
+  renderNativeAudio: boolean;
 }>;
 
 function normalizeVideoOverlays(overlays: readonly Overlay[]): readonly NormalizedVideoOverlayV1[] {
@@ -255,6 +292,9 @@ function normalizeVideoOverlays(overlays: readonly Overlay[]): readonly Normaliz
   }
   const seen = new Set<string>();
   return videos.map((overlay) => {
+    if ('nativeMediaFinalRenderSourceV1' in overlay) {
+      throw new Error('NATIVE_MEDIA_RENDER_SOURCE_BINDING_FORGED');
+    }
     const overlayId = identifier(String(overlay.id), 'NATIVE_MEDIA_RENDER_OVERLAY_INVALID');
     if (seen.has(overlayId)) throw new Error('NATIVE_MEDIA_RENDER_OVERLAY_DUPLICATE');
     seen.add(overlayId);
@@ -286,6 +326,7 @@ function normalizeVideoOverlays(overlays: readonly Overlay[]): readonly Normaliz
       overlayId,
       assetId,
       overlayTimingSha256: hashEditronCanonicalJsonV1(timing),
+      renderNativeAudio: overlay.hasNativeAudio === true,
     });
   });
 }

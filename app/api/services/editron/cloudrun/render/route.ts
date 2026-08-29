@@ -206,6 +206,23 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    if (nativeMediaAdmission.disposition === 'EXACT_SOURCES_REQUIRED') {
+      const first = nativeMediaAdmission.exactSourceRequests[0]!;
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'NATIVE_MEDIA_FINAL_RENDER_NOT_READY',
+          message: 'This project contains video that is not ready for an exact final render.',
+          details: {
+            reason: 'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
+            overlayId: first.overlayId,
+            assetId: first.assetId,
+            diagnostic: null,
+          },
+        },
+        { status: 409 },
+      );
+    }
 
     if (renderOverlays.length > 0) {
       try {

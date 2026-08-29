@@ -1143,11 +1143,12 @@ describe('Editron render startup boundary', () => {
 
   it('CRITICAL: exact timestamp media without a render source stops before spend and dispatch', async () => {
     routeMocks.admitNativeMediaFinalRender.mockResolvedValueOnce({
-      disposition: 'UNVERIFIABLE',
-      reason: 'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
-      overlayId: 'video_1',
-      assetId: 'asset_video_1',
-      diagnostic: null,
+      disposition: 'EXACT_SOURCES_REQUIRED',
+      receipt: { receiptSha256: 'b'.repeat(64) },
+      exactSourceRequests: [{
+        overlayId: 'video_1',
+        assetId: 'asset_video_1',
+      }],
     });
 
     const response = await POST(renderRequest());

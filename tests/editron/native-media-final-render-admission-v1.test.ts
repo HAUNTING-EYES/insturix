@@ -90,6 +90,7 @@ describe('native media final-render admission V1', () => {
           assetId: 'asset_1',
           decision: 'ORDINARY_FRAME_RATE_RENDER_PATH',
         }],
+        exactSourceRequests: [],
       },
     });
     expect(second).toEqual(first);
@@ -159,30 +160,46 @@ describe('native media final-render admission V1', () => {
     expect(result).not.toHaveProperty('receipt');
   });
 
-  it('requires a dedicated exact render source for valid V3 media', async () => {
-    mocks.resolveBinding.mockReturnValueOnce({ assetId: 'asset_1' });
+  it('issues a source-bound exact-render request for valid V3 media', async () => {
+    mocks.resolveBinding.mockReturnValueOnce({
+      assetId: 'asset_1',
+      sourceVersionSha256: 'd'.repeat(64),
+      storageVersionSha256: 'e'.repeat(64),
+      sourceBindingSha256: 'f'.repeat(64),
+      sourcePtsCadenceMapStateSha256V3: 'b'.repeat(64),
+    });
+    const load = vi.fn(async () => ({
+      ...ordinaryAsset(),
+      sourcePtsCadenceMapV3: {},
+      sourcePtsCadenceMapStateSha256V3: 'b'.repeat(64),
+    }) as never);
     const result = await admitNativeMediaFinalRenderV1({
       userId: 'user_1',
       projectId: 'project_1',
       sequenceId: 'main',
       projectRevision: revision,
       overlays: [videoOverlay()],
-      assetReader: {
-        load: async () => ({
-          ...ordinaryAsset(),
-          sourcePtsCadenceMapV3: {},
-          sourcePtsCadenceMapStateSha256V3: 'b'.repeat(64),
-        }) as never,
-      },
+      assetReader: { load },
     });
 
-    expect(result).toEqual({
-      disposition: 'UNVERIFIABLE',
-      reason: 'EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED',
-      overlayId: 'video_1',
-      assetId: 'asset_1',
-      diagnostic: null,
+    expect(result).toMatchObject({
+      disposition: 'EXACT_SOURCES_REQUIRED',
+      receipt: {
+        videoOverlays: [{ decision: 'EXACT_TIMESTAMP_SOURCE_REQUIRED' }],
+      },
+      exactSourceRequests: [{
+        overlayId: 'video_1',
+        assetId: 'asset_1',
+        overlayTimingSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        assetTimingStateSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        sourceVersionSha256: 'd'.repeat(64),
+        storageVersionSha256: 'e'.repeat(64),
+        sourceBindingSha256: 'f'.repeat(64),
+        sourcePtsCadenceMapStateSha256V3: 'b'.repeat(64),
+        renderNativeAudio: false,
+      }],
     });
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('separates invalid V3 evidence from a missing exact render source', async () => {
