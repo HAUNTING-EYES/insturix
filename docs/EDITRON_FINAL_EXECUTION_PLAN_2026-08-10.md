@@ -7985,6 +7985,26 @@ focused contract remains 5/5; repository TypeScript and repository-wide quiet
 ESLint pass. This is behavior-neutral API-surface cleanup only and does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render execution-budget identity Phase 3F-C7ag (2026-08-30):** commit
+`f7abef209` replaces the preparation job's null budget field with a mandatory
+opaque `{ reservationId, bindingSha256 }` issued by a future accounting owner.
+Input identity V1.2 binds that pair into the closed payload, dependency set,
+operation/idempotency identity and generic durable-store record. A changed
+reservation creates a different job; null, malformed, extra-field, bad-hash and
+superseded V1.1 inputs fail before worker execution. This prevents the durable
+job contract itself from silently treating encoding, private storage or egress
+as free work.
+
+The focused job/result set passes 9/9; the nine-file exact-render/store cluster
+passes 51/51; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`DURABLE_EXACT_RENDER_BUDGET_IDENTITY_BOUND_ISSUANCE_SETTLEMENT_AND_WORKER_OPEN`.
+It does not issue or validate a live reservation, define resource units or
+prices, reserve/deduct/refund credits, settle retries, dispatch a worker or run
+the materializer. The worker must require a current owner-issued authorization
+receipt, and the route/terminal coordinator must settle or release it exactly
+once. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
