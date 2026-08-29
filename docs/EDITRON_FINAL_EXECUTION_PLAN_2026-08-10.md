@@ -7369,6 +7369,44 @@ edit-list/wrap handling, and real private-runtime proof. Queue item 4 still
 owns production private-storage configuration and live lifecycle evidence.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Leased exact-audio preview surface and authenticated route Phase 3F-C7l
+(2026-08-29):** commit `404738e5b` adds the private browser-delivery boundary
+that was missing after the verified PCM reader. One already-selected S32LE PCM
+segment can now be wrapped in a canonical lossless WAV whose data payload is
+byte-for-byte the supplied PCM, written to the dedicated private-media R2
+scope under a 256-bit opaque lease handle, reread and independently verified
+before success. The binding carries user/project hashes, current project
+revision, sequence/overlay hashes, source/storage/map/full-PCM identities,
+integer source coverage, exact rational decoded/timeline phase, sample
+rate/channel count, segment/PCM/WAV hashes and expiry.
+
+The server route authenticates before storage access, conceals cross-user and
+cross-project handles, rechecks the current ProjectService revision and serves
+only the opaque WAV through private/no-store same-origin responses. It supports
+one standards-shaped HTTP byte range, suffix ranges and `If-Range`; malformed,
+multiple or unsatisfied ranges return 416 without content. Missing, expired,
+tampered, stale-revision or provider-failed surfaces never return bytes.
+Expiry performs explicit private-object cleanup.
+
+The isolated surface/runtime/route suites pass 31/31, including canonical WAV
+payload equivalence, fractional sample phase, malformed coverage/duration,
+opaque-handle collision, altered metadata/WAV, expiry/delete, authentication,
+scope concealment, byte ranges and stale revision. Repository TypeScript
+passes with the declared 8 GiB heap and repository-wide quiet ESLint passes.
+No live R2 object, real browser decode, player scheduling, provider or customer
+media was used.
+
+This result is
+`LEASED_EXACT_PCM_WAV_AUDIO_SURFACE_AND_AUTHENTICATED_ROUTE_VERIFIED_MATERIALIZER_OPEN`.
+The owner and route are not yet called by the preview materializer or player;
+therefore playable audio is not claimed. Queue item 3 remains open for exact
+mapping-to-segment materialization, window contract/release integration,
+browser decode and swap-continuity scheduling, analysis/final-render consumers,
+unsupported partial-epoch/edit-list/wrap handling and real private-runtime
+proof. Queue item 4 still owns production private-storage configuration and
+live lifecycle evidence. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
