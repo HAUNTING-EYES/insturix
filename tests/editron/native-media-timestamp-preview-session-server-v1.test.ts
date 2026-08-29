@@ -14,11 +14,8 @@ import {
   type NativeMediaTimestampPreviewMaterializerPortsV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
 import {
-  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
-  parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2,
-  parseNativeMediaTimestampPreviewMaterializeCommandV1,
   parseNativeMediaTimestampPreviewMaterializeCommandV2,
   parseNativeMediaTimestampPreviewReleaseCommandV1,
   releaseNativeMediaTimestampPreviewWindowV1,
@@ -57,23 +54,15 @@ describe('native media timestamp preview session server V1', () => {
       ignored: true,
     }, 'user-1')).toThrow('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
 
-    expect(parseCompatibleNativeMediaTimestampPreviewMaterializeCommandV2({
+    expect(() => parseNativeMediaTimestampPreviewMaterializeCommandV2({
       schemaVersion: 1,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+      kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_V1',
       projectId: 'project-1',
       sequenceId: 'main',
       overlayId: '42',
       windowLocalStartFrame: 120,
       windowDurationInFrames: 120,
-    }, 'user-1')).toEqual(parseNativeMediaTimestampPreviewMaterializeCommandV1({
-      schemaVersion: 1,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
-      projectId: 'project-1',
-      sequenceId: 'main',
-      overlayId: '42',
-      windowLocalStartFrame: 120,
-      windowDurationInFrames: 120,
-    }, 'user-1'));
+    }, 'user-1')).toThrow('NATIVE_MEDIA_PREVIEW_MATERIALIZE_COMMAND_V2_INVALID');
 
     const window = previewWindow();
     expect(parseNativeMediaTimestampPreviewReleaseCommandV1({
