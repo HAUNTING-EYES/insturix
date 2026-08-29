@@ -163,7 +163,7 @@ beforeEach(() => {
 });
 
 describe('native media timestamp picture video-layer integration', () => {
-  it('renders the exact private picture while the native source remains the audio owner', () => {
+  it('renders the exact private picture without duplicating externally owned audio', () => {
     currentFrame = 1;
     const html = renderHydrated();
 
@@ -172,9 +172,8 @@ describe('native media timestamp picture video-layer integration', () => {
     expect(html).toContain(`data-editron-native-timestamp-picture="${SHA_B}"`);
     expect(html).toContain('data-pause-when-loading="true"');
     expect(html).toContain('data-max-retries="2"');
-    expect(html).toContain('<audio');
-    expect(html).toContain('src="https://example.com/interview.mp4"');
-    expect(html).toContain('data-start-from="24"');
+    expect(html).not.toContain('<audio');
+    expect(html).not.toContain('src="https://example.com/interview.mp4"');
     expect(html).not.toContain('<video');
     expect(html).not.toContain('Video not available');
 
@@ -211,8 +210,10 @@ describe('native media timestamp picture video-layer integration', () => {
       .toThrow('NATIVE_MEDIA_PREVIEW_FINAL_RENDER_FORBIDDEN');
   });
 
-  it('blocks mapped audio when the native source is absent', () => {
-    expect(() => renderHydrated({ overlay: clip({ content: '' }) }))
-      .toThrow('NATIVE_MEDIA_PREVIEW_NATIVE_AUDIO_SOURCE_MISSING');
+  it('does not require the original media URL for a leased timestamp picture', () => {
+    const html = renderHydrated({ overlay: clip({ content: '' }) });
+    expect(html).toContain('<img');
+    expect(html).not.toContain('<audio');
+    expect(html).not.toContain('Video not available');
   });
 });

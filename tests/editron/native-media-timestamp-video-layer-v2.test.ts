@@ -204,14 +204,14 @@ afterEach(() => {
 });
 
 describe('native media timestamp rolling-window video-layer integration', () => {
-  it('renders the exact current V2 picture through the existing native-audio owner', () => {
+  it('renders the exact current V2 picture without duplicating paired session audio', () => {
     currentFrame = 1;
     const html = renderWindow();
 
     expect(html).toContain(`src="/api/services/editron/media/timestamp-preview/${HANDLE_B}"`);
     expect(html).toContain(`data-editron-native-timestamp-picture="${HASH_B}"`);
-    expect(html).toContain('<audio');
-    expect(html).toContain('src="https://example.com/interview.mp4"');
+    expect(html).not.toContain('<audio');
+    expect(html).not.toContain('src="https://example.com/interview.mp4"');
     expect(html).not.toContain('<video');
   });
 
