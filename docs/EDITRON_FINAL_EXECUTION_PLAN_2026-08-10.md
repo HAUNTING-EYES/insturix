@@ -8274,6 +8274,28 @@ fresh publication and render-route/Remotion consumption. The legal/product
 owner must still approve versioned terms and any cross-project library policy.
 This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render runtime-policy authority Phase 3F-C7ap (2026-08-30):** commit
+`c76aaacd1` adds one canonical receipt for the execution-budget owner, retry-
+policy owner and exact heartbeat policy. Each budget/retry binding carries an
+owner ID, owner version and policy SHA-256; heartbeat uses the sole named
+Editron heartbeat-policy owner/version plus its content hash. The complete
+receipt has an exact schema, immutable nested state and canonical aggregate
+binding hash. Owner or policy drift changes identity; malformed, extra-field
+and forged receipts fail deterministically. Its focused adversarial suite passes
+3/3; repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`EXACT_RENDER_RUNTIME_POLICY_RECEIPT_VERIFIED_DURABLE_JOB_AND_WORKER_BINDING_OPEN`.
+It does not yet cure V1.2: that job payload/dependency/operation identity still
+omits this receipt, and the worker still validates only syntactic injected
+budget/retry identities while the heartbeat digest remains adapter-local. No
+live budget or retry owner, calibrated policy, dispatch or production
+composition is claimed. The next bounded migration makes the current job
+contract accept and test this receipt without changing live behavior, migrates
+all dependent fixtures, then seals V1.3 and enforces exact owner/digest equality
+inside the worker before Queue item 3 dispatch work. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
