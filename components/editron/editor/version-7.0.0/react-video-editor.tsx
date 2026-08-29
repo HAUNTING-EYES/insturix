@@ -186,7 +186,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   };
 
   // Implment load state
-  const { saveState, loadState } = useAutosave(projectId, editorState, {
+  const { saveState, loadState, projectRevision } = useAutosave(projectId, editorState, {
     interval: AUTO_SAVE_INTERVAL,
     pauseAutosave: isAIProcessing,
     onSave: () => {
@@ -279,6 +279,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     // Add renderType to the context
     renderType: RENDER_TYPE,
     projectId,
+    projectRevision,
     renderMedia: requestRender,
     cancelRender,
     state,
