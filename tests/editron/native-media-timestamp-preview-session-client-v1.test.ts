@@ -7,7 +7,8 @@ import {
   selectNativeMediaTimestampPreviewPlayableOverlaysV1,
   type NativeMediaTimestampPreviewSessionClientPortV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-client-v1';
-import type { NativeMediaTimestampPreviewMaterializeCommandV2 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
+import type { NativeMediaTimestampPreviewMaterializeSessionCommandV3 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
+import { assertNativeMediaTimestampPreviewSessionWindowV1 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-window-v1';
 import { assertNativeMediaTimestampPreviewWindowV2 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-window-v2';
 
 describe('native media timestamp preview session client V1', () => {
@@ -22,7 +23,7 @@ describe('native media timestamp preview session client V1', () => {
     expect(playable(harness, 10)).toHaveLength(1);
     expect(harness.materialize).toHaveBeenCalledTimes(1);
     expect(harness.materialize).toHaveBeenCalledWith(expect.objectContaining({
-      schemaVersion: 2,
+      schemaVersion: 3,
       expectedProjectRevision: revision(),
     }));
   });
@@ -129,6 +130,9 @@ describe('native media timestamp preview session client V1', () => {
 
     expect(harness.coordinator.snapshot().windows.map((window) => window.windowLocalStartFrame))
       .toEqual([0, 120]);
+    expect(harness.coordinator.snapshot().sessionWindows.every((window) => (
+      window.audioWindow?.segments.some((segment) => segment.kind === 'PCM') === true
+    ))).toBe(true);
     expect(harness.materialize).toHaveBeenCalledTimes(2);
     expect(gate(harness, 10).disposition).toBe('READY');
     expect(playable(harness, 10)).toHaveLength(1);
@@ -141,7 +145,11 @@ describe('native media timestamp preview session client V1', () => {
     expect(harness.deferred).toHaveLength(1);
     await harness.runDeferred();
     expect(harness.release).toHaveBeenCalledWith(expect.objectContaining({
-      window: expect.objectContaining({ windowLocalStartFrame: 0 }),
+      schemaVersion: 2,
+      sessionWindow: expect.objectContaining({
+        pictureWindow: expect.objectContaining({ windowLocalStartFrame: 0 }),
+        audioWindow: expect.objectContaining({ windowLocalStartFrame: 0 }),
+      }),
     }));
 
     harness.coordinator.update(updateInput(300));
@@ -149,6 +157,27 @@ describe('native media timestamp preview session client V1', () => {
     expect(harness.deferred).toHaveLength(2);
     await harness.runDeferred();
     expect(harness.release).toHaveBeenCalledTimes(3);
+  });
+
+  it('retains valid paired video-only windows without inventing audio', async () => {
+    let responseSequence = 1;
+    const harness = coordinatorHarness(async (command) => (
+      materialized(command, responseSequence++, false)
+    ));
+    harness.coordinator.update(updateInput(10));
+    await harness.coordinator.whenIdle();
+
+    expect(gate(harness, 10).disposition).toBe('READY');
+    expect(harness.coordinator.snapshot().sessionWindows).toHaveLength(2);
+    expect(harness.coordinator.snapshot().sessionWindows.every((window) => (
+      window.audioWindow === null
+      && window.pictureWindow.audioOwnership.disposition === 'NO_AUDIO_MAPPING_REQUESTED'
+    ))).toBe(true);
+
+    await harness.coordinator.dispose();
+    expect(harness.release).toHaveBeenCalledWith(expect.objectContaining({
+      sessionWindow: expect.objectContaining({ audioWindow: null }),
+    }));
   });
 
   it('discards prior windows and rematerializes when the project revision advances', async () => {
@@ -227,7 +256,7 @@ describe('native media timestamp preview session client V1', () => {
     let malformed = true;
     let responseSequence = 1;
     const harness = coordinatorHarness(async (command) => malformed
-      ? { disposition: 'WINDOW_MATERIALIZED', window: {} }
+      ? { disposition: 'SESSION_WINDOW_MATERIALIZED', sessionWindow: {} }
       : materialized(command, responseSequence++));
     harness.coordinator.update(updateInput(10));
     await harness.coordinator.whenIdle();
@@ -265,7 +294,7 @@ describe('native media timestamp preview session client V1', () => {
 });
 
 function coordinatorHarness(
-  responder: (command: NativeMediaTimestampPreviewMaterializeCommandV2) => Promise<unknown>,
+  responder: (command: NativeMediaTimestampPreviewMaterializeSessionCommandV3) => Promise<unknown>,
 ) {
   let monotonic = 100;
   const deferred: Array<() => void> = [];
@@ -331,7 +360,18 @@ function videoOverlay(): Overlay {
   };
 }
 
-function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV2, sequence: number) {
+function materialized(
+  command: NativeMediaTimestampPreviewMaterializeSessionCommandV3,
+  sequence: number,
+  withAudio = true,
+) {
+  const lease = {
+    leaseId: `nmpwl2_${hex(30_000 + sequence)}`,
+    issuedAtEpochMs: 10_000,
+    renewAfterEpochMs: 20_000,
+    expiresAtEpochMs: 30_000,
+  };
+  const audioMappingSha256 = withAudio ? hex(90_000 + sequence) : null;
   const window = assertNativeMediaTimestampPreviewWindowV2({
     schemaVersion: 2,
     kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_WINDOW_V2',
@@ -345,15 +385,10 @@ function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV2, 
     overlayDurationInFrames: 300,
     windowLocalStartFrame: command.windowLocalStartFrame,
     windowDurationInFrames: command.windowDurationInFrames,
-    lease: {
-      leaseId: `nmpwl2_${hex(30_000 + sequence)}`,
-      issuedAtEpochMs: 10_000,
-      renewAfterEpochMs: 20_000,
-      expiresAtEpochMs: 30_000,
-    },
+    lease,
     audioOwnership: {
-      disposition: 'NO_AUDIO_MAPPING_REQUESTED',
-      audioMappingSha256: null,
+      disposition: withAudio ? 'EXACT_SAMPLE_MAPPING_BOUND' : 'NO_AUDIO_MAPPING_REQUESTED',
+      audioMappingSha256,
       decoderMaySupplyOrReplaceAudio: false,
     },
     frames: Array.from({ length: command.windowDurationInFrames }, (_, offset) => {
@@ -367,16 +402,63 @@ function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV2, 
       };
     }),
   });
+  const sampleStart = BigInt(command.windowLocalStartFrame) * BigInt(1_600);
+  const sampleEnd = BigInt(
+    command.windowLocalStartFrame + command.windowDurationInFrames,
+  ) * BigInt(1_600);
+  const sessionWindow = assertNativeMediaTimestampPreviewSessionWindowV1({
+    schemaVersion: 1,
+    kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_SESSION_WINDOW_V1',
+    pictureWindow: window,
+    audioWindow: withAudio ? {
+      schemaVersion: 1,
+      kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_WINDOW_V1',
+      windowSha256: hex(100_000 + sequence),
+      projectId: command.projectId,
+      sequenceId: command.sequenceId,
+      overlayId: command.overlayId,
+      projectRevision: command.expectedProjectRevision,
+      audioMappingSha256: audioMappingSha256!,
+      audioSampleEpochMapSha256: hex(110_000 + sequence),
+      decodedPcmSha256: hex(120_000 + sequence),
+      sampleRate: 48_000,
+      channelCount: 2,
+      windowLocalStartFrame: command.windowLocalStartFrame,
+      windowDurationInFrames: command.windowDurationInFrames,
+      windowProjectStartFrame: command.windowLocalStartFrame,
+      windowProjectEndExclusiveFrame:
+        command.windowLocalStartFrame + command.windowDurationInFrames,
+      canonicalWindowStartSamplePosition: samplePosition(sampleStart),
+      canonicalWindowEndExclusiveSamplePosition: samplePosition(sampleEnd),
+      lease,
+      segments: [{
+        kind: 'PCM',
+        audioEpochId: 'audio-epoch-1',
+        audioHandle: `nmpa1_${hex(130_000 + sequence)}`,
+        segmentIdentitySha256: hex(140_000 + sequence),
+        sourceStartSampleFrame: sampleStart.toString(),
+        sourceEndExclusiveSampleFrame: sampleEnd.toString(),
+        decodedStartSamplePosition: samplePosition(sampleStart),
+        decodedEndExclusiveSamplePosition: samplePosition(sampleEnd),
+        timelineStartSamplePosition: samplePosition(sampleStart),
+        timelineEndExclusiveSamplePosition: samplePosition(sampleEnd),
+      }],
+    } : null,
+  });
   return {
-    disposition: 'WINDOW_MATERIALIZED',
-    window,
+    disposition: 'SESSION_WINDOW_MATERIALIZED',
+    sessionWindow,
     sourcePtsCadenceMapStateSha256V3: hex(70_000 + sequence),
     transformSha256: hex(80_000 + sequence),
     materializedPictureCount: command.windowDurationInFrames,
+    materializedAudioSegmentCount: withAudio ? 1 : 0,
   };
 }
 
-function ordinary(command: NativeMediaTimestampPreviewMaterializeCommandV2, sequence: number) {
+function ordinary(
+  command: NativeMediaTimestampPreviewMaterializeSessionCommandV3,
+  sequence: number,
+) {
   const issuedAtEpochMs = 10_000 + (sequence - 1) * 30_000;
   return {
     disposition: 'NOT_APPLICABLE',
@@ -426,4 +508,12 @@ function playable(
 
 function hex(value: number): string {
   return value.toString(16).padStart(64, '0');
+}
+
+function samplePosition(value: bigint) {
+  return {
+    numerator: value.toString(),
+    denominator: '1',
+    disposition: 'INTEGER_SAMPLE_FRAME',
+  } as const;
 }

@@ -1,12 +1,16 @@
 import { OverlayType, type Overlay } from '../types';
 import {
   assertNativeMediaTimestampPreviewClassificationLeaseV1,
-  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
-  NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
-  type NativeMediaTimestampPreviewMaterializeCommandV2,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
   type NativeMediaTimestampPreviewClassificationLeaseV1,
-  type NativeMediaTimestampPreviewReleaseCommandV1,
+  type NativeMediaTimestampPreviewMaterializeSessionCommandV3,
+  type NativeMediaTimestampPreviewReleaseCommandV2,
 } from './native-media-timestamp-preview-session-contract-v1';
+import {
+  assertNativeMediaTimestampPreviewSessionWindowV1,
+  type NativeMediaTimestampPreviewSessionWindowV1,
+} from './native-media-timestamp-preview-session-window-v1';
 import {
   assertNativeMediaTimestampPreviewWindowV2,
   planNativeMediaTimestampPreviewWindowsV2,
@@ -33,6 +37,7 @@ type NativeMediaTimestampPreviewClientSnapshotV1 = Readonly<{
   globalReason: string | null;
   cleanupFailureCount: number;
   overlays: readonly NativeMediaTimestampPreviewClientOverlayStateV1[];
+  sessionWindows: readonly NativeMediaTimestampPreviewSessionWindowV1[];
   windows: readonly NativeMediaTimestampPreviewWindowV2[];
 }>;
 
@@ -42,8 +47,8 @@ type NativeMediaTimestampPreviewClientGateV1 = Readonly<
 >;
 
 export type NativeMediaTimestampPreviewSessionClientPortV1 = Readonly<{
-  materialize(command: NativeMediaTimestampPreviewMaterializeCommandV2): Promise<unknown>;
-  release(command: NativeMediaTimestampPreviewReleaseCommandV1): Promise<unknown>;
+  materialize(command: NativeMediaTimestampPreviewMaterializeSessionCommandV3): Promise<unknown>;
+  release(command: NativeMediaTimestampPreviewReleaseCommandV2): Promise<unknown>;
 }>;
 
 export type NativeMediaTimestampPreviewSessionCoordinatorV1 = Readonly<{
@@ -71,7 +76,7 @@ type NormalizedVideo = Readonly<{
 }>;
 
 type WindowRecord = Readonly<{
-  window: NativeMediaTimestampPreviewWindowV2;
+  sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
   requestStartedMonotonicMs: number;
 }>;
 
@@ -98,7 +103,10 @@ type MaterializeResult = Readonly<
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
       classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
     }
-  | { disposition: 'WINDOW_MATERIALIZED'; window: NativeMediaTimestampPreviewWindowV2 }
+  | {
+      disposition: 'SESSION_WINDOW_MATERIALIZED';
+      sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
+    }
   | { disposition: 'UNVERIFIABLE'; reason: string }
 >;
 
@@ -302,7 +310,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   ): Promise<'WINDOW' | 'ORDINARY' | 'BLOCKED'> {
     const current = state.windows.get(range.localStartFrame);
     if (current
-      && current.window.windowDurationInFrames === range.durationInFrames
+      && current.sessionWindow.pictureWindow.windowDurationInFrames === range.durationInFrames
       && leaseDisposition(current) === 'CURRENT') return 'WINDOW';
     const key = `${state.generation}:${range.localStartFrame}:${range.durationInFrames}`;
     const existing = state.inflight.get(key);
@@ -315,9 +323,9 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     const generation = state.generation;
     const signature = state.video.signature;
     const requestStartedMonotonicMs = safeMonotonicNow(monotonicNow);
-    const command: NativeMediaTimestampPreviewMaterializeCommandV2 = Object.freeze({
-      schemaVersion: 2,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
+    const command: NativeMediaTimestampPreviewMaterializeSessionCommandV3 = Object.freeze({
+      schemaVersion: 3,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_SESSION_COMMAND_KIND_V3,
       projectId,
       sequenceId,
       overlayId: state.video.overlayId,
@@ -368,8 +376,8 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       }
       let record: WindowRecord;
       try {
-        record = validateReturnedWindow({
-          window: result.window,
+        record = validateReturnedSessionWindow({
+          sessionWindow: result.sessionWindow,
           command,
           video: state.video,
           requestStartedMonotonicMs,
@@ -377,7 +385,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         });
       } catch (error) {
         const rejectedRecord = {
-          window: result.window,
+          sessionWindow: result.sessionWindow,
           requestStartedMonotonicMs,
         };
         if (disposed) await releaseRecord(rejectedRecord); else deferReleases([rejectedRecord], 0);
@@ -396,7 +404,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       state.disposition = 'EXACT';
       state.reason = null;
       publish();
-      if (previous && previous.window.lease.leaseId !== record.window.lease.leaseId) {
+      if (previous && leaseFor(previous).leaseId !== leaseFor(record).leaseId) {
         deferReleases([previous]);
       }
       return 'WINDOW' as const;
@@ -521,13 +529,14 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
 
   function leaseDisposition(record: WindowRecord): 'CURRENT' | 'RENEW_DUE' | 'EXPIRED' {
     const observed = observedFor(record);
-    if (observed >= record.window.lease.expiresAtEpochMs) return 'EXPIRED';
-    return observed >= record.window.lease.renewAfterEpochMs ? 'RENEW_DUE' : 'CURRENT';
+    const lease = leaseFor(record);
+    if (observed >= lease.expiresAtEpochMs) return 'EXPIRED';
+    return observed >= lease.renewAfterEpochMs ? 'RENEW_DUE' : 'CURRENT';
   }
 
   function observedFor(record: WindowRecord): number {
     return observedFromIssued(
-      record.window.lease.issuedAtEpochMs,
+      leaseFor(record).issuedAtEpochMs,
       record.requestStartedMonotonicMs,
     );
   }
@@ -576,10 +585,11 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       }
       for (const record of state.windows.values()) {
         const observed = observedFor(record);
-        const target = observed < record.window.lease.renewAfterEpochMs
-          ? record.window.lease.renewAfterEpochMs
+        const lease = leaseFor(record);
+        const target = observed < lease.renewAfterEpochMs
+          ? lease.renewAfterEpochMs
           : state.inflight.size > 0
-            ? record.window.lease.expiresAtEpochMs
+            ? lease.expiresAtEpochMs
             : observed + 1;
         const candidate = Math.max(1, Math.ceil(target - observed));
         delayMs = delayMs === null ? candidate : Math.min(delayMs, candidate);
@@ -596,7 +606,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
 
   function deferReleases(records: readonly WindowRecord[], delayMs = swapReleaseGraceMs): void {
     for (const record of records) {
-      const leaseId = record.window.lease.leaseId;
+      const leaseId = leaseFor(record).leaseId;
       if (queuedReleaseRecords.has(leaseId)) continue;
       queuedReleaseRecords.set(leaseId, record);
       defer(() => {
@@ -612,9 +622,9 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   async function releaseRecord(record: WindowRecord): Promise<void> {
     try {
       await port.release({
-        schemaVersion: 1,
-        kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
-        window: record.window,
+        schemaVersion: 2,
+        kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V2,
+        sessionWindow: record.sessionWindow,
       });
     } catch {
       cleanupFailureCount += 1;
@@ -628,7 +638,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
 
   function dedupeWindowRecords(records: readonly WindowRecord[]): WindowRecord[] {
     return [...new Map(records.map((record) => [
-      record.window.lease.leaseId,
+      leaseFor(record).leaseId,
       record,
     ])).values()];
   }
@@ -651,8 +661,11 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         disposition: state.disposition,
         reason: state.reason,
       }))),
+      sessionWindows: Object.freeze([...states.values()].flatMap((state) => (
+        [...state.windows.values()].map((record) => record.sessionWindow)
+      ))),
       windows: Object.freeze([...states.values()].flatMap((state) => (
-        [...state.windows.values()].map((record) => record.window)
+        [...state.windows.values()].map((record) => record.sessionWindow.pictureWindow)
       ))),
     });
   }
@@ -812,14 +825,15 @@ function normalizeVideo(overlay: Extract<Overlay, { type: OverlayType.VIDEO }>):
   return Object.freeze({ overlayId, assetId, from, durationInFrames, signature });
 }
 
-function validateReturnedWindow(input: Readonly<{
-  window: NativeMediaTimestampPreviewWindowV2;
-  command: NativeMediaTimestampPreviewMaterializeCommandV2;
+function validateReturnedSessionWindow(input: Readonly<{
+  sessionWindow: NativeMediaTimestampPreviewSessionWindowV1;
+  command: NativeMediaTimestampPreviewMaterializeSessionCommandV3;
   video: NormalizedVideo;
   requestStartedMonotonicMs: number;
   receivedMonotonicMs: number;
 }>): WindowRecord {
-  const window = assertNativeMediaTimestampPreviewWindowV2(input.window);
+  const sessionWindow = assertNativeMediaTimestampPreviewSessionWindowV1(input.sessionWindow);
+  const window = sessionWindow.pictureWindow;
   if (window.projectId !== input.command.projectId
     || window.sequenceId !== input.command.sequenceId
     || window.overlayId !== input.command.overlayId
@@ -830,7 +844,10 @@ function validateReturnedWindow(input: Readonly<{
     || window.windowDurationInFrames !== input.command.windowDurationInFrames) {
     throw new Error('SESSION_WINDOW_SCOPE_MISMATCH');
   }
-  const record = Object.freeze({ window, requestStartedMonotonicMs: input.requestStartedMonotonicMs });
+  const record = Object.freeze({
+    sessionWindow,
+    requestStartedMonotonicMs: input.requestStartedMonotonicMs,
+  });
   const elapsed = Math.max(0, input.receivedMonotonicMs - input.requestStartedMonotonicMs);
   if (window.lease.issuedAtEpochMs + Math.ceil(elapsed) >= window.lease.expiresAtEpochMs) {
     throw new Error('SESSION_WINDOW_EXPIRED_ON_ARRIVAL');
@@ -840,7 +857,7 @@ function validateReturnedWindow(input: Readonly<{
 
 function validateReturnedClassification(input: Readonly<{
   lease: NativeMediaTimestampPreviewClassificationLeaseV1;
-  command: NativeMediaTimestampPreviewMaterializeCommandV2;
+  command: NativeMediaTimestampPreviewMaterializeSessionCommandV3;
   video: NormalizedVideo;
   requestStartedMonotonicMs: number;
   receivedMonotonicMs: number;
@@ -880,22 +897,28 @@ function parseMaterializeResult(value: unknown): MaterializeResult {
       ),
     });
   }
-  if (record.disposition === 'WINDOW_MATERIALIZED') {
+  if (record.disposition === 'SESSION_WINDOW_MATERIALIZED') {
     exactKeys(record, [
-      'disposition', 'materializedPictureCount', 'sourcePtsCadenceMapStateSha256V3',
-      'transformSha256', 'window',
+      'disposition', 'materializedAudioSegmentCount', 'materializedPictureCount',
+      'sessionWindow', 'sourcePtsCadenceMapStateSha256V3', 'transformSha256',
     ]);
-    const window = assertNativeMediaTimestampPreviewWindowV2(record.window);
+    const sessionWindow = assertNativeMediaTimestampPreviewSessionWindowV1(
+      record.sessionWindow,
+    );
     sha256(record.sourcePtsCadenceMapStateSha256V3);
     sha256(record.transformSha256);
-    const pictureCount = positiveIntegerInRange(
-      record.materializedPictureCount,
-      window.windowDurationInFrames,
-    );
-    if (pictureCount > window.frames.length) throw new Error('SESSION_RESPONSE_INVALID');
+    const pictureCount = nonNegativeInteger(record.materializedPictureCount);
+    const audioSegmentCount = nonNegativeInteger(record.materializedAudioSegmentCount);
+    const expectedAudioSegmentCount = sessionWindow.audioWindow?.segments.filter(
+      (segment) => segment.kind === 'PCM',
+    ).length ?? 0;
+    if (pictureCount !== sessionWindow.pictureWindow.frames.length
+      || audioSegmentCount !== expectedAudioSegmentCount) {
+      throw new Error('SESSION_RESPONSE_INVALID');
+    }
     return Object.freeze({
-      disposition: 'WINDOW_MATERIALIZED' as const,
-      window,
+      disposition: 'SESSION_WINDOW_MATERIALIZED' as const,
+      sessionWindow,
     });
   }
   if (record.disposition === 'UNVERIFIABLE') {
@@ -907,6 +930,10 @@ function parseMaterializeResult(value: unknown): MaterializeResult {
     });
   }
   throw new Error('SESSION_RESPONSE_INVALID');
+}
+
+function leaseFor(record: WindowRecord): NativeMediaTimestampPreviewWindowV2['lease'] {
+  return record.sessionWindow.pictureWindow.lease;
 }
 
 function isCurrentState(state: OverlayState, generation: number, signature: string): boolean {
