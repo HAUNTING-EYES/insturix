@@ -1,8 +1,8 @@
 import { OverlayType, type Overlay } from '../types';
 import {
-  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
-  type NativeMediaTimestampPreviewMaterializeCommandV1,
+  type NativeMediaTimestampPreviewMaterializeCommandV2,
   type NativeMediaTimestampPreviewReleaseCommandV1,
 } from './native-media-timestamp-preview-session-contract-v1';
 import {
@@ -40,7 +40,7 @@ export type NativeMediaTimestampPreviewClientGateV1 = Readonly<
 >;
 
 export type NativeMediaTimestampPreviewSessionClientPortV1 = Readonly<{
-  materialize(command: NativeMediaTimestampPreviewMaterializeCommandV1): Promise<unknown>;
+  materialize(command: NativeMediaTimestampPreviewMaterializeCommandV2): Promise<unknown>;
   release(command: NativeMediaTimestampPreviewReleaseCommandV1): Promise<unknown>;
 }>;
 
@@ -48,6 +48,7 @@ export type NativeMediaTimestampPreviewSessionCoordinatorV1 = Readonly<{
   update(input: Readonly<{
     projectId: string;
     sequenceId: string;
+    projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'] | null;
     currentFrame: number;
     overlays: readonly Overlay[];
   }>): void;
@@ -84,7 +85,11 @@ type OverlayState = {
 };
 
 type MaterializeResult = Readonly<
-  | { disposition: 'NOT_APPLICABLE'; reason: 'ASSET_NOT_TIMESTAMP_MANAGED' }
+  | {
+      disposition: 'NOT_APPLICABLE';
+      reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
+      projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'];
+    }
   | { disposition: 'WINDOW_MATERIALIZED'; window: NativeMediaTimestampPreviewWindowV2 }
   | { disposition: 'UNVERIFIABLE'; reason: string }
 >;
@@ -163,7 +168,12 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       return;
     }
     globalReason = null;
-    const nextProjectScope = `${normalized.projectId}\u0000${normalized.sequenceId}`;
+    const nextProjectScope = JSON.stringify([
+      normalized.projectId,
+      normalized.sequenceId,
+      normalized.projectRevision.value,
+      normalized.projectRevision.compatibilityUpdatedAt,
+    ]);
     if (projectScope !== null && projectScope !== nextProjectScope) releaseAllStates();
     projectScope = nextProjectScope;
 
@@ -194,7 +204,13 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         states.set(video.overlayId, state);
         publish();
       }
-      reconcile(state, normalized.projectId, normalized.sequenceId, normalized.currentFrame);
+      reconcile(
+        state,
+        normalized.projectId,
+        normalized.sequenceId,
+        normalized.projectRevision,
+        normalized.currentFrame,
+      );
     }
   }
 
@@ -202,6 +218,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     state: OverlayState,
     projectId: string,
     sequenceId: string,
+    projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'],
     currentFrame: number,
   ): void {
     if (state.reconciling) {
@@ -227,9 +244,11 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       ]));
       if (state.disposition === 'ORDINARY' || state.disposition === 'BLOCKED') return;
 
-      const activeResult = await ensureRange(state, projectId, sequenceId, plan.active);
+      const activeResult = await ensureRange(
+        state, projectId, sequenceId, projectRevision, plan.active,
+      );
       if (activeResult !== 'WINDOW' || !plan.prefetch) return;
-      await ensureRange(state, projectId, sequenceId, plan.prefetch);
+      await ensureRange(state, projectId, sequenceId, projectRevision, plan.prefetch);
     })().catch((error) => {
       if (states.get(state.video.overlayId) === state) {
         blockState(state, knownCode(error) ?? 'SESSION_RECONCILE_FAILED');
@@ -250,6 +269,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     state: OverlayState,
     projectId: string,
     sequenceId: string,
+    projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'],
     range: Readonly<{ localStartFrame: number; durationInFrames: number }>,
   ): Promise<'WINDOW' | 'ORDINARY' | 'BLOCKED'> {
     const current = state.windows.get(range.localStartFrame);
@@ -267,12 +287,13 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     const generation = state.generation;
     const signature = state.video.signature;
     const requestStartedMonotonicMs = safeMonotonicNow(monotonicNow);
-    const command: NativeMediaTimestampPreviewMaterializeCommandV1 = Object.freeze({
-      schemaVersion: 1,
-      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V1,
+    const command: NativeMediaTimestampPreviewMaterializeCommandV2 = Object.freeze({
+      schemaVersion: 2,
+      kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
       projectId,
       sequenceId,
       overlayId: state.video.overlayId,
+      expectedProjectRevision: projectRevision,
       windowLocalStartFrame: range.localStartFrame,
       windowDurationInFrames: range.durationInFrames,
     });
@@ -287,6 +308,12 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         return 'BLOCKED' as const;
       }
       if (result.disposition === 'NOT_APPLICABLE') {
+        if (!sameRevision(result.projectRevision, command.expectedProjectRevision)) {
+          if (isCurrentState(state, generation, signature)) {
+            blockState(state, 'SESSION_CLASSIFICATION_REVISION_MISMATCH');
+          }
+          return 'BLOCKED' as const;
+        }
         if (isCurrentState(state, generation, signature)) {
           const removed = [...state.windows.values()];
           state.windows.clear();
@@ -661,6 +688,7 @@ function normalizeUpdate(
   }
   const projectId = identifier(input.projectId);
   const sequenceId = identifier(input.sequenceId);
+  const projectRevision = normalizeProjectRevision(input.projectRevision);
   const currentFrame = nonNegativeInteger(input.currentFrame);
   const videos = input.overlays
     .filter((overlay) => overlay.type === OverlayType.VIDEO)
@@ -671,7 +699,7 @@ function normalizeUpdate(
     if (ids.has(video.overlayId)) throw new Error('SESSION_OVERLAY_ID_DUPLICATE');
     ids.add(video.overlayId);
   }
-  return Object.freeze({ projectId, sequenceId, currentFrame, videos });
+  return Object.freeze({ projectId, sequenceId, projectRevision, currentFrame, videos });
 }
 
 function normalizeVideo(overlay: Extract<Overlay, { type: OverlayType.VIDEO }>): NormalizedVideo {
@@ -698,7 +726,7 @@ function normalizeVideo(overlay: Extract<Overlay, { type: OverlayType.VIDEO }>):
 
 function validateReturnedWindow(input: Readonly<{
   window: NativeMediaTimestampPreviewWindowV2;
-  command: NativeMediaTimestampPreviewMaterializeCommandV1;
+  command: NativeMediaTimestampPreviewMaterializeCommandV2;
   video: NormalizedVideo;
   requestStartedMonotonicMs: number;
   receivedMonotonicMs: number;
@@ -707,6 +735,7 @@ function validateReturnedWindow(input: Readonly<{
   if (window.projectId !== input.command.projectId
     || window.sequenceId !== input.command.sequenceId
     || window.overlayId !== input.command.overlayId
+    || !sameRevision(window.projectRevision, input.command.expectedProjectRevision)
     || window.overlayFromFrame !== input.video.from
     || window.overlayDurationInFrames !== input.video.durationInFrames
     || window.windowLocalStartFrame !== input.command.windowLocalStartFrame
@@ -724,9 +753,13 @@ function validateReturnedWindow(input: Readonly<{
 function parseMaterializeResult(value: unknown): MaterializeResult {
   const record = objectRecord(value, 'SESSION_RESPONSE_INVALID');
   if (record.disposition === 'NOT_APPLICABLE') {
-    exactKeys(record, ['disposition', 'reason']);
+    exactKeys(record, ['disposition', 'projectRevision', 'reason']);
     if (record.reason !== 'ASSET_NOT_TIMESTAMP_MANAGED') throw new Error('SESSION_RESPONSE_INVALID');
-    return Object.freeze({ disposition: 'NOT_APPLICABLE' as const, reason: record.reason });
+    return Object.freeze({
+      disposition: 'NOT_APPLICABLE' as const,
+      reason: record.reason,
+      projectRevision: normalizeProjectRevision(record.projectRevision),
+    });
   }
   if (record.disposition === 'WINDOW_MATERIALIZED') {
     exactKeys(record, [
@@ -814,12 +847,16 @@ function objectRecord(value: unknown, code: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function exactKeys(record: Record<string, unknown>, keys: readonly string[]): void {
+function exactKeys(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+  code = 'SESSION_RESPONSE_INVALID',
+): void {
   const actual = Object.keys(record).sort();
   const expected = [...keys].sort();
   if (actual.length !== expected.length
     || actual.some((key, index) => key !== expected[index])) {
-    throw new Error('SESSION_RESPONSE_INVALID');
+    throw new Error(code);
   }
 }
 
@@ -837,6 +874,42 @@ function safeReason(value: unknown): string {
     throw new Error('SESSION_REASON_INVALID');
   }
   return value;
+}
+
+function normalizeProjectRevision(
+  value: unknown,
+): NativeMediaTimestampPreviewWindowV2['projectRevision'] {
+  if (value === null || value === undefined) {
+    throw new Error('SESSION_PROJECT_REVISION_REQUIRED');
+  }
+  const record = objectRecord(value, 'SESSION_PROJECT_REVISION_INVALID');
+  exactKeys(
+    record,
+    ['compatibilityUpdatedAt', 'schemaVersion', 'value'],
+    'SESSION_PROJECT_REVISION_INVALID',
+  );
+  if (record.schemaVersion !== 1
+    || !Number.isSafeInteger(record.value) || Number(record.value) < 0
+    || typeof record.compatibilityUpdatedAt !== 'string'
+    || record.compatibilityUpdatedAt.length > 128
+    || /[\u0000-\u001F\u007F]/.test(record.compatibilityUpdatedAt)
+    || Number.isNaN(Date.parse(record.compatibilityUpdatedAt))) {
+    throw new Error('SESSION_PROJECT_REVISION_INVALID');
+  }
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    value: Number(record.value),
+    compatibilityUpdatedAt: record.compatibilityUpdatedAt,
+  });
+}
+
+function sameRevision(
+  left: NativeMediaTimestampPreviewWindowV2['projectRevision'],
+  right: NativeMediaTimestampPreviewWindowV2['projectRevision'],
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
 }
 
 function sha256(value: unknown): string {

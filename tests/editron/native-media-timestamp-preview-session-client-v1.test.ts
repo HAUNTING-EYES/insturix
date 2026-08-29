@@ -7,13 +7,14 @@ import {
   selectNativeMediaTimestampPreviewPlayableOverlaysV1,
   type NativeMediaTimestampPreviewSessionClientPortV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-client-v1';
-import type { NativeMediaTimestampPreviewMaterializeCommandV1 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
+import type { NativeMediaTimestampPreviewMaterializeCommandV2 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
 import { assertNativeMediaTimestampPreviewWindowV2 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-window-v2';
 
 describe('native media timestamp preview session client V1', () => {
   it('allows ordinary playback only after explicit server classification', async () => {
     const harness = coordinatorHarness(async () => ({
       disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      projectRevision: revision(),
     }));
     harness.coordinator.update(updateInput(10));
     expect(gate(harness, 10).disposition).toBe('PROBING');
@@ -23,6 +24,33 @@ describe('native media timestamp preview session client V1', () => {
     expect(gate(harness, 10)).toEqual({ disposition: 'READY', overlayId: null, reason: null });
     expect(playable(harness, 10)).toHaveLength(1);
     expect(harness.materialize).toHaveBeenCalledTimes(1);
+    expect(harness.materialize).toHaveBeenCalledWith(expect.objectContaining({
+      schemaVersion: 2,
+      expectedProjectRevision: revision(),
+    }));
+  });
+
+  it('blocks missing or mismatched project revision instead of using ordinary playback', async () => {
+    const missing = coordinatorHarness(async () => ({
+      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      projectRevision: revision(),
+    }));
+    missing.coordinator.update(updateInput(10, null));
+    expect(gate(missing, 10)).toMatchObject({
+      disposition: 'BLOCKED', reason: 'SESSION_PROJECT_REVISION_REQUIRED',
+    });
+    expect(missing.materialize).not.toHaveBeenCalled();
+
+    const stale = coordinatorHarness(async () => ({
+      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      projectRevision: { ...revision(), value: 0 },
+    }));
+    stale.coordinator.update(updateInput(10));
+    await stale.coordinator.whenIdle();
+    expect(gate(stale, 10)).toMatchObject({
+      disposition: 'BLOCKED', reason: 'SESSION_CLASSIFICATION_REVISION_MISMATCH',
+    });
+    expect(playable(stale, 10)).toEqual([]);
   });
 
   it('materializes active and prefetch windows, then swaps and releases after a seek', async () => {
@@ -55,6 +83,34 @@ describe('native media timestamp preview session client V1', () => {
     expect(harness.deferred).toHaveLength(2);
     await harness.runDeferred();
     expect(harness.release).toHaveBeenCalledTimes(3);
+  });
+
+  it('discards prior windows and rematerializes when the project revision advances', async () => {
+    let responseSequence = 1;
+    const harness = coordinatorHarness(async (command) => (
+      materialized(command, responseSequence++)
+    ));
+    harness.coordinator.update(updateInput(10));
+    await harness.coordinator.whenIdle();
+
+    const nextRevision = {
+      ...revision(),
+      value: 2,
+      compatibilityUpdatedAt: '2026-08-29T00:00:01.000Z',
+    };
+    harness.coordinator.update(updateInput(10, nextRevision));
+    await harness.coordinator.whenIdle();
+
+    expect(harness.materialize).toHaveBeenCalledTimes(4);
+    expect(harness.coordinator.snapshot().windows).toHaveLength(2);
+    expect(harness.coordinator.snapshot().windows.every((window) => (
+      window.projectRevision.value === nextRevision.value
+      && window.projectRevision.compatibilityUpdatedAt
+        === nextRevision.compatibilityUpdatedAt
+    ))).toBe(true);
+    expect(harness.deferred).toHaveLength(2);
+    await harness.runDeferred();
+    expect(harness.release).toHaveBeenCalledTimes(2);
   });
 
   it('blocks an unsafe result, never falls through, and supports explicit retry', async () => {
@@ -143,7 +199,7 @@ describe('native media timestamp preview session client V1', () => {
 });
 
 function coordinatorHarness(
-  responder: (command: NativeMediaTimestampPreviewMaterializeCommandV1) => Promise<unknown>,
+  responder: (command: NativeMediaTimestampPreviewMaterializeCommandV2) => Promise<unknown>,
 ) {
   let monotonic = 100;
   const deferred: Array<() => void> = [];
@@ -190,9 +246,13 @@ function coordinatorHarness(
   };
 }
 
-function updateInput(currentFrame: number) {
+function updateInput(
+  currentFrame: number,
+  projectRevision: ReturnType<typeof revision> | null = revision(),
+) {
   return {
-    projectId: 'project-1', sequenceId: 'main', currentFrame, overlays: [videoOverlay()],
+    projectId: 'project-1', sequenceId: 'main', projectRevision,
+    currentFrame, overlays: [videoOverlay()],
   } as const;
 }
 
@@ -205,7 +265,7 @@ function videoOverlay(): Overlay {
   };
 }
 
-function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV1, sequence: number) {
+function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV2, sequence: number) {
   const window = assertNativeMediaTimestampPreviewWindowV2({
     schemaVersion: 2,
     kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_WINDOW_V2',
@@ -214,9 +274,7 @@ function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV1, 
     projectId: command.projectId,
     sequenceId: command.sequenceId,
     overlayId: command.overlayId,
-    projectRevision: {
-      schemaVersion: 1, value: 1, compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
-    },
+    projectRevision: command.expectedProjectRevision,
     overlayFromFrame: 0,
     overlayDurationInFrames: 300,
     windowLocalStartFrame: command.windowLocalStartFrame,
@@ -249,6 +307,14 @@ function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV1, 
     sourcePtsCadenceMapStateSha256V3: hex(70_000 + sequence),
     transformSha256: hex(80_000 + sequence),
     materializedPictureCount: command.windowDurationInFrames,
+  };
+}
+
+function revision() {
+  return {
+    schemaVersion: 1 as const,
+    value: 1,
+    compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
   };
 }
 

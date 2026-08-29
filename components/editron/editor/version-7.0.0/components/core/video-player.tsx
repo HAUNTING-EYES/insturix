@@ -37,6 +37,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     playbackRate,
     currentFrame,
     projectId,
+    projectRevision,
   } = useEditorContext();
   const [timestampPreviewCoordinator] = useState(() => (
     createNativeMediaTimestampPreviewSessionCoordinatorV1(
@@ -68,10 +69,11 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     timestampPreviewCoordinator.update({
       projectId: projectId ?? "",
       sequenceId: "main",
+      projectRevision,
       currentFrame,
       overlays,
     });
-  }, [currentFrame, overlays, projectId, timestampPreviewCoordinator]);
+  }, [currentFrame, overlays, projectId, projectRevision, timestampPreviewCoordinator]);
 
   const playableOverlays = useMemo(
     () => selectNativeMediaTimestampPreviewPlayableOverlaysV1({
@@ -293,6 +295,12 @@ function timestampPreviewMessage(reason: string): string {
       return "The private preview service is unavailable. Your timeline was not changed.";
     case "OVERLAY_ASSET_REQUIRED":
       return "This video layer is missing its source asset.";
+    case "SESSION_PROJECT_REVISION_REQUIRED":
+      return "The saved project revision is still loading, so exact preview is paused.";
+    case "PROJECT_REVISION_STALE":
+    case "SESSION_CLASSIFICATION_REVISION_MISMATCH":
+    case "SESSION_WINDOW_SCOPE_MISMATCH":
+      return "The project changed while preview was being prepared. Reload or retry safely.";
     default:
       return `The clip could not be verified safely (${reason}).`;
   }
