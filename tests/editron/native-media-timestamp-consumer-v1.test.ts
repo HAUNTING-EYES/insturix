@@ -11,6 +11,11 @@ import {
   canonicalizeEditronJsonV1,
   hashEditronCanonicalJsonV1,
 } from '@/lib/editron/services/canonical-json-v1';
+import {
+  createMediaSourceAudioSampleEpochMapV1,
+  createMediaSourceAudioStreamBindingV1,
+  MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ADAPTER_VERSION_V1,
+} from '@/lib/editron/services/media-source-audio-sample-epoch-map-v1';
 import { createMediaSourcePtsCadenceBoundaryEvidenceSidecarV3 } from '@/lib/editron/services/media-source-pts-cadence-epoch-boundary-v3';
 import {
   createMediaSourcePtsCadenceBoundarySemanticVerificationReceiptV3,
@@ -52,6 +57,7 @@ import {
 } from '@/lib/editron/services/native-media-timestamp-consumer-v1';
 import type { Project } from '@/lib/editron/services/project-service';
 import {
+  assertVideoSourceTimestampConformV3,
   createVideoSourceTimestampConformFromVerifiedEpochIndexV3,
   createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
   type VideoSourceTimestampConformV3,
@@ -59,12 +65,34 @@ import {
 
 describe('native media timestamp consumer V1', () => {
   it('consumes a verified VFR/reset/gap window with exact PTS, picture reuse, and separate audio', async () => {
-    const fixture = await verifiedFixture('primary');
+    const fixture = await verifiedFixture('primary', { withAudio: true });
     const conform = await createConform(fixture);
     expect(conform.disposition).toBe('CONFORM_CREATED');
     if (conform.disposition !== 'CONFORM_CREATED') throw new Error(JSON.stringify(conform));
     expect(conform.transform.frameSelections.map(({ sourceFrameOrdinal }) => sourceFrameOrdinal))
       .toEqual(['0', '1', '2', '3', '3', '3', '4', '5']);
+    expect(conform.transform.audioMapping).toMatchObject({
+      kind: 'EDITRON_VERIFIED_AUDIO_SAMPLE_TIME_MAPPING_V3',
+      streamId: 'audio-1',
+      sampleRate: '48000',
+      decodedSampleFrameCount: '288000',
+      canonicalTimelineStartSamplePosition: {
+        numerator: '0', denominator: '1', disposition: 'INTEGER_SAMPLE_FRAME',
+      },
+      canonicalTimelineEndExclusiveSamplePosition: {
+        numerator: '384000', denominator: '1', disposition: 'INTEGER_SAMPLE_FRAME',
+      },
+      segments: [
+        expect.objectContaining({ kind: 'PCM', audioEpochId: 'audio-1-epoch-000000' }),
+        expect.objectContaining({ kind: 'PCM', audioEpochId: 'audio-1-epoch-000001' }),
+        expect.objectContaining({
+          kind: 'SILENCE', reason: 'DECLARED_SOURCE_GAP',
+          precedingAudioEpochId: 'audio-1-epoch-000001',
+          nextAudioEpochId: 'audio-1-epoch-000002',
+        }),
+        expect.objectContaining({ kind: 'PCM', audioEpochId: 'audio-1-epoch-000002' }),
+      ],
+    });
 
     const decodePictures = vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
       decoderOutput(request)
@@ -103,6 +131,46 @@ describe('native media timestamp consumer V1', () => {
         result.receipt.timelinePictures[3]!.pictureHandle,
         result.receipt.timelinePictures[3]!.pictureHandle]);
     expect(result.receipt.receiptSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('preserves fractional audio phase and rejects evidence from another source', async () => {
+    const fractional = await verifiedFixture('fractional-audio', {
+      withAudio: true,
+      fractionalAudioPhase: true,
+    });
+    const conform = await createConform(fractional);
+    if (conform.disposition !== 'CONFORM_CREATED') throw new Error(JSON.stringify(conform));
+    expect(conform.transform.audioMapping?.segments[0]).toEqual({
+      kind: 'SILENCE',
+      reason: 'LEADING_STREAM_OFFSET',
+      precedingAudioEpochId: null,
+      nextAudioEpochId: 'audio-1-epoch-000000',
+      canonicalStartSamplePosition: {
+        numerator: '0', denominator: '1', disposition: 'INTEGER_SAMPLE_FRAME',
+      },
+      canonicalEndExclusiveSamplePosition: {
+        numerator: '8', denominator: '15', disposition: 'BETWEEN_SAMPLE_FRAMES',
+      },
+    });
+    expect(() => assertVideoSourceTimestampConformV3(conform.transform)).not.toThrow();
+    const tampered = structuredClone(conform.transform) as unknown as {
+      audioMapping: null | {
+        segments: Array<{
+          canonicalEndExclusiveSamplePosition: { numerator: string };
+        }>;
+      };
+    };
+    if (tampered.audioMapping === null) throw new Error('TEST_AUDIO_MAPPING_REQUIRED');
+    tampered.audioMapping.segments[0]!.canonicalEndExclusiveSamplePosition.numerator = '1';
+    expect(() => assertVideoSourceTimestampConformV3(tampered)).toThrow(
+      'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SEGMENT_COVERAGE_INVALID',
+    );
+
+    const foreign = await verifiedFixture('foreign-audio', { withAudio: true });
+    if (foreign.audioEvidence === null) throw new Error('TEST_AUDIO_EVIDENCE_REQUIRED');
+    await expect(createConform(fractional, {
+      audio: { evidence: foreign.audioEvidence, endExclusiveTimelineFrame: '8' },
+    })).rejects.toThrow('VIDEO_SOURCE_CONFORM_AUDIO_SCOPE_MISMATCH');
   });
 
   it('derives a reset-side source anchor from the verified frame ordinal', async () => {
@@ -629,15 +697,12 @@ function createConform(
       maxSourceFrames: 10,
       maxFrameQueries: 10,
     },
-    audio: {
-      sourceRange: {
-        startSampleFrame: '0',
-        endExclusiveSampleFrame: '384000',
-        sampleRate: '48000',
+    ...(fixture.audioEvidence === null ? {} : {
+      audio: {
+        evidence: fixture.audioEvidence,
+        endExclusiveTimelineFrame: '8',
       },
-      sourceAnchorSampleFrame: '0',
-      endExclusiveTimelineFrame: '8',
-    },
+    }),
     ...overrides,
   });
 }
@@ -652,7 +717,10 @@ type VerifiedFixture = Awaited<ReturnType<typeof verifiedFixture>>;
 
 async function verifiedFixture(
   tag: string,
-  options: Readonly<{ withAudio?: boolean }> = {},
+  options: Readonly<{
+    withAudio?: boolean;
+    fractionalAudioPhase?: boolean;
+  }> = {},
 ) {
   const assetId = `asset-${tag}`;
   const sourceTimebase = { numerator: '1', denominator: '1000' } as const;
@@ -675,7 +743,16 @@ async function verifiedFixture(
     sourceTimebase,
     tag,
     options.withAudio ?? false,
+    options.fractionalAudioPhase ?? false,
   );
+  const audioEvidence = options.withAudio
+    ? createFixtureAudioEvidence(
+        sourceVersion,
+        qualification,
+        tag,
+        options.fractionalAudioPhase ?? false,
+      )
+    : null;
   const mapper = {
     mapperVersion: 'pts-epoch-mapper-v3',
     ffprobeVersion: 'ffprobe-8.1',
@@ -849,6 +926,7 @@ async function verifiedFixture(
     asset: { ...baseAsset, ...state },
     baseAsset,
     sourceVersion,
+    audioEvidence,
     batches,
     objects,
     reader,
@@ -919,6 +997,7 @@ function qualificationFixture(
   sourceTimebase: Readonly<{ numerator: string; denominator: string }>,
   tag: string,
   withAudio: boolean,
+  fractionalAudioPhase: boolean,
 ) {
   const observation = {
     schemaVersion: 1 as const,
@@ -952,9 +1031,11 @@ function qualificationFixture(
       sampleRate: '48000',
       channelCount: 2,
       channelLayout: 'stereo',
-      sourceTimebase: { numerator: '1', denominator: '48000' },
-      sourceStartPts: '0',
-      sourceDurationTicks: '960000',
+      sourceTimebase: fractionalAudioPhase
+        ? { numerator: '1', denominator: '90000' }
+        : { numerator: '1', denominator: '48000' },
+      sourceStartPts: fractionalAudioPhase ? '900001' : '480000',
+      sourceDurationTicks: fractionalAudioPhase ? '720000' : '384000',
     }] : [],
   };
   return {
@@ -973,6 +1054,53 @@ function qualificationFixture(
     observation: { ...observation, observationSha256: hashEditronCanonicalJsonV1(observation) },
     diagnostic: null,
   };
+}
+
+function createFixtureAudioEvidence(
+  sourceVersion: ReturnType<typeof createMediaSourceVersionV1>,
+  qualification: ReturnType<typeof qualificationFixture>,
+  tag: string,
+  fractionalAudioPhase: boolean,
+) {
+  const binding = createMediaSourceAudioStreamBindingV1({
+    sourceVersion,
+    qualification,
+    audioStreamIndex: 1,
+  });
+  const frames = fractionalAudioPhase
+    ? [
+        { presentationTimestampTicks: '900001', decodedSampleFrameCount: '96000' },
+        { presentationTimestampTicks: '-179999', decodedSampleFrameCount: '96000' },
+        { presentationTimestampTicks: '180001', decodedSampleFrameCount: '96000' },
+      ]
+    : [
+        { presentationTimestampTicks: '480000', decodedSampleFrameCount: '96000' },
+        { presentationTimestampTicks: '-96000', decodedSampleFrameCount: '96000' },
+        { presentationTimestampTicks: '96000', decodedSampleFrameCount: '96000' },
+      ];
+  return createMediaSourceAudioSampleEpochMapV1({
+    binding,
+    toolchain: {
+      adapterVersion: MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ADAPTER_VERSION_V1,
+      ffmpegVersion: 'ffmpeg-8.1',
+      ffprobeVersion: 'ffprobe-8.1',
+    },
+    resourcePolicy: {
+      policyVersion: 'audio-sample-epoch-test-v1',
+      maxSourceBytes: 100_000,
+      maxCanonicalJsonBytes: 1_000_000,
+      maxDecodedFrameEntries: 10,
+      maxEpochEntries: 10,
+      maxDecodedSampleFrames: 1_000_000,
+      maxDecodedPcmBytes: 3_000_000,
+      timeoutMs: 10_000,
+    },
+    frames,
+    pcm: {
+      decodedByteLength: 2_304_000,
+      decodedPcmSha256: hashUtf8(`decoded-pcm-${tag}`),
+    },
+  });
 }
 
 function stored(value: StoredObject): StoredObject {

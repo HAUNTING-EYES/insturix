@@ -22,6 +22,10 @@ import {
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
 import {
+  assertMediaSourceAudioSampleEpochMapV1,
+  type MediaSourceAudioSampleEpochMapV1,
+} from './media-source-audio-sample-epoch-map-v1';
+import {
   readMediaSourcePtsCadenceMapAssetStateV2,
   type MediaSourcePtsCadenceMapAssetStateInputV2,
 } from './media-source-pts-cadence-map-asset-state-v2';
@@ -69,6 +73,8 @@ const VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3 =
   'EDITRON_VERIFIED_VIDEO_SOURCE_EPOCH_TIME_BINDING_V3' as const;
 const VIDEO_SOURCE_TIMESTAMP_CONFORM_KIND_V3 =
   'EDITRON_VIDEO_SOURCE_TIMESTAMP_CONFORM_V3' as const;
+const VIDEO_SOURCE_TIMESTAMP_AUDIO_MAPPING_KIND_V3 =
+  'EDITRON_VERIFIED_AUDIO_SAMPLE_TIME_MAPPING_V3' as const;
 const VIDEO_SOURCE_TIMESTAMP_CONFORM_POLICY_V2 =
   'PRESERVE_REAL_TIME_NEAREST' as const;
 const VIDEO_SOURCE_TIMESTAMP_CONFORM_ABSOLUTE_MAX_WINDOW_FRAMES_V2 = 100_000;
@@ -92,6 +98,66 @@ type ExactAudioSamplePositionV2 = Readonly<{
   denominator: string;
   disposition: 'INTEGER_SAMPLE_FRAME' | 'BETWEEN_SAMPLE_FRAMES';
 }>;
+
+type VideoSourceTimestampConformAudioSegmentV3 = Readonly<
+  | {
+      kind: 'PCM';
+      audioEpochId: string;
+      canonicalStartSamplePosition: ExactAudioSamplePositionV2;
+      canonicalEndExclusiveSamplePosition: ExactAudioSamplePositionV2;
+      decodedStartSamplePosition: ExactAudioSamplePositionV2;
+      decodedEndExclusiveSamplePosition: ExactAudioSamplePositionV2;
+    }
+  | {
+      kind: 'SILENCE';
+      reason: 'LEADING_STREAM_OFFSET' | 'DECLARED_SOURCE_GAP';
+      precedingAudioEpochId: string | null;
+      nextAudioEpochId: string;
+      canonicalStartSamplePosition: ExactAudioSamplePositionV2;
+      canonicalEndExclusiveSamplePosition: ExactAudioSamplePositionV2;
+    }
+>;
+
+type VideoSourceTimestampConformAudioMappingV3 = Readonly<{
+  schemaVersion: 3;
+  kind: typeof VIDEO_SOURCE_TIMESTAMP_AUDIO_MAPPING_KIND_V3;
+  assetId: string;
+  sourceVersionSha256: string;
+  storageVersionSha256: string;
+  sourceBindingSha256: string;
+  technicalObservationSha256: string;
+  audioSampleEpochMapSha256: string;
+  audioStreamBindingSha256: string;
+  decodedPcmSha256: string;
+  streamId: string;
+  audioStreamIndex: number;
+  sampleRate: string;
+  channelCount: number;
+  decodedSampleFrameCount: string;
+  timelineStartFrame: string;
+  endExclusiveTimelineFrame: string;
+  canonicalTimelineStartSamplePosition: ExactAudioSamplePositionV2;
+  canonicalTimelineEndExclusiveSamplePosition: ExactAudioSamplePositionV2;
+  policy: Readonly<{
+    epochAlignment: 'PAIRED_VERIFIED_VIDEO_AUDIO_EPOCH_ORDINAL_V1';
+    samplePhase: 'PRESERVE_EXACT_RATIONAL_NO_ROUNDING';
+    gaps: 'EXPLICIT_SILENCE_SEGMENTS';
+    overlapsAndResets: 'VERIFIED_CANONICAL_EPOCH_HANDOFF';
+    resampling: 'FORBIDDEN';
+    channelRemix: 'FORBIDDEN';
+  }>;
+  segments: readonly VideoSourceTimestampConformAudioSegmentV3[];
+  audioMappingSha256: string;
+}>;
+
+const VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3 = deepFreezeEditronJsonV1({
+  epochAlignment: 'PAIRED_VERIFIED_VIDEO_AUDIO_EPOCH_ORDINAL_V1' as const,
+  samplePhase: 'PRESERVE_EXACT_RATIONAL_NO_ROUNDING' as const,
+  gaps: 'EXPLICIT_SILENCE_SEGMENTS' as const,
+  overlapsAndResets: 'VERIFIED_CANONICAL_EPOCH_HANDOFF' as const,
+  resampling: 'FORBIDDEN' as const,
+  channelRemix: 'FORBIDDEN' as const,
+});
 
 export type VideoSourceTimestampConformV2 = Readonly<{
   schemaVersion: 2;
@@ -180,7 +246,7 @@ export type VideoSourceTimestampConformV3 = Readonly<{
   sourceAnchor: SourcePositionV1;
   resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
   frameSelections: VideoSourceTimestampConformV2['frameSelections'];
-  audioMapping: VideoSourceTimestampConformV2['audioMapping'];
+  audioMapping: VideoSourceTimestampConformAudioMappingV3 | null;
   transformSha256: string;
 }>;
 
@@ -207,8 +273,7 @@ type VideoSourceTimestampConformEpochBaseInputV3 = Readonly<{
   timelineFrameQueries: readonly string[];
   resourcePolicy: VideoSourceTimestampConformResourcePolicyV2;
   audio?: Readonly<{
-    sourceRange: AudioSampleRangeV1;
-    sourceAnchorSampleFrame: string;
+    evidence: MediaSourceAudioSampleEpochMapV1;
     endExclusiveTimelineFrame: string;
   }>;
   proxyMasterMapping?: Readonly<{
@@ -944,8 +1009,18 @@ function createVideoSourceTimestampConformFromPreparedEpochV3(
     timelineFrameQueries: input.timelineFrameQueries,
     sourceAnchor,
     resourcePolicy: input.resourcePolicy,
-    ...(input.audio === undefined ? {} : { audio: input.audio }),
   });
+  const audioMapping = input.audio === undefined
+    ? null
+    : createTimestampConformAudioMappingV3({
+        evidence: input.audio.evidence,
+        sourceBinding,
+        videoEpochs: core.epochs,
+        sourceAnchor: core.sourceAnchor,
+        projectRate: core.projectRate,
+        timelineStartFrame: core.timelineStartFrame,
+        endExclusiveTimelineFrame: input.audio.endExclusiveTimelineFrame,
+      });
   const sourceWindowMaterial = {
     sourceBindingSha256: sourceBinding.bindingSha256,
     presentationWindowEvidenceSha256:
@@ -973,7 +1048,7 @@ function createVideoSourceTimestampConformFromPreparedEpochV3(
     sourceAnchor: core.sourceAnchor,
     resourcePolicy: core.resourcePolicy,
     frameSelections: core.frameSelections,
-    audioMapping: core.audioMapping,
+    audioMapping,
   };
   const transform = assertVideoSourceTimestampConformV3({
     ...material,
@@ -1106,6 +1181,7 @@ export function assertVideoSourceTimestampConformV3(
     record.audioMapping,
     projectRate,
     timelineStartFrame,
+    sourceBinding,
   );
   const material = {
     schemaVersion: 3 as const,
@@ -1564,45 +1640,487 @@ function normalizePersistedFrameSelectionsV3(
   });
 }
 
+type TimestampConformAudioEpochIntervalV3 = Readonly<{
+  audioEpochId: string;
+  canonicalStart: ExactFractionV2;
+  canonicalEnd: ExactFractionV2;
+  decodedStart: ExactFractionV2;
+  decodedEnd: ExactFractionV2;
+}>;
+
+function createTimestampConformAudioMappingV3(input: Readonly<{
+  evidence: MediaSourceAudioSampleEpochMapV1;
+  sourceBinding: VerifiedVideoSourceEpochTimeBindingV3;
+  videoEpochs: readonly PresentationEpochV1[];
+  sourceAnchor: SourcePositionV1;
+  projectRate: ExactRationalRateV1;
+  timelineStartFrame: string;
+  endExclusiveTimelineFrame: string;
+}>): VideoSourceTimestampConformAudioMappingV3 {
+  const evidence = assertMediaSourceAudioSampleEpochMapV1(input.evidence);
+  const { binding } = evidence;
+  if (binding.mediaKind !== 'video'
+    || binding.assetId !== input.sourceBinding.assetId
+    || binding.sourceVersionSha256 !== input.sourceBinding.sourceVersionSha256
+    || binding.storageVersionSha256 !== input.sourceBinding.storageVersionSha256
+    || binding.sourceBindingSha256 !== input.sourceBinding.sourceBindingSha256
+    || binding.technicalObservationSha256
+      !== input.sourceBinding.technicalObservationSha256) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_SCOPE_MISMATCH');
+  }
+  const endExclusiveTimelineFrame = nonNegativeIntegerText(
+    input.endExclusiveTimelineFrame,
+    'VIDEO_SOURCE_CONFORM_AUDIO_TIMELINE_END_INVALID',
+  );
+  const timelineFrameCount = BigInt(endExclusiveTimelineFrame)
+    - BigInt(input.timelineStartFrame);
+  if (timelineFrameCount <= BigInt(0)) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_TIMELINE_RANGE_INVALID');
+  }
+  const sampleRate = BigInt(binding.sampleRate);
+  const anchorEpoch = input.videoEpochs.find(
+    (epoch) => epoch.epochId === input.sourceAnchor.epochId,
+  );
+  if (!anchorEpoch) throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_ANCHOR_EPOCH_MISSING');
+  const anchorCanonicalTime = canonicalTimeForSourcePtsV2(
+    anchorEpoch,
+    BigInt(input.sourceAnchor.presentationTimestampTicks),
+  );
+  const mappingStart = fractionV2(
+    anchorCanonicalTime.numerator * sampleRate,
+    anchorCanonicalTime.denominator,
+  );
+  const mappingEnd = addFractionV2(mappingStart, fractionV2(
+    timelineFrameCount * BigInt(input.projectRate.denominator) * sampleRate,
+    BigInt(input.projectRate.numerator),
+  ));
+  const intervals = createPairedAudioEpochIntervalsV3(
+    evidence,
+    input.videoEpochs,
+  );
+  const lastInterval = intervals[intervals.length - 1]!;
+  if (compareFractionV2(mappingEnd, lastInterval.canonicalEnd) > 0) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_EVIDENCE_COVERAGE_INSUFFICIENT');
+  }
+  const segments = clipAudioEpochIntervalsV3(intervals, mappingStart, mappingEnd);
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_AUDIO_MAPPING_KIND_V3,
+    assetId: binding.assetId,
+    sourceVersionSha256: binding.sourceVersionSha256,
+    storageVersionSha256: binding.storageVersionSha256,
+    sourceBindingSha256: binding.sourceBindingSha256,
+    technicalObservationSha256: binding.technicalObservationSha256,
+    audioSampleEpochMapSha256: evidence.audioSampleEpochMapSha256,
+    audioStreamBindingSha256: binding.audioStreamBindingSha256,
+    decodedPcmSha256: evidence.pcm.decodedPcmSha256,
+    streamId: binding.streamId,
+    audioStreamIndex: binding.audioStreamIndex,
+    sampleRate: binding.sampleRate,
+    channelCount: binding.channelCount,
+    decodedSampleFrameCount: evidence.pcm.decodedSampleFrameCount,
+    timelineStartFrame: input.timelineStartFrame,
+    endExclusiveTimelineFrame,
+    canonicalTimelineStartSamplePosition: exactAudioSamplePositionV2(mappingStart),
+    canonicalTimelineEndExclusiveSamplePosition: exactAudioSamplePositionV2(mappingEnd),
+    policy: VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3,
+    segments,
+  };
+  return frozen({
+    ...material,
+    audioMappingSha256: hashEditronCanonicalJsonV1(material),
+  });
+}
+
+function createPairedAudioEpochIntervalsV3(
+  evidence: MediaSourceAudioSampleEpochMapV1,
+  videoEpochs: readonly PresentationEpochV1[],
+): readonly TimestampConformAudioEpochIntervalV3[] {
+  if (videoEpochs.length !== evidence.epochs.length) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_EPOCH_PAIRING_REQUIRED');
+  }
+  const sampleRate = BigInt(evidence.binding.sampleRate);
+  const intervals: TimestampConformAudioEpochIntervalV3[] = [];
+  evidence.epochs.forEach((audioEpoch, index) => {
+    const videoEpoch = videoEpochs[index]!;
+    assertPairedAudioBoundaryKindV3(videoEpoch.boundaryKind, audioEpoch.boundaryKind);
+    const videoCanonicalStart = fractionV2(
+      BigInt(videoEpoch.canonicalStartTime.ticks) * sampleRate,
+      BigInt(videoEpoch.canonicalStartTime.timescale),
+    );
+    const videoSourceStart = fractionV2(
+      BigInt(videoEpoch.sourceStartPresentationTimestampTicks)
+        * BigInt(videoEpoch.secondsPerSourceTick.numerator) * sampleRate,
+      BigInt(videoEpoch.secondsPerSourceTick.denominator),
+    );
+    const audioSourceStart = fractionV2(
+      BigInt(audioEpoch.sourceStartSamplePosition.numerator),
+      BigInt(audioEpoch.sourceStartSamplePosition.denominator),
+    );
+    const canonicalStart = addFractionV2(
+      videoCanonicalStart,
+      subtractFractionV2(audioSourceStart, videoSourceStart),
+    );
+    const decodedStart = fractionV2(BigInt(audioEpoch.decodedStartSampleFrame), BigInt(1));
+    const decodedEnd = fractionV2(
+      BigInt(audioEpoch.decodedEndExclusiveSampleFrame),
+      BigInt(1),
+    );
+    const canonicalEnd = addFractionV2(
+      canonicalStart,
+      subtractFractionV2(decodedEnd, decodedStart),
+    );
+    const previous = intervals[intervals.length - 1] ?? null;
+    if (previous !== null) {
+      const handoff = compareFractionV2(canonicalStart, previous.canonicalEnd);
+      if ((videoEpoch.boundaryKind === 'GAP' && handoff <= 0)
+        || (videoEpoch.boundaryKind !== 'GAP' && handoff !== 0)) {
+        throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_EPOCH_HANDOFF_MISMATCH');
+      }
+    }
+    intervals.push({
+      audioEpochId: audioEpoch.epochId,
+      canonicalStart,
+      canonicalEnd,
+      decodedStart,
+      decodedEnd,
+    });
+  });
+  return frozen(intervals);
+}
+
+function assertPairedAudioBoundaryKindV3(
+  video: PresentationEpochV1['boundaryKind'],
+  audio: MediaSourceAudioSampleEpochMapV1['epochs'][number]['boundaryKind'],
+): void {
+  if ((video === 'INITIAL' && audio === 'INITIAL')
+    || (video === 'GAP' && audio === 'GAP')
+    || (video === 'OVERLAP' && audio === 'OVERLAP')
+    || (video === 'TIMESTAMP_RESET' && audio === 'TIMESTAMP_RESET')) return;
+  throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_EPOCH_BOUNDARY_MISMATCH');
+}
+
+function clipAudioEpochIntervalsV3(
+  intervals: readonly TimestampConformAudioEpochIntervalV3[],
+  mappingStart: ExactFractionV2,
+  mappingEnd: ExactFractionV2,
+): readonly VideoSourceTimestampConformAudioSegmentV3[] {
+  const fullSegments: VideoSourceTimestampConformAudioSegmentV3[] = [];
+  const first = intervals[0]!;
+  if (compareFractionV2(mappingStart, first.canonicalStart) < 0) {
+    fullSegments.push({
+      kind: 'SILENCE',
+      reason: 'LEADING_STREAM_OFFSET',
+      precedingAudioEpochId: null,
+      nextAudioEpochId: first.audioEpochId,
+      canonicalStartSamplePosition: exactAudioSamplePositionV2(mappingStart),
+      canonicalEndExclusiveSamplePosition: exactAudioSamplePositionV2(first.canonicalStart),
+    });
+  }
+  intervals.forEach((interval, index) => {
+    const previous = index === 0 ? null : intervals[index - 1]!;
+    if (previous !== null
+      && compareFractionV2(previous.canonicalEnd, interval.canonicalStart) < 0) {
+      fullSegments.push({
+        kind: 'SILENCE',
+        reason: 'DECLARED_SOURCE_GAP',
+        precedingAudioEpochId: previous.audioEpochId,
+        nextAudioEpochId: interval.audioEpochId,
+        canonicalStartSamplePosition: exactAudioSamplePositionV2(previous.canonicalEnd),
+        canonicalEndExclusiveSamplePosition: exactAudioSamplePositionV2(
+          interval.canonicalStart,
+        ),
+      });
+    }
+    fullSegments.push({
+      kind: 'PCM',
+      audioEpochId: interval.audioEpochId,
+      canonicalStartSamplePosition: exactAudioSamplePositionV2(interval.canonicalStart),
+      canonicalEndExclusiveSamplePosition: exactAudioSamplePositionV2(interval.canonicalEnd),
+      decodedStartSamplePosition: exactAudioSamplePositionV2(interval.decodedStart),
+      decodedEndExclusiveSamplePosition: exactAudioSamplePositionV2(interval.decodedEnd),
+    });
+  });
+  const clipped: VideoSourceTimestampConformAudioSegmentV3[] = [];
+  fullSegments.forEach((segment) => {
+    const segmentStart = fractionFromAudioSamplePositionV3(
+      segment.canonicalStartSamplePosition,
+    );
+    const segmentEnd = fractionFromAudioSamplePositionV3(
+      segment.canonicalEndExclusiveSamplePosition,
+    );
+    const start = maximumFractionV3(mappingStart, segmentStart);
+    const end = minimumFractionV3(mappingEnd, segmentEnd);
+    if (compareFractionV2(start, end) >= 0) return;
+    if (segment.kind === 'SILENCE') {
+      clipped.push({
+        ...segment,
+        canonicalStartSamplePosition: exactAudioSamplePositionV2(start),
+        canonicalEndExclusiveSamplePosition: exactAudioSamplePositionV2(end),
+      });
+      return;
+    }
+    const decodedStart = addFractionV2(
+      fractionFromAudioSamplePositionV3(segment.decodedStartSamplePosition),
+      subtractFractionV2(start, segmentStart),
+    );
+    const decodedEnd = addFractionV2(decodedStart, subtractFractionV2(end, start));
+    clipped.push({
+      ...segment,
+      canonicalStartSamplePosition: exactAudioSamplePositionV2(start),
+      canonicalEndExclusiveSamplePosition: exactAudioSamplePositionV2(end),
+      decodedStartSamplePosition: exactAudioSamplePositionV2(decodedStart),
+      decodedEndExclusiveSamplePosition: exactAudioSamplePositionV2(decodedEnd),
+    });
+  });
+  if (clipped.length === 0) {
+    throw new Error('VIDEO_SOURCE_CONFORM_AUDIO_EVIDENCE_COVERAGE_INSUFFICIENT');
+  }
+  return frozen(clipped);
+}
+
 function normalizePersistedAudioMappingV3(
   value: unknown,
   projectRate: ExactRationalRateV1,
   timelineStartFrame: string,
+  sourceBinding: VerifiedVideoSourceEpochTimeBindingV3,
 ): VideoSourceTimestampConformV3['audioMapping'] {
   if (value === null) return null;
   const record = objectRecord(value, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_INVALID');
   exactObjectKeys(record, [
-    'endExclusiveSamplePosition', 'endExclusiveTimelineFrame', 'sourceAnchorSampleFrame',
-    'sourceRange', 'startSamplePosition',
+    'assetId', 'audioMappingSha256', 'audioSampleEpochMapSha256',
+    'audioStreamBindingSha256', 'audioStreamIndex', 'canonicalTimelineEndExclusiveSamplePosition',
+    'canonicalTimelineStartSamplePosition', 'channelCount', 'decodedPcmSha256',
+    'decodedSampleFrameCount', 'endExclusiveTimelineFrame', 'kind', 'policy',
+    'sampleRate', 'schemaVersion', 'segments', 'sourceBindingSha256',
+    'sourceVersionSha256', 'storageVersionSha256', 'streamId',
+    'technicalObservationSha256', 'timelineStartFrame',
   ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_FIELDS_INVALID');
-  const sourceRange = parseAudioSampleRangeV1(record.sourceRange);
-  const sourceAnchorSampleFrame = nonNegativeIntegerText(
-    record.sourceAnchorSampleFrame,
-    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_ANCHOR_INVALID',
+  if (record.schemaVersion !== 3
+    || record.kind !== VIDEO_SOURCE_TIMESTAMP_AUDIO_MAPPING_KIND_V3) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_INVALID');
+  }
+  const audioStreamIndex = nonNegativeSafeInteger(
+    record.audioStreamIndex,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_STREAM_INDEX_INVALID',
+  );
+  if (typeof record.channelCount !== 'number') {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_CHANNEL_COUNT_INVALID');
+  }
+  const channelCount = positiveInteger(
+    record.channelCount,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_CHANNEL_COUNT_INVALID',
+  );
+  const normalizedTimelineStartFrame = nonNegativeIntegerText(
+    record.timelineStartFrame,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_TIMELINE_START_INVALID',
   );
   const endExclusiveTimelineFrame = nonNegativeIntegerText(
     record.endExclusiveTimelineFrame,
     'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_END_INVALID',
   );
-  const expected = createTimestampConformAudioMappingV2({
-    sourceRange,
-    sourceAnchorSampleFrame,
-    endExclusiveTimelineFrame,
-  }, projectRate, timelineStartFrame);
-  const startSamplePosition = normalizeExactAudioSamplePositionV3(record.startSamplePosition);
-  const endExclusiveSamplePosition = normalizeExactAudioSamplePositionV3(
-    record.endExclusiveSamplePosition,
-  );
-  if (hashEditronCanonicalJsonV1({
-    sourceRange,
-    sourceAnchorSampleFrame,
-    endExclusiveTimelineFrame,
-    startSamplePosition,
-    endExclusiveSamplePosition,
-  }) !== hashEditronCanonicalJsonV1(expected)) {
-    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_MISMATCH');
+  if (normalizedTimelineStartFrame !== timelineStartFrame
+    || BigInt(endExclusiveTimelineFrame) <= BigInt(timelineStartFrame)) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_TIMELINE_RANGE_INVALID');
   }
-  return expected;
+  const sampleRate = positiveIntegerText(
+    record.sampleRate,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SAMPLE_RATE_INVALID',
+  );
+  const decodedSampleFrameCount = positiveIntegerText(
+    record.decodedSampleFrameCount,
+    'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SAMPLE_COUNT_INVALID',
+  );
+  const canonicalTimelineStartSamplePosition = normalizeExactAudioSamplePositionV3(
+    record.canonicalTimelineStartSamplePosition,
+  );
+  const canonicalTimelineEndExclusiveSamplePosition = normalizeExactAudioSamplePositionV3(
+    record.canonicalTimelineEndExclusiveSamplePosition,
+  );
+  const start = fractionFromAudioSamplePositionV3(canonicalTimelineStartSamplePosition);
+  const expectedEnd = addFractionV2(start, fractionV2(
+    (BigInt(endExclusiveTimelineFrame) - BigInt(timelineStartFrame))
+      * BigInt(projectRate.denominator) * BigInt(sampleRate),
+    BigInt(projectRate.numerator),
+  ));
+  if (compareFractionV2(
+    expectedEnd,
+    fractionFromAudioSamplePositionV3(canonicalTimelineEndExclusiveSamplePosition),
+  ) !== 0) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_DURATION_MISMATCH');
+  }
+  const segments = normalizePersistedAudioSegmentsV3(
+    record.segments,
+    start,
+    expectedEnd,
+    BigInt(decodedSampleFrameCount),
+  );
+  const material = {
+    schemaVersion: 3 as const,
+    kind: VIDEO_SOURCE_TIMESTAMP_AUDIO_MAPPING_KIND_V3,
+    assetId: boundedText(record.assetId, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_ASSET_INVALID'),
+    sourceVersionSha256: sha256Text(record.sourceVersionSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SOURCE_INVALID'),
+    storageVersionSha256: sha256Text(record.storageVersionSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_STORAGE_INVALID'),
+    sourceBindingSha256: sha256Text(record.sourceBindingSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SCOPE_INVALID'),
+    technicalObservationSha256: sha256Text(record.technicalObservationSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_OBSERVATION_INVALID'),
+    audioSampleEpochMapSha256: sha256Text(record.audioSampleEpochMapSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_MAP_INVALID'),
+    audioStreamBindingSha256: sha256Text(record.audioStreamBindingSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_STREAM_BINDING_INVALID'),
+    decodedPcmSha256: sha256Text(record.decodedPcmSha256, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_PCM_INVALID'),
+    streamId: boundedText(record.streamId, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_STREAM_INVALID'),
+    audioStreamIndex,
+    sampleRate,
+    channelCount,
+    decodedSampleFrameCount,
+    timelineStartFrame: normalizedTimelineStartFrame,
+    endExclusiveTimelineFrame,
+    canonicalTimelineStartSamplePosition,
+    canonicalTimelineEndExclusiveSamplePosition,
+    policy: normalizeTimestampConformAudioPolicyV3(record.policy),
+    segments,
+  };
+  if (material.assetId !== sourceBinding.assetId
+    || material.sourceVersionSha256 !== sourceBinding.sourceVersionSha256
+    || material.storageVersionSha256 !== sourceBinding.storageVersionSha256
+    || material.sourceBindingSha256 !== sourceBinding.sourceBindingSha256
+    || material.technicalObservationSha256 !== sourceBinding.technicalObservationSha256
+    || material.streamId !== `audio-${String(audioStreamIndex)}`
+    || record.audioMappingSha256 !== hashEditronCanonicalJsonV1(material)) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_HASH_OR_SCOPE_MISMATCH');
+  }
+  return frozen({
+    ...material,
+    audioMappingSha256: record.audioMappingSha256 as string,
+  });
+}
+
+function normalizePersistedAudioSegmentsV3(
+  value: unknown,
+  mappingStart: ExactFractionV2,
+  mappingEnd: ExactFractionV2,
+  decodedSampleFrameCount: bigint,
+): readonly VideoSourceTimestampConformAudioSegmentV3[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 200_001) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SEGMENTS_INVALID');
+  }
+  let cursor = mappingStart;
+  let previousDecodedEnd: ExactFractionV2 | null = null;
+  const segments = value.map((candidate): VideoSourceTimestampConformAudioSegmentV3 => {
+    const record = objectRecord(
+      candidate,
+      'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SEGMENT_INVALID',
+    );
+    const commonKeys = [
+      'canonicalEndExclusiveSamplePosition', 'canonicalStartSamplePosition', 'kind',
+    ];
+    const canonicalStartSamplePosition = normalizeExactAudioSamplePositionV3(
+      record.canonicalStartSamplePosition,
+    );
+    const canonicalEndExclusiveSamplePosition = normalizeExactAudioSamplePositionV3(
+      record.canonicalEndExclusiveSamplePosition,
+    );
+    const canonicalStart = fractionFromAudioSamplePositionV3(
+      canonicalStartSamplePosition,
+    );
+    const canonicalEnd = fractionFromAudioSamplePositionV3(
+      canonicalEndExclusiveSamplePosition,
+    );
+    if (compareFractionV2(canonicalStart, cursor) !== 0
+      || compareFractionV2(canonicalStart, canonicalEnd) >= 0
+      || compareFractionV2(canonicalEnd, mappingEnd) > 0) {
+      throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SEGMENT_COVERAGE_INVALID');
+    }
+    cursor = canonicalEnd;
+    if (record.kind === 'PCM') {
+      exactObjectKeys(record, [
+        ...commonKeys, 'audioEpochId', 'decodedEndExclusiveSamplePosition',
+        'decodedStartSamplePosition',
+      ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_PCM_SEGMENT_FIELDS_INVALID');
+      const decodedStartSamplePosition = normalizeExactAudioSamplePositionV3(
+        record.decodedStartSamplePosition,
+      );
+      const decodedEndExclusiveSamplePosition = normalizeExactAudioSamplePositionV3(
+        record.decodedEndExclusiveSamplePosition,
+      );
+      const decodedStart = fractionFromAudioSamplePositionV3(decodedStartSamplePosition);
+      const decodedEnd = fractionFromAudioSamplePositionV3(
+        decodedEndExclusiveSamplePosition,
+      );
+      if (compareFractionV2(decodedStart, fractionV2(BigInt(0), BigInt(1))) < 0
+        || compareFractionV2(decodedStart, decodedEnd) >= 0
+        || compareFractionV2(
+          decodedEnd,
+          fractionV2(decodedSampleFrameCount, BigInt(1)),
+        ) > 0
+        || compareFractionV2(
+          subtractFractionV2(decodedEnd, decodedStart),
+          subtractFractionV2(canonicalEnd, canonicalStart),
+        ) !== 0
+        || (previousDecodedEnd !== null
+          && compareFractionV2(decodedStart, previousDecodedEnd) !== 0)) {
+        throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_PCM_SEGMENT_INVALID');
+      }
+      previousDecodedEnd = decodedEnd;
+      return {
+        kind: 'PCM' as const,
+        audioEpochId: boundedText(
+          record.audioEpochId,
+          'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_EPOCH_INVALID',
+        ),
+        canonicalStartSamplePosition,
+        canonicalEndExclusiveSamplePosition,
+        decodedStartSamplePosition,
+        decodedEndExclusiveSamplePosition,
+      };
+    }
+    exactObjectKeys(record, [
+      ...commonKeys, 'nextAudioEpochId', 'precedingAudioEpochId', 'reason',
+    ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SILENCE_SEGMENT_FIELDS_INVALID');
+    const reason = record.reason;
+    if (record.kind !== 'SILENCE'
+      || (reason !== 'LEADING_STREAM_OFFSET'
+        && reason !== 'DECLARED_SOURCE_GAP')) {
+      throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SILENCE_SEGMENT_INVALID');
+    }
+    return {
+      kind: 'SILENCE' as const,
+      reason,
+      precedingAudioEpochId: record.precedingAudioEpochId === null
+        ? null
+        : boundedText(
+            record.precedingAudioEpochId,
+            'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_PRECEDING_EPOCH_INVALID',
+          ),
+      nextAudioEpochId: boundedText(
+        record.nextAudioEpochId,
+        'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_NEXT_EPOCH_INVALID',
+      ),
+      canonicalStartSamplePosition,
+      canonicalEndExclusiveSamplePosition,
+    };
+  });
+  if (compareFractionV2(cursor, mappingEnd) !== 0) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_SEGMENT_COVERAGE_INVALID');
+  }
+  return frozen(segments);
+}
+
+function normalizeTimestampConformAudioPolicyV3(
+  value: unknown,
+): typeof VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3 {
+  const record = objectRecord(value, 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POLICY_INVALID');
+  exactObjectKeys(record, [
+    'channelRemix', 'epochAlignment', 'gaps', 'overlapsAndResets',
+    'resampling', 'samplePhase',
+  ], 'VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POLICY_FIELDS_INVALID');
+  if (record.epochAlignment !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.epochAlignment
+    || record.samplePhase !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.samplePhase
+    || record.gaps !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.gaps
+    || record.overlapsAndResets !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.overlapsAndResets
+    || record.resampling !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.resampling
+    || record.channelRemix !== VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3.channelRemix) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POLICY_INVALID');
+  }
+  return VIDEO_SOURCE_TIMESTAMP_AUDIO_POLICY_V3;
 }
 
 function normalizeExactAudioSamplePositionV3(value: unknown): ExactAudioSamplePositionV2 {
@@ -1627,7 +2145,26 @@ function normalizeExactAudioSamplePositionV3(value: unknown): ExactAudioSamplePo
   if (record.disposition !== expectedDisposition) {
     throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_DISPOSITION_INVALID');
   }
+  const reduced = fractionV2(BigInt(numerator), BigInt(denominator));
+  if (reduced.numerator.toString() !== numerator
+    || reduced.denominator.toString() !== denominator) {
+    throw new Error('VIDEO_SOURCE_TIMESTAMP_CONFORM_V3_AUDIO_POSITION_NOT_REDUCED');
+  }
   return { numerator, denominator, disposition: expectedDisposition };
+}
+
+function fractionFromAudioSamplePositionV3(
+  value: ExactAudioSamplePositionV2,
+): ExactFractionV2 {
+  return fractionV2(BigInt(value.numerator), BigInt(value.denominator));
+}
+
+function maximumFractionV3(left: ExactFractionV2, right: ExactFractionV2): ExactFractionV2 {
+  return compareFractionV2(left, right) >= 0 ? left : right;
+}
+
+function minimumFractionV3(left: ExactFractionV2, right: ExactFractionV2): ExactFractionV2 {
+  return compareFractionV2(left, right) <= 0 ? left : right;
 }
 
 function normalizeTimestampConformQueriesV2(
