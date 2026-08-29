@@ -1,9 +1,9 @@
 # Editron Codex hardcodes, assumptions and evidence-debt register
 
-Opened: 2026-08-20; last reconciled: 2026-08-29
+Opened: 2026-08-20; last reconciled: 2026-08-30
 Authority: code-grounded programme audit; status register, not runtime authority
 Audit lane: editron-worktree / infrastructure-improvs-+Editron
-Audit HEAD: findings rechecked through `154dfd74f`;
+Audit HEAD: findings rechecked through `828785eff`;
 latest route-ablation paid-cohort receipt `9583de5c0eb3281ea780e82cca4d0b735c1ec36f41970d6d7d3bfbe5031a498f`
 
 ## Purpose
@@ -261,6 +261,8 @@ the later two-editor moving-reference pilot.
 | MEDIA-21 | A verified V2 manifest index proves complete qualified-source coverage or source-wide CFR/VFR. | PARTIAL_CONVERGENCE | Still false by itself. Commit `650d46b82` supplies the missing pure qualified-observation start/end and map-binding comparison over `3cd22d54f`'s injected-reader result; partial ranges, forged coverage and cross-map indexes fail closed. No storage-owner reader, V2 state owner or terminal state write exists, so this is not an observed production source-wide conclusion. |
 | MEDIA-22 | A pure source-coverage result from an injected reader proves a deployed resumable mapper or long-form product support. | MISSING_WIRING | False. `650d46b82` has no storage backend, continuous scanner, persistent checkpoint, asset-state transition, worker dispatch/retry, deployment proof, ProjectService source binding or renderer consumer. It is a prerequisite contract for those owners, not their substitute. |
 | MEDIA-23 | The exact-render R2 adapter's 4.995-GiB maximum, one-hour default lease and seven-day maximum lease are universal content-duration or render-SLO policy. | PROVISIONAL_INFRASTRUCTURE_POLICY | False. Commit `154dfd74f` deliberately limits its conditional single PUT to Cloudflare's documented single-upload ceiling and its signed GET to the provider's documented 1-second-to-7-day expiry range; the one-hour default is uncalibrated. These guards are not a source/project duration, raster, codec or customer-tier limit. The in-memory proof covers exact streamed hash/length/metadata reread, idempotent collision, signed origin/key and rejection; it does not prove live bucket isolation, object lifecycle, multipart/resume, cancellation, throughput, latency or cost. Calibrate a large-object strategy and render lease SLO using real private R2 telemetry before promotion. Sources: [R2 limits](https://developers.cloudflare.com/r2/platform/limits/), [presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), [S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/). |
+| MEDIA-24 | Exact-render source-preparation jobs use a five-attempt ceiling and seven-day durable-job retention. | PROVISIONAL_INFRASTRUCTURE_POLICY | Commit `828785eff` proves local shared-store create-or-get identity, replay and per-source fan-out only. Five attempts and seven days are not render SLOs, source-duration limits or evidence that a deterministic failure should be retried. Calibrate and version retryability, backoff and retention from measured encoder duration, transient failure/redelivery, storage recovery, resource pressure and cost evidence before live promotion. |
+| MEDIA-25 | Exact-render source-preparation jobs currently persist `budgetReservation: null`. | MISSING_CONTRACT | This deliberately means the durable record is not authorization to run live preparation. Encoding compute, private-object storage, egress and retry cost have no reserved/settled accounting contract at this boundary. Bind an approved cost-policy identity, exact reservation, retry charging and terminal settlement/release before any dispatcher or worker can use this job in production. |
 
 ## J. Product execution-root boundaries
 

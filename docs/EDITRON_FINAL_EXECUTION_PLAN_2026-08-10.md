@@ -7947,6 +7947,35 @@ lease or render through Remotion. Those are the next Queue item 3 phases. Queue
 item 4's live private-object lifecycle and scalable large-object policy remain
 open. This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Shared-store exact-render source job Phase 3F-C7af (2026-08-30):** commit
+`828785eff` binds the one-source preparation identity above to the existing
+Mongo-backed `DurableWorkflowJobStoreV1`. The create-or-get owner is
+`NATIVE_MEDIA_FINAL_RENDER`, its job kind is
+`native_media_final_render_prepare_source`, identical replay resolves to the
+same durable job, and a different admitted source resolves to a separate job.
+The stored input continues to bind the tenant/user/organization/project,
+sequence and ProjectService revision, the exact admission receipt and source
+request, materializer/encoder/storage policies, qualified runtime receipt and
+worker-image digest without persisting a source or artifact lease URL.
+
+The focused create-or-get suite passes 5/5, including a real shared
+`StatefulMongoCollection` replay and per-source fan-out; the expanded
+exact-render/store cluster passes 74/74; repository TypeScript and
+repository-wide quiet ESLint pass. The current five-attempt ceiling and
+seven-day job retention are provisional infrastructure policy, not a render
+SLO or media-duration limit. `budgetReservation: null` means the job cannot be
+treated as authorization for live encoding, private storage, egress or spend.
+
+This result is
+`DURABLE_EXACT_RENDER_SOURCE_JOB_PERSISTENCE_VERIFIED_DISPATCH_WORKER_AND_BUDGET_OPEN`.
+It does not dispatch, claim, heartbeat, materialize, publish, save a resume
+state, complete the job, mint a fresh render lease or connect the authenticated
+render route. Those remain the next Queue item 3 phases, together with exact
+execution-budget reservation/settlement and live Atlas/QStash/private-R2
+evidence. Queue item 4 retains scalable object lifecycle, V3 ingest/migration
+and proxy/master invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
