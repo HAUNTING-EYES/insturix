@@ -4,6 +4,12 @@ import {
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_WINDOW_MAX_FRAMES_V2,
   type NativeMediaTimestampPreviewWindowV2,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-window-v2';
+import {
+  assertNativeMediaTimestampPreviewClassificationLeaseV1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_KIND_V1,
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_MAX_TTL_MS_V1,
+  type NativeMediaTimestampPreviewClassificationLeaseV1,
+} from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
 
 import { readCanonicalFrameRateV1 } from '../contracts/canonical-media-time-v1';
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
@@ -50,6 +56,8 @@ export type NativeMediaTimestampPreviewMaterializerPolicyV1 = Readonly<{
   minimumRemainingLeaseMs: number;
   renewBeforeExpiryMs: number;
   maximumSurfaceLeaseTtlMs: number;
+  classificationLeaseTtlMs: number;
+  classificationRenewBeforeExpiryMs: number;
   epochWindow: MediaSourcePtsCadenceEpochWindowResourcePolicyV3;
   conform: VideoSourceTimestampConformResourcePolicyV2;
   decoderResource: NativeMediaTimestampDecoderResourcePolicyV1;
@@ -64,6 +72,8 @@ NativeMediaTimestampPreviewMaterializerPolicyV1 = Object.freeze({
   minimumRemainingLeaseMs: 15 * 60 * 1_000,
   renewBeforeExpiryMs: 5 * 60 * 1_000,
   maximumSurfaceLeaseTtlMs: 60 * 60 * 1_000,
+  classificationLeaseTtlMs: 30_000,
+  classificationRenewBeforeExpiryMs: 10_000,
   epochWindow: Object.freeze({
     policyVersion: 'EDITRON_NATIVE_PREVIEW_EPOCH_WINDOW_V1',
     maxFrameRecords: 100_000,
@@ -122,7 +132,7 @@ export type NativeMediaTimestampPreviewMaterializerResultV1 = Readonly<
   | {
       disposition: 'NOT_APPLICABLE';
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
-      projectRevision?: ProjectRevisionV1;
+      classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
     }
   | {
       disposition: 'WINDOW_MATERIALIZED';
@@ -225,12 +235,51 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     return unverifiable('ASSET_UNAVAILABLE', null);
   }
   if (asset) {
+    if (asset.assetId !== overlay.assetId || asset.type !== 'video') {
+      return unverifiable('ASSET_SCOPE_INVALID', null);
+    }
     const management = timestampManagement(asset);
     if (management === 'NONE') {
+      let classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
+      try {
+        const issuedAtEpochMs = epochMs(now());
+        const expiresAtEpochMs = epochMs(
+          issuedAtEpochMs + policy.classificationLeaseTtlMs,
+        );
+        classificationLease = assertNativeMediaTimestampPreviewClassificationLeaseV1({
+          schemaVersion: 1,
+          kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_KIND_V1,
+          decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
+          projectId: scope.projectId,
+          sequenceId: scope.sequenceId,
+          overlayId: scope.overlayId,
+          assetId: overlay.assetId,
+          projectRevision: snapshot.revision,
+          decisionStateSha256: hashEditronCanonicalJsonV1({
+            schemaVersion: 1,
+            decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
+            projectId: scope.projectId,
+            sequenceId: scope.sequenceId,
+            overlayId: scope.overlayId,
+            assetId: overlay.assetId,
+            projectRevision: snapshot.revision,
+            cadenceStatePresent: {
+              v1Map: false, v1Hash: false, v2Map: false, v2Hash: false,
+              v3Map: false, v3Hash: false,
+            },
+          }),
+          issuedAtEpochMs,
+          refreshAfterEpochMs:
+            expiresAtEpochMs - policy.classificationRenewBeforeExpiryMs,
+          expiresAtEpochMs,
+        });
+      } catch (error) {
+        return unverifiable('INPUT_INVALID', diagnostic(error));
+      }
       return Object.freeze({
         disposition: 'NOT_APPLICABLE' as const,
         reason: 'ASSET_NOT_TIMESTAMP_MANAGED' as const,
-        ...(scope.expectedProjectRevision ? { projectRevision: snapshot.revision } : {}),
+        classificationLease,
       });
     }
     if (management === 'EARLIER') {
@@ -536,6 +585,11 @@ function normalizePolicy(
     || !Number.isSafeInteger(policy.minimumRemainingLeaseMs)
     || !Number.isSafeInteger(policy.renewBeforeExpiryMs)
     || !Number.isSafeInteger(policy.maximumSurfaceLeaseTtlMs)
+    || !positivePolicyInteger(policy.classificationLeaseTtlMs)
+    || !positivePolicyInteger(policy.classificationRenewBeforeExpiryMs)
+    || policy.classificationLeaseTtlMs
+      > NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_MAX_TTL_MS_V1
+    || policy.classificationRenewBeforeExpiryMs >= policy.classificationLeaseTtlMs
     || policy.renewBeforeExpiryMs < 1
     || policy.minimumRemainingLeaseMs <= policy.renewBeforeExpiryMs
     || policy.maximumSurfaceLeaseTtlMs < policy.minimumRemainingLeaseMs

@@ -12,10 +12,7 @@ import { assertNativeMediaTimestampPreviewWindowV2 } from '@/components/editron/
 
 describe('native media timestamp preview session client V1', () => {
   it('allows ordinary playback only after explicit server classification', async () => {
-    const harness = coordinatorHarness(async () => ({
-      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
-      projectRevision: revision(),
-    }));
+    const harness = coordinatorHarness(async (command) => ordinary(command, 1));
     harness.coordinator.update(updateInput(10));
     expect(gate(harness, 10).disposition).toBe('PROBING');
     expect(playable(harness, 10)).toEqual([]);
@@ -31,26 +28,95 @@ describe('native media timestamp preview session client V1', () => {
   });
 
   it('blocks missing or mismatched project revision instead of using ordinary playback', async () => {
-    const missing = coordinatorHarness(async () => ({
-      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
-      projectRevision: revision(),
-    }));
+    const missing = coordinatorHarness(async (command) => ordinary(command, 1));
     missing.coordinator.update(updateInput(10, null));
     expect(gate(missing, 10)).toMatchObject({
       disposition: 'BLOCKED', reason: 'SESSION_PROJECT_REVISION_REQUIRED',
     });
     expect(missing.materialize).not.toHaveBeenCalled();
 
-    const stale = coordinatorHarness(async () => ({
-      disposition: 'NOT_APPLICABLE', reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
-      projectRevision: { ...revision(), value: 0 },
-    }));
+    const stale = coordinatorHarness(async (command) => {
+      const result = ordinary(command, 1);
+      return {
+        ...result,
+        classificationLease: {
+          ...result.classificationLease,
+          projectRevision: { ...revision(), value: 0 },
+        },
+      };
+    });
     stale.coordinator.update(updateInput(10));
     await stale.coordinator.whenIdle();
     expect(gate(stale, 10)).toMatchObject({
-      disposition: 'BLOCKED', reason: 'SESSION_CLASSIFICATION_REVISION_MISMATCH',
+      disposition: 'BLOCKED', reason: 'SESSION_CLASSIFICATION_SCOPE_MISMATCH',
     });
     expect(playable(stale, 10)).toEqual([]);
+  });
+
+  it('rejects wrong-asset and expired-on-arrival ordinary classifications', async () => {
+    const wrongAsset = coordinatorHarness(async (command) => {
+      const result = ordinary(command, 1);
+      return {
+        ...result,
+        classificationLease: { ...result.classificationLease, assetId: 'asset-other' },
+      };
+    });
+    wrongAsset.coordinator.update(updateInput(10));
+    await wrongAsset.coordinator.whenIdle();
+    expect(gate(wrongAsset, 10)).toMatchObject({
+      disposition: 'BLOCKED', reason: 'SESSION_CLASSIFICATION_SCOPE_MISMATCH',
+    });
+    expect(playable(wrongAsset, 10)).toEqual([]);
+
+    let finishRequest!: () => void;
+    const expired = coordinatorHarness((command) => new Promise((resolve) => {
+      finishRequest = () => resolve(ordinary(command, 1));
+    }));
+    expired.coordinator.update(updateInput(10));
+    expired.setMonotonic(20_101);
+    finishRequest();
+    await expired.coordinator.whenIdle();
+    expect(gate(expired, 10)).toMatchObject({
+      disposition: 'BLOCKED', reason: 'SESSION_CLASSIFICATION_EXPIRED_ON_ARRIVAL',
+    });
+    expect(playable(expired, 10)).toEqual([]);
+  });
+
+  it('renews ordinary classification while paused and blocks at hard expiry', async () => {
+    let request = 0;
+    let finishRenewal!: () => void;
+    const harness = coordinatorHarness((command) => {
+      request += 1;
+      if (request === 1) return Promise.resolve(ordinary(command, 1));
+      return new Promise((resolve) => {
+        finishRenewal = () => {
+          const renewed = ordinary(command, 2);
+          resolve({
+            ...renewed,
+            classificationLease: {
+              ...renewed.classificationLease,
+              refreshAfterEpochMs: renewed.classificationLease.issuedAtEpochMs + 15_000,
+              expiresAtEpochMs: renewed.classificationLease.issuedAtEpochMs + 25_000,
+            },
+          });
+        };
+      });
+    });
+    harness.coordinator.update(updateInput(10));
+    await harness.coordinator.whenIdle();
+    expect(gate(harness, 10).disposition).toBe('READY');
+
+    harness.setMonotonic(10_101);
+    await harness.runNextWake(false);
+    expect(harness.materialize).toHaveBeenCalledTimes(2);
+    expect(gate(harness, 10).disposition).toBe('READY');
+
+    harness.setMonotonic(20_101);
+    await harness.runNextWake(false);
+    expect(gate(harness, 10).disposition).toBe('PROBING');
+    finishRenewal();
+    await harness.coordinator.whenIdle();
+    expect(gate(harness, 10).disposition).toBe('READY');
   });
 
   it('materializes active and prefetch windows, then swaps and releases after a seek', async () => {
@@ -230,14 +296,14 @@ function coordinatorHarness(
     deferred,
     wakeups,
     setMonotonic(value: number) { monotonic = value; },
-    async runNextWake() {
+    async runNextWake(waitForIdle = true) {
       const next = [...wakeups.entries()].sort((left, right) => (
         left[1].delayMs - right[1].delayMs
       ))[0];
       if (!next) throw new Error('Expected a scheduled lease wake-up.');
       wakeups.delete(next[0]);
       next[1].callback();
-      await coordinator.whenIdle();
+      if (waitForIdle) await coordinator.whenIdle();
     },
     async runDeferred() {
       while (deferred.length > 0) deferred.shift()!();
@@ -307,6 +373,28 @@ function materialized(command: NativeMediaTimestampPreviewMaterializeCommandV2, 
     sourcePtsCadenceMapStateSha256V3: hex(70_000 + sequence),
     transformSha256: hex(80_000 + sequence),
     materializedPictureCount: command.windowDurationInFrames,
+  };
+}
+
+function ordinary(command: NativeMediaTimestampPreviewMaterializeCommandV2, sequence: number) {
+  const issuedAtEpochMs = 10_000 + (sequence - 1) * 30_000;
+  return {
+    disposition: 'NOT_APPLICABLE',
+    reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
+    classificationLease: {
+      schemaVersion: 1,
+      kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_V1',
+      decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
+      projectId: command.projectId,
+      sequenceId: command.sequenceId,
+      overlayId: command.overlayId,
+      assetId: 'asset-1',
+      projectRevision: command.expectedProjectRevision,
+      decisionStateSha256: hex(90_000 + sequence),
+      issuedAtEpochMs,
+      refreshAfterEpochMs: issuedAtEpochMs + 10_000,
+      expiresAtEpochMs: issuedAtEpochMs + 20_000,
+    },
   };
 }
 

@@ -1,8 +1,10 @@
 import { OverlayType, type Overlay } from '../types';
 import {
+  assertNativeMediaTimestampPreviewClassificationLeaseV1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZE_COMMAND_KIND_V2,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_RELEASE_COMMAND_KIND_V1,
   type NativeMediaTimestampPreviewMaterializeCommandV2,
+  type NativeMediaTimestampPreviewClassificationLeaseV1,
   type NativeMediaTimestampPreviewReleaseCommandV1,
 } from './native-media-timestamp-preview-session-contract-v1';
 import {
@@ -73,11 +75,17 @@ type WindowRecord = Readonly<{
   requestStartedMonotonicMs: number;
 }>;
 
+type ClassificationRecord = Readonly<{
+  lease: NativeMediaTimestampPreviewClassificationLeaseV1;
+  requestStartedMonotonicMs: number;
+}>;
+
 type OverlayState = {
   video: NormalizedVideo;
   generation: number;
   disposition: NativeMediaTimestampPreviewClientDispositionV1;
   reason: string | null;
+  classification: ClassificationRecord | null;
   windows: Map<number, WindowRecord>;
   inflight: Map<string, Promise<'WINDOW' | 'ORDINARY' | 'BLOCKED'>>;
   reconciling: boolean;
@@ -88,7 +96,7 @@ type MaterializeResult = Readonly<
   | {
       disposition: 'NOT_APPLICABLE';
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED';
-      projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'];
+      classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
     }
   | { disposition: 'WINDOW_MATERIALIZED'; window: NativeMediaTimestampPreviewWindowV2 }
   | { disposition: 'UNVERIFIABLE'; reason: string }
@@ -204,6 +212,17 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         states.set(video.overlayId, state);
         publish();
       }
+      if (state.disposition === 'ORDINARY' && state.classification) {
+        try {
+          if (classificationDisposition(state.classification) === 'EXPIRED') {
+            state.disposition = 'PROBING';
+            state.reason = null;
+            publish();
+          }
+        } catch (error) {
+          blockState(state, knownCode(error) ?? 'SESSION_CLOCK_INVALID');
+        }
+      }
       reconcile(
         state,
         normalized.projectId,
@@ -221,6 +240,15 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     projectRevision: NativeMediaTimestampPreviewWindowV2['projectRevision'],
     currentFrame: number,
   ): void {
+    if (state.disposition === 'BLOCKED') return;
+    if (state.disposition === 'ORDINARY' && state.classification) {
+      try {
+        if (classificationDisposition(state.classification) === 'CURRENT') return;
+      } catch (error) {
+        blockState(state, knownCode(error) ?? 'SESSION_CLOCK_INVALID');
+        return;
+      }
+    }
     if (state.reconciling) {
       state.reconcileRequested = true;
       return;
@@ -242,7 +270,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         plan.active.localStartFrame,
         ...(plan.prefetch ? [plan.prefetch.localStartFrame] : []),
       ]));
-      if (state.disposition === 'ORDINARY' || state.disposition === 'BLOCKED') return;
+      if (state.disposition === 'BLOCKED') return;
 
       const activeResult = await ensureRange(
         state, projectId, sequenceId, projectRevision, plan.active,
@@ -279,7 +307,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     const key = `${state.generation}:${range.localStartFrame}:${range.durationInFrames}`;
     const existing = state.inflight.get(key);
     if (existing) return existing;
-    if (!current) {
+    if (!current && state.disposition !== 'ORDINARY') {
       state.disposition = 'PROBING';
       state.reason = null;
       publish();
@@ -308,15 +336,25 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
         return 'BLOCKED' as const;
       }
       if (result.disposition === 'NOT_APPLICABLE') {
-        if (!sameRevision(result.projectRevision, command.expectedProjectRevision)) {
+        let classification: ClassificationRecord;
+        try {
+          classification = validateReturnedClassification({
+            lease: result.classificationLease,
+            command,
+            video: state.video,
+            requestStartedMonotonicMs,
+            receivedMonotonicMs: safeMonotonicNow(monotonicNow),
+          });
+        } catch (error) {
           if (isCurrentState(state, generation, signature)) {
-            blockState(state, 'SESSION_CLASSIFICATION_REVISION_MISMATCH');
+            blockState(state, knownCode(error) ?? 'SESSION_CLASSIFICATION_INVALID');
           }
           return 'BLOCKED' as const;
         }
         if (isCurrentState(state, generation, signature)) {
           const removed = [...state.windows.values()];
           state.windows.clear();
+          state.classification = classification;
           state.disposition = 'ORDINARY';
           state.reason = null;
           publish();
@@ -354,6 +392,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       }
       const previous = state.windows.get(range.localStartFrame);
       state.windows.set(range.localStartFrame, record);
+      state.classification = null;
       state.disposition = 'EXACT';
       state.reason = null;
       publish();
@@ -382,6 +421,13 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   function observedServerNowEpochMs(): number {
     let observed: number | null = null;
     for (const state of states.values()) {
+      if (state.classification) {
+        const candidate = observedFromIssued(
+          state.classification.lease.issuedAtEpochMs,
+          state.classification.requestStartedMonotonicMs,
+        );
+        observed = observed === null ? candidate : Math.max(observed, candidate);
+      }
       for (const record of state.windows.values()) {
         const candidate = observedFor(record);
         observed = observed === null ? candidate : Math.max(observed, candidate);
@@ -418,6 +464,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       generation: 1,
       disposition: 'PROBING',
       reason: null,
+      classification: null,
       windows: new Map(),
       inflight: new Map(),
       reconciling: false,
@@ -430,6 +477,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     state.generation += 1;
     const records = [...state.windows.values()];
     state.windows.clear();
+    state.classification = null;
     publish();
     deferReleases(records);
   }
@@ -464,6 +512,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   function blockState(state: OverlayState, reason: string): void {
     const removed = [...state.windows.values()];
     state.windows.clear();
+    state.classification = null;
     state.disposition = 'BLOCKED';
     state.reason = safeReason(reason);
     publish();
@@ -477,12 +526,26 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   }
 
   function observedFor(record: WindowRecord): number {
-    const elapsed = Math.max(
-      0,
-      safeMonotonicNow(monotonicNow) - record.requestStartedMonotonicMs,
+    return observedFromIssued(
+      record.window.lease.issuedAtEpochMs,
+      record.requestStartedMonotonicMs,
     );
-    const observed = record.window.lease.issuedAtEpochMs + Math.ceil(elapsed);
-    return Math.min(Number.MAX_SAFE_INTEGER, observed);
+  }
+
+  function classificationDisposition(
+    record: ClassificationRecord,
+  ): 'CURRENT' | 'RENEW_DUE' | 'EXPIRED' {
+    const observed = observedFromIssued(
+      record.lease.issuedAtEpochMs,
+      record.requestStartedMonotonicMs,
+    );
+    if (observed >= record.lease.expiresAtEpochMs) return 'EXPIRED';
+    return observed >= record.lease.refreshAfterEpochMs ? 'RENEW_DUE' : 'CURRENT';
+  }
+
+  function observedFromIssued(issuedAtEpochMs: number, requestStartedMonotonicMs: number) {
+    const elapsed = Math.max(0, safeMonotonicNow(monotonicNow) - requestStartedMonotonicMs);
+    return Math.min(Number.MAX_SAFE_INTEGER, issuedAtEpochMs + Math.ceil(elapsed));
   }
 
   function rescheduleLeaseWake(): void {
@@ -491,10 +554,34 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
     if (disposed || !lastInput) return;
     let delayMs: number | null = null;
     for (const state of states.values()) {
-      if (state.inflight.size > 0) continue;
+      if (state.classification) {
+        const observed = observedFromIssued(
+          state.classification.lease.issuedAtEpochMs,
+          state.classification.requestStartedMonotonicMs,
+        );
+        let target: number | null = null;
+        if (observed < state.classification.lease.refreshAfterEpochMs) {
+          target = state.classification.lease.refreshAfterEpochMs;
+        } else if (observed < state.classification.lease.expiresAtEpochMs) {
+          target = state.inflight.size > 0
+            ? state.classification.lease.expiresAtEpochMs
+            : observed + 1;
+        } else if (state.inflight.size === 0) {
+          target = observed + 1;
+        }
+        if (target !== null) {
+          const candidate = Math.max(1, Math.ceil(target - observed));
+          delayMs = delayMs === null ? candidate : Math.min(delayMs, candidate);
+        }
+      }
       for (const record of state.windows.values()) {
-        const remaining = record.window.lease.renewAfterEpochMs - observedFor(record);
-        const candidate = Math.max(1, Math.ceil(remaining));
+        const observed = observedFor(record);
+        const target = observed < record.window.lease.renewAfterEpochMs
+          ? record.window.lease.renewAfterEpochMs
+          : state.inflight.size > 0
+            ? record.window.lease.expiresAtEpochMs
+            : observed + 1;
+        const candidate = Math.max(1, Math.ceil(target - observed));
         delayMs = delayMs === null ? candidate : Math.min(delayMs, candidate);
       }
     }
@@ -503,6 +590,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       leaseWakeHandle = null;
       const input = lastInput;
       if (!disposed && input) update(input);
+      rescheduleLeaseWake();
     }, delayMs);
   }
 
@@ -750,15 +838,46 @@ function validateReturnedWindow(input: Readonly<{
   return record;
 }
 
+function validateReturnedClassification(input: Readonly<{
+  lease: NativeMediaTimestampPreviewClassificationLeaseV1;
+  command: NativeMediaTimestampPreviewMaterializeCommandV2;
+  video: NormalizedVideo;
+  requestStartedMonotonicMs: number;
+  receivedMonotonicMs: number;
+}>): ClassificationRecord {
+  const lease = assertNativeMediaTimestampPreviewClassificationLeaseV1(input.lease);
+  if (lease.projectId !== input.command.projectId
+    || lease.sequenceId !== input.command.sequenceId
+    || lease.overlayId !== input.command.overlayId
+    || lease.assetId !== input.video.assetId
+    || !sameRevision(lease.projectRevision, input.command.expectedProjectRevision)) {
+    throw new Error('SESSION_CLASSIFICATION_SCOPE_MISMATCH');
+  }
+  const elapsed = Math.max(0, input.receivedMonotonicMs - input.requestStartedMonotonicMs);
+  const observedOnArrival = Math.min(
+    Number.MAX_SAFE_INTEGER,
+    lease.issuedAtEpochMs + Math.ceil(elapsed),
+  );
+  if (observedOnArrival >= lease.expiresAtEpochMs) {
+    throw new Error('SESSION_CLASSIFICATION_EXPIRED_ON_ARRIVAL');
+  }
+  return Object.freeze({
+    lease,
+    requestStartedMonotonicMs: input.requestStartedMonotonicMs,
+  });
+}
+
 function parseMaterializeResult(value: unknown): MaterializeResult {
   const record = objectRecord(value, 'SESSION_RESPONSE_INVALID');
   if (record.disposition === 'NOT_APPLICABLE') {
-    exactKeys(record, ['disposition', 'projectRevision', 'reason']);
+    exactKeys(record, ['classificationLease', 'disposition', 'reason']);
     if (record.reason !== 'ASSET_NOT_TIMESTAMP_MANAGED') throw new Error('SESSION_RESPONSE_INVALID');
     return Object.freeze({
       disposition: 'NOT_APPLICABLE' as const,
       reason: record.reason,
-      projectRevision: normalizeProjectRevision(record.projectRevision),
+      classificationLease: assertNativeMediaTimestampPreviewClassificationLeaseV1(
+        record.classificationLease,
+      ),
     });
   }
   if (record.disposition === 'WINDOW_MATERIALIZED') {

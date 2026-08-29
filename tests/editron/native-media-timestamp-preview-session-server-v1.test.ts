@@ -78,10 +78,21 @@ describe('native media timestamp preview session server V1', () => {
     };
     await expect(materializeNativeMediaTimestampPreviewWindowV1(
       materializerInput(revision()), materializerPorts(ordinaryAsset),
-    )).resolves.toEqual({
+    )).resolves.toMatchObject({
       disposition: 'NOT_APPLICABLE',
       reason: 'ASSET_NOT_TIMESTAMP_MANAGED',
-      projectRevision: revision(),
+      classificationLease: {
+        schemaVersion: 1,
+        decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
+        projectId: 'project-1',
+        sequenceId: 'main',
+        overlayId: '42',
+        assetId: 'asset-1',
+        projectRevision: revision(),
+        issuedAtEpochMs: 1_000,
+        refreshAfterEpochMs: 21_000,
+        expiresAtEpochMs: 31_000,
+      },
     });
     await expect(materializeNativeMediaTimestampPreviewWindowV1(
       materializerInput(),
@@ -92,6 +103,15 @@ describe('native media timestamp preview session server V1', () => {
       }),
     )).resolves.toMatchObject({
       disposition: 'UNVERIFIABLE', reason: 'LEGACY_TIME_MAP_MIGRATION_REQUIRED',
+    });
+  });
+
+  it('rejects a wrong-identity ordinary asset instead of classifying it', async () => {
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(revision()),
+      materializerPorts({ assetId: 'asset-other', type: 'video' }),
+    )).resolves.toMatchObject({
+      disposition: 'UNVERIFIABLE', reason: 'ASSET_SCOPE_INVALID',
     });
   });
 
