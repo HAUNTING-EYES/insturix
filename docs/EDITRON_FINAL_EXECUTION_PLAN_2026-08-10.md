@@ -8162,6 +8162,44 @@ provenance, dispatcher, fresh completed-result publication and render-route
 consumption also remain open Queue item 3 work. This checkpoint does not
 change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Completed-result fresh-source publication Phase 3F-C7am
+(2026-08-30):** commit `6141909c6` adds the missing lifecycle owner between a
+completed URL-free preparation job and the existing private-artifact
+publisher. It loads the job through the authorized durable store boundary,
+reconstructs the exact V1.2 operation/dependency/input identity, validates the
+hash-bound resume result and recreates the terminal `PASS` receipt before any
+ProjectService access. It then revalidates the current ProjectService revision,
+overlay timing/audio disposition, V3 source identity and current matching PCM
+artifact. Publication requires a canonical rights receipt bound to the exact
+tenant, user/org, project revision, overlay, asset, source version, artifact
+and current-scope hash. After the private publisher signs a lease, the owner
+repeats current-scope and rights authorization; a changed source, PCM, project
+or rights receipt withholds the lease. The returned publication receipt binds
+the job, preparation terminal, result, artifact, rights decision and lease but
+contains no source URL. A lease that misses the caller's expiry floor or
+outlives the durable job is rejected.
+
+The focused prepared-source publisher plus preparation/result/job/worker/
+adapter/materializer/R2/source-preparation cluster passes 54/54; repository
+TypeScript and repository-wide quiet ESLint pass. Adversarial proof includes a
+rehashed forged resume result, forged terminal receipt, wrong-project but
+correctly rehashed rights receipt, job-envelope/payload org mismatch, stale
+project/overlay/source/PCM, mid-publication source or rights drift and invalid
+lease bounds. This result is
+`COMPLETED_EXACT_RENDER_ARTIFACT_FRESH_LEASE_PUBLICATION_CONTRACT_VERIFIED_RIGHTS_AND_COMPOSITION_OPEN`.
+
+It does not supply the real project-media rights authority required by the new
+port. Current upload intake records the broad user consent through the native-
+audio rights shape, and the render rights authority verifies audio claims; that
+is not yet an explicit general visual-source clearance receipt. The new owner
+is not instantiated by a production composition root, no authenticated render
+route consumes its lease, no Remotion render consumes the prepared source and
+no live Atlas/R2/QStash/FFmpeg proof ran. Queue item 3 therefore remains open:
+next implement the real source-media rights authority, then bind durable
+budget/retry/heartbeat policy provenance and compose dispatch, publication and
+render-route consumption. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
