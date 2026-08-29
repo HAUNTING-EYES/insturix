@@ -8537,9 +8537,9 @@ TypeScript and repository-wide quiet ESLint pass. This result is
 `EXACT_RENDER_JOB_AND_PUBLICATION_LIFECYCLE_POLICY_ENFORCED_WORKER_AND_DISPATCH_OPEN`.
 
 This is partial control-flow convergence, not a calibrated or deployed policy.
-The worker still calls its older injected `nextRetryAt` port instead of the
-new hash-bound retry/dead-letter decision, QStash dispatch does not consume the
-policy, and no production composition root or live telemetry selects the
+At this checkpoint, the worker still calls its older injected `nextRetryAt`
+port instead of the new hash-bound retry/dead-letter decision. QStash dispatch
+does not consume the policy, and no production composition root or live telemetry selects the
 numbers. Because the full declaration is resolved outside the durable payload,
 production also needs an immutable registry that can resolve every retained
 owner/version/hash after a policy rotation; using only the current deployment
@@ -8560,6 +8560,35 @@ or budget-settlement behavior changes. The focused worker suite passes 17/17;
 repository TypeScript and repository-wide quiet ESLint pass. This cleanup is
 only preparation for the separately verified retry-decision migration and does
 not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Exact-render worker retry-decision enforcement Phase 3F-C7az
+(2026-08-30):** commit `c4aea45f0` removes the preparation worker's
+caller-injected `nextRetryAt` calculator. The worker now requires the complete
+delivery/retry declaration, validates and constructs the sole canonical
+decision owner before claiming, and compares that owner's ID, version and
+policy hash with the durable V1.3 runtime binding before budget or media access.
+A forged declaration fails before claim; a different but valid declaration
+dead-letters the claimed job before budget authorization or materialization.
+
+For a retryable post-resume transition failure, the owner now evaluates the
+claimed attempt count, remaining attempts, exact creation/expiry interval and
+fixed worker delay. `RETRY_AT` persists the canonical retry instant plus policy
+and decision hashes in the durable retry cursor. `ATTEMPTS_EXHAUSTED` and
+`RETENTION_EXHAUSTED` deterministically convert the failure to a non-retryable
+dead letter, with no approximate schedule. The focused worker suite passes
+18/18; every `native-media-final-render` suite passes 95/95; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_WORKER_RETRY_POLICY_ENFORCED_DISPATCH_REGISTRY_AND_TERMINAL_PROOF_OPEN`.
+
+The shared durable store intentionally clears `retryCursor` for every terminal
+dead letter. Therefore the terminal status and non-retryable failure are
+durable, but the exact retry-policy decision hash/reason is not yet retained in
+an atomic terminal-failure receipt. Add that versioned evidence boundary before
+production promotion; do not treat an in-memory decision or log line as proof.
+The immutable historical-policy registry, QStash dispatcher, signed ingress,
+Finance-backed budget owner, calibrated numbers and live redelivery/cost proof
+also remain open. No live QStash, Atlas, R2, media or project operation occurred.
+This checkpoint does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
