@@ -6650,6 +6650,43 @@ subphase must add the authenticated revision-checking route and a transient
 renderer hydration contract without persisting picture handles as creative
 overlay form, then separately bind analysis and final-render consumers.
 
+**Authenticated timestamp-preview delivery boundary Phase 3F-B
+(2026-08-29):** the node-only
+`/api/services/editron/media/timestamp-preview/[pictureHandle]` GET route is
+now the sole browser-addressable boundary for the private surface handles. It
+authenticates the Clerk user before any private-object read, never redirects to
+R2, conceals a valid handle owned by another user as `404`, and asks the
+existing owner-scoped `ProjectService.getProjectRevision` for the current
+revision immediately before returning bytes. Missing, inaccessible and
+cross-user surfaces return no existence detail; expired leases return `410`;
+stale project revisions return `409`; malformed handles and private-runtime
+failures return bounded status-only responses with no provider diagnostic.
+
+A successful response copies the verified PNG into an owned `ArrayBuffer` and
+returns its exact length with `private, no-store`, `nosniff`, same-origin
+resource policy, no-referrer policy and a content-hash ETag. The route does not
+read or replace native audio and cannot mutate a project. Its 7/7 adversarial
+tests execute the real route control flow for unauthenticated access, exact
+current-revision bytes, cross-user concealment, stale revision, missing and
+expired leases, malformed handles, provider failure and inaccessible project.
+Together with the private-runtime suite the bounded cluster passes 19/19;
+repository TypeScript and affected-file quiet ESLint pass. No live Clerk
+session, R2 object, Atlas row, provider or customer project was touched.
+
+This result is
+`AUTHENTICATED_REVISION_BOUND_PREVIEW_ROUTE_IMPLEMENTED_RENDERER_NOT_WIRED`.
+It still is not visible editor playback. No transient render-input owner maps
+a consumption receipt's `timelineFrame -> pictureHandle` records to these
+same-origin route URLs, and `VideoLayerContent` still has no timestamp-picture
+consumer. The route has not been exercised in a real browser against the live
+private bucket, physical lifecycle policy remains unproved, and expired active
+sessions have no rematerialization coordinator. Queue item 3 remains open:
+the next bounded subphase must add a versioned transient receipt/hydration
+contract to the existing rendering context and make the existing video-layer
+consumer display the exact selected picture while leaving native audio under
+the existing audio owner. Analysis and final-render consumers remain separate
+later subphases.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
