@@ -8451,6 +8451,37 @@ transport code. Queue item 3 next migrates that caller, then binds one versioned
 calibrated delivery/retry policy before exact-render dispatch. This checkpoint
 does not change `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Editorial-plan shared-dispatch migration Phase 3F-C7aw (2026-08-30):**
+commit `9a2ed81cc` removes the editorial-plan product dispatcher's duplicate
+QStash client, credential/origin resolver, hard-coded retry/header fields,
+acknowledgement parser and receipt writer. The PlanService accepted-node job
+binder remains the producer, `DurableWorkflowJobStoreV1` remains lifecycle and
+dispatch-receipt state, the shared QStash owner now makes the transport decision,
+and the unchanged fixed signed editorial worker remains the final consumer.
+Only its versioned `{ version, jobId }` message is published. Delivery policy
+is mandatory caller input, and a path-bearing public origin now fails instead
+of being silently reduced to its host.
+
+The shared/editorial suites pass 15/15; the broader dispatcher, durable worker,
+signed product worker, product execution-root and opt-in recovery cluster passes
+26 tests with the one live Atlas/QStash test correctly skipped. Repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`CADENCE_AND_EDITORIAL_DURABLE_WORKFLOW_QSTASH_CALLERS_CONVERGED_EXACT_RENDER_POLICY_AND_LIVE_PROOF_OPEN`.
+That statement is deliberately narrow: current source confirms these two
+producers call the shared owner and their signed workers consume the messages.
+It does not mean every Editron QStash path is unified. A same-HEAD inventory
+finds 31 files with direct-client or legacy-header patterns and 13 files still
+containing `Upstash-Timeout` across analysis, chat, media intake, Auto Edit,
+render evidence and finalization. Those families need owner-by-owner
+classification and migration during Queue item 7 certification; they must not
+be folded into this owner without preserving their lifecycle semantics.
+
+No calibrated deployment policy, production dispatch caller, hosted redelivery
+or exact-render message exists yet. Queue item 3 next creates the versioned
+delivery/retry policy required by exact-render job identity and then its fixed
+dispatcher/signed worker composition. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
