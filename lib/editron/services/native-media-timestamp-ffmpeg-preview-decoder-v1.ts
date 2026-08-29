@@ -1,23 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
 import type { MediaSourcePtsCadenceMapAssetStateInputV3 } from './media-source-pts-cadence-map-asset-owner-v3';
-import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
-import { resolveVerifiedMediaSourceUrlV1 } from './media-source-qualification-runtime-v1';
-import {
-  inspectMediaSourceStorageVersionV1,
-  sameMediaSourceStorageVersionV1,
-  type MediaSourceStorageVersionV1,
-} from './media-source-storage-version-v1';
-import { assertMediaSourceVersionV1, type MediaSourceVersionV1 } from './media-source-version-v1';
+import { sameMediaSourceStorageVersionV1 } from './media-source-storage-version-v1';
+import { assertMediaSourceVersionV1 } from './media-source-version-v1';
 import { getFFmpegPath } from './media/ffmpeg-runtime';
 import {
   NATIVE_MEDIA_TIMESTAMP_DECODER_BATCH_OUTPUT_KIND_V1,
@@ -29,7 +19,12 @@ import {
   type NativeMediaTimestampDecoderPictureRequestV1,
   type NativeMediaTimestampMaterializingDecoderV1,
 } from './native-media-timestamp-consumer-v1';
-import { resolveVerifiedVideoSourceEpochTimeBindingV3 } from './video-source-time-transform-v1';
+import {
+  createVerifiedAssetMediaSourceLeasePortV1,
+  materializeVerifiedMediaSourceLocalFileV1,
+  type VerifiedMediaSourceLeasePortV1,
+  type VerifiedMediaSourceLeaseV1,
+} from './verified-media-source-local-file-v1';
 
 const TEMP_PREFIX = 'editron-native-preview-v1-';
 const MAX_ADAPTER_PICTURES = 1_024;
@@ -44,16 +39,8 @@ export type NativeMediaTimestampPreviewDecoderPolicyV1 = Readonly<{
   timeoutMs: number;
 }>;
 
-export type NativeMediaTimestampPreviewSourceLeaseV1 = Readonly<{
-  sourceUrl: string;
-  storageVersion: MediaSourceStorageVersionV1;
-  revalidate(): Promise<boolean>;
-}>;
-
-export interface NativeMediaTimestampPreviewSourceLeasePortV1 {
-  open(sourceVersion: Readonly<MediaSourceVersionV1>):
-  Promise<NativeMediaTimestampPreviewSourceLeaseV1>;
-}
+export type NativeMediaTimestampPreviewSourceLeaseV1 = VerifiedMediaSourceLeaseV1;
+export type NativeMediaTimestampPreviewSourceLeasePortV1 = VerifiedMediaSourceLeasePortV1;
 
 export interface NativeMediaTimestampPreviewSurfaceStorePortV1 {
   putPicture(input: Readonly<{
@@ -73,40 +60,10 @@ export interface NativeMediaTimestampPreviewSurfaceStorePortV1 {
 export function createVerifiedAssetNativeMediaTimestampPreviewSourceLeasePortV1(
   asset: MediaSourcePtsCadenceMapAssetStateInputV3,
 ): NativeMediaTimestampPreviewSourceLeasePortV1 {
-  return {
-    async open(expectedSourceVersion) {
-      const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
-      const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
-      if (!binding
-        || sourceVersion.sourceVersionSha256 !== expectedSourceVersion.sourceVersionSha256
-        || binding.sourceVersionSha256 !== sourceVersion.sourceVersionSha256
-        || binding.storageVersionSha256 !== sourceVersion.storageVersion.storageVersionSha256) {
-        throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_BINDING_STALE');
-      }
-      // The V3 binding resolver above validates the qualification record and
-      // its observation before this server-only URL owner receives it.
-      const qualification = asset.sourceQualificationV1 as MediaSourceQualificationRecordV1;
-      const resolved = await resolveVerifiedMediaSourceUrlV1(qualification);
-      if (resolved.disposition !== 'AVAILABLE'
-        || !sameMediaSourceStorageVersionV1(resolved.storageVersion, sourceVersion.storageVersion)) {
-        throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_VERSION_STALE');
-      }
-      return {
-        sourceUrl: resolved.sourceUrl,
-        storageVersion: resolved.storageVersion,
-        async revalidate() {
-          const observed = await inspectMediaSourceStorageVersionV1(
-            sourceVersion.storageVersion.locator,
-          );
-          return observed.disposition === 'OBSERVED'
-            && sameMediaSourceStorageVersionV1(
-              observed.storageVersion,
-              sourceVersion.storageVersion,
-            );
-        },
-      };
-    },
-  };
+  return createVerifiedAssetMediaSourceLeasePortV1(asset, {
+    bindingStale: 'NATIVE_MEDIA_PREVIEW_SOURCE_BINDING_STALE',
+    versionStale: 'NATIVE_MEDIA_PREVIEW_SOURCE_VERSION_STALE',
+  });
 }
 
 export function createNativeMediaTimestampFfmpegPreviewDecoderV1(input: Readonly<{
@@ -190,13 +147,21 @@ async function decodeBatch(input: Readonly<{
   const tempDirectory = await mkdtemp(path.join(tmpdir(), TEMP_PREFIX));
   try {
     const sourcePath = path.join(tempDirectory, 'source.bin');
-    await downloadExactSource(
-      lease.sourceUrl,
-      sourcePath,
-      input.request.sourceVersion,
-      input.policy.maxSourceBytes,
-      input.policy.timeoutMs,
-    );
+    await materializeVerifiedMediaSourceLocalFileV1({
+      sourceUrl: lease.sourceUrl,
+      outputPath: sourcePath,
+      sourceVersion: input.request.sourceVersion,
+      maximumBytes: input.policy.maxSourceBytes,
+      timeoutMs: input.policy.timeoutMs,
+      errorCodes: {
+        sourceByteLimitExceeded: 'NATIVE_MEDIA_PREVIEW_SOURCE_BYTE_LIMIT_EXCEEDED',
+        sourceUrlInvalid: 'NATIVE_MEDIA_PREVIEW_SOURCE_URL_INVALID',
+        sourceReadFailed: 'NATIVE_MEDIA_PREVIEW_SOURCE_READ_FAILED',
+        sourceByteLengthMismatch: 'NATIVE_MEDIA_PREVIEW_SOURCE_BYTE_LENGTH_MISMATCH',
+        sourceContentMismatch: 'NATIVE_MEDIA_PREVIEW_SOURCE_CONTENT_MISMATCH',
+        outputWriteFailed: 'NATIVE_MEDIA_PREVIEW_SOURCE_WRITE_FAILED',
+      },
+    });
     if (!await lease.revalidate()) {
       throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_VERSION_STALE');
     }
@@ -347,54 +312,6 @@ async function runFfmpeg(input: Readonly<{
     offset += frameBytes;
   }
   return frames;
-}
-
-async function downloadExactSource(
-  sourceUrl: string,
-  outputPath: string,
-  sourceVersion: Readonly<MediaSourceVersionV1>,
-  maximumBytes: number,
-  timeoutMs: number,
-): Promise<void> {
-  if (sourceVersion.byteLength > maximumBytes) {
-    throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_BYTE_LIMIT_EXCEEDED');
-  }
-  const url = new URL(sourceUrl);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_URL_INVALID');
-  }
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: { 'accept-encoding': 'identity' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
-  if (!response.ok || !response.body || (encoding && encoding !== 'identity')) {
-    throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_READ_FAILED');
-  }
-  const digest = createHash('sha256');
-  let byteLength = 0;
-  const verifier = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      byteLength += chunk.byteLength;
-      if (byteLength > sourceVersion.byteLength || byteLength > maximumBytes) {
-        callback(new Error('NATIVE_MEDIA_PREVIEW_SOURCE_BYTE_LENGTH_MISMATCH'));
-        return;
-      }
-      digest.update(chunk);
-      callback(null, chunk);
-    },
-  });
-  await pipeline(
-    Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
-    verifier,
-    createWriteStream(outputPath, { flags: 'wx' }),
-  );
-  if (byteLength !== sourceVersion.byteLength
-    || digest.digest('hex') !== sourceVersion.contentSha256) {
-    throw new Error('NATIVE_MEDIA_PREVIEW_SOURCE_CONTENT_MISMATCH');
-  }
 }
 
 async function executeFfmpeg(

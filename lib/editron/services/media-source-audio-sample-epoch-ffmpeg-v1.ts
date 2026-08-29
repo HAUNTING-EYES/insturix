@@ -1,13 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 
 import type {
   MediaSourceAudioPrivateArtifactStreamWriterV1,
@@ -34,7 +31,10 @@ import type { MediaSourceQualificationRecordV1 } from './media-source-qualificat
 import { sameMediaSourceStorageVersionV1 } from './media-source-storage-version-v1';
 import { assertMediaSourceVersionV1, type MediaSourceVersionV1 } from './media-source-version-v1';
 import { getFFmpegPath } from './media/ffmpeg-runtime';
-import type { NativeMediaTimestampPreviewSourceLeasePortV1 } from './native-media-timestamp-ffmpeg-preview-decoder-v1';
+import {
+  materializeVerifiedMediaSourceLocalFileV1,
+  type VerifiedMediaSourceLeasePortV1,
+} from './verified-media-source-local-file-v1';
 
 const TEMP_PREFIX = 'editron-audio-sample-epoch-v1-';
 const MAX_PROCESS_DIAGNOSTIC_BYTES = 1024 * 1024;
@@ -45,7 +45,7 @@ type MediaSourceAudioSampleEpochFfmpegInputV1 = Readonly<{
   sourceVersion: MediaSourceVersionV1;
   qualification: MediaSourceQualificationRecordV1;
   audioStreamIndex: number;
-  sourceLease: NativeMediaTimestampPreviewSourceLeasePortV1;
+  sourceLease: VerifiedMediaSourceLeasePortV1;
   resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
   ffmpegPath?: string;
   ffprobePath?: string;
@@ -129,13 +129,22 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
   try {
     const sourcePath = path.join(temporaryDirectory, 'source.bin');
     const pcmPath = path.join(temporaryDirectory, 'decoded.s32le');
-    await downloadExactSource(
-      lease.sourceUrl,
-      sourcePath,
+    await materializeVerifiedMediaSourceLocalFileV1({
+      sourceUrl: lease.sourceUrl,
+      outputPath: sourcePath,
       sourceVersion,
-      resourcePolicy.maxSourceBytes,
-      resourcePolicy.timeoutMs,
-    );
+      maximumBytes: resourcePolicy.maxSourceBytes,
+      timeoutMs: resourcePolicy.timeoutMs,
+      errorCodes: {
+        sourceByteLimitExceeded: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LIMIT_EXCEEDED',
+        sourceUrlInvalid: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_URL_INVALID',
+        sourceReadFailed: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_READ_FAILED',
+        sourceByteLengthMismatch:
+          'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LENGTH_MISMATCH',
+        sourceContentMismatch: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_CONTENT_MISMATCH',
+        outputWriteFailed: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_WRITE_FAILED',
+      },
+    });
     if (!await lease.revalidate()) {
       throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
     }
@@ -497,54 +506,6 @@ async function executeBounded(
         : new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_FAILED`)),
     ));
   });
-}
-
-async function downloadExactSource(
-  sourceUrl: string,
-  outputPath: string,
-  sourceVersion: Readonly<MediaSourceVersionV1>,
-  maximumBytes: number,
-  timeoutMs: number,
-): Promise<void> {
-  if (sourceVersion.byteLength > maximumBytes) {
-    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LIMIT_EXCEEDED');
-  }
-  const url = new URL(sourceUrl);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_URL_INVALID');
-  }
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: { 'accept-encoding': 'identity' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
-  if (!response.ok || !response.body || (encoding && encoding !== 'identity')) {
-    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_READ_FAILED');
-  }
-  const digest = createHash('sha256');
-  let byteLength = 0;
-  const verifier = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      byteLength += chunk.byteLength;
-      if (byteLength > sourceVersion.byteLength || byteLength > maximumBytes) {
-        callback(new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LENGTH_MISMATCH'));
-        return;
-      }
-      digest.update(chunk);
-      callback(null, chunk);
-    },
-  });
-  await pipeline(
-    Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
-    verifier,
-    createWriteStream(outputPath, { flags: 'wx' }),
-  );
-  if (byteLength !== sourceVersion.byteLength
-    || digest.digest('hex') !== sourceVersion.contentSha256) {
-    throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_CONTENT_MISMATCH');
-  }
 }
 
 async function removeOwnedTemporaryDirectory(directory: string): Promise<void> {
