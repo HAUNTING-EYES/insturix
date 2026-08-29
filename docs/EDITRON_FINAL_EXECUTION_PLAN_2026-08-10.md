@@ -7889,6 +7889,31 @@ ESLint pass. This is deliberately behavior-neutral cleanup, not source
 preparation or route composition, and does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Durable exact-render preparation identity Phase 3F-C7ad (2026-08-30):**
+commit `86bf6521b` defines the URL-free input and deterministic operation identity
+for an exact-source preparation job on the existing generic durable-workflow
+store. The binding includes tenant/user/project/sequence scope, the current
+ProjectService revision, admission receipt, canonical exact-source request set,
+materializer/encoder/private-artifact policy versions and hashes, the qualified
+runtime receipt and an immutable `sha256:` worker-image digest. Object-key order
+cannot change the identity; a material revision change does. Duplicate overlays,
+forged or extra fields, request-hash drift, policy/profile drift, malformed image
+identity and payloads above the existing durable store's 256-KiB JSON boundary
+fail closed. Persisted input contains no source or artifact lease URL.
+
+The focused contract passes 4/4; the surrounding admission, source-preparation,
+materializer, encoder, private-artifact and render-route startup cluster passes
+63/63; repository TypeScript and repository-wide quiet ESLint pass. This result
+is `DURABLE_EXACT_RENDER_PREPARATION_IDENTITY_BOUND_WORKER_AND_ROUTE_OPEN`. It
+does not create, lease, dispatch, execute or resume a job; does not store a
+prepared-artifact result; and does not connect the authenticated render route.
+The next bounded phase must define the URL-free prepared-artifact resume state
+and terminal receipt, followed by the exactly qualified worker, dispatcher and
+fresh-lease route consumption. Queue item 4 retains live private-storage
+lifecycle, scalable multipart/resume, V3 ingest/migration and proxy/master
+invalidation. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
