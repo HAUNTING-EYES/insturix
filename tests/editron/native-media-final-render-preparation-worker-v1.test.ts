@@ -37,6 +37,7 @@ import { StatefulMongoCollection } from './helpers/stateful-mongo-collection';
 
 const START = new Date('2026-08-30T01:00:00.000Z');
 const sha = (character: string) => character.repeat(64);
+const SHA256 = /^[a-f0-9]{64}$/;
 
 describe('native final-render durable preparation worker v1', () => {
   it('authorizes, prepares, persists URL-free state, completes, and resettles terminal replay',
@@ -87,13 +88,71 @@ describe('native final-render durable preparation worker v1', () => {
           'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_POST_RESUME_TRANSITION_FAILED',
       });
       expect(await fixture.snapshot()).toMatchObject({
-        status: 'retry_wait', resumeState: { sequence: 1 },
+        status: 'retry_wait',
+        resumeState: { sequence: 1 },
+        nextAttemptAt: '2026-08-30T01:00:01.000Z',
+        retryCursor: {
+          resumeSequence: 1,
+          resumeStateSha256: expect.stringMatching(SHA256),
+          retryPolicySha256: fixture.deliveryRetryPolicy.policySha256,
+          retryDecisionSha256: expect.stringMatching(SHA256),
+          retryDisposition: 'RETRY_AT',
+          retryReason: null,
+        },
       });
 
       fixture.advance(1_001);
       expect(await fixture.run()).toMatchObject({ kind: 'completed', disposition: 'PASS' });
       expect(fixture.preparationOwner.prepare).toHaveBeenCalledTimes(1);
       expect(fixture.budgetOwner.authorize).toHaveBeenCalledTimes(2);
+    });
+
+  it('uses the bound decision owner to dead-letter an exhausted retryable attempt',
+    async () => {
+      const fixture = await workerFixture({
+        deliveryRetryPolicy: deliveryRetryPolicyFixture({ maxAttempts: 1 }),
+      });
+      const failingStore = storePorts(fixture.jobStore, async () => {
+        throw new Error('simulated completion transport loss');
+      });
+
+      expect(await fixture.run({ jobStore: failingStore })).toEqual({
+        kind: 'dead_letter',
+        jobId: fixture.jobId,
+        errorCode:
+          'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_POST_RESUME_TRANSITION_FAILED',
+      });
+      expect(await fixture.snapshot()).toMatchObject({
+        status: 'dead_letter',
+        attemptCount: 1,
+        remainingAttempts: 0,
+        retryCursor: null,
+        nextAttemptAt: null,
+        error: { retryable: false },
+      });
+    });
+
+  it('uses the bound decision owner to dead-letter a retry crossing retention',
+    async () => {
+      const fixture = await workerFixture({
+        deliveryRetryPolicy: deliveryRetryPolicyFixture({ retentionMs: 1_000 }),
+      });
+      const failingStore = storePorts(fixture.jobStore, async () => {
+        throw new Error('simulated completion transport loss');
+      });
+
+      expect(await fixture.run({ jobStore: failingStore })).toMatchObject({
+        kind: 'dead_letter',
+        errorCode:
+          'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_POST_RESUME_TRANSITION_FAILED',
+      });
+      expect(await fixture.snapshot()).toMatchObject({
+        status: 'dead_letter',
+        remainingAttempts: 4,
+        retryCursor: null,
+        nextAttemptAt: null,
+        error: { retryable: false },
+      });
     });
 
   it('dead-letters a canonically rehashed but forged resume result without re-preparing',
@@ -205,10 +264,24 @@ describe('native final-render durable preparation worker v1', () => {
       });
       expect(fixture.budgetOwner.authorize).not.toHaveBeenCalled();
       expect(fixture.budgetOwner.settleTerminal).not.toHaveBeenCalled();
-      expect(fixture.retryPolicyOwner.nextRetryAt).not.toHaveBeenCalled();
       expect(fixture.preparationOwner.prepare).not.toHaveBeenCalled();
     },
   );
+
+  it('rejects a forged retry-policy declaration before claiming the job', async () => {
+    const fixture = await workerFixture();
+    await expect(fixture.run({
+      deliveryRetryPolicy: {
+        ...fixture.deliveryRetryPolicy,
+        ownerId: 'OTHER_RENDER_RETRY_POLICY',
+      } as never,
+    })).rejects.toThrow(
+      'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DELIVERY_RETRY_POLICY_POLICY_IDENTITY_INVALID',
+    );
+    expect(await fixture.snapshot()).toMatchObject({ status: 'queued', attemptCount: 0 });
+    expect(fixture.budgetOwner.authorize).not.toHaveBeenCalled();
+    expect(fixture.preparationOwner.prepare).not.toHaveBeenCalled();
+  });
 
   it('honours cancellation observed inside the long-running preparation owner', async () => {
     const fixture = await workerFixture();
@@ -235,12 +308,14 @@ describe('native final-render durable preparation worker v1', () => {
   });
 });
 
-async function workerFixture() {
+async function workerFixture(input: Readonly<{
+  deliveryRetryPolicy?: ReturnType<typeof deliveryRetryPolicyFixture>;
+}> = {}) {
   const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
   const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
   let nowMs = START.getTime();
-  const request = jobRequest();
-  const deliveryRetryPolicy = deliveryRetryPolicyFixture();
+  const deliveryRetryPolicy = input.deliveryRetryPolicy ?? deliveryRetryPolicyFixture();
+  const request = jobRequest(deliveryRetryPolicy);
   const created = await createOrGetNativeMediaFinalRenderPreparationJobV1({
     jobStore,
     request,
@@ -285,12 +360,6 @@ async function workerFixture() {
       artifact: artifact(contract.payload),
     })),
   };
-  const retryPolicyOwner = {
-    ownerId: deliveryRetryPolicy.ownerId,
-    ownerVersion: deliveryRetryPolicy.ownerVersion,
-    policySha256: deliveryRetryPolicy.policySha256,
-    nextRetryAt: vi.fn(async ({ now }: { now: Date }) => new Date(now.getTime() + 1_000)),
-  };
   const base = {
     jobStore,
     jobId: created.job.jobId,
@@ -298,7 +367,7 @@ async function workerFixture() {
     runtimeContract,
     budgetOwner,
     preparationOwner,
-    retryPolicyOwner,
+    deliveryRetryPolicy,
     clock: () => new Date(nowMs),
   };
   return {
@@ -334,17 +403,8 @@ const ownerBindingDrifts: readonly Readonly<[
   ['budget policy digest', (fixture) => ({
     budgetOwner: { ...fixture.budgetOwner, policySha256: sha('1') },
   })],
-  ['retry owner ID', (fixture) => ({
-    retryPolicyOwner: { ...fixture.retryPolicyOwner, ownerId: 'OTHER_RENDER_RETRY_POLICY' },
-  })],
-  ['retry owner version', (fixture) => ({
-    retryPolicyOwner: {
-      ...fixture.retryPolicyOwner,
-      ownerVersion: 'TEST_RENDER_RETRY_POLICY_V2',
-    },
-  })],
   ['retry policy digest', (fixture) => ({
-    retryPolicyOwner: { ...fixture.retryPolicyOwner, policySha256: sha('1') },
+    deliveryRetryPolicy: deliveryRetryPolicyFixture({ workerRetryDelayMs: 2_000 }),
   })],
   ['heartbeat owner ID', (fixture) => ({
     preparationOwner: {
@@ -366,7 +426,9 @@ const ownerBindingDrifts: readonly Readonly<[
   })],
 ];
 
-function jobRequest() {
+function jobRequest(
+  deliveryRetryPolicy: ReturnType<typeof deliveryRetryPolicyFixture>,
+) {
   return {
     tenantId: 'tenant_1', userId: 'user_1', orgId: null,
     projectId: 'project_1', sequenceId: 'main',
@@ -391,7 +453,7 @@ function jobRequest() {
       privateArtifactPolicyVersion:
         NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
       privateArtifactPolicySha256: sha('a'),
-      runtimePolicy: runtimePolicy(),
+      runtimePolicy: runtimePolicy(deliveryRetryPolicy),
     },
     executionProfile: {
       workerImageDigest: `sha256:${sha('b')}`,
@@ -401,8 +463,7 @@ function jobRequest() {
   } as const;
 }
 
-function runtimePolicy() {
-  const policy = deliveryRetryPolicyFixture();
+function runtimePolicy(policy: ReturnType<typeof deliveryRetryPolicyFixture>) {
   return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
     executionBudget: {
       ownerId: 'TEST_RENDER_BUDGET_OWNER',
@@ -418,11 +479,18 @@ function runtimePolicy() {
   });
 }
 
-function deliveryRetryPolicyFixture() {
+function deliveryRetryPolicyFixture(input: Readonly<{
+  maxAttempts?: number;
+  retentionMs?: number;
+  workerRetryDelayMs?: number;
+}> = {}) {
   return createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1({
-    durableJob: { maxAttempts: 5, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+    durableJob: {
+      maxAttempts: input.maxAttempts ?? 5,
+      retentionMs: input.retentionMs ?? 7 * 24 * 60 * 60 * 1_000,
+    },
     qstashDelivery: { retries: 2, retryDelayMs: 10_000, timeoutSeconds: 120 },
-    workerRetry: { delayMs: 1_000 },
+    workerRetry: { delayMs: input.workerRetryDelayMs ?? 1_000 },
   });
 }
 

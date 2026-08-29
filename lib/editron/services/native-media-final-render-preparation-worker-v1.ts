@@ -15,6 +15,12 @@ import {
   type NativeMediaFinalRenderPreparationPolicyBindingsV1,
 } from './native-media-final-render-preparation-job-v1';
 import {
+  createNativeMediaFinalRenderPreparationRetryPolicyOwnerV1,
+  type NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
+  type NativeMediaFinalRenderPreparationRetryDecisionV1,
+  type NativeMediaFinalRenderPreparationRetryPolicyOwnerV1,
+} from './native-media-final-render-preparation-delivery-retry-policy-v1';
+import {
   assertNativeMediaFinalRenderPreparationResultV1,
   createNativeMediaFinalRenderPreparationResumeStateV1,
   createNativeMediaFinalRenderPreparationTerminalReceiptV1,
@@ -91,17 +97,6 @@ export interface NativeMediaFinalRenderArtifactPreparationOwnerV1 {
   >>;
 }
 
-interface NativeMediaFinalRenderPreparationRetryPolicyOwnerV1 {
-  ownerId: string;
-  ownerVersion: string;
-  policySha256: string;
-  nextRetryAt(input: Readonly<{
-    job: Readonly<DurableWorkflowJobSnapshotV1>;
-    errorCode: string;
-    now: Date;
-  }>): Promise<Date>;
-}
-
 type NativeMediaFinalRenderPreparationWorkerResultV1 = Readonly<
   | { kind: 'skipped'; reason: string }
   | { kind: 'lease_lost'; reason: string }
@@ -137,10 +132,12 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
   runtimeContract: NativeMediaFinalRenderPreparationRuntimeContractV1;
   budgetOwner: Readonly<NativeMediaFinalRenderPreparationBudgetOwnerV1>;
   preparationOwner: Readonly<NativeMediaFinalRenderArtifactPreparationOwnerV1>;
-  retryPolicyOwner: Readonly<NativeMediaFinalRenderPreparationRetryPolicyOwnerV1>;
+  deliveryRetryPolicy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1;
   clock?: () => Date;
 }>): Promise<NativeMediaFinalRenderPreparationWorkerResultV1> {
   const clock = input.clock ?? (() => new Date());
+  const retryPolicyOwner =
+    createNativeMediaFinalRenderPreparationRetryPolicyOwnerV1(input.deliveryRetryPolicy);
   const claim = await input.jobStore.claim({
     jobId: input.jobId,
     workerId: input.workerId,
@@ -150,7 +147,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
     if ('job' in claim && isTerminal(claim.job.status)) {
       const jobInput = resolveClaimedJob(claim.job);
       assertRuntimeContract(jobInput, input.runtimeContract);
-      assertOwnerBindings(input, jobInput);
+      assertOwnerBindings(input, jobInput, retryPolicyOwner);
       await settleTerminalSnapshot(input.budgetOwner, claim.job);
     }
     return { kind: 'skipped', reason: claim.reason };
@@ -158,7 +155,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
   if (claim.kind === 'cancel_claimed') {
     const jobInput = resolveClaimedJob(claim.job);
     assertRuntimeContract(jobInput, input.runtimeContract);
-    assertOwnerBindings(input, jobInput);
+    assertOwnerBindings(input, jobInput, retryPolicyOwner);
     await input.jobStore.markCancelled({
       jobId: input.jobId,
       leaseToken: claim.leaseToken,
@@ -191,7 +188,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
     await heartbeat();
     const jobInput = resolveClaimedJob(claim.job);
     assertRuntimeContract(jobInput, input.runtimeContract);
-    assertOwnerBindings(input, jobInput);
+    assertOwnerBindings(input, jobInput, retryPolicyOwner);
     ownerBindingsVerified = true;
     const authorizationReceiptSha256 = await authorizeBudget(
       input.budgetOwner,
@@ -309,7 +306,7 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
       }
     }
     const failure = await settleFailure({
-      input, claim, current, error, clock, ownerBindingsVerified,
+      input, claim, current, error, clock, ownerBindingsVerified, retryPolicyOwner,
     });
     if (failure.kind === 'dead_letter' && ownerBindingsVerified) {
       await settleCommittedTerminal(input, current ?? claim.job);
@@ -409,14 +406,15 @@ function assertRuntimeContract(
 function assertOwnerBindings(
   input: Parameters<typeof runNativeMediaFinalRenderPreparationWorkerV1>[0],
   job: NativeMediaFinalRenderPreparationJobInputV1,
+  retryPolicyOwner: Readonly<NativeMediaFinalRenderPreparationRetryPolicyOwnerV1>,
 ): void {
   const runtimePolicy = job.policyBindings.runtimePolicy;
   if (input.budgetOwner.ownerId !== runtimePolicy.executionBudget.ownerId
     || input.budgetOwner.ownerVersion !== runtimePolicy.executionBudget.ownerVersion
     || input.budgetOwner.policySha256 !== runtimePolicy.executionBudget.policySha256
-    || input.retryPolicyOwner.ownerId !== runtimePolicy.retryPolicy.ownerId
-    || input.retryPolicyOwner.ownerVersion !== runtimePolicy.retryPolicy.ownerVersion
-    || input.retryPolicyOwner.policySha256 !== runtimePolicy.retryPolicy.policySha256
+    || retryPolicyOwner.ownerId !== runtimePolicy.retryPolicy.ownerId
+    || retryPolicyOwner.ownerVersion !== runtimePolicy.retryPolicy.ownerVersion
+    || retryPolicyOwner.policySha256 !== runtimePolicy.retryPolicy.policySha256
     || input.preparationOwner.ownerId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1
     || input.preparationOwner.ownerVersion !== job.policyBindings.materializerPolicyVersion
     || input.preparationOwner.heartbeatPolicyOwnerId
@@ -562,6 +560,7 @@ async function settleFailure(input: Readonly<{
   error: unknown;
   clock: () => Date;
   ownerBindingsVerified: boolean;
+  retryPolicyOwner: Readonly<NativeMediaFinalRenderPreparationRetryPolicyOwnerV1>;
 }>): Promise<NativeMediaFinalRenderPreparationWorkerResultV1> {
   let failure = toWorkerFailure(input.error);
   if (!(input.error instanceof WorkerFailureV1) && input.current?.resumeState) {
@@ -578,14 +577,29 @@ async function settleFailure(input: Readonly<{
   }
   const now = input.clock();
   let retryAt = now;
+  let retryDecision: NativeMediaFinalRenderPreparationRetryDecisionV1 | null = null;
   if (failure.retryable) {
-    retryAt = await input.input.retryPolicyOwner.nextRetryAt({
-      job: input.current ?? input.claim.job,
-      errorCode: failure.code,
-      now,
-    });
-    if (!(retryAt instanceof Date) || Number.isNaN(retryAt.getTime()) || retryAt <= now) {
-      throw new Error('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RETRY_AT_INVALID');
+    try {
+      retryDecision = input.retryPolicyOwner.decideRetry({
+        job: input.current ?? input.claim.job,
+        errorCode: failure.code,
+        now,
+      });
+      if (retryDecision.disposition === 'RETRY_AT') {
+        retryAt = new Date(retryDecision.retryAtIso);
+        if (!Number.isFinite(retryAt.getTime())
+          || retryAt.toISOString() !== retryDecision.retryAtIso || retryAt <= now) {
+          throw new Error('RETRY_AT_INVALID');
+        }
+      } else {
+        failure = new WorkerFailureV1(failure.code, false);
+      }
+    } catch {
+      retryDecision = null;
+      failure = new WorkerFailureV1(
+        'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RETRY_POLICY_DECISION_INVALID',
+        false,
+      );
     }
   }
   try {
@@ -602,6 +616,12 @@ async function settleFailure(input: Readonly<{
       retryCursor: {
         resumeSequence: input.current?.resumeState?.sequence ?? 0,
         resumeStateSha256: input.current?.resumeState?.stateSha256 ?? null,
+        retryPolicySha256: input.retryPolicyOwner.policySha256,
+        retryDecisionSha256: retryDecision?.decisionSha256 ?? null,
+        retryDisposition: retryDecision?.disposition ?? 'NOT_RETRYABLE',
+        retryReason: retryDecision?.disposition === 'DEAD_LETTER'
+          ? retryDecision.reason
+          : null,
       },
       now,
     });
