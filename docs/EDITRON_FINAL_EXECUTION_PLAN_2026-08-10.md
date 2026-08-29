@@ -7672,6 +7672,45 @@ scanning/finalization, immutable private writes, migration and qualified proxy/
 master relink/invalidation. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Production final-render timing admission Phase 3F-C7t/C7u
+(2026-08-29):** commit `60885bdff` moves timestamp-generation detection out
+of the preview-specific owner into one neutral classifier and adds a bounded,
+read-only final-render admission owner. Every asset-backed video overlay is
+normalized and source-scoped; the media asset is read twice under the caller's
+user identity; and the ordinary-path receipt binds the ProjectService revision,
+overlay timing fingerprint and media timing/source-state fingerprint. Missing
+assets, asset-less video, duplicate overlay identities, changed assets, V1/V2
+state, contradictory generations and invalid V3 evidence are explicit
+`UNVERIFIABLE` outcomes. A verified V3 asset is separately classified as
+`EXACT_TIMESTAMP_RENDER_SOURCE_REQUIRED`; it is never relabelled ordinary and
+never handed to frame-number trimming.
+
+Commit `44c142ae2` wires that owner into the real authenticated cloud-render
+route against the revision derived from the loaded ProjectService snapshot.
+The gate runs before render URL hydration, credit checking, job reservation,
+credit deduction, standard Lambda dispatch and chapter dispatch. A non-passing
+decision returns structured `NATIVE_MEDIA_FINAL_RENDER_NOT_READY` with a
+redacted reason/scope and no render admission. Ordinary registered media keeps
+the existing renderer path.
+
+The focused route/admission suites pass 36/36; the wider render cluster passes
+99/99; and the complete current timestamp/PTS cluster passes 282/282 across 49
+files. Repository TypeScript and repository-wide quiet ESLint pass. No provider
+render, customer media, private-R2 object, credit mutation or project mutation
+was used.
+
+This result is
+`FINAL_RENDER_EXACT_MEDIA_FAIL_CLOSED_PRE_SPEND_EXACT_SOURCE_CONSUMER_OPEN`.
+It is a production safety boundary, not the final-render consumer: Editron now
+prevents an approximate or unproved export, but it still cannot render a valid
+V3 source. Queue item 3 continues with an immutable, revision/source-bound
+exact render artifact and real Remotion consumption, followed by unsupported
+partial-epoch/edit-list/timestamp-wrap handling and non-human private-runtime
+proof. Queue item 4 still owns the dedicated production storage, V3 lifecycle,
+migration and qualified proxy/master relink/invalidation needed to make that
+artifact durable. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
