@@ -8427,6 +8427,30 @@ editorial-plan caller migration, then a versioned calibrated delivery/retry
 policy and the exact-render dispatcher. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Cadence shared-dispatch migration Phase 3F-C7av (2026-08-30):** commit
+`525eda578` removes the cadence dispatcher's duplicate QStash client,
+credential/origin resolver, hard-coded retry/header fields, acknowledgement
+parser, receipt writer and private recovery hash. Cadence remains the domain
+owner for exact source-job creation, PTS operation/schema filtering, stale-scan
+selection and the strict `{jobId}` worker message. Initial and recovery sends
+now call the shared owner; recovery binds the complete selected durable
+snapshot, and a terminal or foreign job is skipped before publication. A
+delivery policy is mandatory caller input, so the removed three-retry and
+300-second values are not preserved as an implicit fallback.
+
+The shared/cadence suites pass 15/15; repository TypeScript and repository-wide
+quiet ESLint pass. Tests prove first-class `retryDelay` and `timeout` fields,
+absence of the `Upstash-Timeout` destination header, initial replay, state-bound
+recovery, signed worker ingress and truthful publish/receipt ambiguity. This
+result is
+`CADENCE_DURABLE_QSTASH_CALLER_MIGRATED_EDITORIAL_AND_EXACT_RENDER_OPEN`.
+It is source-level caller convergence only: no production cadence caller or
+live QStash/Atlas redelivery was exercised, and the injected test policy is not
+calibrated deployment policy. Editorial-plan still owns duplicate legacy
+transport code. Queue item 3 next migrates that caller, then binds one versioned
+calibrated delivery/retry policy before exact-render dispatch. This checkpoint
+does not change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
