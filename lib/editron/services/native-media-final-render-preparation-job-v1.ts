@@ -19,7 +19,7 @@ import type {
 import type { ProjectRevisionV1 } from './project-service';
 
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
-  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1' as const;
+  'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
 
@@ -53,8 +53,8 @@ export type NativeMediaFinalRenderPreparationJobInputV1 = Readonly<{
   sequenceId: string;
   projectRevision: ProjectRevisionV1;
   admissionReceiptSha256: string;
-  exactSourceRequests: readonly NativeMediaFinalRenderExactSourceRequestV1[];
-  exactSourceRequestsSha256: string;
+  exactSourceRequest: NativeMediaFinalRenderExactSourceRequestV1;
+  exactSourceRequestSha256: string;
   artifactProfile: typeof NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1;
   policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
@@ -70,11 +70,11 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
   sequenceId: string;
   projectRevision: ProjectRevisionV1;
   admissionReceiptSha256: string;
-  exactSourceRequests: readonly NativeMediaFinalRenderExactSourceRequestV1[];
+  exactSourceRequest: NativeMediaFinalRenderExactSourceRequestV1;
   policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
 }>) {
-  const requests = normalizeRequests(input.exactSourceRequests);
+  const request = normalizeRequest(input.exactSourceRequest);
   const payload = assertNativeMediaFinalRenderPreparationJobInputV1({
     version: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
     tenantId: input.tenantId,
@@ -84,8 +84,8 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     sequenceId: input.sequenceId,
     projectRevision: input.projectRevision,
     admissionReceiptSha256: input.admissionReceiptSha256,
-    exactSourceRequests: requests,
-    exactSourceRequestsSha256: hashEditronCanonicalJsonV1(requests),
+    exactSourceRequest: request,
+    exactSourceRequestSha256: hashEditronCanonicalJsonV1(request),
     artifactProfile: NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
     policyBindings: input.policyBindings,
     executionProfile: input.executionProfile,
@@ -98,7 +98,7 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
   const dependencies = [
     dependency('admission-receipt', '1', payload.admissionReceiptSha256),
     dependency('encoder-policy', '1', payload.policyBindings.encoderPolicySha256),
-    dependency('exact-source-requests', '1', payload.exactSourceRequestsSha256),
+    dependency('exact-source-request', '1', payload.exactSourceRequestSha256),
     dependency('materializer-policy', '1', payload.policyBindings.materializerPolicySha256),
     dependency('private-artifact-policy', '1', payload.policyBindings.privateArtifactPolicySha256),
     dependency('project-revision', '1', hashEditronCanonicalJsonV1(payload.projectRevision)),
@@ -120,18 +120,18 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
 ): NativeMediaFinalRenderPreparationJobInputV1 {
   const record = asRecord(value, 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_INVALID');
   exactKeys(record, [
-    'admissionReceiptSha256', 'artifactProfile', 'exactSourceRequests',
-    'exactSourceRequestsSha256', 'executionProfile', 'orgId', 'policyBindings',
+    'admissionReceiptSha256', 'artifactProfile', 'exactSourceRequest',
+    'exactSourceRequestSha256', 'executionProfile', 'orgId', 'policyBindings',
     'projectId', 'projectRevision', 'sequenceId', 'tenantId', 'userId', 'version',
   ], 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_FIELDS_INVALID');
   if (record.version !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1
     || record.artifactProfile !== NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1) {
     fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_VERSION_INVALID');
   }
-  const requests = normalizeRequests(record.exactSourceRequests);
-  const exactSourceRequestsSha256 = hashEditronCanonicalJsonV1(requests);
-  if (record.exactSourceRequestsSha256 !== exactSourceRequestsSha256) {
-    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUESTS_HASH_INVALID');
+  const request = normalizeRequest(record.exactSourceRequest);
+  const exactSourceRequestSha256 = hashEditronCanonicalJsonV1(request);
+  if (record.exactSourceRequestSha256 !== exactSourceRequestSha256) {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_HASH_INVALID');
   }
   const normalized = {
     version: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
@@ -142,8 +142,8 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
     sequenceId: durableIdentity(record.sequenceId, 'SEQUENCE_ID'),
     projectRevision: normalizeRevision(record.projectRevision),
     admissionReceiptSha256: sha256(record.admissionReceiptSha256, 'ADMISSION_RECEIPT'),
-    exactSourceRequests: requests,
-    exactSourceRequestsSha256,
+    exactSourceRequest: request,
+    exactSourceRequestSha256,
     artifactProfile: NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
     policyBindings: normalizePolicyBindings(record.policyBindings),
     executionProfile: normalizeExecutionProfile(record.executionProfile),
@@ -155,45 +155,33 @@ export function assertNativeMediaFinalRenderPreparationJobInputV1(
   return deepFreezeEditronJsonV1(normalized);
 }
 
-function normalizeRequests(value: unknown): readonly NativeMediaFinalRenderExactSourceRequestV1[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUESTS_INVALID');
+function normalizeRequest(value: unknown): NativeMediaFinalRenderExactSourceRequestV1 {
+  const record = asRecord(
+    value,
+    'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_INVALID',
+  );
+  exactKeys(record, [
+    'assetId', 'assetTimingStateSha256', 'overlayId', 'overlayTimingSha256',
+    'renderNativeAudio', 'sourceBindingSha256', 'sourcePtsCadenceMapStateSha256V3',
+    'sourceVersionSha256', 'storageVersionSha256',
+  ], 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_FIELDS_INVALID');
+  if (typeof record.renderNativeAudio !== 'boolean') {
+    fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_AUDIO_DISPOSITION_INVALID');
   }
-  const seen = new Set<string>();
-  const requests = value.map((candidate) => {
-    const record = asRecord(
-      candidate,
-      'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_INVALID',
-    );
-    exactKeys(record, [
-      'assetId', 'assetTimingStateSha256', 'overlayId', 'overlayTimingSha256',
-      'renderNativeAudio', 'sourceBindingSha256', 'sourcePtsCadenceMapStateSha256V3',
-      'sourceVersionSha256', 'storageVersionSha256',
-    ], 'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_FIELDS_INVALID');
-    const overlayId = boundedIdentifier(record.overlayId, 'OVERLAY_ID');
-    if (seen.has(overlayId)) {
-      fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_OVERLAY_DUPLICATE');
-    }
-    seen.add(overlayId);
-    if (typeof record.renderNativeAudio !== 'boolean') {
-      fail('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_AUDIO_DISPOSITION_INVALID');
-    }
-    return Object.freeze({
-      overlayId,
-      assetId: boundedIdentifier(record.assetId, 'ASSET_ID'),
-      overlayTimingSha256: sha256(record.overlayTimingSha256, 'OVERLAY_TIMING'),
-      assetTimingStateSha256: sha256(record.assetTimingStateSha256, 'ASSET_TIMING_STATE'),
-      sourceVersionSha256: sha256(record.sourceVersionSha256, 'SOURCE_VERSION'),
-      storageVersionSha256: sha256(record.storageVersionSha256, 'STORAGE_VERSION'),
-      sourceBindingSha256: sha256(record.sourceBindingSha256, 'SOURCE_BINDING'),
-      sourcePtsCadenceMapStateSha256V3: sha256(
-        record.sourcePtsCadenceMapStateSha256V3,
-        'SOURCE_PTS_CADENCE_STATE',
-      ),
-      renderNativeAudio: record.renderNativeAudio,
-    });
+  return Object.freeze({
+    overlayId: boundedIdentifier(record.overlayId, 'OVERLAY_ID'),
+    assetId: boundedIdentifier(record.assetId, 'ASSET_ID'),
+    overlayTimingSha256: sha256(record.overlayTimingSha256, 'OVERLAY_TIMING'),
+    assetTimingStateSha256: sha256(record.assetTimingStateSha256, 'ASSET_TIMING_STATE'),
+    sourceVersionSha256: sha256(record.sourceVersionSha256, 'SOURCE_VERSION'),
+    storageVersionSha256: sha256(record.storageVersionSha256, 'STORAGE_VERSION'),
+    sourceBindingSha256: sha256(record.sourceBindingSha256, 'SOURCE_BINDING'),
+    sourcePtsCadenceMapStateSha256V3: sha256(
+      record.sourcePtsCadenceMapStateSha256V3,
+      'SOURCE_PTS_CADENCE_STATE',
+    ),
+    renderNativeAudio: record.renderNativeAudio,
   });
-  return Object.freeze(requests);
 }
 
 function normalizePolicyBindings(value: unknown): NativeMediaFinalRenderPreparationPolicyBindingsV1 {

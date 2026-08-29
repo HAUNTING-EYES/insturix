@@ -40,7 +40,7 @@ function input() {
       compatibilityUpdatedAt: '2026-08-30T00:00:00.000Z',
     },
     admissionReceiptSha256: sha('7'),
-    exactSourceRequests: [request()],
+    exactSourceRequest: request(),
     policyBindings: {
       materializerPolicyVersion: NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
       materializerPolicySha256: sha('8'),
@@ -74,7 +74,7 @@ describe('native final-render durable preparation job binding v1', () => {
     expect(contract.dependencies.map(({ dependencyId }) => dependencyId)).toEqual([
       'admission-receipt',
       'encoder-policy',
-      'exact-source-requests',
+      'exact-source-request',
       'materializer-policy',
       'private-artifact-policy',
       'project-revision',
@@ -82,14 +82,14 @@ describe('native final-render durable preparation job binding v1', () => {
       'worker-image',
     ]);
     expect(JSON.stringify(contract)).not.toMatch(/sourceUrl|https:\/\//);
-    expect(Object.isFrozen(contract.payload.exactSourceRequests)).toBe(true);
+    expect(Object.isFrozen(contract.payload.exactSourceRequest)).toBe(true);
   });
 
   it('is canonical across object-key order and changes for material scope changes', () => {
     const first = buildNativeMediaFinalRenderPreparationJobContractV1(input());
     const reordered = buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
-      exactSourceRequests: [{
+      exactSourceRequest: {
         renderNativeAudio: true,
         sourcePtsCadenceMapStateSha256V3: sha('6'),
         sourceBindingSha256: sha('5'),
@@ -99,7 +99,7 @@ describe('native final-render durable preparation job binding v1', () => {
         overlayTimingSha256: sha('1'),
         assetId: 'asset_overlay_exact_1',
         overlayId: 'overlay_exact_1',
-      }],
+      },
     });
     const changed = buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
@@ -108,9 +108,13 @@ describe('native final-render durable preparation job binding v1', () => {
 
     expect(reordered).toEqual(first);
     expect(changed.operationIdentity).not.toBe(first.operationIdentity);
+    expect(buildNativeMediaFinalRenderPreparationJobContractV1({
+      ...input(),
+      exactSourceRequest: request('overlay_exact_2'),
+    }).operationIdentity).not.toBe(first.operationIdentity);
   });
 
-  it('rejects forged fields, request hashes, duplicate overlays and execution profiles', () => {
+  it('rejects forged fields, request hashes, aggregate inputs and execution profiles', () => {
     const valid = buildNativeMediaFinalRenderPreparationJobContractV1(input()).payload;
     expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
       ...valid,
@@ -118,12 +122,12 @@ describe('native final-render durable preparation job binding v1', () => {
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_FIELDS_INVALID');
     expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
       ...valid,
-      exactSourceRequestsSha256: sha('f'),
-    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUESTS_HASH_INVALID');
-    expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
-      ...input(),
-      exactSourceRequests: [request(), request()],
-    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_OVERLAY_DUPLICATE');
+      exactSourceRequestSha256: sha('f'),
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_HASH_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      exactSourceRequest: [request(), request()],
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_REQUEST_INVALID');
     expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
       executionProfile: {
@@ -133,7 +137,7 @@ describe('native final-render durable preparation job binding v1', () => {
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_EXECUTION_PROFILE_INVALID');
   });
 
-  it('rejects policy/profile drift and the durable store payload ceiling', () => {
+  it('rejects policy and profile drift', () => {
     const valid = buildNativeMediaFinalRenderPreparationJobContractV1(input()).payload;
     expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
       ...valid,
@@ -150,12 +154,5 @@ describe('native final-render durable preparation job binding v1', () => {
       },
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_VERSION_INVALID');
 
-    const requests = Array.from({ length: 700 }, (_, index) => request(
-      `overlay_${index}_${'x'.repeat(420)}`,
-    ));
-    expect(() => buildNativeMediaFinalRenderPreparationJobContractV1({
-      ...input(),
-      exactSourceRequests: requests,
-    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_PAYLOAD_TOO_LARGE');
   });
 });
