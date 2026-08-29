@@ -13,6 +13,7 @@ import {
 import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-materializer-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_PROFILE_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-profile-v1';
+import { createNativeMediaFinalRenderPreparationRuntimePolicyV1 } from '@/lib/editron/services/native-media-final-render-preparation-runtime-policy-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1 } from '@/lib/editron/services/native-media-final-render-r2-private-artifact-v1';
 import { StatefulMongoCollection } from './helpers/stateful-mongo-collection';
 
@@ -56,6 +57,7 @@ function input() {
       privateArtifactPolicyVersion:
         NATIVE_MEDIA_FINAL_RENDER_R2_PRIVATE_ARTIFACT_POLICY_VERSION_V1,
       privateArtifactPolicySha256: sha('a'),
+      runtimePolicy: runtimePolicy(),
     },
     executionProfile: {
       workerImageDigest: `sha256:${sha('b')}`,
@@ -114,9 +116,13 @@ describe('native final-render durable preparation job binding v1', () => {
       'encoder-policy',
       'exact-source-request',
       'execution-budget',
+      'execution-budget-policy',
+      'heartbeat-policy',
       'materializer-policy',
       'private-artifact-policy',
       'project-revision',
+      'retry-policy',
+      'runtime-policy',
       'runtime-profile-receipt',
       'worker-image',
     ]);
@@ -154,6 +160,13 @@ describe('native final-render durable preparation job binding v1', () => {
     expect(buildNativeMediaFinalRenderPreparationJobContractV1({
       ...input(),
       budgetReservation: { reservationId: 'render_budget_2', bindingSha256: sha('e') },
+    }).operationIdentity).not.toBe(first.operationIdentity);
+    expect(buildNativeMediaFinalRenderPreparationJobContractV1({
+      ...input(),
+      policyBindings: {
+        ...input().policyBindings,
+        runtimePolicy: runtimePolicy({ retryPolicySha256: sha('1') }),
+      },
     }).operationIdentity).not.toBe(first.operationIdentity);
   });
 
@@ -212,6 +225,45 @@ describe('native final-render durable preparation job binding v1', () => {
         encoderPolicyVersion: 'EDITRON_UNKNOWN_ENCODER',
       },
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_VERSION_INVALID');
+    expect(() => assertNativeMediaFinalRenderPreparationJobInputV1({
+      ...valid,
+      policyBindings: {
+        ...valid.policyBindings,
+        runtimePolicy: {
+          ...valid.policyBindings.runtimePolicy,
+          bindingSha256: sha('0'),
+        },
+      },
+    })).toThrow('NATIVE_MEDIA_FINAL_RENDER_RUNTIME_POLICY_BINDING_MISMATCH');
+
+    const { runtimePolicy: _runtimePolicy, ...legacyPolicyBindings } = input().policyBindings;
+    expect(_runtimePolicy).toBeDefined();
+    const legacy = buildNativeMediaFinalRenderPreparationJobContractV1({
+      ...input(),
+      policyBindings: legacyPolicyBindings,
+    });
+    expect(legacy.payload.policyBindings.runtimePolicy).toBeUndefined();
+    expect(legacy.dependencies).not.toContainEqual(expect.objectContaining({
+      dependencyId: 'runtime-policy',
+    }));
 
   });
 });
+
+function runtimePolicy(overrides: Readonly<{
+  retryPolicySha256?: string;
+}> = {}) {
+  return createNativeMediaFinalRenderPreparationRuntimePolicyV1({
+    executionBudget: {
+      ownerId: 'EXACT_RENDER_BUDGET_OWNER',
+      ownerVersion: '3',
+      policySha256: sha('e'),
+    },
+    retryPolicy: {
+      ownerId: 'EXACT_RENDER_RETRY_OWNER',
+      ownerVersion: '2',
+      policySha256: overrides.retryPolicySha256 ?? sha('f'),
+    },
+    heartbeatPolicySha256: sha('0'),
+  });
+}
