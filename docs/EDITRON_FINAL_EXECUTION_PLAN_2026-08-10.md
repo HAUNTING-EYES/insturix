@@ -7893,13 +7893,24 @@ preparation or route composition, and does not change
 commit `86bf6521b` defines the URL-free input and deterministic operation identity
 for an exact-source preparation job on the existing generic durable-workflow
 store. The binding includes tenant/user/project/sequence scope, the current
-ProjectService revision, admission receipt, canonical exact-source request set,
+ProjectService revision, admission receipt, one canonical exact-source request,
 materializer/encoder/private-artifact policy versions and hashes, the qualified
 runtime receipt and an immutable `sha256:` worker-image digest. Object-key order
-cannot change the identity; a material revision change does. Duplicate overlays,
-forged or extra fields, request-hash drift, policy/profile drift, malformed image
-identity and payloads above the existing durable store's 256-KiB JSON boundary
-fail closed. Persisted input contains no source or artifact lease URL.
+cannot change the identity; a material revision or source change does. Forged or
+extra fields, request-hash drift, aggregate/array request input, policy/profile
+drift and malformed image identity fail closed. Persisted input contains no
+source or artifact lease URL.
+
+Commit `76f0eca74` corrects the initial aggregate shape before any runtime caller
+or persisted job exists. One durable job now prepares exactly one admitted
+overlay/source artifact while still binding the whole admission receipt and
+project revision. This lets large timelines fan out into independently
+cacheable, retriable results and guarantees that one completed artifact state
+cannot exceed the shared store merely because the project has many exact-source
+overlays. An arbitrary chunk-size policy and a new private manifest lifecycle
+were rejected at this boundary; aggregation belongs to the later route
+coordinator. The contract version is now
+`EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_1`.
 
 The focused contract passes 4/4; the surrounding admission, source-preparation,
 materializer, encoder, private-artifact and render-route startup cluster passes
