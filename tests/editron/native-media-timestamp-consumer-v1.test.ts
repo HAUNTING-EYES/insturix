@@ -42,7 +42,7 @@ import {
   NATIVE_MEDIA_TIMESTAMP_DECODER_PORT_VERSION_V1,
   type NativeMediaTimestampDecoderBatchOutputV1,
   type NativeMediaTimestampDecoderBatchRequestV1,
-  type NativeMediaTimestampDecoderPortV1,
+  type NativeMediaTimestampMaterializingDecoderV1,
 } from '@/lib/editron/services/native-media-timestamp-consumer-v1';
 import {
   createVideoSourceTimestampConformFromVerifiedEpochIndexV3,
@@ -61,7 +61,11 @@ describe('native media timestamp consumer V1', () => {
     const decodePictures = vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
       decoderOutput(request)
     ));
-    const result = await consume(fixture, conform.transform, { decodePictures });
+    const releaseDecodedBatch = vi.fn(async () => undefined);
+    const result = await consume(fixture, conform.transform, {
+      decodePictures,
+      releaseDecodedBatch,
+    });
 
     expect(result.disposition).toBe('TIMESTAMP_MEDIA_CONSUMED');
     if (result.disposition !== 'TIMESTAMP_MEDIA_CONSUMED') throw new Error(JSON.stringify(result));
@@ -139,6 +143,7 @@ describe('native media timestamp consumer V1', () => {
     ));
     await expect(consume(replacement, conform.transform, {
       decodePictures: untouchedDecoder,
+      releaseDecodedBatch: vi.fn(async () => undefined),
     })).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'SOURCE_BINDING_STALE' });
     expect(untouchedDecoder).not.toHaveBeenCalled();
 
@@ -152,7 +157,8 @@ describe('native media timestamp consumer V1', () => {
             : picture),
         };
       }),
-    } satisfies NativeMediaTimestampDecoderPortV1;
+      releaseDecodedBatch: vi.fn(async () => undefined),
+    } satisfies NativeMediaTimestampMaterializingDecoderV1;
     await expect(consume(primary, conform.transform, wrongPtsDecoder)).resolves.toMatchObject({
       disposition: 'UNVERIFIABLE', reason: 'DECODER_SCOPE_MISMATCH',
     });
@@ -161,7 +167,8 @@ describe('native media timestamp consumer V1', () => {
       decodePictures: vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
         decoderOutput(request, 32)
       )),
-    } satisfies NativeMediaTimestampDecoderPortV1;
+      releaseDecodedBatch: vi.fn(async () => undefined),
+    } satisfies NativeMediaTimestampMaterializingDecoderV1;
     await expect(consume(primary, conform.transform, tooLargeDecoder, 64)).resolves.toMatchObject({
       disposition: 'UNVERIFIABLE', reason: 'DECODER_RESOURCE_LIMIT_EXCEEDED',
     });
@@ -170,7 +177,8 @@ describe('native media timestamp consumer V1', () => {
       decodePictures: vi.fn(async () => {
         throw new Error('decoder details must not escape');
       }),
-    } satisfies NativeMediaTimestampDecoderPortV1;
+      releaseDecodedBatch: vi.fn(async () => undefined),
+    } satisfies NativeMediaTimestampMaterializingDecoderV1;
     await expect(consume(primary, conform.transform, failedDecoder)).resolves.toEqual({
       disposition: 'UNVERIFIABLE', reason: 'DECODER_FAILED', diagnostic: null,
     });
@@ -178,34 +186,73 @@ describe('native media timestamp consumer V1', () => {
     await expect(consume(
       primary,
       conform.transform,
-      { decodePictures: untouchedDecoder },
+      {
+        decodePictures: untouchedDecoder,
+        releaseDecodedBatch: vi.fn(async () => undefined),
+      },
       1024,
       primary.baseAsset,
     )).resolves.toMatchObject({
       disposition: 'UNVERIFIABLE', reason: 'CURRENT_SOURCE_NOT_VERIFIED',
     });
   });
+
+  it('checks the live ProjectService revision before and after decode and releases stale output', async () => {
+    const fixture = await verifiedFixture('revision');
+    const conform = await createConform(fixture);
+    if (conform.disposition !== 'CONFORM_CREATED') throw new Error(JSON.stringify(conform));
+    const decodePictures = vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
+      decoderOutput(request)
+    ));
+    const releaseDecodedBatch = vi.fn(async () => undefined);
+    const decoder = { decodePictures, releaseDecodedBatch };
+
+    const staleBefore = vi.fn(async () => projectRevision(10));
+    await expect(consume(
+      fixture,
+      conform.transform,
+      decoder,
+      1024,
+      fixture.asset,
+      staleBefore,
+    )).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'PROJECT_REVISION_STALE' });
+    expect(decodePictures).not.toHaveBeenCalled();
+
+    const changesDuringDecode = vi.fn()
+      .mockResolvedValueOnce(projectRevision(9))
+      .mockResolvedValueOnce(projectRevision(10));
+    await expect(consume(
+      fixture,
+      conform.transform,
+      decoder,
+      1024,
+      fixture.asset,
+      changesDuringDecode,
+    )).resolves.toMatchObject({ disposition: 'UNVERIFIABLE', reason: 'PROJECT_REVISION_STALE' });
+    expect(decodePictures).toHaveBeenCalledTimes(1);
+    expect(releaseDecodedBatch).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{64}$/));
+  });
 });
 
 async function consume(
   fixture: VerifiedFixture,
   transform: VideoSourceTimestampConformV3,
-  decoder: NativeMediaTimestampDecoderPortV1,
+  decoder: NativeMediaTimestampMaterializingDecoderV1,
   maxDecodedBytes = 1024,
   asset: MediaSourcePtsCadenceMapAssetStateInputV3 = fixture.asset,
+  getProjectRevision = vi.fn(async () => projectRevision(9)),
 ) {
   return consumeNativeMediaTimestampTransformV1({
+    userId: 'user-1',
     projectId: 'project-1',
     sequenceId: 'sequence-1',
     overlayId: 'overlay-1',
-    projectRevision: {
-      schemaVersion: 1,
-      value: 9,
-      compatibilityUpdatedAt: '2026-08-29T12:00:00.000Z',
-    },
+    projectRevision: projectRevision(9),
     asset,
     transform,
     decoder,
+    decoderRelease: decoder,
+    projectRevisionReader: { getProjectRevision },
     resourcePolicy: {
       policyVersion: 'native-decoder-test-v1',
       maxUniquePictures: 10,
@@ -214,6 +261,14 @@ async function consume(
       maxDisplayDimension: 4096,
     },
   });
+}
+
+function projectRevision(value: number) {
+  return {
+    schemaVersion: 1 as const,
+    value,
+    compatibilityUpdatedAt: '2026-08-29T12:00:00.000Z',
+  };
 }
 
 function decoderOutput(

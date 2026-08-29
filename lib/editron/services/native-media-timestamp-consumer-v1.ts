@@ -112,6 +112,26 @@ export interface NativeMediaTimestampDecoderPortV1 {
   ): Promise<NativeMediaTimestampDecoderBatchOutputV1>;
 }
 
+export interface NativeMediaTimestampDecoderReleasePortV1 {
+  /** Idempotently removes every materialized picture for one decoder batch. */
+  releaseDecodedBatch(decoderRequestSha256: string): Promise<void>;
+}
+
+export type NativeMediaTimestampMaterializingDecoderV1 =
+  NativeMediaTimestampDecoderPortV1 & NativeMediaTimestampDecoderReleasePortV1;
+
+export interface NativeMediaProjectRevisionReaderPortV1 {
+  getProjectRevision(userId: string, projectId: string): Promise<ProjectRevisionV1>;
+}
+
+export const projectServiceNativeMediaProjectRevisionReaderV1:
+NativeMediaProjectRevisionReaderPortV1 = {
+  async getProjectRevision(userId, projectId) {
+    const { projectService } = await import('./project-service');
+    return projectService.getProjectRevision(userId, projectId);
+  },
+};
+
 export type NativeMediaTimestampConsumptionReceiptV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof NATIVE_MEDIA_TIMESTAMP_CONSUMPTION_RECEIPT_KIND_V1;
@@ -149,6 +169,8 @@ export type NativeMediaTimestampConsumptionReceiptV1 = Readonly<{
 
 export type NativeMediaTimestampConsumptionUnverifiableReasonV1 =
   | 'CONSUMER_INPUT_INVALID'
+  | 'PROJECT_REVISION_UNAVAILABLE'
+  | 'PROJECT_REVISION_STALE'
   | 'CURRENT_SOURCE_NOT_VERIFIED'
   | 'SOURCE_BINDING_STALE'
   | 'SOURCE_NOT_VIDEO'
@@ -157,6 +179,7 @@ export type NativeMediaTimestampConsumptionUnverifiableReasonV1 =
   | 'DECODER_FAILED'
   | 'DECODER_OUTPUT_INVALID'
   | 'DECODER_SCOPE_MISMATCH'
+  | 'DECODER_RELEASE_FAILED'
   | 'DECODER_RESOURCE_LIMIT_EXCEEDED';
 
 export type NativeMediaTimestampConsumptionResultV1 = Readonly<
@@ -178,6 +201,7 @@ export type NativeMediaTimestampConsumptionResultV1 = Readonly<
  * it is not itself proof that either renderer displayed the pictures.
  */
 export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
+  userId: string;
   projectId: string;
   sequenceId: string;
   overlayId: string | number;
@@ -185,8 +209,11 @@ export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
   asset: MediaSourcePtsCadenceMapAssetStateInputV3;
   transform: VideoSourceTimestampConformV3;
   decoder: NativeMediaTimestampDecoderPortV1;
+  decoderRelease: NativeMediaTimestampDecoderReleasePortV1;
   resourcePolicy: NativeMediaTimestampDecoderResourcePolicyV1;
+  projectRevisionReader?: NativeMediaProjectRevisionReaderPortV1;
 }>): Promise<NativeMediaTimestampConsumptionResultV1> {
+  let userId: string;
   let projectId: string;
   let sequenceId: string;
   let overlayId: string;
@@ -195,6 +222,7 @@ export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
   let transform: VideoSourceTimestampConformV3;
   let policy: NativeMediaTimestampDecoderResourcePolicyV1;
   try {
+    userId = identifier(input.userId, 'NATIVE_MEDIA_USER_INVALID');
     projectId = identifier(input.projectId, 'NATIVE_MEDIA_PROJECT_INVALID');
     sequenceId = identifier(input.sequenceId, 'NATIVE_MEDIA_SEQUENCE_INVALID');
     overlayId = identifier(String(input.overlayId), 'NATIVE_MEDIA_OVERLAY_INVALID');
@@ -205,8 +233,23 @@ export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
   } catch (error) {
     return unverifiable('CONSUMER_INPUT_INVALID', knownDiagnostic(error));
   }
-  if (!input.decoder || typeof input.decoder.decodePictures !== 'function') {
+  if (!input.decoder || typeof input.decoder.decodePictures !== 'function'
+    || !input.decoderRelease
+    || typeof input.decoderRelease.releaseDecodedBatch !== 'function') {
     return unverifiable('DECODER_PORT_INVALID', null);
+  }
+  const revisionReader = input.projectRevisionReader
+    ?? projectServiceNativeMediaProjectRevisionReaderV1;
+  const beforeRevision = await readCurrentProjectRevision(
+    revisionReader,
+    userId,
+    projectId,
+  );
+  if (beforeRevision === null) {
+    return unverifiable('PROJECT_REVISION_UNAVAILABLE', null);
+  }
+  if (!sameProjectRevision(beforeRevision, projectRevision)) {
+    return unverifiable('PROJECT_REVISION_STALE', null);
   }
   if (sourceVersion.mediaKind !== 'video') {
     return unverifiable('SOURCE_NOT_VIDEO', null);
@@ -269,6 +312,9 @@ export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
   try {
     decoderOutput = await input.decoder.decodePictures(decoderRequest);
   } catch {
+    if (!await releaseDecoderBatch(input.decoderRelease, decoderRequest.decoderRequestSha256)) {
+      return unverifiable('DECODER_RELEASE_FAILED', 'DECODER_FAILED');
+    }
     return unverifiable('DECODER_FAILED', null);
   }
 
@@ -281,7 +327,24 @@ export async function consumeNativeMediaTimestampTransformV1(input: Readonly<{
     ));
   } catch (error) {
     const diagnostic = knownDiagnostic(error);
+    if (!await releaseDecoderBatch(input.decoderRelease, decoderRequest.decoderRequestSha256)) {
+      return unverifiable('DECODER_RELEASE_FAILED', diagnostic);
+    }
     return unverifiable(classifyDecoderOutputError(diagnostic), diagnostic);
+  }
+  const afterRevision = await readCurrentProjectRevision(
+    revisionReader,
+    userId,
+    projectId,
+  );
+  if (afterRevision === null || !sameProjectRevision(afterRevision, projectRevision)) {
+    if (!await releaseDecoderBatch(input.decoderRelease, decoderRequest.decoderRequestSha256)) {
+      return unverifiable('DECODER_RELEASE_FAILED', 'PROJECT_REVISION_STALE');
+    }
+    return unverifiable(
+      afterRevision === null ? 'PROJECT_REVISION_UNAVAILABLE' : 'PROJECT_REVISION_STALE',
+      null,
+    );
   }
   const pictureByRequest = new Map(
     decodedPictures.map((picture) => [picture.decoderPictureRequestSha256, picture]),
@@ -482,6 +545,37 @@ function normalizeProjectRevision(value: ProjectRevisionV1): ProjectRevisionV1 {
       'NATIVE_MEDIA_PROJECT_REVISION_INVALID',
     ),
   });
+}
+
+async function readCurrentProjectRevision(
+  reader: NativeMediaProjectRevisionReaderPortV1,
+  userId: string,
+  projectId: string,
+): Promise<ProjectRevisionV1 | null> {
+  if (!reader || typeof reader.getProjectRevision !== 'function') return null;
+  try {
+    return normalizeProjectRevision(await reader.getProjectRevision(userId, projectId));
+  } catch {
+    return null;
+  }
+}
+
+function sameProjectRevision(left: ProjectRevisionV1, right: ProjectRevisionV1): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+async function releaseDecoderBatch(
+  decoder: NativeMediaTimestampDecoderReleasePortV1,
+  decoderRequestSha256: string,
+): Promise<boolean> {
+  try {
+    await decoder.releaseDecodedBatch(decoderRequestSha256);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function pictureIdentity(

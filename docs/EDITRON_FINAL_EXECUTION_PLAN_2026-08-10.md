@@ -6546,6 +6546,64 @@ ProjectService render revision without bypassing the existing renderer/form
 owners. Queue item 4 remains private storage, V3 ingest/finalization and exact
 proxy/master relink/invalidation.
 
+**Real timestamp-addressed FFmpeg preview-decoder and revision binding Phase
+3E (2026-08-29):** `native-media-timestamp-ffmpeg-preview-decoder-v1.ts` is the
+first real implementation behind the frozen decoder-batch port. It does not
+seek by a rounded frame-rate conversion or by PTS alone. It sorts the already
+selected global source-frame ordinals, decodes those ordinals with the shared
+server FFmpeg executable and requires FFmpeg's emitted integer PTS for every
+picture to equal the V3 request. Epoch remains part of the request identity, so
+the adapter can distinguish pictures on opposite sides of a timestamp reset
+even when their raw PTS values repeat. Ordinals that cannot be represented by
+the current FFmpeg `select(n)` expression are rejected rather than rounded.
+
+The production source-lease constructor re-derives the current terminal V3
+asset binding before asking the existing server-only R2/GCS URL owner for
+bytes. The decoder never places that signed URL in an FFmpeg process argument:
+it streams the complete object into an owned temporary file under a caller-
+declared source-byte ceiling, verifies exact byte length and the canonical
+source-content SHA-256, re-observes the provider storage version, and only then
+decodes. Each selected picture is materialized as both RGBA proof bytes and a
+PNG preview surface through an injected store. The returned receipt binds the
+SHA-256 of the RGBA bytes; partial store failure, invalid handles, decoder
+failure and stale consumption all invoke idempotent batch cleanup. Temporary
+directories are prefix- and system-temp-root checked before recursive removal.
+
+The existing consumer now also reads the current opaque ProjectService
+revision before decoding and again before issuing a success receipt. A stale
+revision stops before decode; a revision change or unavailable revision after
+decode releases the materialized batch and returns `UNVERIFIABLE`. The default
+reader calls the existing owner-scoped `ProjectService.getProjectRevision`;
+tests inject the same port rather than invoking a live database. This is a
+read-only preview guard and does not create a project writer or mutate state.
+
+The focused proof passes 7/7. Three tests execute the bundled FFmpeg against a
+real locally served 16 x 16 Matroska/FFV1 source with PTS 10000--12000 and
+verify actual ordinal selection, emitted PTS, RGBA byte counts, PNG signatures,
+content digests, altered-source rejection, wrong-PTS rejection, duplicate and
+unsafe ordinal rejection and partial-store cleanup. Four V3 consumer tests
+retain the verified VFR/reset/gap/source/audio adversarial fixture and add
+stale-before-decode plus changed-during-decode revision rejection. Repository
+TypeScript passes with the explicit 8 GiB heap, repository-wide quiet ESLint
+passes, and the current 35-file media/time cluster passes 201/201. No live
+R2/GCS object, Atlas row, ProjectService mutation, provider or customer project
+was touched.
+
+This result is
+`REAL_TIMESTAMP_DECODER_AND_REVISION_BOUND_CONTRACT_IMPLEMENTED_UI_STORE_AND_RENDERERS_NOT_WIRED`.
+It is not yet visible editor playback. No production preview-surface store or
+existing `VideoLayerContent` caller consumes the opaque picture handles; the
+real R2/GCS source lease and default ProjectService reader were not exercised
+against live infrastructure; analysis and final-render owners do not consume
+the receipt; decoded colour metadata is currently unknown; and each batch
+spools the complete source, which is exact but not a certified long-form cache/
+range strategy. Queue item 3 therefore remains open. Its next bounded
+subphase must bind a private expiring preview-surface owner and the existing
+preview renderer to this receipt at display time, then add separately tested
+analysis and final-render consumers. Queue item 4 remains dedicated private
+PTS/evidence storage, production V3 scan/finalization, V2-to-V3 migration and
+qualified proxy/master relink/invalidation.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
