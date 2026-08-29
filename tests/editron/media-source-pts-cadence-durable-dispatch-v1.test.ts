@@ -38,6 +38,9 @@ const ENV: MediaSourcePtsCadenceDurableDispatchEnvironmentV1 = {
   QSTASH_NEXT_SIGNING_KEY: 'next-signing-key',
   VERCEL_URL: 'editron-preview.example.test',
 };
+const DELIVERY_POLICY = Object.freeze({
+  retries: 2, retryDelayMs: 30_000, timeoutSeconds: 300,
+});
 type PublishInputV1 = Parameters<
   MediaSourcePtsCadenceQStashPublisherV1['publishJSON']
 >[0];
@@ -89,8 +92,12 @@ describe('media source PTS cadence durable dispatch V1', () => {
       'https://editron-preview.example.test/api/internal/workers/media-source-pts-cadence',
     );
     expect(published.body).toEqual({ jobId: first.jobId });
-    expect(Object.keys(published.body)).toEqual(['jobId']);
+    expect(Object.keys(published.body as object)).toEqual(['jobId']);
     expect(published.deduplicationId).toBe(first.jobId);
+    expect(published).toMatchObject({
+      retries: 2, retryDelay: '30000', timeout: 300,
+    });
+    expect(published).not.toHaveProperty('headers');
     await expect(setup.store.getAuthorized({
       jobId: first.jobId, tenantId: 'tenant-1', userId: 'user-1',
     })).resolves.toMatchObject({
@@ -166,6 +173,7 @@ describe('media source PTS cadence durable dispatch V1', () => {
         recordDispatch: setup.store.recordDispatch.bind(setup.store),
       },
       staleBefore: new Date(START.getTime() + 60_000),
+      deliveryPolicy: DELIVERY_POLICY,
       now: new Date(START.getTime() + 180_000),
       env: ENV,
       publisher: { publishJSON },
@@ -264,6 +272,7 @@ function publisher(messageId: string): MediaSourcePtsCadenceQStashPublisherV1 {
 function dispatchRequest() {
   const source = sourceFixture();
   return {
+    deliveryPolicy: DELIVERY_POLICY,
     actor: { tenantId: 'tenant-1', userId: 'user-1', orgId: null },
     request: {
       assetId: 'asset-1',

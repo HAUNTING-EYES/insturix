@@ -1,11 +1,16 @@
-import { Client } from '@upstash/qstash';
 import { z } from 'zod';
 
-import {
-  hashDurableWorkflowJobJsonV1,
-  type DurableWorkflowJobSnapshotV1,
-} from './durable-workflow-job-v1';
+import type { DurableWorkflowJobSnapshotV1 } from './durable-workflow-job-v1';
 import type { DurableWorkflowJobStoreV1 } from './durable-workflow-job-store-v1';
+import {
+  createDurableWorkflowQStashRecoveryStateBindingV1,
+  publishAndRecordDurableWorkflowQStashJobV1,
+  resolveDurableWorkflowQStashDispatchConfigurationV1,
+  type DurableWorkflowQStashDeliveryPolicyV1,
+  type DurableWorkflowQStashDispatchConfigurationV1,
+  type DurableWorkflowQStashDispatchEnvironmentV1,
+  type DurableWorkflowQStashPublisherV1,
+} from './durable-workflow-qstash-dispatch-v1';
 import {
   MEDIA_SOURCE_PTS_CADENCE_DURABLE_JOB_INPUT_VERSION_V1,
   createOrGetMediaSourcePtsCadenceDurableJobV1,
@@ -38,41 +43,28 @@ export function assertMediaSourcePtsCadenceDurableWorkerMessageV1(
   return Object.freeze(parsed.data);
 }
 
-export interface MediaSourcePtsCadenceDurableDispatchEnvironmentV1 {
-  QSTASH_TOKEN?: string;
-  QSTASH_URL?: string;
-  QSTASH_CURRENT_SIGNING_KEY?: string;
-  QSTASH_NEXT_SIGNING_KEY?: string;
-  VERCEL_URL?: string;
-  NEXT_PUBLIC_APP_URL?: string;
-}
+export type MediaSourcePtsCadenceDurableDispatchEnvironmentV1 =
+  DurableWorkflowQStashDispatchEnvironmentV1;
 
 export type MediaSourcePtsCadenceDurableDispatchConfigurationV1 = Readonly<
   | { configured: true; reason: null; workerUrl: string }
   | {
       configured: false;
-      reason: 'MISSING_QSTASH_TOKEN' | 'MISSING_QSTASH_SIGNING_KEYS'
-        | 'MISSING_PUBLIC_ORIGIN' | 'INVALID_PUBLIC_ORIGIN'
-        | 'INVALID_QSTASH_URL';
+      reason: Extract<DurableWorkflowQStashDispatchConfigurationV1,
+        { configured: false }>['reason'];
       workerUrl: null;
     }
 >;
 
-export interface MediaSourcePtsCadenceQStashPublisherV1 {
-  publishJSON(input: Readonly<{
-    url: string;
-    body: Readonly<MediaSourcePtsCadenceDurableWorkerMessageV1>;
-    retries: number;
-    deduplicationId: string;
-    headers: Readonly<Record<string, string>>;
-  }>): Promise<Readonly<{ messageId?: string }>>;
-}
+export type MediaSourcePtsCadenceQStashPublisherV1 =
+  DurableWorkflowQStashPublisherV1;
 
 type DispatchStateV1 = Readonly<
   | { state: 'dispatched'; messageId: string }
   | {
       state: 'dispatch_unconfirmed';
-      reason: 'QSTASH_PUBLISH_REJECTED' | 'QSTASH_MESSAGE_ID_MISSING';
+      reason: 'QSTASH_PUBLISH_REJECTED' | 'QSTASH_MESSAGE_ID_MISSING'
+        | 'QSTASH_MESSAGE_ID_INVALID';
     }
   | {
       state: 'delivery_unknown';
@@ -120,6 +112,7 @@ export async function dispatchMediaSourcePtsCadenceDurableJobV1(input: Readonly<
     videoStreamIndex: number;
   }>;
   jobStore: Pick<DurableWorkflowJobStoreV1, 'createOrGet' | 'recordDispatch'>;
+  deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
   env?: MediaSourcePtsCadenceDurableDispatchEnvironmentV1;
   publisher?: Readonly<MediaSourcePtsCadenceQStashPublisherV1>;
   now?: Date;
@@ -136,34 +129,29 @@ export async function dispatchMediaSourcePtsCadenceDurableJobV1(input: Readonly<
     },
     ...(input.now ? { now: input.now } : {}),
   });
-  const existingMessageId = optionalIdentity(bound.job.dispatchMessageId);
-  if (existingMessageId) {
-    return {
-      state: 'already_dispatched', jobId: bound.job.jobId,
-      created: bound.created, messageId: existingMessageId,
-    };
-  }
-  if (bound.job.status !== 'queued') {
-    return {
-      state: 'not_dispatchable', jobId: bound.job.jobId,
-      created: bound.created, jobStatus: bound.job.status,
-    };
-  }
-  const dispatched = await publishAndRecord({
+  const dispatched = await publishAndRecordDurableWorkflowQStashJobV1({
     job: bound.job,
     configuration,
-    publisher: input.publisher ?? createPublisher(env),
     jobStore: input.jobStore,
-    deduplicationId: bound.job.jobId,
-    now: input.now,
+    message: assertMediaSourcePtsCadenceDurableWorkerMessageV1({
+      jobId: bound.job.jobId,
+    }),
+    deliveryPolicy: input.deliveryPolicy,
+    dispatchIntent: {
+      kind: 'INITIAL_QUEUED', deduplicationId: bound.job.jobId,
+    },
+    environment: env,
+    ...(input.publisher ? { publisher: input.publisher } : {}),
+    ...(input.now ? { now: input.now } : {}),
   });
-  return { jobId: bound.job.jobId, created: bound.created, ...dispatched };
+  return Object.freeze({ ...dispatched, created: bound.created });
 }
 
 /** Republishes only stale exact PTS jobs already selected by the shared store. */
 export async function recoverMediaSourcePtsCadenceDurableJobsV1(input: Readonly<{
   jobStore: Pick<DurableWorkflowJobStoreV1, 'listRecoverable' | 'recordDispatch'>;
   staleBefore: Date;
+  deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
   now?: Date;
   limit?: number;
   env?: MediaSourcePtsCadenceDurableDispatchEnvironmentV1;
@@ -179,20 +167,23 @@ export async function recoverMediaSourcePtsCadenceDurableJobsV1(input: Readonly<
   const eligible = candidates.filter((job) => (
     isPtsCadenceJob(job) && Date.parse(job.updatedAt) <= staleBefore.getTime()
   ));
-  const publisher = input.publisher ?? createPublisher(env);
   const results: Array<Readonly<{ jobId: string } & DispatchStateV1>> = [];
   for (const job of eligible) {
-    results.push({
-      jobId: job.jobId,
-      ...await publishAndRecord({
-        job,
-        configuration,
-        publisher,
-        jobStore: input.jobStore,
-        deduplicationId: recoveryDeduplicationId(job),
-        now,
-      }),
+    const dispatched = await publishAndRecordDurableWorkflowQStashJobV1({
+      job,
+      configuration,
+      jobStore: input.jobStore,
+      message: assertMediaSourcePtsCadenceDurableWorkerMessageV1({ jobId: job.jobId }),
+      deliveryPolicy: input.deliveryPolicy,
+      dispatchIntent: {
+        kind: 'RECOVERY_SELECTED',
+        stateBindingSha256: createDurableWorkflowQStashRecoveryStateBindingV1(job),
+      },
+      environment: env,
+      ...(input.publisher ? { publisher: input.publisher } : {}),
+      now,
     });
+    results.push(recoveryDispatchResult(dispatched));
   }
   return Object.freeze({
     scanned: candidates.length,
@@ -205,107 +196,47 @@ export async function recoverMediaSourcePtsCadenceDurableJobsV1(input: Readonly<
 export function resolveMediaSourcePtsCadenceDurableDispatchConfigurationV1(
   env: MediaSourcePtsCadenceDurableDispatchEnvironmentV1 = processEnvironment(),
 ): MediaSourcePtsCadenceDurableDispatchConfigurationV1 {
-  if (!clean(env.QSTASH_TOKEN)) return unconfigured('MISSING_QSTASH_TOKEN');
-  if (!clean(env.QSTASH_CURRENT_SIGNING_KEY)
-    || !clean(env.QSTASH_NEXT_SIGNING_KEY)) {
-    return unconfigured('MISSING_QSTASH_SIGNING_KEYS');
-  }
-  if (env.QSTASH_URL && !exactHttpsOrigin(env.QSTASH_URL)) {
-    return unconfigured('INVALID_QSTASH_URL');
-  }
-  const vercel = clean(env.VERCEL_URL);
-  const candidate = vercel
-    ? (vercel.includes('://') ? vercel : `https://${vercel}`)
-    : clean(env.NEXT_PUBLIC_APP_URL);
-  if (!candidate) return unconfigured('MISSING_PUBLIC_ORIGIN');
-  const origin = exactHttpsOrigin(candidate);
-  if (!origin) return unconfigured('INVALID_PUBLIC_ORIGIN');
-  return {
-    configured: true,
-    reason: null,
-    workerUrl: `${origin}${MEDIA_SOURCE_PTS_CADENCE_DURABLE_WORKER_PATH_V1}`,
-  };
-}
-
-async function publishAndRecord(input: Readonly<{
-  job: DurableWorkflowJobSnapshotV1;
-  configuration: Extract<MediaSourcePtsCadenceDurableDispatchConfigurationV1,
-    { configured: true }>;
-  publisher: Readonly<MediaSourcePtsCadenceQStashPublisherV1>;
-  jobStore: Pick<DurableWorkflowJobStoreV1, 'recordDispatch'>;
-  deduplicationId: string;
-  now?: Date;
-}>): Promise<DispatchStateV1> {
-  let published: Readonly<{ messageId?: string }>;
-  try {
-    published = await input.publisher.publishJSON({
-      url: input.configuration.workerUrl,
-      body: assertMediaSourcePtsCadenceDurableWorkerMessageV1({
-        jobId: input.job.jobId,
-      }),
-      retries: 3,
-      deduplicationId: input.deduplicationId,
-      headers: { 'Upstash-Timeout': '300s' },
-    });
-  } catch {
-    return { state: 'dispatch_unconfirmed', reason: 'QSTASH_PUBLISH_REJECTED' };
-  }
-  const messageId = optionalIdentity(published.messageId);
-  if (!messageId) {
-    return { state: 'dispatch_unconfirmed', reason: 'QSTASH_MESSAGE_ID_MISSING' };
-  }
-  try {
-    await input.jobStore.recordDispatch({
-      jobId: input.job.jobId,
-      transport: 'qstash',
-      messageId,
-      ...(input.now ? { now: input.now } : {}),
-    });
-  } catch {
-    return {
-      state: 'delivery_unknown', messageId,
-      reason: 'DISPATCH_RECEIPT_NOT_RECORDED',
-    };
-  }
-  return { state: 'dispatched', messageId };
+  const result = resolveDurableWorkflowQStashDispatchConfigurationV1({
+    workerPath: MEDIA_SOURCE_PTS_CADENCE_DURABLE_WORKER_PATH_V1,
+    environment: env,
+  });
+  return result.configured
+    ? Object.freeze({ configured: true, reason: null, workerUrl: result.workerUrl })
+    : Object.freeze({ configured: false, reason: result.reason, workerUrl: null });
 }
 
 function isPtsCadenceJob(job: DurableWorkflowJobSnapshotV1): boolean {
   return job.operationOwner === 'MEDIA_ASSETS'
     && job.operationKind === 'media_source_pts_cadence_scan'
-    && job.input.schemaId === MEDIA_SOURCE_PTS_CADENCE_DURABLE_JOB_INPUT_VERSION_V1;
+    && job.input.schemaId === MEDIA_SOURCE_PTS_CADENCE_DURABLE_JOB_INPUT_VERSION_V1
+    && (job.status === 'queued' || job.status === 'retry_wait'
+      || job.status === 'running');
 }
 
-function recoveryDeduplicationId(job: DurableWorkflowJobSnapshotV1): string {
-  return hashDurableWorkflowJobJsonV1({
-    kind: 'EDITRON_MEDIA_SOURCE_PTS_CADENCE_RECOVERY_DISPATCH_V1',
-    jobId: job.jobId,
-    status: job.status,
-    attemptCount: job.attemptCount,
-    remainingAttempts: job.remainingAttempts,
-    updatedAt: job.updatedAt,
-    nextAttemptAt: job.nextAttemptAt,
-    resumeSequence: job.resumeState?.sequence ?? null,
-    dispatchMessageId: job.dispatchMessageId,
-  });
+function recoveryDispatchResult(
+  result: Awaited<ReturnType<typeof publishAndRecordDurableWorkflowQStashJobV1>>,
+): Readonly<{ jobId: string } & DispatchStateV1> {
+  if (result.state === 'dispatched') return Object.freeze(result);
+  if (result.state === 'dispatch_unconfirmed') return Object.freeze(result);
+  if (result.state === 'delivery_unknown') return Object.freeze(result);
+  throw new MediaSourcePtsCadenceDurableDispatchErrorV1(
+    'MEDIA_SOURCE_PTS_CADENCE_RECOVERY_DISPATCH_STATE_INVALID',
+  );
 }
 
 function requireConfiguration(
   env: MediaSourcePtsCadenceDurableDispatchEnvironmentV1,
-): Extract<MediaSourcePtsCadenceDurableDispatchConfigurationV1, { configured: true }> {
-  const result = resolveMediaSourcePtsCadenceDurableDispatchConfigurationV1(env);
+): Extract<DurableWorkflowQStashDispatchConfigurationV1, { configured: true }> {
+  const result = resolveDurableWorkflowQStashDispatchConfigurationV1({
+    workerPath: MEDIA_SOURCE_PTS_CADENCE_DURABLE_WORKER_PATH_V1,
+    environment: env,
+  });
   if (!result.configured) {
     throw new MediaSourcePtsCadenceDurableDispatchErrorV1(
       `MEDIA_SOURCE_PTS_CADENCE_DISPATCH_${result.reason}`,
     );
   }
   return result;
-}
-
-function createPublisher(
-  env: MediaSourcePtsCadenceDurableDispatchEnvironmentV1,
-): MediaSourcePtsCadenceQStashPublisherV1 {
-  return new Client({ token: clean(env.QSTASH_TOKEN)!, baseUrl: clean(env.QSTASH_URL) });
 }
 
 function processEnvironment(): MediaSourcePtsCadenceDurableDispatchEnvironmentV1 {
@@ -319,24 +250,6 @@ function processEnvironment(): MediaSourcePtsCadenceDurableDispatchEnvironmentV1
   };
 }
 
-function unconfigured(
-  reason: Exclude<MediaSourcePtsCadenceDurableDispatchConfigurationV1,
-    { configured: true }>['reason'],
-): MediaSourcePtsCadenceDurableDispatchConfigurationV1 {
-  return { configured: false, reason, workerUrl: null };
-}
-
-function exactHttpsOrigin(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password
-      || url.pathname !== '/' || url.search || url.hash) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 function validDate(value: Date, label: string): Date {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
     throw new MediaSourcePtsCadenceDurableDispatchErrorV1(
@@ -344,16 +257,6 @@ function validDate(value: Date, label: string): Date {
     );
   }
   return value;
-}
-
-function clean(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  return normalized || undefined;
-}
-
-function optionalIdentity(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try { return ID.parse(value); } catch { return null; }
 }
 
 function identity(value: string, label: string): string {
