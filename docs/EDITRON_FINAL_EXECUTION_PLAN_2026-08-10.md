@@ -8318,6 +8318,25 @@ owner/version/policy hashes. Live calibrated owners, redelivery evidence and
 dispatch remain open. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact-render runtime-policy fixture migration Phase 3F-C7ar
+(2026-08-30):** commit `031ae00e5` migrates every dependent owner-adapter,
+result, worker and prepared-source-publisher fixture to construct and bind the
+canonical runtime-policy receipt. All five test-side preparation-job builders
+now exercise the receipt; only the job-contract suite deliberately constructs
+the legacy six-field form to prove the temporary V1.2 bridge remains bounded.
+The policy/job/downstream suites pass 34/34, the full native-media integration
+cluster passes 113/113, and repository TypeScript and repository-wide quiet
+ESLint pass.
+
+This result is
+`RUNTIME_POLICY_DEPENDENT_FIXTURES_MIGRATED_V1_3_MANDATORY_ENFORCEMENT_OPEN`.
+It changes no production runtime behavior and does not make policy calibration
+or live dispatch true. The next bounded phase removes the legacy omission,
+issues V1.3, and makes the worker compare the exact injected budget, retry and
+heartbeat owner/version/policy hashes to the bound receipt before any budget
+or materialization access. This checkpoint does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
