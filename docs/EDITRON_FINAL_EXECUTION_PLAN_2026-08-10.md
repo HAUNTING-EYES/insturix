@@ -7546,6 +7546,46 @@ item 4 still owns production private-storage configuration and live lifecycle
 evidence. This checkpoint does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Leased PCM browser transport and single audio owner Phase 3F-C7q
+(2026-08-29):** commit `6c089efa5` adds the exact rational Web Audio schedule
+planner/runtime for authenticated canonical S32LE WAV segments. It validates
+status, scope headers, byte length, canonical WAV form and the route's SHA-256
+content ETag before manual PCM conversion; it never asks `decodeAudioData` to
+silently resample the evidence. Commit `afa7b90e9` adds the stateful audio
+session coordinator: current audio is readiness-critical, future audio may be
+prefetched, project/revision scope changes discard decoded cache authority,
+lease renewal retains already verified identical content within that scope,
+and pause/seek/rate/retry/dispose all stop or re-anchor deterministically.
+
+Commit `5a3ad6f6a` removes the original-media `<Audio>` element from a
+timestamp-managed picture and moves native-video gain/voiceover ducking into
+one shared resolver. Ordinary preview and final/audio-only render keep their
+existing native-media path. Commit `76a635169` binds the real Remotion
+`PlayerRef` events to the leased PCM coordinator. Play, pause, end, seek,
+frame, rate, waiting/resume, error, player volume and mute now drive the exact
+audio transport; any non-ready audio snapshot pauses the real player, and the
+visible gate has a separate bounded audio retry. The paired V3 session is the
+producer, the audio coordinator/bridge is the transport decision owner, Web
+Audio is the preview consumer, and the timestamp image layer is now visual
+only, so there is no duplicate primary audio branch.
+
+The resulting timestamp-preview, video-layer, mix/evidence and player-bridge
+cluster passes 110/110. Repository TypeScript and repository-wide quiet ESLint
+pass. This proves real code-path integration and deterministic simulated
+transport events. It does **not** yet prove physical speaker-clock A/V phase on
+a real browser/device, a live dedicated private-R2 object, multi-hour playback,
+analysis consumption, final-render consumption, or unsupported partial-epoch,
+edit-list and timestamp-wrap cases. No audible-quality or physical-latency
+claim is made from unit tests.
+
+This result is
+`PAIRED_V3_BROWSER_AUDIO_CONTROL_FLOW_VERIFIED_PHYSICAL_AND_DOWNSTREAM_PROOF_OPEN`.
+Queue item 3 remains open for live browser/device timing and failure proof,
+analysis and final-render consumers, and unsupported partial-epoch/edit-list/
+timestamp-wrap handling. Queue item 4 still owns production private-storage
+configuration and live object lifecycle evidence. This checkpoint does not
+change `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
