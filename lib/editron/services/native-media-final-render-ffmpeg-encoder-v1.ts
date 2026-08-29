@@ -62,7 +62,7 @@ const HDR_TRANSFERS_V1 = new Set(['arib-std-b67', 'smpte2084', 'smpte428']);
 export const NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_V1' as const;
 
-export type NativeMediaFinalRenderFfmpegEncoderPolicyV1 = Readonly<{
+type NativeMediaFinalRenderFfmpegEncoderPolicyV1 = Readonly<{
   policyVersion: typeof NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1;
   maxSourceBytes: number;
   maxTimelineFrames: number;
@@ -90,7 +90,7 @@ export interface NativeMediaFinalRenderArtifactStagerPortV1 {
   }>>;
 }
 
-export type NativeMediaFinalRenderSourceLeaseFactoryV1 = (
+type NativeMediaFinalRenderSourceLeaseFactoryV1 = (
   asset: MediaSourceAudioArtifactAssetStateInputV1,
 ) => VerifiedMediaSourceLeasePortV1;
 

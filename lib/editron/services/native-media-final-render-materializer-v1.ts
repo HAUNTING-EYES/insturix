@@ -35,7 +35,7 @@ import {
 export const NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_V1' as const;
 
-export type NativeMediaFinalRenderMaterializerPolicyV1 = Readonly<{
+type NativeMediaFinalRenderMaterializerPolicyV1 = Readonly<{
   policyVersion: typeof NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1;
   maxTimelineFrames: number;
   maxArtifactBytes: string;
@@ -43,7 +43,7 @@ export type NativeMediaFinalRenderMaterializerPolicyV1 = Readonly<{
   conform: VideoSourceTimestampConformResourcePolicyV2;
 }>;
 
-export const NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_DEFAULT_POLICY_V1:
+const NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_DEFAULT_POLICY_V1:
 NativeMediaFinalRenderMaterializerPolicyV1 = Object.freeze({
   policyVersion: NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1,
   maxTimelineFrames: 10_000,
@@ -98,7 +98,7 @@ export interface NativeMediaFinalRenderPublisherPortV1 {
   >>;
 }
 
-export type NativeMediaFinalRenderMaterializerPortsV1 = Readonly<{
+type NativeMediaFinalRenderMaterializerPortsV1 = Readonly<{
   projectSnapshotReader: Readonly<{
     loadProjectForMutation(userId: string, projectId: string): Promise<{
       project: Project;
