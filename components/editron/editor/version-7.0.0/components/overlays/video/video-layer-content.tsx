@@ -196,7 +196,6 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
       throw new Error('NATIVE_MEDIA_PREVIEW_NATIVE_AUDIO_SOURCE_MISSING');
     }
     if (!timestampPreviewSelection) {
-      console.warn('Video overlay has no src or content:', overlay);
       return (
         <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
