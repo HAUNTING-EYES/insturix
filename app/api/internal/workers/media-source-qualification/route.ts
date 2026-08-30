@@ -58,6 +58,15 @@ async function handler(request: NextRequest): Promise<Response> {
         { status: 503, headers: { 'Retry-After': '30' } },
       );
     }
+    if (audioDispatch.disposition === 'EVIDENCE_REJECTED') {
+      return NextResponse.json({
+        success: false,
+        error: { code: 'MEDIA_SOURCE_AUDIO_EVIDENCE_REJECTED' },
+        result,
+        cadenceDispatch,
+        audioDispatch,
+      });
+    }
     return NextResponse.json({
       success: true,
       result,

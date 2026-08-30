@@ -8,8 +8,16 @@ import type { DurableWorkflowQStashDeliveryPolicyV1 }
 import {
   MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1,
   createMediaSourceAudioArtifactAssetMongoPortsV1,
+  type MediaSourceAudioArtifactAssetStateInputV1,
   type MediaSourceAudioArtifactAssetStorePortsV1,
 } from './media-source-audio-artifact-asset-owner-v1';
+import { createMediaSourceAudioAvailabilityEvidenceMongoPortsV1 }
+  from './media-source-audio-availability-evidence-mongo-v1';
+import {
+  captureMediaSourceAudioAvailabilityEvidenceV1,
+  retainMediaSourceAudioAvailabilityEvidenceV1,
+  type MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+} from './media-source-audio-availability-evidence-v1';
 import {
   dispatchMediaSourceAudioDurableJobV1,
   type MediaSourceAudioDurableDispatchEnvironmentV1,
@@ -93,8 +101,19 @@ export type MediaSourceAudioProductTriggerResultV1 = Readonly<
         | 'MEDIA_KIND_NOT_AUDIO_OR_VIDEO'
         | 'AUDIO_STREAM_EVIDENCE_INVALID'
         | 'AUDIO_STREAM_LIMIT_EXCEEDED'
-        | 'NO_AUDIO_PROOF_REQUIRED'
         | 'SOURCE_EXCEEDS_RESOURCE_POLICY';
+    }
+  | {
+      disposition: 'NO_AUDIO_CONFIRMED';
+      evidenceSha256: string;
+      writeDisposition: 'APPLIED' | 'UNCHANGED';
+    }
+  | {
+      disposition: 'EVIDENCE_REJECTED';
+      reason:
+        | 'SOURCE_AUDIO_AVAILABILITY_CANDIDATE_INVALID'
+        | 'SOURCE_AUDIO_AVAILABILITY_CURRENT_STATE_INVALID'
+        | 'SOURCE_AUDIO_AVAILABILITY_CONFLICT';
     }
   | {
       disposition: 'SCHEDULED';
@@ -113,6 +132,10 @@ export type MediaSourceAudioProductTriggerResultV1 = Readonly<
       reason:
         | 'RESOURCE_POLICY_NOT_CONFIGURED'
         | 'RESOURCE_POLICY_INVALID'
+        | 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE'
+        | 'SOURCE_AUDIO_AVAILABILITY_RACE_EXHAUSTED'
+        | 'SOURCE_AUDIO_AVAILABILITY_STORE_LOAD_FAILED'
+        | 'SOURCE_AUDIO_AVAILABILITY_STORE_CAS_FAILED'
         | 'DISPATCH_RUNTIME_UNAVAILABLE'
         | 'QSTASH_PUBLISH_REJECTED'
         | 'QSTASH_MESSAGE_ID_MISSING'
@@ -123,6 +146,8 @@ export type MediaSourceAudioProductTriggerResultV1 = Readonly<
 
 export type MediaSourceAudioProductTriggerDependenciesV1 = Readonly<{
   assetStore?: Pick<MediaSourceAudioArtifactAssetStorePortsV1, 'load'>;
+  createAvailabilityEvidenceStorePorts?: () =>
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
   jobStore?: JobStoreV1;
   dispatch?: DispatchV1;
   deliveryPolicy?: DurableWorkflowQStashDeliveryPolicyV1;
@@ -197,10 +222,7 @@ export async function triggerQualifiedMediaSourceAudioMaterializationV1(
     });
   }
   if (streamIndexes.length === 0) {
-    return frozen({
-      disposition: 'NOT_ELIGIBLE',
-      reason: 'NO_AUDIO_PROOF_REQUIRED',
-    });
+    return retainNoAudioEvidence(asset, dependencies);
   }
   if (streamIndexes.length > MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1) {
     return frozen({
@@ -330,6 +352,87 @@ export async function triggerQualifiedMediaSourceAudioMaterializationV1(
         reason: dispatched.reason,
       });
   }
+}
+
+async function retainNoAudioEvidence(
+  asset: MediaSourceAudioArtifactAssetStateInputV1,
+  dependencies: MediaSourceAudioProductTriggerDependenciesV1,
+): Promise<MediaSourceAudioProductTriggerResultV1> {
+  let candidate;
+  try {
+    candidate = captureMediaSourceAudioAvailabilityEvidenceV1(asset);
+  } catch {
+    return frozen({
+      disposition: 'EVIDENCE_REJECTED',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_CANDIDATE_INVALID',
+    });
+  }
+  let ports: MediaSourceAudioAvailabilityEvidenceStorePortsV1;
+  try {
+    ports = (dependencies.createAvailabilityEvidenceStorePorts
+      ?? createMediaSourceAudioAvailabilityEvidenceMongoPortsV1)();
+  } catch {
+    return frozen({
+      disposition: 'DELIVERY_DEFERRED',
+      jobId: null,
+      created: false,
+      reason: 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE',
+    });
+  }
+  const retained = await retainMediaSourceAudioAvailabilityEvidenceV1(
+    candidate,
+    ports,
+  );
+  if (retained.disposition === 'RETAINED') {
+    return frozen({
+      disposition: 'NO_AUDIO_CONFIRMED',
+      evidenceSha256: retained.record.evidenceSha256,
+      writeDisposition: retained.writeDisposition,
+    });
+  }
+  switch (retained.reason) {
+    case 'CANDIDATE_INVALID':
+      return frozen({
+        disposition: 'EVIDENCE_REJECTED',
+        reason: 'SOURCE_AUDIO_AVAILABILITY_CANDIDATE_INVALID',
+      });
+    case 'CURRENT_STATE_INVALID':
+      return frozen({
+        disposition: 'EVIDENCE_REJECTED',
+        reason: 'SOURCE_AUDIO_AVAILABILITY_CURRENT_STATE_INVALID',
+      });
+    case 'CONFLICTING_EVIDENCE':
+      return frozen({
+        disposition: 'EVIDENCE_REJECTED',
+        reason: 'SOURCE_AUDIO_AVAILABILITY_CONFLICT',
+      });
+    case 'RACE_EXHAUSTED':
+      return audioAvailabilityDeferred(
+        'SOURCE_AUDIO_AVAILABILITY_RACE_EXHAUSTED',
+      );
+    case 'STORE_LOAD_FAILED':
+      return audioAvailabilityDeferred(
+        'SOURCE_AUDIO_AVAILABILITY_STORE_LOAD_FAILED',
+      );
+    case 'STORE_CAS_FAILED':
+      return audioAvailabilityDeferred(
+        'SOURCE_AUDIO_AVAILABILITY_STORE_CAS_FAILED',
+      );
+  }
+}
+
+function audioAvailabilityDeferred(
+  reason: Extract<
+    MediaSourceAudioProductTriggerResultV1,
+    { disposition: 'DELIVERY_DEFERRED' }
+  >['reason'],
+): MediaSourceAudioProductTriggerResultV1 {
+  return frozen({
+    disposition: 'DELIVERY_DEFERRED',
+    jobId: null,
+    created: false,
+    reason,
+  });
 }
 
 export class MediaSourceAudioProductTriggerErrorV1 extends Error {

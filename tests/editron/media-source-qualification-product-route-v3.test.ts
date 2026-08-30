@@ -149,6 +149,31 @@ describe('media source qualification product route V3', () => {
     expect(mocks.triggerAudio).toHaveBeenCalledWith(MESSAGE);
   });
 
+  it('acknowledges deterministic audio-evidence rejection without false success', async () => {
+    mocks.triggerCadence.mockResolvedValue({
+      disposition: 'SCHEDULED',
+      jobId: 'dwj_pts_v3_terminal',
+      created: false,
+      delivery: 'ALREADY_CONFIRMED',
+      messageId: 'qstash-message-terminal',
+    });
+    mocks.triggerAudio.mockResolvedValue({
+      disposition: 'EVIDENCE_REJECTED',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_CONFLICT',
+    });
+
+    const response = await POST(request(MESSAGE));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: { code: 'MEDIA_SOURCE_AUDIO_EVIDENCE_REJECTED' },
+      audioDispatch: {
+        disposition: 'EVIDENCE_REJECTED',
+        reason: 'SOURCE_AUDIO_AVAILABILITY_CONFLICT',
+      },
+    });
+  });
+
   it('rejects malformed JSON before either owner runs', async () => {
     const response = await POST(new NextRequest(
       'https://editron.example.test/api/internal/workers/media-source-qualification',

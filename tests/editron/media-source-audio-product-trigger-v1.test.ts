@@ -9,6 +9,11 @@ import { DurableWorkflowJobStoreV1 }
 import { dispatchMediaSourceAudioDurableJobV1 }
   from '@/lib/editron/services/media-source-audio-durable-dispatch-v1';
 import {
+  captureMediaSourceAudioAvailabilityEvidenceV1,
+  type MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+  type MediaSourceAudioAvailabilityEvidenceV1,
+} from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
+import {
   triggerQualifiedMediaSourceAudioMaterializationV1,
   type MediaSourceAudioProductTriggerEnvironmentV1,
 } from '@/lib/editron/services/media-source-audio-product-trigger-v1';
@@ -152,25 +157,99 @@ describe('MediaSourceAudioProductTriggerV1', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('does not invent audio work for a measured source with no audio streams', async () => {
+  it('retains and replays canonical no-audio evidence without scheduling work', async () => {
     const fixture = sourceFixture({ audioStreams: [] });
+    const availability = availabilityStore();
     const createOrGet = vi.fn();
     const dispatch = vi.fn();
 
+    const dependencies = {
+      assetStore: assetStore(fixture.asset),
+      createAvailabilityEvidenceStorePorts: () => availability.ports,
+      jobStore: { createOrGet, recordDispatch: vi.fn() },
+      dispatch,
+      environment: {},
+    };
+    const first = await triggerQualifiedMediaSourceAudioMaterializationV1(
+      fixture.message,
+      dependencies,
+    );
+    expect(first).toMatchObject({
+      disposition: 'NO_AUDIO_CONFIRMED',
+      evidenceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      writeDisposition: 'APPLIED',
+    });
+    await expect(triggerQualifiedMediaSourceAudioMaterializationV1(
+      fixture.message,
+      dependencies,
+    )).resolves.toMatchObject({
+      disposition: 'NO_AUDIO_CONFIRMED',
+      evidenceSha256: first.disposition === 'NO_AUDIO_CONFIRMED'
+        ? first.evidenceSha256
+        : 'TEST_UNREACHABLE',
+      writeDisposition: 'UNCHANGED',
+    });
+    expect(availability.current()?.availability.disposition)
+      .toBe('NO_AUDIO_STREAMS_OBSERVED');
+    expect(createOrGet).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('blocks contradictory no-audio evidence and defers exhausted store races', async () => {
+    const previous = sourceFixture({
+      audioStreams: [],
+      probeVersion: 'ffprobe-8.0',
+    });
+    const current = sourceFixture({
+      audioStreams: [],
+      probeVersion: 'ffprobe-8.1',
+    });
+    const conflicting = availabilityStore(
+      captureMediaSourceAudioAvailabilityEvidenceV1(previous.asset),
+    );
+    const noJobs = { createOrGet: vi.fn(), recordDispatch: vi.fn() };
+
+    await expect(triggerQualifiedMediaSourceAudioMaterializationV1(
+      current.message,
+      {
+        assetStore: assetStore(current.asset),
+        createAvailabilityEvidenceStorePorts: () => conflicting.ports,
+        jobStore: noJobs,
+      },
+    )).resolves.toEqual({
+      disposition: 'EVIDENCE_REJECTED',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_CONFLICT',
+    });
+
+    const racing = availabilityStore(null, 2);
+    await expect(triggerQualifiedMediaSourceAudioMaterializationV1(
+      current.message,
+      {
+        assetStore: assetStore(current.asset),
+        createAvailabilityEvidenceStorePorts: () => racing.ports,
+        jobStore: noJobs,
+      },
+    )).resolves.toEqual({
+      disposition: 'DELIVERY_DEFERRED',
+      jobId: null,
+      created: false,
+      reason: 'SOURCE_AUDIO_AVAILABILITY_RACE_EXHAUSTED',
+    });
+    expect(noJobs.createOrGet).not.toHaveBeenCalled();
+  });
+
+  it('rejects zero-stream audio essence instead of mislabelling it silent video', async () => {
+    const fixture = sourceFixture({ mediaKind: 'audio', audioStreams: [] });
     await expect(triggerQualifiedMediaSourceAudioMaterializationV1(
       fixture.message,
       {
         assetStore: assetStore(fixture.asset),
-        jobStore: { createOrGet, recordDispatch: vi.fn() },
-        dispatch,
-        environment: {},
+        createAvailabilityEvidenceStorePorts: () => availabilityStore().ports,
       },
     )).resolves.toEqual({
-      disposition: 'NOT_ELIGIBLE',
-      reason: 'NO_AUDIO_PROOF_REQUIRED',
+      disposition: 'EVIDENCE_REJECTED',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_CANDIDATE_INVALID',
     });
-    expect(createOrGet).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('classifies stale, pending, unverifiable and tampered evidence without mutation', async () => {
@@ -294,8 +373,39 @@ function assetStore(asset: ReturnType<typeof sourceFixture>['asset']) {
   return { load: vi.fn(async () => asset) };
 }
 
+function availabilityStore(
+  initial: MediaSourceAudioAvailabilityEvidenceV1 | null = null,
+  forcedRaces = 0,
+) {
+  let current = initial;
+  let races = forcedRaces;
+  const load = vi.fn(async () => current);
+  const compareAndSet = vi.fn(async ({
+    expectedEvidenceSha256,
+    next,
+  }: Parameters<
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1['compareAndSet']
+  >[0]) => {
+    if (races > 0) {
+      races -= 1;
+      return false;
+    }
+    if ((current?.evidenceSha256 ?? null) !== expectedEvidenceSha256) return false;
+    current = next;
+    return true;
+  });
+  return {
+    ports: {
+      load,
+      compareAndSet,
+    } satisfies MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+    current: () => current,
+  };
+}
+
 function sourceFixture(input: Readonly<{
   mediaKind?: 'audio' | 'video';
+  probeVersion?: string;
   audioStreams?: readonly Readonly<{
     streamIndex: number;
     channelCount: number;
@@ -331,11 +441,29 @@ function sourceFixture(input: Readonly<{
   const observationMaterial = {
     schemaVersion: 1 as const,
     kind: 'EDITRON_MEDIA_SOURCE_PROBE_V1' as const,
-    probeVersion: 'ffprobe-8.1',
+    probeVersion: input.probeVersion ?? 'ffprobe-8.1',
     formatName: mediaKind === 'audio' ? 'wav' : 'mov',
     durationMilliseconds: 10_000,
     startTimeMilliseconds: 0,
-    videoStreams: [],
+    videoStreams: mediaKind === 'video' ? [{
+      streamIndex: 0,
+      codec: 'h264',
+      codedWidth: 1920,
+      codedHeight: 1080,
+      pixelFormat: 'yuv420p',
+      sourceTimebase: { numerator: '1', denominator: '90000' },
+      sourceStartPts: '0',
+      sourceDurationTicks: '900000',
+      averageFrameRate: { numerator: '30', denominator: '1' },
+      realFrameRate: { numerator: '30', denominator: '1' },
+      frameCount: '300',
+      colorSpace: 'bt709',
+      colorTransfer: 'bt709',
+      colorPrimaries: 'bt709',
+      colorRange: 'tv',
+      timecode: null,
+      reelId: null,
+    }] : [],
     audioStreams: (input.audioStreams ?? [{
       streamIndex: 3,
       channelCount: 2,
