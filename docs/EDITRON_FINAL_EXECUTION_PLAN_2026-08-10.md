@@ -10333,6 +10333,21 @@ owner before job claim; no-audio product retention, successor receipt/consumer
 cutover, complete migration, live Atlas/R2 proof and cleanup remain open.
 Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+Commit `4c96864e4` closes that durable composition gap. The durable runtime now
+preflights, in order, private storage, the active asset owner, canonical audio
+availability and legacy compatibility evidence before invoking the worker;
+each unavailable owner has a distinct result and later owners are not touched.
+The exact preflighted instances are injected into the product runtime rather
+than reconstructed after claim. The focused durable suite passes 3/3 and the
+widened audio authority/product chain remains 30/30, with full TypeScript and
+repository-wide quiet ESLint passing. This result is
+`DECODED_AUDIO_DURABLE_DUAL_RETENTION_PREFLIGHT_VERIFIED_NO_AUDIO_OPEN`.
+It is not full audio-availability convergence: the no-audio branch still does
+not persist canonical evidence, the V1 product/worker receipt does not expose
+the successor evidence hash, legacy consumers have no dual-read cutover, and
+historical migration/live Atlas-R2/cleanup proof remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
