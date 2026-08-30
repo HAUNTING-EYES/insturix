@@ -7,19 +7,18 @@ import type { MediaSourcePtsCadenceScanPublisherStateOwnerV3 }
 import type { MediaSourceQualificationRecordV1 }
   from './media-source-qualification-v1';
 import {
-  assertMediaSourceVersionEvidenceRecordV1,
   captureMediaSourceVersionEvidenceV1,
-  mediaSourceVersionEvidenceScopeV1,
-  persistMediaSourceVersionEvidenceV1,
   type MediaSourceVersionEvidenceRecordV1,
   type MediaSourceVersionEvidenceStorePortsV1,
 } from './media-source-version-evidence-owner-v1';
 import {
+  retainMediaSourceVersionEvidenceV1,
+  type MediaSourceVersionEvidenceRetentionResultV1,
+} from './media-source-version-evidence-retention-v1';
+import {
   assertMediaSourceVersionV1,
   type MediaSourceVersionV1,
 } from './media-source-version-v1';
-
-const MAX_EVIDENCE_CAS_ATTEMPTS_V3 = 2;
 
 export type MediaSourcePtsCadenceVersionEvidenceFailureReasonV3 =
   | 'SOURCE_VERSION_EVIDENCE_TERMINAL_STATE_INVALID'
@@ -60,72 +59,17 @@ export function createMediaSourcePtsCadenceVersionEvidenceStateOwnerV3(
           qualification: input.qualification,
           nextRecord: persistInput.nextRecord,
         });
-        await retainTerminalEvidence(candidate, input.evidenceStorePorts);
+        const retained = await retainMediaSourceVersionEvidenceV1(
+          candidate,
+          input.evidenceStorePorts,
+        );
+        if (retained.disposition === 'REJECTED') {
+          throw failure(retentionFailureReason(retained.reason), retained.retryable);
+        }
       }
       return input.stateOwner.persist(persistInput);
     },
   });
-}
-
-async function retainTerminalEvidence(
-  candidate: MediaSourceVersionEvidenceRecordV1,
-  ports: MediaSourceVersionEvidenceStorePortsV1,
-): Promise<void> {
-  const guardedPorts = guardedEvidencePorts(ports);
-  const scope = mediaSourceVersionEvidenceScopeV1(candidate);
-  for (let attempt = 1; attempt <= MAX_EVIDENCE_CAS_ATTEMPTS_V3; attempt += 1) {
-    let current: MediaSourceVersionEvidenceRecordV1 | null;
-    try {
-      const loaded = await guardedPorts.load(scope);
-      current = loaded === null
-        ? null
-        : assertMediaSourceVersionEvidenceRecordV1(loaded);
-    } catch (error) {
-      if (error instanceof EvidenceStorePortFailureV3) {
-        throw failure(
-          error.stage === 'LOAD'
-            ? 'SOURCE_VERSION_EVIDENCE_STORE_LOAD_FAILED'
-            : 'SOURCE_VERSION_EVIDENCE_STORE_CAS_FAILED',
-          true,
-        );
-      }
-      throw failure('SOURCE_VERSION_EVIDENCE_CURRENT_STATE_INVALID', false);
-    }
-
-    let result: Awaited<ReturnType<typeof persistMediaSourceVersionEvidenceV1>>;
-    try {
-      result = await persistMediaSourceVersionEvidenceV1({
-        expectedEvidenceSha256: current?.evidenceSha256 ?? null,
-        candidate,
-      }, guardedPorts);
-    } catch (error) {
-      if (error instanceof EvidenceStorePortFailureV3) {
-        throw failure(
-          error.stage === 'LOAD'
-            ? 'SOURCE_VERSION_EVIDENCE_STORE_LOAD_FAILED'
-            : 'SOURCE_VERSION_EVIDENCE_STORE_CAS_FAILED',
-          true,
-        );
-      }
-      throw error;
-    }
-    if (result.disposition === 'APPLIED' || result.disposition === 'UNCHANGED') {
-      return;
-    }
-    if (result.disposition === 'RACE_LOST'
-      || (result.disposition === 'REJECTED'
-        && result.reason === 'EXPECTED_STATE_MISMATCH')) {
-      if (attempt < MAX_EVIDENCE_CAS_ATTEMPTS_V3) continue;
-      throw failure('SOURCE_VERSION_EVIDENCE_RACE_EXHAUSTED', true);
-    }
-    if (result.reason === 'CURRENT_STATE_INVALID') {
-      throw failure('SOURCE_VERSION_EVIDENCE_CURRENT_STATE_INVALID', false);
-    }
-    if (result.reason === 'CONFLICTING_EVIDENCE') {
-      throw failure('SOURCE_VERSION_EVIDENCE_CONFLICT', false);
-    }
-    throw failure('SOURCE_VERSION_EVIDENCE_CANDIDATE_INVALID', false);
-  }
 }
 
 function terminalEvidenceCandidate(input: Readonly<{
@@ -151,30 +95,25 @@ function terminalEvidenceCandidate(input: Readonly<{
   }
 }
 
-function guardedEvidencePorts(
-  ports: MediaSourceVersionEvidenceStorePortsV1,
-): MediaSourceVersionEvidenceStorePortsV1 {
-  return Object.freeze({
-    load: async (scope) => {
-      try {
-        return await ports.load(scope);
-      } catch {
-        throw new EvidenceStorePortFailureV3('LOAD');
-      }
-    },
-    compareAndSet: async (value) => {
-      try {
-        return await ports.compareAndSet(value);
-      } catch {
-        throw new EvidenceStorePortFailureV3('CAS');
-      }
-    },
-  });
-}
-
-class EvidenceStorePortFailureV3 extends Error {
-  constructor(public readonly stage: 'LOAD' | 'CAS') {
-    super(`SOURCE_VERSION_EVIDENCE_STORE_${stage}_FAILED`);
+function retentionFailureReason(
+  reason: Extract<
+    MediaSourceVersionEvidenceRetentionResultV1,
+    { disposition: 'REJECTED' }
+  >['reason'],
+): MediaSourcePtsCadenceVersionEvidenceFailureReasonV3 {
+  switch (reason) {
+    case 'CANDIDATE_INVALID':
+      return 'SOURCE_VERSION_EVIDENCE_CANDIDATE_INVALID';
+    case 'CURRENT_STATE_INVALID':
+      return 'SOURCE_VERSION_EVIDENCE_CURRENT_STATE_INVALID';
+    case 'CONFLICTING_EVIDENCE':
+      return 'SOURCE_VERSION_EVIDENCE_CONFLICT';
+    case 'RACE_EXHAUSTED':
+      return 'SOURCE_VERSION_EVIDENCE_RACE_EXHAUSTED';
+    case 'STORE_LOAD_FAILED':
+      return 'SOURCE_VERSION_EVIDENCE_STORE_LOAD_FAILED';
+    case 'STORE_CAS_FAILED':
+      return 'SOURCE_VERSION_EVIDENCE_STORE_CAS_FAILED';
   }
 }
 
