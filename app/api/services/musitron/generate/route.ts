@@ -6,24 +6,14 @@ import { Client } from "@upstash/qstash";
 import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { z } from "zod";
 
-// Initialize QStash client
-let qstash: Client;
-try {
-  if (!process.env.QSTASH_TOKEN) {
-    throw new Error("QSTASH_TOKEN environment variable is not set");
-  }
-
+function createQstashClient(): Client {
+  const token = process.env.QSTASH_TOKEN?.trim();
+  if (!token) throw new Error("QSTASH_TOKEN environment variable is not set");
   const qstashBaseUrl =
     process.env.NODE_ENV === "development"
       ? "http://127.0.0.1:8080"
       : undefined;
-
-  qstash = new Client({
-    token: process.env.QSTASH_TOKEN!,
-    baseUrl: qstashBaseUrl,
-  });
-} catch (error) {
-  throw error;
+  return new Client({ token, baseUrl: qstashBaseUrl });
 }
 
 const MUSITRON_MODELS = [
@@ -78,6 +68,23 @@ export async function POST(req: Request) {
     duration = 30,
     model,
   } = parsed.data;
+
+  let qstash: Client;
+  try {
+    qstash = createQstashClient();
+  } catch (error) {
+    console.error("[Musitron Generate] QStash is unavailable:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          type: "QUEUE_UNAVAILABLE",
+          message: "Music generation is temporarily unavailable",
+        },
+      },
+      { status: 503 },
+    );
+  }
 
   // Check credits (dynamic based on model)
   const creditCheck = await checkCredits(userId, "musitron", "music_generation", {
