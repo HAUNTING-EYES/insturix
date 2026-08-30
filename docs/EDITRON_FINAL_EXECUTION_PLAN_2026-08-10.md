@@ -9302,6 +9302,25 @@ No durable direct-V3 job, state publication, live private storage, deployed
 scan, reset/wrap/edit-list evidence owner or production selection caller is
 claimed. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Renewable V3 verification claim Phase 3F-C8j (2026-08-30):** commit
+`542a7d928` extends the sole V3 `MEDIA_ASSETS` lifecycle owner with same-claim
+lease renewal. Renewal retains the claim ID and attempt count, advances the
+start of the current bounded lease window, requires a strictly later expiry,
+and preserves the existing one-hour maximum for each window. The exact state
+hash plus claim ID/expiry CAS guards make a concurrent or stale renewal lose
+instead of silently extending somebody else's ownership. Foreign claim IDs,
+expired claims, oversized windows, lease shortening and forged persisted
+claimant changes are rejected; post-expiry reclaim remains a distinct new
+attempt.
+
+The focused lifecycle suite passes 7/7, all 29 timestamp-cadence suites pass
+152/152, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`V3_RENEWABLE_VERIFICATION_CLAIM_VERIFIED_PUBLICATION_COMPOSITION_OPEN`.
+No finalizer invokes renewal yet, no private index write/state sequence is
+composed, and no live long-running verifier or Atlas race was exercised. Queue
+item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
