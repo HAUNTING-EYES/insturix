@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import fastapi
@@ -24,6 +25,7 @@ from media_source_pts_scan_core import (
     ScanInputError,
     ScanStorageError,
     mark_scan_unverifiable,
+    stage_epoch_scan_lines_v3,
     stage_scan_lines,
     validate_scan_request,
     write_exact_r2,
@@ -46,6 +48,13 @@ SAFE_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 FRAME_SCAN_TIMEOUT_SECONDS = 86_400
 MAPPER_VERSION = "continuous-ffprobe-v1"
 COMMAND_POLICY_VERSION = "continuous-ffprobe-v1"
+EPOCH_MAPPER_VERSION_V3 = "epoch-ffprobe-v3"
+EPOCH_COMMAND_POLICY_VERSION_V3 = "epoch-ffprobe-v3"
+ScanWriter = Callable[[bytes, dict[str, Any]], None]
+ScanStageFunction = Callable[
+    [Iterable[str], dict[str, Any], str, ScanWriter],
+    dict[str, Any],
+]
 
 
 @app.function(
@@ -57,8 +66,37 @@ COMMAND_POLICY_VERSION = "continuous-ffprobe-v1"
     scaledown_window=300,
 )
 def map_source_pts(request: dict[str, Any]) -> dict[str, Any]:
+    return _map_source_pts(
+        request,
+        MAPPER_VERSION,
+        COMMAND_POLICY_VERSION,
+    )
+
+
+@app.function(
+    image=image,
+    secrets=[private_storage_secret],
+    cpu=2.0,
+    memory=4096,
+    timeout=FRAME_SCAN_TIMEOUT_SECONDS,
+    scaledown_window=300,
+)
+def map_source_pts_epochs_v3(request: dict[str, Any]) -> dict[str, Any]:
+    return _map_source_pts(
+        request,
+        EPOCH_MAPPER_VERSION_V3,
+        EPOCH_COMMAND_POLICY_VERSION_V3,
+    )
+
+
+def _map_source_pts(
+    request: dict[str, Any],
+    mapper_version: str,
+    command_policy_version: str,
+) -> dict[str, Any]:
+    stage_lines = _stage_lines_for_mapper(mapper_version, command_policy_version)
     validated = validate_scan_request(request)
-    _verify_mapper_contract(validated)
+    _verify_mapper_contract(validated, mapper_version, command_policy_version)
     source_url = validated["source_url"]
     if not is_allowed_media_source_url(source_url, "EDITRON_MEDIA_PTS_ALLOWED_HOST_SUFFIXES"):
         raise ScanInputError("SCAN_SOURCE_URL_NOT_ALLOWED")
@@ -103,7 +141,7 @@ def map_source_pts(request: dict[str, Any]) -> dict[str, Any]:
         if process.stdout is None:
             raise ScanStorageError("SCAN_FFPROBE_STDOUT_UNAVAILABLE")
         try:
-            result = stage_scan_lines(
+            result = stage_lines(
                 process.stdout,
                 validated,
                 version,
@@ -199,11 +237,28 @@ def _ffprobe_version() -> str:
     return completed.stdout.splitlines()[0].strip()
 
 
-def _verify_mapper_contract(request: dict[str, Any]) -> None:
+def _verify_mapper_contract(
+    request: dict[str, Any],
+    mapper_version: str = MAPPER_VERSION,
+    command_policy_version: str = COMMAND_POLICY_VERSION,
+) -> None:
     mapper = request["mapBinding"]["mapper"]
-    if mapper["mapperVersion"] != MAPPER_VERSION \
-            or mapper["commandPolicyVersion"] != COMMAND_POLICY_VERSION:
+    if mapper["mapperVersion"] != mapper_version \
+            or mapper["commandPolicyVersion"] != command_policy_version:
         raise ScanInputError("SCAN_MAPPER_CONTRACT_MISMATCH")
+
+
+def _stage_lines_for_mapper(
+    mapper_version: str,
+    command_policy_version: str,
+) -> ScanStageFunction:
+    if mapper_version == MAPPER_VERSION \
+            and command_policy_version == COMMAND_POLICY_VERSION:
+        return stage_scan_lines
+    if mapper_version == EPOCH_MAPPER_VERSION_V3 \
+            and command_policy_version == EPOCH_COMMAND_POLICY_VERSION_V3:
+        return stage_epoch_scan_lines_v3
+    raise ScanInputError("SCAN_MAPPER_CONTRACT_UNREGISTERED")
 
 
 def _verify_selected_stream(source_url: str, stream_index: int, timebase: dict[str, str]) -> None:
