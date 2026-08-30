@@ -20,6 +20,7 @@ import {
   serializeMediaSourceAudioPrivateArtifactManifestV1,
 } from '@/lib/editron/services/media-source-audio-private-artifact-v1';
 import {
+  assertMediaSourceAudioProductMaterializationReceiptV1,
   materializeMediaSourceAudioProductV1,
   MediaSourceAudioProductMaterializationErrorV1,
   type MediaSourceAudioProductMaterializationPortsV1,
@@ -75,6 +76,26 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     expect(evidence.current()?.sourceAudioArtifactsV1?.records.map(
       ({ audioStreamIndex }) => audioStreamIndex,
     )).toEqual([4, 9]);
+    expect(assertMediaSourceAudioProductMaterializationReceiptV1(receipt))
+      .toEqual(receipt);
+  });
+
+  it('rejects a well-shaped product receipt whose proof root was altered', async () => {
+    const fixture = sourceFixture('receipt-tamper', [4]);
+    const active = activeStore(fixture.asset);
+    const receipt = await materializeMediaSourceAudioProductV1(
+      productInput(fixture),
+      productPorts(
+        active.ports,
+        evidenceStore().ports,
+        materializer(fixture),
+      ),
+    );
+
+    expect(() => assertMediaSourceAudioProductMaterializationReceiptV1({
+      ...receipt,
+      audioArtifactStateSha256: 'f'.repeat(64),
+    })).toThrow('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_HASH_MISMATCH');
   });
 
   it('resumes a validated partial set without rematerializing completed streams', async () => {

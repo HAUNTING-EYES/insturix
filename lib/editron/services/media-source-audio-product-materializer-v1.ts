@@ -59,6 +59,80 @@ export type MediaSourceAudioProductMaterializationReceiptV1 = Readonly<{
   receiptSha256: string;
 }>;
 
+export class MediaSourceAudioProductReceiptErrorV1 extends Error {}
+
+export function assertMediaSourceAudioProductMaterializationReceiptV1(
+  value: unknown,
+): MediaSourceAudioProductMaterializationReceiptV1 {
+  const record = receiptRecord(value);
+  const actualKeys = Object.keys(record).sort();
+  const expectedKeys = [
+    'assetId', 'audioArtifactStateSha256', 'audioStreamBindingsSha256',
+    'completedAt', 'disposition', 'kind', 'materializedAudioStreamIndexes',
+    'observedAudioStreamIndexes', 'receiptSha256', 'schemaVersion',
+    'sourceVersionEvidenceSha256', 'sourceVersionSha256', 'userId',
+  ].sort();
+  if (actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_FIELDS_INVALID');
+  }
+  if (record.schemaVersion !== 1
+    || record.kind
+      !== MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1
+    || (record.disposition !== 'COMPLETED'
+      && record.disposition !== 'ALREADY_COMPLETE')) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_IDENTITY_INVALID');
+  }
+  const disposition = record.disposition as
+    MediaSourceAudioProductMaterializationReceiptV1['disposition'];
+  const observedAudioStreamIndexes = receiptIndexes(
+    record.observedAudioStreamIndexes,
+    false,
+  );
+  const materializedAudioStreamIndexes = receiptIndexes(
+    record.materializedAudioStreamIndexes,
+    true,
+  );
+  if (materializedAudioStreamIndexes.some((index) => (
+    !observedAudioStreamIndexes.includes(index)
+  ))
+    || (disposition === 'COMPLETED'
+      && materializedAudioStreamIndexes.length === 0)
+    || (disposition === 'ALREADY_COMPLETE'
+      && materializedAudioStreamIndexes.length !== 0)) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_STREAM_SET_INVALID');
+  }
+  const completedAt = receiptTimestamp(record.completedAt);
+  const material = {
+    schemaVersion: 1 as const,
+    kind: MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
+    disposition,
+    assetId: receiptIdentifier(record.assetId),
+    userId: receiptIdentifier(record.userId),
+    sourceVersionSha256: receiptSha256(record.sourceVersionSha256),
+    audioStreamBindingsSha256: receiptSha256(
+      record.audioStreamBindingsSha256,
+    ),
+    observedAudioStreamIndexes,
+    materializedAudioStreamIndexes,
+    audioArtifactStateSha256: receiptSha256(
+      record.audioArtifactStateSha256,
+    ),
+    sourceVersionEvidenceSha256: receiptSha256(
+      record.sourceVersionEvidenceSha256,
+    ),
+    completedAt,
+  };
+  const receiptSha256Value = receiptSha256(record.receiptSha256);
+  if (hashEditronCanonicalJsonV1(material) !== receiptSha256Value) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_HASH_MISMATCH');
+  }
+  return deepFreezeEditronJsonV1({
+    ...material,
+    receiptSha256: receiptSha256Value,
+  });
+}
+
 export type MediaSourceAudioProductMaterializationFailureReasonV1 =
   | 'INPUT_INVALID'
   | 'PORTS_INVALID'
@@ -406,6 +480,67 @@ function normalizeAbortSignal(value: unknown): AbortSignal | undefined {
 
 function assertNotAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw failure('MATERIALIZATION_ABORTED', true);
+}
+
+function receiptRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_INVALID');
+  }
+  return value as Record<string, unknown>;
+}
+
+function receiptIndexes(value: unknown, allowEmpty: boolean): readonly number[] {
+  if (!Array.isArray(value)
+    || (!allowEmpty && value.length === 0)
+    || value.length > MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_STREAM_SET_INVALID');
+  }
+  const indexes = value.map((index) => {
+    if (!Number.isSafeInteger(index) || Number(index) < 0) {
+      receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_STREAM_SET_INVALID');
+    }
+    return Number(index);
+  });
+  if (indexes.some((index, position) => (
+    position > 0 && indexes[position - 1]! >= index
+  ))) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_STREAM_SET_INVALID');
+  }
+  return Object.freeze(indexes);
+}
+
+function receiptTimestamp(value: unknown): string {
+  if (typeof value !== 'string') {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_TIMESTAMP_INVALID');
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== value) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_TIMESTAMP_INVALID');
+  }
+  return value;
+}
+
+function receiptIdentifier(value: unknown): string {
+  if (typeof value !== 'string') {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_SCOPE_INVALID');
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized !== value || normalized.length > 256
+    || /[\u0000-\u001F\u007F]/.test(normalized)) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_SCOPE_INVALID');
+  }
+  return normalized;
+}
+
+function receiptSha256(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    receiptFail('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_SHA256_INVALID');
+  }
+  return value;
+}
+
+function receiptFail(code: string): never {
+  throw new MediaSourceAudioProductReceiptErrorV1(code);
 }
 
 function assertPorts(ports: MediaSourceAudioProductMaterializationPortsV1): void {
