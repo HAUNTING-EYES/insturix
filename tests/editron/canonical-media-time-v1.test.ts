@@ -4,6 +4,7 @@ import {
   CANONICAL_MEDIA_TIME_CONTRACT_VERSION_V1,
   CanonicalMediaTimeValidationErrorV1,
   compareCanonicalMediaTimeV1,
+  mediaTimeFromPresentationEpochTicksV1,
   mediaTimeFromSourceTicksV1,
   parseAudioSampleRangeV1,
   parseExactRationalRateV1,
@@ -70,7 +71,7 @@ describe('CanonicalMediaTimeV1', () => {
   });
 
   it('represents discontinuity epochs without flattening source PTS', () => {
-    expect(parsePresentationEpochV1({
+    const resetEpoch = parsePresentationEpochV1({
       schemaVersion: 1,
       contractVersion: CANONICAL_MEDIA_TIME_CONTRACT_VERSION_V1,
       kind: 'presentation-epoch',
@@ -81,11 +82,20 @@ describe('CanonicalMediaTimeV1', () => {
       sourceEndExclusivePresentationTimestampTicks: '180000',
       canonicalStartTime: { ticks: '360000', timescale: '90000' },
       boundaryKind: 'TIMESTAMP_RESET',
-    })).toMatchObject({
+    });
+    expect(resetEpoch).toMatchObject({
       epochId: 'video-0:epoch-2',
       sourceStartPresentationTimestampTicks: '-9000',
       boundaryKind: 'TIMESTAMP_RESET',
     });
+    expect(mediaTimeFromPresentationEpochTicksV1(resetEpoch, '-4500'))
+      .toEqual({ ticks: '81', timescale: '20' });
+    expect(mediaTimeFromPresentationEpochTicksV1(resetEpoch, '180000'))
+      .toEqual({ ticks: '61', timescale: '10' });
+    expect(() => mediaTimeFromPresentationEpochTicksV1(resetEpoch, '-9001'))
+      .toThrow(CanonicalMediaTimeValidationErrorV1);
+    expect(() => mediaTimeFromPresentationEpochTicksV1(resetEpoch, '180001'))
+      .toThrow(CanonicalMediaTimeValidationErrorV1);
   });
 
   it('keeps audio and source/timeline coordinates in their own exact domains', () => {

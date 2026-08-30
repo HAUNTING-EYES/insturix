@@ -243,6 +243,43 @@ export function mediaTimeFromSourceTicksV1(
   });
 }
 
+/**
+ * Converts one source PTS coordinate inside a presentation epoch to the
+ * continuous canonical timeline. The epoch end is accepted so callers can
+ * represent an end-exclusive frame boundary without flattening a reset.
+ */
+export function mediaTimeFromPresentationEpochTicksV1(
+  epochInput: PresentationEpochV1,
+  presentationTimestampTicks: string,
+): CanonicalMediaTimeV1 {
+  const epoch = parsePresentationEpochV1(epochInput);
+  if (compareIntegerTextV1(
+    presentationTimestampTicks,
+    epoch.sourceStartPresentationTimestampTicks,
+  ) < 0 || compareIntegerTextV1(
+    presentationTimestampTicks,
+    epoch.sourceEndExclusivePresentationTimestampTicks,
+  ) > 0) {
+    fail('PRESENTATION_EPOCH_TICK_OUTSIDE_RANGE');
+  }
+
+  const canonicalStart = parseCanonicalMediaTimeV1(epoch.canonicalStartTime);
+  const rate = parseExactRationalRateV1(epoch.secondsPerSourceTick);
+  const canonicalTimescale = BigInt(canonicalStart.timescale);
+  const rateDenominator = BigInt(rate.denominator);
+  const deltaSourceTicks = BigInt(presentationTimestampTicks)
+    - BigInt(epoch.sourceStartPresentationTimestampTicks);
+  const numerator = BigInt(canonicalStart.ticks) * rateDenominator
+    + deltaSourceTicks * BigInt(rate.numerator) * canonicalTimescale;
+  const denominator = canonicalTimescale * rateDenominator;
+  const divisor = greatestCommonDivisor(numerator, denominator);
+
+  return parseCanonicalMediaTimeV1({
+    ticks: String(numerator / divisor),
+    timescale: String(denominator / divisor),
+  });
+}
+
 function legacyNumericFrameRate(value: unknown): CanonicalFrameRateReadV1 {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     fail('LEGACY_NUMERIC_FRAME_RATE_INVALID');
