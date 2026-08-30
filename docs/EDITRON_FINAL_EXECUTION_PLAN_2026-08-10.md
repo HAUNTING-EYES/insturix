@@ -10316,6 +10316,23 @@ decoded product dual-retention is not yet claimed. No-audio product retention,
 receipt/consumer cutover, historical migration and live proof also remain
 open; Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+Commit `226231369` switches the decoded-audio product materializer to that
+successor writer, makes the canonical availability store a mandatory product
+port and composes the strict Mongo adapter in the standalone server runtime
+with a distinct unavailable result. The product owner now replays and
+re-proves canonical availability after terminal publication, including the
+`ALREADY_COMPLETE` path; therefore an older complete active set cannot report
+success merely because no new asset CAS occurred. Historical complete rows
+gain the canonical root on demand but still block if their legacy compatibility
+evidence is absent. The focused product/runtime suites pass 15/15 and the
+widened authority/decorator/product/durable cluster passes 30/30, with full
+TypeScript and repository-wide quiet ESLint passing. This result is
+`DECODED_AUDIO_PRODUCT_DUAL_RETENTION_VERIFIED_DURABLE_PREFLIGHT_OPEN`.
+The durable runtime has not yet preflighted and reused this exact canonical
+owner before job claim; no-audio product retention, successor receipt/consumer
+cutover, complete migration, live Atlas/R2 proof and cleanup remain open.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
