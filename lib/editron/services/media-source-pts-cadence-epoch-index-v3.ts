@@ -143,7 +143,9 @@ export function createMediaSourcePtsCadenceEpochIndexV3(
   );
   const streamId = expectedMediaSourcePtsCadenceStreamIdV3(videoStreamIndex);
   const sourceTimebase = parseExactRationalRateV1(input.sourceTimebase);
-  const resourcePolicy = assertResourcePolicy(input.resourcePolicy);
+  const resourcePolicy = normalizeMediaSourcePtsCadenceEpochIndexResourcePolicyV3(
+    input.resourcePolicy,
+  );
   if (!Array.isArray(input.epochs) || input.epochs.length === 0
     || input.epochs.length > resourcePolicy.maxEpochEntries) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_EPOCH_COUNT_INVALID');
@@ -317,7 +319,9 @@ export function assertMediaSourcePtsCadenceEpochIndexV3(
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_STREAM_ID_INVALID');
   }
   const sourceTimebase = parseExactRationalRateV1(record.sourceTimebase);
-  const resourcePolicy = assertResourcePolicy(record.resourcePolicy);
+  const resourcePolicy = normalizeMediaSourcePtsCadenceEpochIndexResourcePolicyV3(
+    record.resourcePolicy,
+  );
   if (!Array.isArray(record.batches) || record.batches.length === 0
     || record.batches.length > resourcePolicy.maxBatchEntries) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_BATCH_COUNT_INVALID');
@@ -600,7 +604,9 @@ function assertEpochIndexSerialization(
   return frozen({ index, canonicalJson: value.canonicalJson, byteLength, contentSha256 });
 }
 
-function assertResourcePolicy(value: unknown): MediaSourcePtsCadenceEpochIndexResourcePolicyV3 {
+export function normalizeMediaSourcePtsCadenceEpochIndexResourcePolicyV3(
+  value: unknown,
+): MediaSourcePtsCadenceEpochIndexResourcePolicyV3 {
   const record = objectRecord(value, 'MEDIA_SOURCE_PTS_CADENCE_EPOCH_INDEX_POLICY_INVALID');
   exactKeys(record, [
     'maxBatchEntries', 'maxCanonicalJsonBytes', 'maxEpochEntries', 'policyVersion',
