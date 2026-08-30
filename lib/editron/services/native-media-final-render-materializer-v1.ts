@@ -36,7 +36,7 @@ import {
 export const NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_V1' as const;
 
-type NativeMediaFinalRenderMaterializerPolicyV1 = Readonly<{
+export type NativeMediaFinalRenderMaterializerPolicyV1 = Readonly<{
   policyVersion: typeof NATIVE_MEDIA_FINAL_RENDER_MATERIALIZER_POLICY_VERSION_V1;
   maxTimelineFrames: number;
   maxArtifactBytes: string;
@@ -572,6 +572,12 @@ function normalizePolicy(
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_POLICY_INVALID');
   }
   return value;
+}
+
+export function assertNativeMediaFinalRenderMaterializerPolicyV1(
+  value: unknown,
+): NativeMediaFinalRenderMaterializerPolicyV1 {
+  return normalizePolicy(value as NativeMediaFinalRenderMaterializerPolicyV1);
 }
 
 function assertPreparationPorts(value: NativeMediaFinalRenderArtifactPreparationPortsV1): void {

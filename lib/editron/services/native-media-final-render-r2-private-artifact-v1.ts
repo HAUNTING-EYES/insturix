@@ -524,6 +524,12 @@ function normalizePolicy(
   return Object.freeze({ ...value });
 }
 
+export function assertNativeMediaFinalRenderR2PrivateArtifactPolicyV1(
+  value: unknown,
+): NativeMediaFinalRenderR2PrivateArtifactPolicyV1 {
+  return normalizePolicy(value as NativeMediaFinalRenderR2PrivateArtifactPolicyV1);
+}
+
 function positiveIntegerTextToNumber(value: unknown, code: string): number {
   if (typeof value !== 'string' || !/^[1-9]\d{0,127}$/.test(value)) {
     throw new Error(code);

@@ -62,7 +62,7 @@ const HDR_TRANSFERS_V1 = new Set(['arib-std-b67', 'smpte2084', 'smpte428']);
 export const NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_V1' as const;
 
-type NativeMediaFinalRenderFfmpegEncoderPolicyV1 = Readonly<{
+export type NativeMediaFinalRenderFfmpegEncoderPolicyV1 = Readonly<{
   policyVersion: typeof NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1;
   maxSourceBytes: number;
   maxTimelineFrames: number;
@@ -798,6 +798,12 @@ function normalizePolicy(
     throw new Error('NATIVE_MEDIA_FINAL_RENDER_ENCODER_POLICY_INVALID');
   }
   return Object.freeze({ ...value });
+}
+
+export function assertNativeMediaFinalRenderFfmpegEncoderPolicyV1(
+  value: unknown,
+): NativeMediaFinalRenderFfmpegEncoderPolicyV1 {
+  return normalizePolicy(value as NativeMediaFinalRenderFfmpegEncoderPolicyV1);
 }
 
 function parseShowInfo(stderr: string): readonly Readonly<{
