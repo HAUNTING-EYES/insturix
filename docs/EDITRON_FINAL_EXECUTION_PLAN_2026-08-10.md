@@ -10211,6 +10211,42 @@ redelivery, live dedicated-R2/Atlas, GC, no-audio proof and historical
 migration remain unproven. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Durable audio product trigger Phase 3F-C8at (2026-08-30):** commit
+`8a3943684` connects the existing signed post-qualification worker to the C8as
+audio dispatcher after the existing V3 cadence trigger. The trigger reloads
+the authoritative MEDIA_ASSETS row, rechecks the exact qualification/source
+binding, validates the canonical observation hash and every audio stream
+through the existing stream-binding owner, and accepts both audio and video
+source kinds without assuming stream zero or array order. It persists the
+fully source/policy-bound durable job before signed delivery, so a QStash or
+configuration outage cannot erase a materialization intent that was already
+admitted.
+
+Production resource limits have no hidden defaults. The deployment must supply
+the versioned `EDITRON_MEDIA_AUDIO_*` source-byte, canonical-map, decoded-frame,
+epoch, decoded-sample-frame, decoded-PCM and timeout limits. Decimal/safe-range
+validation, exact source-byte binding, maximum observed channel count, float32
+PCM capacity and the private-artifact chunk capacity are checked before job
+creation. Missing or incompatible configuration yields a structured retryable
+deferral; a source above the configured admission ceiling is explicitly
+ineligible. No-audio observations produce the explicit
+`NO_AUDIO_PROOF_REQUIRED` classification and no audio job, but this phase does
+not persist the separate no-audio proof required by historical/source-version
+consumers.
+
+The qualification route now preserves the order qualification -> V3 cadence
+trigger -> audio trigger. A deferred cadence delivery prevents the later audio
+call; a deferred audio delivery returns its own 503 receipt after durable
+intent persistence. Focused trigger/route proof passes 11/11, the expanded
+qualification/cadence/source-audio chain passes 68/68, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`DURABLE_AUDIO_PRODUCT_TRIGGER_VERIFIED_RECOVERY_CRON_LIVE_PROOF_OPEN`.
+Recovery cron invocation, hosted QStash/signing configuration, restart
+redelivery, live dedicated-R2/Atlas/subprocess-abort evidence, unreachable-byte
+GC, persistent no-audio proof, verified historical migration and downstream
+source-version consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
