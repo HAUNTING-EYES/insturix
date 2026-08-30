@@ -8981,6 +8981,29 @@ in progress; the product runner may now preflight the exact durable envelope
 without copying worker safety logic, then must resolve and qualify every bound
 deployment owner before claim. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render Finance pre-claim authority Phase 3F-C7azq (2026-08-30):**
+commit `b81a399ef` exposes the execution-budget worker owner's existing exact
+reservation qualification before a durable attempt is spent. The Finance
+owner resolves the bound ledger record and historical policy, verifies the
+tenant/user/organization/project/sequence/revision/admission/source scope,
+reservation identity, owner/version/policy digest, unsettled state and validity
+window, then returns the exact policy needed to construct the post-claim budget
+owner. `authorize()` now reuses the same internal qualifier.
+
+The focused Finance suite passes 9/9, every `native-media-final-render` plus
+store/read suite passes 197/197, and repository TypeScript plus repository-wide
+quiet ESLint pass. Tests prove an exact queued reservation can be qualified
+without authorization or settlement, while expired and foreign-project
+reservations reject. This result is
+`EXACT_RENDER_FINANCE_PRECLAIM_QUALIFIER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+The tests still use an injected ledger and policy. No configured Atlas
+transaction, Finance-approved active policy, customer-wallet movement,
+partial-attempt telemetry, calibrated rate or live redelivery was exercised.
+Queue item 3 remains in progress; the product runner must invoke this authority
+before claim and the live evidence remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
