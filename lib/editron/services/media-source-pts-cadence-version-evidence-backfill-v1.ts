@@ -55,8 +55,129 @@ export type MediaSourcePtsCadenceVersionEvidenceBackfillResultV1 = Readonly<
         | 'EVIDENCE_STORE_CAS_FAILED';
       retryable: boolean;
       artifactReason: MediaSourcePtsCadenceEpochArtifactUnverifiableReasonV3 | null;
-    }
+  }
 >;
+
+const ARTIFACT_UNVERIFIABLE_REASONS_V1 = Object.freeze([
+  'VERIFICATION_REQUEST_INVALID',
+  'EPOCH_INDEX_READ_FAILED',
+  'EPOCH_INDEX_STORED_OBJECT_INVALID',
+  'EPOCH_INDEX_BYTE_LENGTH_MISMATCH',
+  'EPOCH_INDEX_CONTENT_HASH_MISMATCH',
+  'EPOCH_INDEX_PAYLOAD_INVALID',
+  'EPOCH_INDEX_SIDECAR_MISMATCH',
+  'SOURCE_SCOPE_MISMATCH',
+  'RESOURCE_LIMIT_EXCEEDED',
+  'BATCH_READ_FAILED',
+  'BATCH_STORED_OBJECT_INVALID',
+  'BATCH_BYTE_LENGTH_MISMATCH',
+  'BATCH_CONTENT_HASH_MISMATCH',
+  'BATCH_PAYLOAD_INVALID',
+  'BATCH_INDEX_MISMATCH',
+  'BOUNDARY_EVIDENCE_READ_FAILED',
+  'BOUNDARY_EVIDENCE_STORED_OBJECT_INVALID',
+  'BOUNDARY_EVIDENCE_BYTE_LENGTH_MISMATCH',
+  'BOUNDARY_EVIDENCE_CONTENT_HASH_MISMATCH',
+  'BOUNDARY_EVIDENCE_JSON_INVALID',
+  'BOUNDARY_EVIDENCE_JSON_NON_CANONICAL',
+  'BOUNDARY_EVIDENCE_SEMANTIC_UNVERIFIED',
+  'BOUNDARY_EVIDENCE_SEMANTIC_RECEIPT_INVALID',
+] satisfies readonly MediaSourcePtsCadenceEpochArtifactUnverifiableReasonV3[]);
+
+const BACKFILL_UNVERIFIABLE_REASONS_V1 = Object.freeze([
+  'SOURCE_STATE_INVALID',
+  'ARTIFACT_SET_UNVERIFIABLE',
+  'PERSISTED_VERIFICATION_MISMATCH',
+  'EVIDENCE_CANDIDATE_INVALID',
+  'EVIDENCE_CURRENT_STATE_INVALID',
+  'EVIDENCE_CONFLICT',
+  'EVIDENCE_RACE_EXHAUSTED',
+  'EVIDENCE_STORE_LOAD_FAILED',
+  'EVIDENCE_STORE_CAS_FAILED',
+] satisfies readonly Extract<
+  MediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+  { disposition: 'UNVERIFIABLE' }
+>['reason'][]);
+
+export function assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1(
+  value: unknown,
+): MediaSourcePtsCadenceVersionEvidenceBackfillResultV1 {
+  const record = objectRecord(value, 'BACKFILL_RESULT_INVALID');
+  if (record.disposition === 'BACKFILLED') {
+    exactKeys(record, [
+      'assetId', 'disposition', 'evidenceSha256',
+      'evidenceWriteDisposition', 'sourceVersionSha256',
+      'terminalReceiptSha256', 'verificationSha256',
+    ], 'BACKFILL_RESULT_FIELDS_INVALID');
+    if (record.evidenceWriteDisposition !== 'APPLIED'
+      && record.evidenceWriteDisposition !== 'UNCHANGED') {
+      fail('BACKFILL_RESULT_WRITE_DISPOSITION_INVALID');
+    }
+    return frozen({
+      disposition: 'BACKFILLED',
+      assetId: identifier(record.assetId, 'BACKFILL_RESULT_ASSET_ID_INVALID'),
+      sourceVersionSha256: sha256(
+        record.sourceVersionSha256,
+        'BACKFILL_RESULT_SOURCE_VERSION_INVALID',
+      ),
+      terminalReceiptSha256: sha256(
+        record.terminalReceiptSha256,
+        'BACKFILL_RESULT_TERMINAL_RECEIPT_INVALID',
+      ),
+      verificationSha256: sha256(
+        record.verificationSha256,
+        'BACKFILL_RESULT_VERIFICATION_INVALID',
+      ),
+      evidenceWriteDisposition: record.evidenceWriteDisposition,
+      evidenceSha256: sha256(
+        record.evidenceSha256,
+        'BACKFILL_RESULT_EVIDENCE_INVALID',
+      ),
+    });
+  }
+  if (record.disposition === 'NOT_APPLICABLE') {
+    exactKeys(record, ['disposition', 'reason'], 'BACKFILL_RESULT_FIELDS_INVALID');
+    if (record.reason !== 'V3_STATE_ABSENT'
+      && record.reason !== 'V3_NOT_PUBLISHED') {
+      fail('BACKFILL_RESULT_REASON_INVALID');
+    }
+    const reason = record.reason as Extract<
+      MediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+      { disposition: 'NOT_APPLICABLE' }
+    >['reason'];
+    return frozen({
+      disposition: 'NOT_APPLICABLE',
+      reason,
+    });
+  }
+  if (record.disposition !== 'UNVERIFIABLE') {
+    fail('BACKFILL_RESULT_DISPOSITION_INVALID');
+  }
+  exactKeys(record, [
+    'artifactReason', 'disposition', 'reason', 'retryable',
+  ], 'BACKFILL_RESULT_FIELDS_INVALID');
+  if (typeof record.reason !== 'string'
+    || !BACKFILL_UNVERIFIABLE_REASONS_V1.includes(
+      record.reason as typeof BACKFILL_UNVERIFIABLE_REASONS_V1[number],
+    )
+    || typeof record.retryable !== 'boolean') {
+    fail('BACKFILL_RESULT_REASON_INVALID');
+  }
+  const reason = record.reason as Extract<
+    MediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+    { disposition: 'UNVERIFIABLE' }
+  >['reason'];
+  const artifactReason = artifactReasonValue(record.artifactReason, reason);
+  if (record.retryable !== expectedRetryable(reason, artifactReason)) {
+    fail('BACKFILL_RESULT_RETRYABLE_INVALID');
+  }
+  return frozen({
+    disposition: 'UNVERIFIABLE',
+    reason,
+    retryable: record.retryable,
+    artifactReason,
+  });
+}
 
 /**
  * Reproves and retains one exact terminal V3 root by immutable source version.
@@ -175,6 +296,41 @@ function artifactFailureIsRetryable(
     || reason === 'BOUNDARY_EVIDENCE_READ_FAILED';
 }
 
+function artifactReasonValue(
+  value: unknown,
+  reason: Extract<
+    MediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+    { disposition: 'UNVERIFIABLE' }
+  >['reason'],
+): MediaSourcePtsCadenceEpochArtifactUnverifiableReasonV3 | null {
+  if (reason !== 'ARTIFACT_SET_UNVERIFIABLE') {
+    if (value !== null) fail('BACKFILL_RESULT_ARTIFACT_REASON_INVALID');
+    return null;
+  }
+  if (typeof value !== 'string'
+    || !ARTIFACT_UNVERIFIABLE_REASONS_V1.includes(
+      value as typeof ARTIFACT_UNVERIFIABLE_REASONS_V1[number],
+    )) {
+    fail('BACKFILL_RESULT_ARTIFACT_REASON_INVALID');
+  }
+  return value as MediaSourcePtsCadenceEpochArtifactUnverifiableReasonV3;
+}
+
+function expectedRetryable(
+  reason: Extract<
+    MediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+    { disposition: 'UNVERIFIABLE' }
+  >['reason'],
+  artifactReason: MediaSourcePtsCadenceEpochArtifactUnverifiableReasonV3 | null,
+): boolean {
+  if (reason === 'ARTIFACT_SET_UNVERIFIABLE') {
+    return artifactFailureIsRetryable(artifactReason!);
+  }
+  return reason === 'EVIDENCE_RACE_EXHAUSTED'
+    || reason === 'EVIDENCE_STORE_LOAD_FAILED'
+    || reason === 'EVIDENCE_STORE_CAS_FAILED';
+}
+
 function assertPorts(
   ports: MediaSourcePtsCadenceVersionEvidenceBackfillPortsV1,
 ): void {
@@ -207,4 +363,35 @@ function unverifiable(
 
 function frozen<T>(value: T): Readonly<T> {
   return deepFreezeEditronJsonV1(value) as Readonly<T>;
+}
+
+function objectRecord(value: unknown, code: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(code);
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  code: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length
+    || actual.some((key, index) => key !== wanted[index])) fail(code);
+}
+
+function identifier(value: unknown, code: string): string {
+  if (typeof value !== 'string'
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) fail(code);
+  return value;
+}
+
+function sha256(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) fail(code);
+  return value;
+}
+
+function fail(code: string): never {
+  throw new Error('MEDIA_SOURCE_PTS_CADENCE_VERSION_EVIDENCE_' + code);
 }

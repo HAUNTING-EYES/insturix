@@ -31,8 +31,10 @@ import { createMediaSourcePtsCadenceFrameBatchSidecarV2 }
   from '@/lib/editron/services/media-source-pts-cadence-manifest-index-v2';
 import { createMediaSourcePtsCadenceShardV1 }
   from '@/lib/editron/services/media-source-pts-cadence-shard-v1';
-import { backfillMediaSourcePtsCadenceVersionEvidenceV1 }
-  from '@/lib/editron/services/media-source-pts-cadence-version-evidence-backfill-v1';
+import {
+  assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1,
+  backfillMediaSourcePtsCadenceVersionEvidenceV1,
+} from '@/lib/editron/services/media-source-pts-cadence-version-evidence-backfill-v1';
 import type { MediaSourceQualificationRecordV1 }
   from '@/lib/editron/services/media-source-qualification-v1';
 import { createMediaSourceStorageVersionV1 }
@@ -162,6 +164,38 @@ describe('MediaSourcePtsCadenceVersionEvidenceBackfillV1', () => {
       retryable: false,
       artifactReason: null,
     });
+  });
+
+  it('decodes durable results and rejects forged failure classification', () => {
+    expect(assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1({
+      disposition: 'BACKFILLED',
+      assetId: 'asset-v3-evidence-backfill',
+      sourceVersionSha256: 'a'.repeat(64),
+      terminalReceiptSha256: 'b'.repeat(64),
+      verificationSha256: 'c'.repeat(64),
+      evidenceWriteDisposition: 'UNCHANGED',
+      evidenceSha256: 'd'.repeat(64),
+    })).toMatchObject({
+      disposition: 'BACKFILLED', evidenceWriteDisposition: 'UNCHANGED',
+    });
+    const retryable = {
+      disposition: 'UNVERIFIABLE',
+      reason: 'ARTIFACT_SET_UNVERIFIABLE',
+      retryable: true,
+      artifactReason: 'BATCH_READ_FAILED',
+    } as const;
+    expect(assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1(
+      retryable,
+    )).toEqual(retryable);
+    expect(() => assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1({
+      ...retryable, retryable: false,
+    })).toThrow('BACKFILL_RESULT_RETRYABLE_INVALID');
+    expect(() => assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1({
+      ...retryable, artifactReason: null,
+    })).toThrow('BACKFILL_RESULT_ARTIFACT_REASON_INVALID');
+    expect(() => assertMediaSourcePtsCadenceVersionEvidenceBackfillResultV1({
+      disposition: 'NOT_APPLICABLE', reason: 'V3_STATE_ABSENT', extra: true,
+    })).toThrow('BACKFILL_RESULT_FIELDS_INVALID');
   });
 });
 
