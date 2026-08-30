@@ -11052,6 +11052,45 @@ correspondence lookup for every affected source anchor/range, derivative
 invalidation/rerender and explicit rollback remain next. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Qualified mapping exact-boundary resolver Phase 3F-C8bs (2026-08-31):**
+commit `cf8330b74` closes the read-side correspondence lookup prerequisite for
+ProjectService relink. The resolver accepts only the current qualified active-
+mapping state, a strictly ordered unique set of proxy frame-boundary ordinals,
+an explicit query/read/byte policy, the private correspondence reader and a
+causally valid resolution time. It authenticates the content-addressed index
+against the active mapping, binds its relation plus proxy/master V3 time-map
+basis, selects only the batches capable of proving the requested boundaries,
+and independently checks each selected object's bytes, digest, canonical
+payload, sidecar and basis before emitting a frozen receipt.
+
+An interior proxy boundary resolves only when the immediately preceding and
+following correspondence spans show that proxy and master both advance at the
+same canonical instant. Initial and terminal boundaries are also proven
+against authenticated first/last spans. A proxy boundary inside a master frame
+returns `PROXY_BOUNDARY_NOT_EXACT`; no nominal-FPS arithmetic, nearest-frame
+selection, rounding or interpolation is allowed. Cross-batch boundaries carry
+both batch sequences as evidence. Read exceptions are separately reported as
+retryable `UNAVAILABLE`; malformed, corrupt, over-budget, out-of-range,
+unordered, stale-scope or non-equivalent evidence is `UNVERIFIABLE`.
+
+The focused suite passes 9/9 using coherently qualified and activated equal-
+cadence and variable-cadence mappings with 100+ content-addressed batches. It
+proves bounded batch selection, exact cross-batch mapping, deterministic
+non-equivalent-boundary rejection, index/batch corruption detection, storage-
+outage classification, resource limits, causal time, active-state binding and
+receipt tamper rejection. The complete local proxy/master family passes
+390/390 tests across 70 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`QUALIFIED_PROXY_MASTER_EXACT_BOUNDARY_LOOKUP_LOCALLY_VERIFIED_PROJECT_RELINK_AND_INVALIDATION_OPEN`.
+
+This remains a read-only local proof using deterministic private-object
+fixtures. It does not read a deployed private R2 bucket, change any project
+source coordinate, compare-and-set a ProjectService revision, invalidate or
+rerender derivatives, deliver media, or prove rollback. Queue item 4 must next
+compose these receipts into the sole ProjectService mutation authority and
+then prove downstream invalidation/admission. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
