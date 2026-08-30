@@ -10652,6 +10652,39 @@ roots, relation qualification/CAS, relink/invalidation, rerender/rollback and
 live private-storage proof remain Queue item 4. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Private publication identity and durable admission Phase 3F-C8bf/C8bg
+(2026-08-30):** commits `d76b94ef3` and `d87bf9ad1` close two narrower
+pre-worker gaps without claiming durable execution. The private R2 namespace,
+storage-policy version, no-browser exposure, MP4 artifact profile, private
+cache/disposition, create-only write, full-GET/HEAD-fence replay proof,
+single-request ceiling and mandatory-large-object disposition now form one
+immutable hashed publication policy. A bound factory returns that policy with
+the exact existing publisher; an unsafe/public scope or policy substitution
+cannot silently select a different uploader.
+
+The trusted transcode command, complete V3 timing lineage, master source and
+storage identity, owner/asset scope, exact execution image/platform/tool
+identity plus compatibility receipt, budget reservation and policy, retry and
+heartbeat owners, lifecycle, and private publication policy now form one
+idempotent `MEDIA_ASSETS` durable-job contract. It uses the existing leased/CAS
+durable-workflow store rather than a second queue. This V1 job deliberately
+rejects a command whose declared maximum output exceeds the proven 4.995-GiB
+single-PUT capability. Focused policy/job tests pass 7/7; repository TypeScript
+and repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_PUBLICATION_POLICY_AND_DURABLE_ADMISSION_VERIFIED_LEASED_EXECUTION_MULTIPART_AND_LIVE_PROOF_OPEN`.
+Admission durability means the same fully bound request creates or resolves
+the same queued work; it does **not** mean a worker has claimed, heartbeated,
+resumed, published or terminally settled that work. Queue item 4 still needs a
+leased execution owner with durable result-before-terminal ordering and budget
+settlement, a durable multipart/staging design that survives loss of an
+ephemeral transcode file, runtime dispatch/recovery, the canonical deployed
+private namespace, live provider evidence, proxy V3/audio roots,
+correspondence/audio qualification, active-relation CAS, relink/invalidation,
+rerender/rollback and reachability GC. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
