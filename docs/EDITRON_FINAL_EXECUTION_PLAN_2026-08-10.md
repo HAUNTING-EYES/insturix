@@ -9036,6 +9036,34 @@ signed application route and concrete environment proof; the cross-system live
 render, redelivery, recovery and cost evidence remains Queue 8-9 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Signed exact-render application route Phase 3F-C7azs (2026-08-30):**
+commit `0ac2507d9` binds the existing request-time authenticated ingress to the
+sole product runtime and exports the exact dispatcher path at
+`/api/internal/workers/native-media-final-render-preparation`. The route accepts
+only the existing versioned `{ version, jobId }` message, performs no product
+I/O while the module is imported and offers no inline or unsigned execution
+path. Missing signing keys still reject before the runner; runtime/configuration
+failure remains a retryable generic `503` without leaking infrastructure
+details or claiming false success.
+
+The route/product-runtime/ingress suites pass 17/17, every
+`native-media-final-render` plus store/read suite passes 204/204, and repository
+TypeScript plus repository-wide quiet ESLint pass. The application-module test
+also proves that only `POST`, `runtime` and `maxDuration` are exported and that
+route import performs no network call. This result is
+`EXACT_RENDER_SIGNED_APPLICATION_ROUTE_EXPORTED_NO_IMPORT_IO_LIVE_INFRA_OPEN`.
+
+The statically analyzable Next route ceiling is 800 seconds, matching this
+repository's existing long-worker deployment class. That is provisional
+infrastructure policy, not a supported content-duration or render-SLO claim;
+it must be calibrated against real encoder, storage, Atlas, QStash and platform
+termination behavior. No deployed signing-key pair, hosted QStash delivery,
+configured Atlas manifest/Finance row, private R2 artifact, deployed worker
+image/toolchain or completed real render was exercised. Queue item 3 therefore
+remains open for concrete environment and end-to-end render proof; live
+redelivery/recovery/cost certification remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
