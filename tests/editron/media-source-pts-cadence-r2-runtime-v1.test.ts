@@ -148,6 +148,9 @@ describe('media source PTS cadence private R2 runtime V1', () => {
         browserRouteExposure: 'NO_BROWSER_ROUTE',
       },
     });
+    expect(runtime.proxyMasterCorrespondenceArtifact.read).toBeTypeOf('function');
+    expect(runtime.proxyMasterCorrespondenceArtifact.writeAndVerifyArtifactSet)
+      .toBeTypeOf('function');
     expect(runtime.stagingReader.read).toBeTypeOf('function');
     expect(runtime.descriptorPort.writeImmutableShard).toBeTypeOf('function');
     expect(runtime.artifactPort.writeImmutableFrameBatch).toBeTypeOf('function');
