@@ -264,20 +264,20 @@ async function scanDecodedAudioFrames(input: Readonly<{
   ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const frames: MediaSourceAudioDecodedFrameEvidenceV1[] = [];
   let terminationError: Error | null = null;
-  let stderr = '';
+  let stderrBytes = 0;
   let settled = false;
   const timer = setTimeout(() => {
     terminationError = new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_FFPROBE_TIMEOUT');
     child.kill();
   }, input.policy.timeoutMs);
   child.stderr.on('data', (chunk: Buffer) => {
-    if (Buffer.byteLength(stderr) + chunk.byteLength > MAX_PROCESS_DIAGNOSTIC_BYTES) {
+    stderrBytes += chunk.byteLength;
+    if (stderrBytes > MAX_PROCESS_DIAGNOSTIC_BYTES) {
       terminationError ??=
         new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_FFPROBE_DIAGNOSTIC_LIMIT_EXCEEDED');
       child.kill();
       return;
     }
-    stderr += chunk.toString('utf8');
   });
   const closed = new Promise<number | null>((resolve) => {
     child.once('error', () => {
@@ -423,7 +423,7 @@ async function captureBounded(
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
-    let stderr = '';
+    let stderrBytes = 0;
     let settled = false;
     let terminationError: Error | null = null;
     const finish = (error: Error | null) => {
@@ -446,13 +446,13 @@ async function captureBounded(
       stdout += chunk.toString('utf8');
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      if (Buffer.byteLength(stderr) + chunk.byteLength > MAX_TOOL_IDENTITY_BYTES) {
+      stderrBytes += chunk.byteLength;
+      if (stderrBytes > MAX_TOOL_IDENTITY_BYTES) {
         terminationError ??=
           new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_IDENTITY_LIMIT_EXCEEDED`);
         child.kill();
         return;
       }
-      stderr += chunk.toString('utf8');
     });
     child.once('error', () => finish(
       new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_UNAVAILABLE`),
