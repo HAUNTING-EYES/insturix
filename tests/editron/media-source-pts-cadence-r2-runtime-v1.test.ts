@@ -155,6 +155,15 @@ describe('media source PTS cadence private R2 runtime V1', () => {
       .toBeTypeOf('function');
     expect(runtime.proxyMasterCorrespondencePublisher.publishIndexAndVerify)
       .toBeTypeOf('function');
+    expect(runtime.proxyMasterTranscodePublication.publicationPolicy)
+      .toMatchObject({
+        bucketName: 'editron-media-pts-private',
+        browserRouteExposure: 'NO_BROWSER_ROUTE',
+        objectVisibility: 'PRIVATE',
+        writeDisposition: 'CREATE_ONLY_IF_NONE_MATCH_STAR',
+      });
+    expect(runtime.proxyMasterTranscodePublication.publisher.publish)
+      .toBeTypeOf('function');
     expect(runtime.stagingReader.read).toBeTypeOf('function');
     expect(runtime.descriptorPort.writeImmutableShard).toBeTypeOf('function');
     expect(runtime.artifactPort.writeImmutableFrameBatch).toBeTypeOf('function');
