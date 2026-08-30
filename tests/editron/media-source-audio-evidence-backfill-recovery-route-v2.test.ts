@@ -14,7 +14,7 @@ import { GET }
 const repoRoot = resolve(__dirname, '../..');
 const RECEIPT_HASH = 'c'.repeat(64);
 
-describe('media source audio evidence backfill recovery cron V2', () => {
+describe('media source audio evidence backfill durable recovery cron V2', () => {
   beforeEach(() => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     mocks.recovery.mockReset();
