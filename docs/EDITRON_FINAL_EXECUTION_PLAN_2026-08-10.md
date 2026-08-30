@@ -10786,6 +10786,37 @@ active-relation CAS, ProjectService relink/invalidation, rerender/rollback,
 retention telemetry and reachability GC remain unproved. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Concrete V2 current-asset and publication owners Phase 3F-C8bl
+(2026-08-30):** commits `1b3b0e03a` and `0c38a8d5b` close two of C8bk's
+abstract worker ports without claiming route composition. V1 and V2 now use one
+shared exact source-version/V3-map comparison core behind their versioned job
+wrappers. V2 independently requires the claimed running job, exact runtime
+binding, current `MEDIA_ASSETS` source version and byte-identical canonical V3
+map before preparation or publication; absence/store outage is retryable, while
+source or map substitution is permanent.
+
+The V2 publication owner independently revalidates the persisted preparation,
+job input, policy hashes, actual byte length, content hash and expected object
+key. It recomputes exactly one eligible path: the existing create-only,
+full-GET/HEAD-verified single-PUT owner at or below the exact R2 ceiling, or the
+existing CAS/fenced durable-multipart coordinator above it. It never falls
+through from one uploader to the other. The multipart invocation receives a
+fresh independent fenced lease identity, and the returned R2 source version is
+revalidated against owner, asset, bytes, content and object key before success.
+Focused small/large path, forged-state/path, substituted-output and transport-
+classification tests pass; the complete local proxy/master family passes
+285/285 across 51 files, with repository TypeScript and repository-wide quiet
+ESLint clean. The large-path unit proof uses a contract-valid synthetic manifest
+and does not claim a physical greater-than-five-GiB upload.
+
+This result is
+`V2_CURRENT_ASSET_AND_PUBLICATION_COMPOSITION_LOCALLY_VERIFIED_BUDGET_RUNTIME_ROUTE_AND_LIVE_PROOF_OPEN`.
+The concrete V2 budget ledger/authorization/settlement adapter, preparation
+owner composition, deployment-owned runtime, dispatch schema and authenticated
+route remain open. No live R2/Atlas/QStash operation, proxy V3/audio root,
+active relation, ProjectService relink/invalidation, rerender/rollback or GC
+proof is added. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
