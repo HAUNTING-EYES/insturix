@@ -9406,6 +9406,22 @@ not add durable execution, signed ingress, deployment, live storage, external
 boundary semantics, recovery or GC. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 publication storage-failure classification Phase 3F-C8n (2026-08-30):**
+commit `566573fb3` closes the next durable-worker prerequisite. The publisher
+now owns classification of the private-storage operations it invokes during
+staging promotion. Known staging-read, promoted-artifact-write and promoted-
+artifact-reread outages return distinct `RETRYABLE` results with no state.
+Exact stored-byte/hash mismatches return `UNVERIFIABLE` with the originating
+diagnostic. Unknown contract or programming exceptions still throw loudly and
+are not relabelled as transient infrastructure.
+
+The publisher/finalizer suite passes 13/13 with separate injected read-outage
+and content-corruption cases; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`V3_PUBLICATION_STORAGE_FAILURES_CLASSIFIED_DURABLE_WORKER_OPEN`. No retry has
+been dispatched, no durable attempt consumed, and no live R2 failure was
+exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
