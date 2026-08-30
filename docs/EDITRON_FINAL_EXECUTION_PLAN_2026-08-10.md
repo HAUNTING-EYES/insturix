@@ -10081,6 +10081,36 @@ requires a new policy identity. No worker has claimed the job, no trigger or
 signed route invokes it, and no restart/dead-letter or live Atlas/R2 evidence
 exists yet. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Abort-aware audio materialization Phase 3F-C8ao (2026-08-30):** after the
+required separate large-file cleanups in commits `0bd6057e2` and `d72cb082b`,
+commit `d94f935eb` carries one abort signal through verified source download,
+FFprobe frame scanning, FFmpeg PCM decode, PCM hashing, private-artifact stream
+publication and source revalidation. Aborted subprocesses are force-terminated
+and the adapter-owned temporary directory is still removed. The product owner
+checks cancellation before asset access, around each long materialization and
+immediately before every active asset/evidence CAS. It also accepts an
+asynchronous pre-CAS lifecycle callback so the durable worker can renew and
+recheck its exact lease/cancellation state at the real side-effect boundary.
+
+The adapter/product/runtime cluster passes 20/20 focused tests, including the
+real FFmpeg/FFprobe exact-PCM suites; repository TypeScript and repository-wide
+quiet ESLint pass. An already-aborted adapter call opens no source lease, and
+an adversarial product call that aborts immediately after producing a valid
+private artifact performs no lifecycle callback, evidence write or active
+asset replacement. Immutable content-addressed bytes created before a later
+abort may be unreachable and therefore still require the planned safe GC
+lifecycle. The active CAS remains the linearized commit point: if cancellation
+has not been observed by the pre-CAS lease check and that CAS commits, the
+commit wins and the worker must settle from its verified receipt rather than
+claiming a false cancellation.
+
+This result is
+`AUDIO_ABORT_AND_PRE_CAS_LIFECYCLE_BOUNDARY_VERIFIED_DURABLE_WORKER_OPEN`.
+The focused suite does not timing-stress a real OS subprocess abort in flight,
+and no durable worker, trigger, signed route, restart/dead-letter lifecycle or
+live Atlas/R2 object has used this boundary yet. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
