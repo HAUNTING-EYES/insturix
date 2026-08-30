@@ -8916,6 +8916,25 @@ scope literals, composes the full product runner from the exact job/manifest
 bindings and refuses the request before claim if any bound deployment owner is
 absent or mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render operation-scope authority Phase 3F-C7azn (2026-08-30):**
+commit `8e03cb0d8` moves the exact durable operation owner and kind to the
+preparation job contract, which is the producer of that identity. Job
+creation, the lifecycle worker, execution-budget worker owner, materializer
+adapter and completed-source publisher now import and enforce those same
+constants. Same-HEAD production-service search finds no remaining raw owner or
+kind literal outside that declaration.
+
+The five focused owner suites plus the pre-claim suite pass 53/53, every
+`native-media-final-render` plus store/read suite passes 191/191, and repository
+TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_OPERATION_SCOPE_SINGLE_CONTRACT_OWNER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+It is behavior-neutral authority consolidation, not route convergence: the
+stored strings and failure behavior are unchanged, no product runner is
+composed, and no live infrastructure was accessed. Queue item 3 now proceeds
+to exact manifest/Finance/storage/ProjectService/materializer composition and
+must still refuse before claim if any bound deployment owner is absent or
+mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
