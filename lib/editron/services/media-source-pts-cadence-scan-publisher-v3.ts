@@ -39,10 +39,20 @@ import {
 } from './media-source-pts-cadence-scan-finalizer-v3';
 import type { MediaSourcePtsCadenceScanStagingReaderV1 }
   from './media-source-pts-cadence-scan-r2-reader-v1';
-import type { MediaSourcePtsCadenceScanResultV1 }
-  from './media-source-pts-cadence-scan-result-v1';
+import {
+  assertMediaSourcePtsCadenceEpochScanResultV3,
+  type MediaSourcePtsCadenceScanResultV1,
+} from './media-source-pts-cadence-scan-result-v1';
+import {
+  assertMediaSourcePtsCadenceEpochScanRequestV3,
+} from './media-source-pts-cadence-epoch-scan-transport-v3';
 import type { MediaSourcePtsCadenceScanRequestV1 }
   from './media-source-pts-cadence-scan-transport-v1';
+import {
+  assertMediaSourcePtsCadenceSourceCoverageV2,
+  createMediaSourcePtsCadenceSourceCoverageV2,
+  type MediaSourcePtsCadenceSourceCoverageV2,
+} from './media-source-pts-cadence-source-coverage-v2';
 import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
 import type { MediaSourceVersionV1 } from './media-source-version-v1';
 
@@ -88,6 +98,7 @@ type PublicationInputV3 = Readonly<{
   result: MediaSourcePtsCadenceScanResultV1;
   sourceVersion: MediaSourceVersionV1;
   qualification: MediaSourceQualificationRecordV1;
+  expectedCoverage: MediaSourcePtsCadenceSourceCoverageV2;
   epochIndexResourcePolicy: MediaSourcePtsCadenceEpochIndexResourcePolicyV3;
   verificationPolicy: MediaSourcePtsCadenceEpochArtifactVerificationPolicyV3;
   stagingReader: MediaSourcePtsCadenceScanStagingReaderV1;
@@ -124,9 +135,11 @@ type StateStepV3 =
 export async function publishMediaSourcePtsCadenceScanV3(
   input: PublicationInputV3,
 ): Promise<MediaSourcePtsCadenceScanPublicationResultV3> {
+  const coverage = verifyExpectedSourceCoverage(input);
+  if ('failure' in coverage) return coverage.failure;
   const prepared = await prepareMediaSourcePtsCadenceScanFinalizationV3({
-    request: input.request,
-    result: input.result,
+    request: coverage.request,
+    result: coverage.result,
     sourceVersion: input.sourceVersion,
     qualification: input.qualification,
     epochIndexResourcePolicy: input.epochIndexResourcePolicy,
@@ -290,6 +303,53 @@ export async function publishMediaSourcePtsCadenceScanV3(
   return 'failure' in completed
     ? completed.failure
     : { disposition: 'COMPLETED', state: completed.state };
+}
+
+function verifyExpectedSourceCoverage(
+  input: PublicationInputV3,
+): Readonly<
+  | {
+      request: MediaSourcePtsCadenceScanRequestV1;
+      result: MediaSourcePtsCadenceScanResultV1;
+    }
+  | { failure: MediaSourcePtsCadenceScanPublicationResultV3 }
+> {
+  let request: MediaSourcePtsCadenceScanRequestV1;
+  let result: MediaSourcePtsCadenceScanResultV1;
+  let expected: Readonly<MediaSourcePtsCadenceSourceCoverageV2>;
+  let recomputed: Readonly<MediaSourcePtsCadenceSourceCoverageV2>;
+  try {
+    request = assertMediaSourcePtsCadenceEpochScanRequestV3(input.request);
+    result = assertMediaSourcePtsCadenceEpochScanResultV3(input.result);
+    expected = assertMediaSourcePtsCadenceSourceCoverageV2(input.expectedCoverage);
+    recomputed = createMediaSourcePtsCadenceSourceCoverageV2({
+      sourceVersion: input.sourceVersion,
+      qualification: input.qualification,
+      videoStreamIndex: request.mapBinding.videoStreamIndex,
+      mapper: request.mapBinding.mapper,
+      coveragePolicyVersion: expected.coveragePolicyVersion,
+    });
+  } catch {
+    return { failure: { disposition: 'REJECTED', reason: 'SOURCE_COVERAGE_INVALID' } };
+  }
+  if (expected.mapBindingSha256 !== request.mapBindingSha256
+    || canonicalizeEditronJsonV1(expected) !== canonicalizeEditronJsonV1(recomputed)) {
+    return { failure: { disposition: 'REJECTED', reason: 'SOURCE_COVERAGE_MISMATCH' } };
+  }
+  if (result.status === 'COMPLETE'
+    && (result.sourceStartPresentationTimestampTicks
+        !== expected.sourceStartPresentationTimestampTicks
+      || result.sourceEndExclusivePresentationTimestampTicks
+        !== expected.sourceEndExclusivePresentationTimestampTicks)) {
+    return {
+      failure: frozen({
+        disposition: 'UNVERIFIABLE',
+        diagnostic: 'SOURCE_PRESENTATION_COVERAGE_INCOMPLETE',
+        state: null,
+      }),
+    };
+  }
+  return { request, result };
 }
 
 /** Product composition over the dedicated private PTS runtime and MEDIA_ASSETS. */

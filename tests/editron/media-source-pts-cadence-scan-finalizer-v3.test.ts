@@ -27,6 +27,8 @@ import {
 } from '@/lib/editron/services/media-source-pts-cadence-scan-staging-v1';
 import { createMediaSourcePtsCadenceScanRequestV1 }
   from '@/lib/editron/services/media-source-pts-cadence-scan-transport-v1';
+import { createMediaSourcePtsCadenceSourceCoverageV2 }
+  from '@/lib/editron/services/media-source-pts-cadence-source-coverage-v2';
 import type { MediaSourceQualificationRecordV1 }
   from '@/lib/editron/services/media-source-qualification-v1';
 import { createMediaSourceStorageVersionV1 }
@@ -300,6 +302,24 @@ describe('media source PTS cadence scan publication V3', () => {
     expect(fixture.stateOwner.load).not.toHaveBeenCalled();
     expect(fixture.stateOwner.persist).not.toHaveBeenCalled();
   });
+
+  it('blocks a valid scan summary that does not cover the qualified source tail', async () => {
+    const fixture = finalizationFixture(
+      [[frame('0', '40'), frame('40', '60')]],
+      { qualifiedTailTicks: '40' },
+    );
+
+    await expect(publishMediaSourcePtsCadenceScanV3(fixture.publicationInput))
+      .resolves.toEqual({
+        disposition: 'UNVERIFIABLE',
+        diagnostic: 'SOURCE_PRESENTATION_COVERAGE_INCOMPLETE',
+        state: null,
+      });
+    expect(fixture.stagingReader.read).not.toHaveBeenCalled();
+    expect(fixture.epochIndexWriter.writeImmutableEpochIndex).not.toHaveBeenCalled();
+    expect(fixture.stateOwner.load).not.toHaveBeenCalled();
+    expect(fixture.stateOwner.persist).not.toHaveBeenCalled();
+  });
 });
 
 type ScanFrame = Readonly<{
@@ -314,7 +334,10 @@ function frame(
   return { presentationTimestampTicks, durationTicks };
 }
 
-function finalizationFixture(runs: readonly (readonly ScanFrame[])[]) {
+function finalizationFixture(
+  runs: readonly (readonly ScanFrame[])[],
+  options: Readonly<{ qualifiedTailTicks?: string }> = {},
+) {
   const sourceTimebase = { numerator: '1', denominator: '1000' } as const;
   const storageVersion = createMediaSourceStorageVersionV1({
     locator: { provider: 'R2', objectKey: 'media/v3-source.mov' },
@@ -337,7 +360,9 @@ function finalizationFixture(runs: readonly (readonly ScanFrame[])[]) {
   const qualification = qualificationFixture({
     storageVersion,
     sourceStartPts: firstPts.toString(),
-    sourceDurationTicks: (lastEnd - firstPts).toString(),
+    sourceDurationTicks: (
+      lastEnd - firstPts + BigInt(options.qualifiedTailTicks ?? '0')
+    ).toString(),
     frameCount: String(allFrames.length),
     sourceTimebase,
   });
@@ -365,6 +390,13 @@ function finalizationFixture(runs: readonly (readonly ScanFrame[])[]) {
       maxFrameRecords: 100,
     },
     sourceUrl: 'https://tenant.r2.cloudflarestorage.com/source.mov?signed-source-secret',
+  });
+  const expectedCoverage = createMediaSourcePtsCadenceSourceCoverageV2({
+    sourceVersion,
+    qualification,
+    videoStreamIndex: 0,
+    mapper,
+    coveragePolicyVersion: 'direct-v3-source-coverage-policy-v1',
   });
 
   let firstFrameOrdinal = BigInt(0);
@@ -580,6 +612,7 @@ function finalizationFixture(runs: readonly (readonly ScanFrame[])[]) {
       userId: 'user-v3',
       claimId: 'direct-v3-publication-claim',
       now: () => new Date('2026-08-30T00:01:00.000Z'),
+      expectedCoverage,
       verificationPolicy,
       epochIndexWriter,
       epochArtifactReader,
