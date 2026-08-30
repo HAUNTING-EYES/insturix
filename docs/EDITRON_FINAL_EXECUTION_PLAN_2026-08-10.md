@@ -9594,6 +9594,30 @@ must remain visibly on the proxy or blocked. ProjectService relink receipts,
 derivative invalidation/rerender and rollback remain required. Queue item 4
 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Qualified proxy/master timing contract Phase 3F-C8v (2026-08-30):** commit
+`75a955cb9` defines the first normalized fail-closed contract for a proxy/master
+time mapping. It accepts only the exact persisted V1 relation, trusted server
+transcode lineage, complete source-version-bound V3 map identities, contiguous
+canonical-time segments, complete proxy and master frame-ordinal coverage, a
+private content-addressed correspondence-index reference, and either explicit
+no-audio evidence or per-stream sample-timeline lineage with equal channel
+layouts. Rational clocks, negative/reset PTS and different proxy/master frame
+counts are represented without floating-point conversion or guessed frame
+identity. The qualified record and lineage are canonical-hash bound; unknown
+fields, another relation, drift, coverage gaps, public evidence, audio-layout
+changes and persisted-record tampering fail closed.
+
+The focused contract suite passes 4/4 and the adjacent source-version,
+proxy-transition, V3 epoch-index and V3 finalizer suites pass 39/39; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`QUALIFIED_PROXY_MASTER_MAPPING_CONTRACT_SEALED_VERIFIER_PERSISTENCE_RELINK_OPEN`.
+The contract is a pure normalization boundary: no trusted server transcode
+producer or independent correspondence verifier has read the referenced V3,
+frame or audio artifacts; no qualified mapping has been CAS-persisted on a live
+asset; and no ProjectService binding, renderer, analysis, invalidation, rerender
+or rollback consumer admits it. Those owners and live private-storage evidence
+remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
