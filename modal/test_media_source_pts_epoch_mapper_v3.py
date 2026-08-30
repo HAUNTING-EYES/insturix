@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -11,11 +12,17 @@ from media_source_pts_mapper import (
     COMMAND_POLICY_VERSION,
     EPOCH_COMMAND_POLICY_VERSION_V3,
     EPOCH_MAPPER_VERSION_V3,
+    EPOCH_SCAN_SUBMISSION_KIND_V3,
     MAPPER_VERSION,
+    SCAN_SUBMISSION_KIND_V1,
     _stage_lines_for_mapper,
+    _validate_poll_body,
+    _validate_submission_body,
     _verify_mapper_contract,
     map_source_pts,
     map_source_pts_epochs_v3,
+    poll_source_pts_epoch_scan_v3,
+    submit_source_pts_epoch_scan_v3,
 )
 from media_source_pts_scan_core import (
     MAP_KIND,
@@ -46,6 +53,87 @@ def test_modal_functions_bind_distinct_mapper_identities():
             EPOCH_MAPPER_VERSION_V3,
             EPOCH_COMMAND_POLICY_VERSION_V3,
         )
+
+
+def test_v3_endpoints_bind_the_distinct_remote_contract():
+    request = object()
+    with patch(
+        "media_source_pts_mapper._submit_source_pts_scan",
+        new=AsyncMock(return_value={"ok": True}),
+    ) as submit:
+        assert asyncio.run(submit_source_pts_epoch_scan_v3.get_raw_f()(request)) == {"ok": True}
+        submit.assert_awaited_once_with(
+            request,
+            EPOCH_SCAN_SUBMISSION_KIND_V3,
+            EPOCH_MAPPER_VERSION_V3,
+            EPOCH_COMMAND_POLICY_VERSION_V3,
+            map_source_pts_epochs_v3,
+            True,
+        )
+
+    with patch(
+        "media_source_pts_mapper._poll_source_pts_scan",
+        new=AsyncMock(return_value={"ok": True}),
+    ) as poll:
+        assert asyncio.run(poll_source_pts_epoch_scan_v3.get_raw_f()(request)) == {"ok": True}
+        poll.assert_awaited_once_with(
+            request,
+            EPOCH_MAPPER_VERSION_V3,
+            EPOCH_COMMAND_POLICY_VERSION_V3,
+        )
+
+
+def test_v3_submission_and_poll_contracts_reject_cross_mode_identity():
+    v3_request = request_fixture(EPOCH_MAPPER_VERSION_V3, EPOCH_COMMAND_POLICY_VERSION_V3)
+    submission = {
+        "schemaVersion": 1,
+        "kind": EPOCH_SCAN_SUBMISSION_KIND_V3,
+        "submissionId": "epoch-job:attempt.1",
+        "request": v3_request,
+    }
+    with patch("media_source_pts_mapper.is_allowed_media_source_url", return_value=True):
+        submission_id, validated = _validate_submission_body(
+            submission,
+            EPOCH_SCAN_SUBMISSION_KIND_V3,
+            EPOCH_MAPPER_VERSION_V3,
+            EPOCH_COMMAND_POLICY_VERSION_V3,
+        )
+        assert submission_id == "epoch-job:attempt.1"
+        assert validated["mapBinding"]["mapper"]["mapperVersion"] == EPOCH_MAPPER_VERSION_V3
+        with pytest.raises(ScanInputError, match="SCAN_SUBMISSION_INVALID"):
+            _validate_submission_body(
+                submission,
+                SCAN_SUBMISSION_KIND_V1,
+                MAPPER_VERSION,
+                COMMAND_POLICY_VERSION,
+            )
+
+    poll = {
+        "functionCallId": "fc-epochcall123",
+        "mapBindingSha256": validated["mapBindingSha256"],
+        "submissionId": submission_id,
+        "mapperVersion": EPOCH_MAPPER_VERSION_V3,
+        "commandPolicyVersion": EPOCH_COMMAND_POLICY_VERSION_V3,
+    }
+    assert _validate_poll_body(
+        poll,
+        EPOCH_MAPPER_VERSION_V3,
+        EPOCH_COMMAND_POLICY_VERSION_V3,
+    ) == (poll["functionCallId"], poll["mapBindingSha256"], submission_id)
+    with pytest.raises(ScanInputError, match="SCAN_POLL_INVALID"):
+        _validate_poll_body(
+            {**poll, "mapperVersion": MAPPER_VERSION},
+            EPOCH_MAPPER_VERSION_V3,
+            EPOCH_COMMAND_POLICY_VERSION_V3,
+        )
+    with pytest.raises(ScanInputError, match="SCAN_POLL_INVALID"):
+        _validate_poll_body(
+            {key: value for key, value in poll.items() if key != "commandPolicyVersion"},
+            EPOCH_MAPPER_VERSION_V3,
+            EPOCH_COMMAND_POLICY_VERSION_V3,
+        )
+    with pytest.raises(ScanInputError, match="SCAN_TRANSPORT_IDENTITY_INVALID"):
+        _validate_poll_body(poll, EPOCH_MAPPER_VERSION_V3, None)
 
 
 def test_mapper_identity_is_the_only_algorithm_selector():

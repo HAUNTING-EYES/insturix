@@ -260,8 +260,8 @@ def test_source_url_policy_rejects_private_dns_and_mapper_never_seeks_chunks():
 
     source = pathlib.Path(__file__).with_name("media_source_pts_mapper.py").read_text(encoding="utf-8")
     assert "-read_intervals" not in source
-    assert "map_source_pts.spawn.aio(validated)" in source
-    assert source.count("requires_proxy_auth=True") == 2
+    assert "map_function.spawn.aio(validated)" in source
+    assert source.count("requires_proxy_auth=True") == 4
     assert "modal.FunctionCall.from_id(call_id).get.aio(timeout=0)" in source
     assert '"submissionId": submission_id' in source
 
