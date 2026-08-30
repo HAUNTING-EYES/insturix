@@ -103,12 +103,16 @@ describe('MediaSourceQualificationRuntimeV1', () => {
         sourcePtsCadenceMapStateSha256V1: null,
         sourcePtsCadenceMapV2: null,
         sourcePtsCadenceMapStateSha256V2: null,
+        sourcePtsCadenceMapV3: null,
+        sourcePtsCadenceMapStateSha256V3: null,
       },
       {
         sourcePtsCadenceMapV1: null,
         sourcePtsCadenceMapStateSha256V1: null,
         sourcePtsCadenceMapV2: null,
         sourcePtsCadenceMapStateSha256V2: null,
+        sourcePtsCadenceMapV3: null,
+        sourcePtsCadenceMapStateSha256V3: null,
       },
     ]);
   });
@@ -314,6 +318,8 @@ function inMemoryPorts(
     sourcePtsCadenceMapStateSha256V1: null;
     sourcePtsCadenceMapV2: null;
     sourcePtsCadenceMapStateSha256V2: null;
+    sourcePtsCadenceMapV3: null;
+    sourcePtsCadenceMapStateSha256V3: null;
   }>;
   proxyMasterRelation(): Readonly<MediaProxyMasterRelationV1> | null;
   sourceInvalidationPlan(): Readonly<MediaSourceInvalidationPlanV1> | null;
@@ -324,6 +330,8 @@ function inMemoryPorts(
     sourcePtsCadenceMapStateSha256V1: null;
     sourcePtsCadenceMapV2: null;
     sourcePtsCadenceMapStateSha256V2: null;
+    sourcePtsCadenceMapV3: null;
+    sourcePtsCadenceMapStateSha256V3: null;
   }> = [];
   let storedProxyMasterRelation: Readonly<MediaProxyMasterRelationV1> | null = null;
   let storedSourceInvalidationPlan: Readonly<MediaSourceInvalidationPlanV1> | null = null;
@@ -350,6 +358,8 @@ function inMemoryPorts(
       sourcePtsCadenceMapStateSha256V1,
       sourcePtsCadenceMapV2,
       sourcePtsCadenceMapStateSha256V2,
+      sourcePtsCadenceMapV3,
+      sourcePtsCadenceMapStateSha256V3,
       proxyMasterRelationV1,
       sourceInvalidationPlanV1,
     }) => {
@@ -361,6 +371,8 @@ function inMemoryPorts(
         sourcePtsCadenceMapStateSha256V1,
         sourcePtsCadenceMapV2,
         sourcePtsCadenceMapStateSha256V2,
+        sourcePtsCadenceMapV3,
+        sourcePtsCadenceMapStateSha256V3,
       });
       storedProxyMasterRelation = proxyMasterRelationV1;
       storedSourceInvalidationPlan = sourceInvalidationPlanV1;
