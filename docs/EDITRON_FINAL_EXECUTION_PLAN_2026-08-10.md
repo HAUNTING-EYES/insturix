@@ -9927,6 +9927,34 @@ durable product owner, and then prove retry/crash behavior. C8aa correspondence
 and qualified audio lineage remain blocked. `FROZEN_MODIFY_DECISION_ISSUED` is
 unchanged.
 
+**Terminal decoded-audio source-version evidence Phase 3F-C8ai
+(2026-08-30):** commit `f95a6b794` extracts the V3 owner's already-proven
+bounded monotonic evidence retention into one shared source-version owner and
+applies it to the append-only decoded-audio asset writer. The audio decorator
+rereads the exact active asset and qualification, validates the candidate
+state through the existing audio owner, and compares its sorted record indexes
+with the qualification's complete observed audio-stream index set. Partial
+sets remain active and mutable without becoming historical evidence. Only the
+write that exactly completes the independently observed set retains the
+immutable source-version root, and it does so before the active
+`MEDIA_ASSETS` replace. Extra, zero-observation, malformed or conflicting sets
+fail closed; exhausted evidence races and store outages remain typed retryable
+failures. No stream-zero, array-order or first-success inference was added.
+
+The shared V3/audio evidence cluster passes 19/19 focused tests; repository
+TypeScript and repository-wide quiet ESLint pass. This result is
+`TERMINAL_AUDIO_STREAM_SET_RETENTION_VERIFIED_PRODUCT_FFMPEG_RUNTIME_OPEN`.
+It proves the completeness boundary and crash ordering for callers of this
+decorated port. It does not prove a production invocation: current product
+code still does not compose FFmpeg materialization, dedicated private R2
+publication, active-asset CAS and source-version retention through one durable
+job. No live private object, Atlas row, restart, cleanup or proxy/master audio
+pair was exercised. Previously completed active audio/V3 rows still need
+verified dual-read/backfill, and source-version-addressed readers remain open.
+Queue item 4 proceeds with that durable composition and migration work;
+C8aa correspondence remains blocked until both relation members resolve from
+immutable evidence. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
