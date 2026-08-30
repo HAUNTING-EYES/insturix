@@ -9876,6 +9876,32 @@ item 4 proceeds to lifecycle capture/read wiring and source-version-addressed
 durable job completion before any C8aa producer or qualification permission.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Evidence-first durable V3 completion Phase 3F-C8ag (2026-08-30):** commit
+`546187a85` composes the C8af Mongo authority into the real durable V3 runtime
+without adding a second cadence writer. The runtime decorates the existing
+publisher state owner. Only a fully validated `COMPLETE` next record is
+reconstructed against the exact immutable source version and qualification,
+then monotonically persisted to the source-version evidence collection before
+the existing `MEDIA_ASSETS` compare-and-set runs. Pending, verifying and
+unverifiable states do not become historical verified roots. One concurrent
+evidence race receives a bounded reread/merge repair; exhausted races and
+storage outages are explicit durable retries, while malformed/conflicting
+evidence is rejected and dead-lettered. If evidence capture fails, the active
+asset writer is never called.
+
+The lifecycle, runtime, evidence-owner and Mongo-adapter cluster passes 19/19;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`NEW_DURABLE_V3_COMPLETIONS_RETAIN_VERSION_EVIDENCE_BEFORE_ACTIVE_CAS`.
+It closes the new-write crash ordering for this one V3 runtime, not the whole
+migration. Previously completed active V3 rows still need a verified backfill;
+the decoded-audio terminal writer is not yet decorated; promotion and readers
+do not yet resolve historical roots by source version; and no live Atlas row
+or proxy/master pair has been exercised. Correspondence generation therefore
+remains blocked until both relation members durably resolve and are reread.
+Queue item 4 proceeds with audio capture plus dual-read/backfill and
+source-version-addressed consumers. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
