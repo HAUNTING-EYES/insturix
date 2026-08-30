@@ -9665,6 +9665,32 @@ production, audio composition, asset CAS, ProjectService relink, invalidation,
 rerender and rollback remain Queue item 4 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Proxy/master correspondence artifact reproof Phase 3F-C8y (2026-08-30):**
+commit `db764a433` adds the separate read-only artifact-set verifier required by
+C8x. Through an injected private-object reader it reads the index first, checks
+the exact stored byte length and SHA-256, parses canonical content, recreates
+the basis-bound index reference, then reads every named batch in order and
+recreates every sidecar and the complete index. The final immutable receipt
+binds the relation/V3 evidence identities, resource policy, index reference,
+ordered batch keys/hashes/span counts, total bytes, canonical duration and
+proxy/master frame counts. Receipt reload independently recomputes basis-bound
+object paths plus byte/span totals.
+
+Missing objects, malformed reads, length/hash/payload/sidecar mismatches,
+another basis, reconstructed-index drift and resource exhaustion return
+structured `UNVERIFIABLE`; none can produce the verified receipt. The complete
+correspondence artifact cluster passes 12/12; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_ARTIFACT_SET_REPROOF_LOCAL_V3_DERIVATION_LIVE_STORAGE_OPEN`.
+
+The tests use an injected in-memory object reader. No dedicated private R2
+object was written/read, and internal artifact consistency still does not prove
+that the spans equal the two verified V3 frame maps. The next phase must derive
+and recheck every canonical overlap from those maps before the C8v mapping may
+be qualified. Trusted transcode/audio production, asset CAS, ProjectService
+relink, invalidation, rerender and rollback remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
