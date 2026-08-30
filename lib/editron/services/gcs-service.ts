@@ -9,29 +9,29 @@ import { nanoid } from 'nanoid';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
-if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
-  throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
+type GcsBucket = ReturnType<Storage['bucket']>;
+
+let configuredBucket: GcsBucket | null = null;
+
+function getBucket(): GcsBucket {
+  if (configuredBucket) return configuredBucket;
+
+  const encodedCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS;
+  if (!encodedCredentials) {
+    throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
+  }
+
+  const bucketName = process.env.GCS_BUCKET_NAME;
+  if (!bucketName) {
+    throw new Error('Please define the GCS_BUCKET_NAME environment variable');
+  }
+
+  const serviceAccountJson = Buffer.from(encodedCredentials, 'base64').toString('utf-8');
+  const serviceAccount = JSON.parse(serviceAccountJson);
+  const storage = new Storage({ credentials: serviceAccount });
+  configuredBucket = storage.bucket(bucketName);
+  return configuredBucket;
 }
-
-if (!process.env.GCS_BUCKET_NAME) {
-  throw new Error('Please define the GCS_BUCKET_NAME environment variable');
-}
-
-// Decode service account from base64
-const serviceAccountJson = Buffer.from(
-  process.env.GOOGLE_CLOUD_CREDENTIALS,
-  'base64'
-).toString('utf-8');
-
-const serviceAccount = JSON.parse(serviceAccountJson);
-
-// Initialize GCS client
-const storage = new Storage({
-  credentials: serviceAccount,
-});
-
-const bucketName = process.env.GCS_BUCKET_NAME;
-const bucket = storage.bucket(bucketName);
 
 export interface UploadResult {
   assetId: string;
@@ -58,7 +58,7 @@ export async function uploadToGCS(
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
   
   // Upload to GCS
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
   await blob.save(file, {
     metadata: {
       contentType,
@@ -101,7 +101,7 @@ export async function uploadFileToGCS(
   const assetId = customAssetId || `a_${nanoid(8)}`;
   const objectPrefix = customAssetId || String(Date.now());
   const gcsPath = `editron/${userId}/media/${objectPrefix}_${filename}`;
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
   const source = createReadStream(filePath);
   const target = blob.createWriteStream({
     resumable: true,
@@ -144,7 +144,7 @@ export async function uploadFileToGCS(
  * Generate fresh signed URL for existing GCS file
  */
 export async function refreshSignedUrl(gcsPath: string): Promise<{ url: string; expiresAt: Date }> {
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
   
   const expirationDate = new Date();
   expirationDate.setDate(expirationDate.getDate() + 7);
@@ -165,7 +165,7 @@ export async function refreshSignedUrl(gcsPath: string): Promise<{ url: string; 
  * Delete file from GCS
  */
 export async function deleteFromGCS(gcsPath: string): Promise<void> {
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
   await blob.delete();
 }
 
@@ -186,7 +186,7 @@ export async function generateUploadUrl(
 }> {
   const assetId = `a_${nanoid(8)}`;
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
 
   // Write-signed URL (15 min window for client to upload)
   const [uploadUrl] = await blob.getSignedUrl({
@@ -213,7 +213,7 @@ export async function generateUploadUrl(
  * Check if file exists in GCS
  */
 export async function fileExists(gcsPath: string): Promise<boolean> {
-  const blob = bucket.file(gcsPath);
+  const blob = getBucket().file(gcsPath);
   const [exists] = await blob.exists();
   return exists;
 }
@@ -235,7 +235,7 @@ export async function readGcsObjectVersionObservationV1(
   gcsPath: string,
 ): Promise<{ byteLength: number; generation: string } | null> {
   try {
-    const blob = bucket.file(gcsPath);
+    const blob = getBucket().file(gcsPath);
     const [metadata] = await blob.getMetadata();
     const raw = metadata.size;
     const byteLength = typeof raw === 'string' ? parseInt(raw, 10) : raw;
