@@ -19,7 +19,10 @@ import {
 } from '@/lib/editron/services/native-media-final-render-execution-budget-reservation-v1';
 import { createNativeMediaFinalRenderExecutionBudgetSettlementV1 }
   from '@/lib/editron/services/native-media-final-render-execution-budget-settlement-v1';
-import { createNativeMediaFinalRenderExecutionBudgetWorkerOwnerV1 }
+import {
+  createNativeMediaFinalRenderExecutionBudgetWorkerOwnerV1,
+  resolveNativeMediaFinalRenderExecutionBudgetPreclaimV1,
+}
   from '@/lib/editron/services/native-media-final-render-execution-budget-worker-owner-v1';
 import { NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1 }
   from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
@@ -44,6 +47,45 @@ import { createNativeMediaFinalRenderArtifactV1 }
 const HASH = (character: string) => character.repeat(64);
 const NOW = '2026-08-30T00:10:00.000Z';
 describe('native final-render execution-budget durable worker owner v1', () => {
+  it('preflights the exact queued reservation without authorizing or settling it', async () => {
+    const fixture = build();
+
+    await expect(resolveNativeMediaFinalRenderExecutionBudgetPreclaimV1({
+      ledgerOwner: fixture.ledgerOwner,
+      jobInput: fixture.contract.payload,
+      clock: () => new Date(NOW),
+    })).resolves.toEqual(fixture.policy);
+    expect(fixture.resolve).toHaveBeenCalledTimes(1);
+    expect(fixture.settle).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired and foreign-scope reservations during preclaim', async () => {
+    const expired = build('2026-08-30T01:00:00.000Z');
+    await expect(resolveNativeMediaFinalRenderExecutionBudgetPreclaimV1({
+      ledgerOwner: expired.ledgerOwner,
+      jobInput: expired.contract.payload,
+      clock: () => new Date('2026-08-30T01:00:00.000Z'),
+    })).rejects.toThrow('RESERVATION_EXPIRED');
+
+    const foreign = build();
+    const current = await foreign.resolve();
+    foreign.resolve.mockResolvedValueOnce({
+      ...current,
+      record: {
+        ...current.record,
+        authorization: {
+          ...current.record.authorization,
+          scope: { ...current.record.authorization.scope, projectId: 'foreign-project' },
+        },
+      },
+    } as never);
+    await expect(resolveNativeMediaFinalRenderExecutionBudgetPreclaimV1({
+      ledgerOwner: foreign.ledgerOwner,
+      jobInput: foreign.contract.payload,
+      clock: () => new Date(NOW),
+    })).rejects.toThrow('SCOPE_OR_POLICY_MISMATCH');
+  });
+
   it('authorizes only the exact running job, reservation, scope and policy', async () => {
     const fixture = build();
     const authorized = await fixture.owner.authorize({

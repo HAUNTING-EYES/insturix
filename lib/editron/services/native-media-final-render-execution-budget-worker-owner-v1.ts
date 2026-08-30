@@ -45,6 +45,23 @@ type SettlementUsageV1 = Readonly<{
   artifactBytesVerified: string;
 }>;
 
+/** Resolves and qualifies the exact Finance reservation before a worker claims work. */
+export async function resolveNativeMediaFinalRenderExecutionBudgetPreclaimV1(
+  input: Readonly<{
+    ledgerOwner: Readonly<NativeMediaFinalRenderExecutionBudgetLedgerOwnerV1>;
+    jobInput: NativeMediaFinalRenderPreparationJobInputV1;
+    clock?: () => Date;
+  }>,
+) {
+  const jobInput = assertNativeMediaFinalRenderPreparationJobInputV1(input.jobInput);
+  const resolved = await resolveQualifiedBudget({
+    ledgerOwner: input.ledgerOwner,
+    jobInput,
+    clock: input.clock ?? (() => new Date()),
+  });
+  return resolved.policy;
+}
+
 export function createNativeMediaFinalRenderExecutionBudgetWorkerOwnerV1(
   input: Readonly<{
     ledgerOwner: Readonly<NativeMediaFinalRenderExecutionBudgetLedgerOwnerV1>;
@@ -61,16 +78,12 @@ export function createNativeMediaFinalRenderExecutionBudgetWorkerOwnerV1(
     authorize: async ({ job, jobInput: jobInputValue }: AuthorizeInputV1) => {
       try {
         const jobInput = assertJobBinding(job, jobInputValue, 'running');
-        const resolved = await resolve(input.ledgerOwner, jobInput);
-        assertResolution(resolved, jobInput, policy.policySha256);
-        if (resolved.record.settlement) fail('RESERVATION_ALREADY_SETTLED');
-        const now = clockIso(clock);
-        if (Date.parse(now) < Date.parse(resolved.record.reservation.reservedAt)) {
-          fail('RESERVATION_NOT_YET_VALID');
-        }
-        if (Date.parse(now) >= Date.parse(resolved.record.reservation.expiresAt)) {
-          fail('RESERVATION_EXPIRED');
-        }
+        const resolved = await resolveQualifiedBudget({
+          ledgerOwner: input.ledgerOwner,
+          jobInput,
+          expectedPolicySha256: policy.policySha256,
+          clock,
+        });
         return Object.freeze({
           disposition: 'AUTHORIZED' as const,
           reservationId: resolved.record.reservation.reservationId,
@@ -112,6 +125,29 @@ export function createNativeMediaFinalRenderExecutionBudgetWorkerOwnerV1(
       });
     },
   });
+}
+
+async function resolveQualifiedBudget(input: Readonly<{
+  ledgerOwner: Readonly<NativeMediaFinalRenderExecutionBudgetLedgerOwnerV1>;
+  jobInput: NativeMediaFinalRenderPreparationJobInputV1;
+  expectedPolicySha256?: string;
+  clock: () => Date;
+}>): Promise<LedgerResolutionV1> {
+  const resolved = await resolve(input.ledgerOwner, input.jobInput);
+  assertResolution(
+    resolved,
+    input.jobInput,
+    input.expectedPolicySha256 ?? resolved.policy.policySha256,
+  );
+  if (resolved.record.settlement) fail('RESERVATION_ALREADY_SETTLED');
+  const now = clockIso(input.clock);
+  if (Date.parse(now) < Date.parse(resolved.record.reservation.reservedAt)) {
+    fail('RESERVATION_NOT_YET_VALID');
+  }
+  if (Date.parse(now) >= Date.parse(resolved.record.reservation.expiresAt)) {
+    fail('RESERVATION_EXPIRED');
+  }
+  return resolved;
 }
 
 async function resolve(
