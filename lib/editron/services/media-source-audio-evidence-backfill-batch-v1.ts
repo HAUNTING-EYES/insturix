@@ -14,6 +14,14 @@ export const MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_V1' as const;
 export const MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_MAX_ASSETS_V1 = 100;
 
+export class MediaSourceAudioEvidenceBackfillCandidatePageErrorV1
+  extends Error {
+  constructor(code: string) {
+    super('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_CANDIDATE_PAGE_' + code);
+    this.name = 'MediaSourceAudioEvidenceBackfillCandidatePageErrorV1';
+  }
+}
+
 export type MediaSourceAudioEvidenceBackfillCursorV1 = Readonly<{
   assetId: string;
   userId: string;
@@ -106,7 +114,14 @@ export async function runMediaSourceAudioEvidenceBackfillBatchV1(
       upperBoundCursor: normalized.upperBoundCursor,
       limit: normalized.limit + 1,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof MediaSourceAudioEvidenceBackfillCandidatePageErrorV1) {
+      return frozen({
+        disposition: 'BATCH_UNVERIFIABLE',
+        reason: 'CANDIDATE_PAGE_INVALID',
+        retryable: false,
+      } as const);
+    }
     return frozen({
       disposition: 'BATCH_UNAVAILABLE',
       reason: 'CANDIDATE_LOAD_FAILED',

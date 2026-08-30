@@ -8,6 +8,7 @@ import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
 import {
   assertMediaSourceAudioEvidenceBackfillBatchReceiptV1,
+  MediaSourceAudioEvidenceBackfillCandidatePageErrorV1,
   runMediaSourceAudioEvidenceBackfillBatchV1,
   type MediaSourceAudioEvidenceBackfillCandidateV1,
 } from '@/lib/editron/services/media-source-audio-evidence-backfill-batch-v1';
@@ -215,6 +216,24 @@ describe('MediaSourceAudioEvidenceBackfillBatchV1', () => {
       disposition: 'BATCH_UNAVAILABLE',
       reason: 'CANDIDATE_LOAD_FAILED',
       retryable: true,
+    });
+  });
+
+  it('classifies a deterministic candidate-source fault as unverifiable', async () => {
+    const result = await runMediaSourceAudioEvidenceBackfillBatchV1(
+      batchInput(3),
+      ports({
+        loadCandidates: vi.fn(async () => {
+          throw new MediaSourceAudioEvidenceBackfillCandidatePageErrorV1(
+            'OWNER_SCOPE_MISMATCH',
+          );
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      disposition: 'BATCH_UNVERIFIABLE',
+      reason: 'CANDIDATE_PAGE_INVALID',
+      retryable: false,
     });
   });
 
