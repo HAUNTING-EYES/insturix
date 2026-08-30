@@ -8839,6 +8839,31 @@ configured-Atlas transaction, partial-attempt telemetry, calibrated rate card,
 customer wallet movement or live terminal redelivery is proven. Queue item 3
 remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render historical execution-manifest Phase 3F-C7azk
+(2026-08-30):** commit `90230a4cc` adds one immutable execution manifest for
+the non-Finance policies and toolchain evidence needed to reproduce a durable
+source-preparation job. The manifest derives, rather than accepts, the exact
+materializer, FFmpeg encoder and private-artifact policy hashes; it binds the
+full retry and heartbeat declarations, the execution-budget owner reference,
+the worker image digest and the complete compatibility-profile receipt. Each
+policy is validated by its existing domain owner, nested schemas are closed,
+and the aggregate is content-addressed. A loaded manifest must reproduce both
+the job's V1.3 policy bindings and execution profile exactly.
+
+The focused suite passes 4/4, every `native-media-final-render` suite passes
+175/175, and repository TypeScript plus repository-wide quiet ESLint pass.
+Adversarial proof rejects nested policy drift, extra fields, a forged aggregate
+hash, a different worker image and invalid materializer/encoder/R2 limits. This
+result is
+`EXACT_RENDER_EXECUTION_MANIFEST_VERIFIED_PERSISTENT_LOCATOR_AND_PRODUCT_COMPOSITION_OPEN`.
+
+This checkpoint deliberately exports no worker route and performs no Mongo,
+R2, FFmpeg, ProjectService, QStash or Finance I/O. No immutable manifest row or
+exact Mongo locator exists yet, so a worker still cannot safely resolve a
+historical manifest after deployment rotation. Queue item 3 next persists and
+resolves this exact manifest, then composes the worker only if all remaining
+owners are concrete. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
