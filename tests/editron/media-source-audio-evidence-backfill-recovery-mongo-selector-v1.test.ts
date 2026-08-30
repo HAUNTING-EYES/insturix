@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { createMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1 }
+  from '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-attempt-policy-v1';
 import {
   createMediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1,
   type MediaSourceAudioEvidenceBackfillRecoveryMongoCollectionV1,
@@ -13,6 +15,13 @@ import {
 
 const CONTROLLER_ID = 'audio-evidence-backfill-recovery-global-v1';
 const STALE_BEFORE = new Date('2026-08-30T22:00:00.000Z');
+const ATTEMPT_POLICY =
+  createMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1({
+    maxAttempts: 4,
+    leaseMs: 60_000,
+    retryBaseMs: 1_000,
+    retryMaxMs: 8_000,
+  });
 
 describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
   it('persists the controller and immutable sweep intent in one snapshot', async () => {
@@ -28,6 +37,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 2,
+      attemptPolicy: ATTEMPT_POLICY,
     });
 
     expect(result.disposition).toBe('SELECTED');
@@ -52,7 +62,11 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       .toMatchObject({
         status: 'PENDING',
         attemptCount: 0,
+        attemptPolicy: ATTEMPT_POLICY,
+        claimToken: null,
+        claimedAt: null,
         lastAttemptSha256: null,
+        leaseExpiresAt: null,
         nextAttemptAt: new Date('2026-08-30T22:01:00.000Z'),
         intent: result.intent,
       });
@@ -67,6 +81,25 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
     expect(memory.sessions.every((session) => (
       session.endSession.mock.calls.length === 1
     ))).toBe(true);
+  });
+
+  it('rejects a tampered attempt policy before touching Mongo', async () => {
+    const memory = mongoMemory([
+      run('run-a', '2026-08-30T20:00:00.000Z'),
+    ]);
+    const selector = selectorFor(memory);
+
+    await expect(selector.selectNext({
+      controllerId: CONTROLLER_ID,
+      staleBefore: STALE_BEFORE,
+      selectedAt: new Date('2026-08-30T22:01:00.000Z'),
+      limit: 1,
+      attemptPolicy: { ...ATTEMPT_POLICY, maxAttempts: 5 },
+    })).rejects.toThrow(
+      'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_ATTEMPT_POLICY_HASH_INVALID',
+    );
+    expect(memory.runs.createIndex).not.toHaveBeenCalled();
+    expect(memory.sessions).toHaveLength(0);
   });
 
   it('moves through the ordered set and wraps instead of pinning the oldest run', async () => {
@@ -84,6 +117,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
         staleBefore: STALE_BEFORE,
         selectedAt: new Date(`2026-08-30T22:0${minute}:00.000Z`),
         limit: 1,
+        attemptPolicy: ATTEMPT_POLICY,
       });
       if (result.disposition !== 'SELECTED') {
         throw new Error('TEST_SWEEP_MISSING');
@@ -121,6 +155,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 2,
+      attemptPolicy: ATTEMPT_POLICY,
     });
     expect(empty).toMatchObject({
       disposition: 'NO_CANDIDATES',
@@ -136,6 +171,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: new Date('2026-08-30T22:02:00.000Z'),
       selectedAt: new Date('2026-08-30T22:03:00.000Z'),
       limit: 2,
+      attemptPolicy: ATTEMPT_POLICY,
     });
     expect(selected.disposition).toBe('SELECTED');
     if (selected.disposition !== 'SELECTED') throw new Error('TEST_SWEEP_MISSING');
@@ -154,6 +190,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 1,
+      attemptPolicy: ATTEMPT_POLICY,
     });
     memory.controllers.failNextReplaces(3);
 
@@ -162,6 +199,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:02:00.000Z'),
       limit: 1,
+      attemptPolicy: ATTEMPT_POLICY,
     })).rejects.toMatchObject({
       code: 'CONTROLLER_CAS_LOST',
       retryableRace: true,
@@ -190,6 +228,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 1,
+      attemptPolicy: ATTEMPT_POLICY,
     })).rejects.toThrow(
       'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_MONGO_CANDIDATE_DOCUMENT_ENVELOPE_INVALID',
     );
@@ -209,6 +248,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 1,
+      attemptPolicy: ATTEMPT_POLICY,
     } as const;
 
     await expect(selector.selectNext(input)).rejects.toThrow(
@@ -233,6 +273,7 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
       staleBefore: STALE_BEFORE,
       selectedAt: new Date('2026-08-30T22:01:00.000Z'),
       limit: 1,
+      attemptPolicy: ATTEMPT_POLICY,
     })).rejects.toThrow(
       'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_MONGO_TRANSACTION_NOT_COMMITTED',
     );

@@ -11,6 +11,10 @@ import type {
 import { MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RUN_COLLECTION_V1 }
   from './media-source-audio-evidence-backfill-mongo-ledger-v1';
 import {
+  assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1,
+  type MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1,
+} from './media-source-audio-evidence-backfill-recovery-attempt-policy-v1';
+import {
   assertMediaSourceAudioEvidenceBackfillRunRecordV1,
   type MediaSourceAudioEvidenceBackfillRunRecordV1,
 } from './media-source-audio-evidence-backfill-run-record-v1';
@@ -140,6 +144,7 @@ export function createMediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1(
     staleBefore: Date;
     selectedAt: Date;
     limit: number;
+    attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1;
   }>): Promise<MediaSourceAudioEvidenceBackfillRecoverySelectionResultV1>;
 }> {
   const loadRuntime = input.loadRuntime ?? loadDefaultRuntime;
@@ -203,6 +208,7 @@ type NormalizedSelectionInputV1 = Readonly<{
   staleBefore: Date;
   selectedAt: Date;
   limit: number;
+  attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1;
 }>;
 
 async function selectInTransaction(
@@ -277,7 +283,12 @@ async function selectInSnapshot(
       selectedAt: input.selectedAt.toISOString(),
     },
   );
-  await insertSweepIntent(runtime.sweeps, driverSession, selected.intent);
+  await insertSweepIntent(
+    runtime.sweeps,
+    driverSession,
+    selected.intent,
+    input.attemptPolicy,
+  );
   if (storedCurrent === null) {
     await insertController(
       runtime.controllers,
@@ -305,15 +316,17 @@ async function selectInSnapshot(
     fail('SELECTION_WRITE_NOT_DURABLE');
   }
   const controller = storedControllerRecord(durableController);
-  const intent = storedSweepIntent(durableSweep);
+  const sweep = storedPendingSweep(durableSweep);
   if (controller.recordSha256 !== selected.nextController.recordSha256
-    || intent.sweepIntentSha256 !== selected.intent.sweepIntentSha256) {
+    || sweep.intent.sweepIntentSha256 !== selected.intent.sweepIntentSha256
+    || sweep.attemptPolicy.policySha256
+      !== input.attemptPolicy.policySha256) {
     fail('SELECTION_WRITE_MISMATCH');
   }
   return Object.freeze({
     disposition: 'SELECTED' as const,
     controller,
-    intent,
+    intent: sweep.intent,
   });
 }
 
@@ -448,10 +461,11 @@ async function insertSweepIntent(
   collection: MediaSourceAudioEvidenceBackfillRecoveryMongoCollectionV1,
   driverSession: unknown,
   intent: MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1,
+  attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1,
 ): Promise<void> {
   const result = await collection.updateOne(
     { _id: intent.sweepIntentSha256 },
-    { $setOnInsert: storedSweepDocument(intent) },
+    { $setOnInsert: storedSweepDocument(intent, attemptPolicy) },
     { session: driverSession, upsert: true },
   );
   if (result.upsertedCount !== 1) race('SWEEP_CREATE_RACED');
@@ -511,10 +525,13 @@ function storedControllerRecord(
 
 function storedSweepDocument(
   input: MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1,
+  policyInput: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1,
 ): Readonly<MongoRecord> {
   const intent = assertMediaSourceAudioEvidenceBackfillRecoverySweepIntentV1(
     input,
   );
+  const attemptPolicy =
+    assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1(policyInput);
   return Object.freeze({
     _id: intent.sweepIntentSha256,
     schemaVersion: 1,
@@ -524,22 +541,32 @@ function storedSweepDocument(
     sweepIntentSha256: intent.sweepIntentSha256,
     status: 'PENDING',
     attemptCount: 0,
+    attemptPolicy,
     lastAttemptSha256: null,
     lastAttemptedAt: null,
     nextAttemptAt: new Date(intent.selectedAt),
+    claimToken: null,
+    claimedAt: null,
+    leaseExpiresAt: null,
     intent,
     createdAt: new Date(intent.selectedAt),
     updatedAt: new Date(intent.selectedAt),
   });
 }
 
-function storedSweepIntent(
+function storedPendingSweep(
   value: unknown,
-): MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1 {
+): Readonly<{
+  intent: MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1;
+  attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1;
+}> {
   const document = objectRecord(value, 'SWEEP_DOCUMENT_INVALID');
   exactKeys(document, [
     '_id',
     'attemptCount',
+    'attemptPolicy',
+    'claimedAt',
+    'claimToken',
     'controllerId',
     'controllerRecordVersion',
     'createdAt',
@@ -547,6 +574,7 @@ function storedSweepIntent(
     'kind',
     'lastAttemptedAt',
     'lastAttemptSha256',
+    'leaseExpiresAt',
     'nextAttemptAt',
     'schemaVersion',
     'status',
@@ -556,6 +584,10 @@ function storedSweepIntent(
   const intent = assertMediaSourceAudioEvidenceBackfillRecoverySweepIntentV1(
     document.intent,
   );
+  const attemptPolicy =
+    assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1(
+      document.attemptPolicy,
+    );
   const createdAt = dateIso(document.createdAt, 'SWEEP_CREATED_AT_INVALID');
   if (document._id !== intent.sweepIntentSha256
     || document.schemaVersion !== 1
@@ -565,6 +597,9 @@ function storedSweepIntent(
     || document.sweepIntentSha256 !== intent.sweepIntentSha256
     || document.status !== 'PENDING'
     || document.attemptCount !== 0
+    || document.claimToken !== null
+    || document.claimedAt !== null
+    || document.leaseExpiresAt !== null
     || document.lastAttemptSha256 !== null
     || document.lastAttemptedAt !== null
     || dateIso(document.nextAttemptAt, 'SWEEP_NEXT_ATTEMPT_AT_INVALID')
@@ -573,7 +608,7 @@ function storedSweepIntent(
     || dateIso(document.updatedAt, 'SWEEP_UPDATED_AT_INVALID') !== createdAt) {
     fail('SWEEP_DOCUMENT_ENVELOPE_INVALID');
   }
-  return intent;
+  return Object.freeze({ intent, attemptPolicy });
 }
 
 function assertCandidateOrder(
@@ -611,6 +646,7 @@ function normalizeSelectionInput(value: Readonly<{
   staleBefore: Date;
   selectedAt: Date;
   limit: number;
+  attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1;
 }>): NormalizedSelectionInputV1 {
   const staleBefore = date(value.staleBefore, 'STALE_BEFORE_INVALID');
   const selectedAt = date(value.selectedAt, 'SELECTED_AT_INVALID');
@@ -627,6 +663,10 @@ function normalizeSelectionInput(value: Readonly<{
     staleBefore,
     selectedAt,
     limit: value.limit,
+    attemptPolicy:
+      assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1(
+        value.attemptPolicy,
+      ),
   });
 }
 
