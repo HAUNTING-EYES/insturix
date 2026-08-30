@@ -16,7 +16,10 @@ import {
   type TechnicalCapturePlan,
   type TechnicalCapturePlanModelOutput,
 } from '@/lib/thinkforge/schemas/technical-capture-plan';
-import { generateStructuredWithWritingContextCache } from '@/lib/thinkforge/services/gemini-writing-context-cache';
+import {
+  generateStructuredWithWritingContextCache,
+  type WritingContextTelemetry,
+} from '@/lib/thinkforge/services/gemini-writing-context-cache';
 
 const MODEL = 'gemini-3.6-flash';
 const MAX_TOKENS = 20_480;
@@ -43,6 +46,7 @@ export type TechnicalCapturePlanGenerator = (input: {
   thinkingBudgetTokens: number;
   thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }) => Promise<{
   result: TechnicalCapturePlanModelOutput;
   cacheStatus: 'hit' | 'created' | 'inline';
@@ -53,6 +57,10 @@ export interface ResolveTechnicalCapturePlanInput {
   design: unknown;
   profile: unknown;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:5';
+  userId?: string;
+  orgId?: string | null;
+  sessionId?: string;
+  projectId?: string;
   abortSignal?: AbortSignal;
 }
 
@@ -140,6 +148,12 @@ export async function resolveTechnicalCapturePlan(
     thinkingBudgetTokens: 3_072,
     thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
+    telemetry: {
+      userId: input.userId,
+      orgId: input.orgId ?? undefined,
+      projectId: input.projectId,
+      taskId: input.sessionId,
+    },
   } satisfies Parameters<TechnicalCapturePlanGenerator>[0];
   const generate = dependencies.generate ?? generateTechnicalCapturePlan;
   const startedAt = Date.now();

@@ -11,7 +11,10 @@ import {
   type PhysicalCaptureDesignModelOutput,
 } from '@/lib/thinkforge/schemas/physical-capture-design';
 import { parseVideoTreatment, type VideoTreatment } from '@/lib/thinkforge/schemas/video-treatment';
-import { generateStructuredWithWritingContextCache } from '@/lib/thinkforge/services/gemini-writing-context-cache';
+import {
+  generateStructuredWithWritingContextCache,
+  type WritingContextTelemetry,
+} from '@/lib/thinkforge/services/gemini-writing-context-cache';
 
 import {
   resolvePhysicalCaptureKnowledge,
@@ -35,6 +38,7 @@ export type PhysicalCaptureDesignGenerator = (input: {
   thinkingBudgetTokens: number;
   thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }) => Promise<{
   result: PhysicalCaptureDesignModelOutput;
   cacheStatus: 'hit' | 'created' | 'inline';
@@ -45,6 +49,10 @@ export interface PlanPhysicalCaptureDesignInput {
   treatment: unknown;
   sourceDocument: unknown;
   acquisitionDecisions?: unknown;
+  userId?: string;
+  orgId?: string | null;
+  sessionId?: string;
+  projectId?: string;
   abortSignal?: AbortSignal;
 }
 
@@ -140,6 +148,12 @@ export async function planPhysicalCaptureDesign(
     thinkingBudgetTokens: PHYSICAL_CAPTURE_DESIGN_THINKING_TOKENS,
     thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
+    telemetry: {
+      userId: input.userId,
+      orgId: input.orgId ?? undefined,
+      projectId: input.projectId,
+      taskId: input.sessionId,
+    },
   } satisfies Parameters<PhysicalCaptureDesignGenerator>[0];
   const generate = dependencies.generate ?? generatePhysicalCaptureDesign;
   const startedAt = Date.now();

@@ -154,6 +154,7 @@ describe('ThinkForge long-form Shoot Kit route', () => {
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       projectMeta: {
+        brandId: 'brand_1',
         productionCapabilityProfile: profile,
         productionShotSettings: { aspectRatio: '16:9', tier: 'no-spend' },
       },
@@ -703,12 +704,20 @@ describe('ThinkForge long-form Shoot Kit route', () => {
     expect(mocks.planPhysicalCaptureDesign).toHaveBeenCalledWith(expect.objectContaining({
       treatment: productDemonstrationTreatment,
       sourceDocument: acquisitionSourceDocument(),
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_canonical',
+      projectId: 'brand_1',
       abortSignal: expect.any(AbortSignal),
     }));
     expect(mocks.resolveTechnicalCapturePlan).toHaveBeenCalledWith(expect.objectContaining({
       design: { designId: 'design_1', designHash: 'd'.repeat(64) },
       profile,
       aspectRatio: '16:9',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_canonical',
+      projectId: 'brand_1',
       abortSignal: expect.any(AbortSignal),
     }));
     expect(mocks.saveTechnicalCapturePlanningArtifacts).toHaveBeenCalledWith(expect.objectContaining({

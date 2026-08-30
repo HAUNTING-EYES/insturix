@@ -51,6 +51,7 @@ import {
   type ApprovedTechnicalCaptureSnapshot,
 } from '@/lib/thinkforge/schemas/capture-calibration-approval';
 import * as db from '@/lib/thinkforge/services/db';
+import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -441,6 +442,12 @@ export async function POST(request: Request) {
   }
   const metadata = recordOf(script.metadata) ?? {};
   const projectMeta = recordOf(session.projectMeta) ?? {};
+  const providerIdentity = {
+    userId,
+    orgId,
+    sessionId: canonicalSessionId,
+    projectId: resolveProjectMetaBrandId(session.projectMeta),
+  };
   const storedProfile = ProductionCapabilityProfileSchema.safeParse(
     projectMeta.productionCapabilityProfile,
   );
@@ -510,12 +517,14 @@ export async function POST(request: Request) {
           treatment,
           sourceDocument,
           acquisitionDecisions,
+          ...providerIdentity,
           abortSignal: request.signal,
         });
         const technicalResult = await resolveTechnicalCapturePlan({
           design: designResult.design,
           profile: storedProfile.data,
           aspectRatio: storedSettings.data.aspectRatio,
+          ...providerIdentity,
           abortSignal: request.signal,
         });
         const saved = await db.saveTechnicalCapturePlanningArtifacts({

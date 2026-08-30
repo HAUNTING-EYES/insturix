@@ -28,6 +28,7 @@ import {
 import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 import {
   generateStructuredWithWritingContextCache,
+  type WritingContextTelemetry,
 } from '@/lib/thinkforge/services/gemini-writing-context-cache';
 
 import {
@@ -121,6 +122,7 @@ export type VideoTreatmentPlannerGenerator = (input: {
   thinkingBudgetTokens: number;
   thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }) => Promise<{
   result: VideoTreatmentModelOutput;
   cacheStatus: 'hit' | 'created' | 'inline';
@@ -266,6 +268,12 @@ export async function planVideoTreatment(
     thinkingBudgetTokens: VIDEO_TREATMENT_THINKING_BUDGET_TOKENS,
     thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
+    telemetry: {
+      userId: input.userId,
+      orgId: input.orgId ?? undefined,
+      projectId: input.projectId,
+      taskId: input.sessionId,
+    },
   } satisfies Parameters<VideoTreatmentPlannerGenerator>[0];
   let recoveryAttempted = false;
   let generation: Awaited<ReturnType<VideoTreatmentPlannerGenerator>>;
