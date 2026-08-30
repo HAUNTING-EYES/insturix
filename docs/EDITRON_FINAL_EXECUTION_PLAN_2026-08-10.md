@@ -9094,6 +9094,28 @@ V3 scanner/finalizer, discontinuity evidence, proxy/master mapping, relinking,
 invalidation and live object/database proof remain open.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Immutable V3 epoch-index storage Phase 3F-C8b (2026-08-30):** commit
+`90de32b46` adds the missing create-only private-R2 writer for canonical V3
+epoch indexes and exposes it from the existing dedicated media-evidence R2
+runtime. The writer recomputes the expected sidecar through the sole V3 index
+owner, requires an exact caller-sidecar match, sends `If-None-Match: *`, and
+uses the existing exact V3 reader after every write or collision. Identical
+replay is therefore safe; a pre-existing object with altered bytes, a forged
+sidecar, an unsafe/public bucket or a non-precondition transport error fails
+loudly. It writes no frame batch, boundary evidence, project or asset state and
+exposes no browser address.
+
+All 26 timestamp-map suites pass 136/136, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V3_EPOCH_INDEX_IMMUTABLE_WRITER_VERIFIED_LIVE_BUCKET_AND_MIGRATION_CAS_OPEN`.
+The proof used an in-memory R2 command client. Dedicated private PTS credentials
+and live object proof remain absent on this machine, and the persisted object
+does not become authoritative until the next migration owner atomically swaps
+the exact expected terminal V2 pair for the bound pending V3 pair. Direct V3
+scanning/finalization, discontinuity boundary-evidence writes, proxy/master
+mapping, relinking and invalidation remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
