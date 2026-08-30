@@ -10458,6 +10458,65 @@ source-version consumer cutover, proxy/master invalidation/relink,
 rerender/rollback, telemetry and GC remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Fair durable audio-backfill recovery Phase 3F-C8ay (2026-08-30):** commits
+`200780782` through `621039a7e` replace the live oldest-first recovery path
+with one persisted fair controller, immutable sweep intents, a frozen attempt
+policy, a hash-chained sweep state machine and immutable attempt evidence. The
+selector advances a durable cyclic cursor under a primary/snapshot/majority
+transaction, so one permanently stale oldest page no longer owns every
+selection. Each selected sweep is persisted before controller advance.
+
+The transactional sweep store separately indexes due `PENDING`/`RETRY_WAIT`
+sweeps and expired `RUNNING` leases, chooses the earliest exact eligibility,
+claims by record-hash CAS and fences a reclaimed lease with a new claim token.
+Settlement inserts the exact attempt and replaces the claimed sweep in the
+same transaction. Retry time and maximum attempts come only from the frozen
+self-hashed policy; `RETRY_EXHAUSTED` is a durable terminal state. A repeated
+settlement is accepted only after the immutable attempt hash is proved in the
+current state's predecessor chain. Corrupt envelopes, missing chain records,
+wrong sweeps, stale claimants, orphan attempts and three lost CAS attempts
+fail explicitly.
+
+The strict V2 orchestration owner is now the sole cron consumer. Its verified
+control flow is the cron route, fair selector, transactional sweep store,
+existing signed/deduplicated QStash dispatcher, immutable attempt and fenced
+settlement, in that order.
+
+The obsolete V1 oldest-first owner and its self-test were removed; there is no
+runtime fallback. The V2 self-hashed receipt separately records invocation,
+new selection, claimed sweep, attempt, settlement and confirmed/unconfirmed
+delivery counts, so an older claimed sweep is never misreported as the sweep
+selected by the current invocation. Thrown, provider-unconfirmed or malformed
+dispatch output becomes `UNCONFIRMED`, is durably settled for bounded retry
+or exhaustion, and cannot produce route success.
+
+Deployments must now explicitly configure all seven controls before Mongo
+selection:
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_STALE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RUN_LIMIT`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_BATCH_LIMIT`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_MAX_ATTEMPTS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_LEASE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RETRY_BASE_MS` and
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RETRY_MAX_MS`. The recovery
+lease is rejected below the route's 60-second execution window. No deployment
+value was inferred from local secret files and no generic/public storage
+credential is an acceptable substitute.
+
+The final local/injected audio-backfill family passes 132/132 across 17 files,
+repository TypeScript passes and repository-wide quiet ESLint passes. This
+result is
+`FAIR_DURABLE_RECOVERY_OWNER_LIVE_ROUTE_HOSTED_ALERT_AND_FLEET_PROOF_OPEN`.
+It is not a hosted Atlas transaction, scheduled Vercel invocation, QStash
+acceptance/redelivery, historical fleet migration, external pager delivery or
+cleanup/rollback receipt. `RETRY_EXHAUSTED` is durable queryable evidence, not
+proof that an operator was paged. Configure a disposable deployment, prove
+one selected, reclaimed/retried and terminal sweep through Atlas/QStash, prove
+the alert consumer, then delete the exact fixtures and verify absence. Queue 4
+also still requires dedicated-private PTS storage, production V3 scanning,
+proxy/master qualification, relink/invalidation, rerender and rollback. Stage
+2.5 therefore remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
