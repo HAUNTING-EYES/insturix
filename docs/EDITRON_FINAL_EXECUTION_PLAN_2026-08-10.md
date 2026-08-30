@@ -9902,6 +9902,31 @@ Queue item 4 proceeds with audio capture plus dual-read/backfill and
 source-version-addressed consumers. `FROZEN_MODIFY_DECISION_ISSUED` is
 unchanged.
 
+**Decoded-audio lifecycle owner audit Phase 3F-C8ah (2026-08-30):** the code
+contains a lossless FFmpeg sample-epoch/PCM materializer, dedicated private R2
+artifact store and append-only `MEDIA_ASSETS` audio-record owner, but production
+code has no caller that composes those three stages. Current preview and final-
+render paths only consume a record that tests or an external caller has already
+created. The active audio set can also grow one stream at a time and has no
+terminal completeness receipt. Capturing its first write as immutable source-
+version evidence would therefore freeze a partial root and make a later valid
+stream look like conflicting evidence.
+
+This result is
+`AUDIO_COMPONENTS_EXIST_PRODUCT_COMPOSITION_AND_TERMINAL_SET_OWNER_MISSING`.
+Do not infer a primary stream from stream zero, array order or the first
+successfully decoded artifact. The source-version audio root may become
+immutable only when its records exactly cover the independently validated
+qualification's complete observed audio-stream index set, or a future explicit
+source-version-bound essence-selection contract. Zero observed streams require
+independent no-audio proof and no fabricated artifact root; an incomplete,
+duplicate, extra, stale or ambiguous set remains nonterminal. Queue item 4 must
+add that completeness boundary, reuse the C8ae/C8af monotonic retention owner,
+compose FFmpeg -> private R2 -> asset CAS -> source-version evidence through one
+durable product owner, and then prove retry/crash behavior. C8aa correspondence
+and qualified audio lineage remain blocked. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
