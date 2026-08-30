@@ -10003,6 +10003,36 @@ Restart/dead-letter policy, no-audio proof, historical backfill and
 source-version-addressed consumers remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Qualified source lease and product audio runtime Phase 3F-C8al
+(2026-08-30):** commit `a2fc3a1e5` composes C8ak over the real server-side
+factories. The runtime requires the existing dedicated private-media R2
+configuration, the scoped audio `MEDIA_ASSETS` Mongo CAS and the
+source-version evidence Mongo owner, then passes their actual ports to the
+product materializer. Missing private configuration, asset ownership or
+evidence ownership is returned as a distinct `runtime_unavailable` reason; no
+generic/public bucket or alternate persistence fallback is accepted.
+
+The shared immutable-source lease owner now exposes a separate
+qualification-bound entry point for audio decoding. It checks exact asset,
+source-version, measured qualification and storage-version identity, obtains a
+fresh server URL and revalidates the storage version during materialization.
+It does not require a video V3 map, so audio-only sources are admissible. The
+existing preview/final-render lease remains a different entry point and still
+requires verified V3 video epoch timing. Temporary URL unavailability is now
+distinguished from a changed storage version, allowing the later worker to
+retry only the former.
+
+The lease/runtime/product plus existing preview/final-render regression cluster
+passes 28/28 focused tests; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`PRODUCT_AUDIO_RUNTIME_COMPOSED_DURABLE_JOB_TRIGGER_AND_LIVE_STORAGE_OPEN`.
+The runtime is not yet invoked by a durable job, product trigger or worker
+route, and tests inject in-memory factories. No live private R2 object, Atlas
+asset/evidence row, restart/dead-letter lifecycle or cleanup was exercised.
+No-audio proof, verified historical migration and source-version consumers
+also remain open. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
