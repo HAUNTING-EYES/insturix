@@ -11091,6 +11091,56 @@ compose these receipts into the sole ProjectService mutation authority and
 then prove downstream invalidation/admission. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**ProjectService qualified proxy/master relink Phase 3F-C8bt (2026-08-31):**
+commit `03fa89893` composes the active-mapping and exact-boundary receipts into
+the dedicated ProjectService proxy-to-qualified-master mutation owner. The
+owner refuses to infer that an unbound overlay is using proxy coordinates. It
+requires a ProjectService-owned pre-activation source binding for the same
+project revision, asset, proxy source version, exact canonical V3 proxy time-
+map-reference hash and complete overlay set. Every target needs a stable unique
+numeric identity, an explicit source-start alias, an explicit exclusive source
+end and unchanged project/source ranges. A source binding created after mapping
+activation, or one naming the correct source version but a different time map,
+is rejected before mutation.
+
+The owner independently reloads the owner-scoped media asset, validates the
+current active qualification, authenticates the exact-boundary receipt and
+requires current source-bound playable-audio rights when the mapping contains
+audio. It rejects stale project revisions, an active Director writer lease,
+overlapping timeline locks, incomplete/conflicting/unrepresentable source
+ranges, forged correspondence evidence and any pre-commit mapping or rights
+drift. No nominal-rate arithmetic, rounding, nearest-frame selection or silent
+coordinate fallback exists.
+
+The derived overlay coordinates and the complete relink state are persisted in
+one Project document revision CAS. That state preserves proxy and master
+coordinates, the active relation/qualification/mapping/invalidation hashes,
+the authenticated boundary receipt, the before-project revision, rollback
+coordinates and an explicit `PENDING_OWNER_EXECUTION` derivative-invalidation
+set. This is project-document atomicity only; it is not falsely described as a
+cross-collection Project-plus-asset transaction. The media asset is re-read
+immediately before and after the project CAS. A post-commit asset change or
+read outage returns `COMMITTED_REVALIDATION_REQUIRED`, never `APPLIED`, while
+idempotent redelivery of the same committed evidence returns the original
+receipt without a second write.
+
+The focused relink suite passes 10/10, the generated-composition ProjectService
+regression passes 7/7, and the complete local proxy/master family passes 400/400
+tests across 71 files. Repository TypeScript and repository-wide quiet ESLint
+are clean. This result is
+`PROJECT_PROXY_MASTER_EXACT_RELINK_PROJECT_DOCUMENT_CAS_LOCALLY_VERIFIED_BINDING_ISSUER_AND_INVALIDATION_OPEN`.
+
+This remains local proof using mocked Mongo collections and deterministic
+content-addressed private-object fixtures. No live Atlas project, deployed R2
+object or rights-cleared customer project was changed. More importantly, the
+test project seeds the pre-activation binding through its protected contract;
+the production ProjectService command that must issue that binding from the
+current verified V3 proxy-source owner does not exist yet. Downstream
+invalidation execution, source-version consumer admission, visual rerender,
+delivery, recovery and rollback execution also remain open. Queue item 4 must
+next build that production binding issuer, then prove those downstream owners.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
