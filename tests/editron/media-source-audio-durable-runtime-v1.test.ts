@@ -8,6 +8,8 @@ import { DurableWorkflowJobStoreV1 }
   from '@/lib/editron/services/durable-workflow-job-store-v1';
 import { createOrGetMediaSourceAudioDurableJobV1 }
   from '@/lib/editron/services/media-source-audio-durable-job-v1';
+import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
+  from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
 import {
   MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
 } from '@/lib/editron/services/media-source-audio-product-materializer-v1';
@@ -45,6 +47,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
   it('preflights every external owner before claiming a durable attempt', async () => {
     const privateFactory = vi.fn(() => privateRuntime());
     const assetFactory = vi.fn(async () => assetStore(sourceFixture()));
+    const availabilityFactory = vi.fn(() => availabilityStore());
     const evidenceFactory = vi.fn(() => evidenceStore());
 
     await expect(runMediaSourceAudioDurableRuntimeV1(
@@ -55,6 +58,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
           throw new Error('missing private storage');
         },
         createAssetStorePorts: assetFactory,
+        createAvailabilityEvidenceStorePorts: availabilityFactory,
         createEvidenceStorePorts: evidenceFactory,
       },
     )).resolves.toEqual({
@@ -62,6 +66,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
       reason: 'PRIVATE_STORAGE_NOT_CONFIGURED',
     });
     expect(assetFactory).not.toHaveBeenCalled();
+    expect(availabilityFactory).not.toHaveBeenCalled();
     expect(evidenceFactory).not.toHaveBeenCalled();
 
     await expect(runMediaSourceAudioDurableRuntimeV1(
@@ -72,11 +77,30 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
         createAssetStorePorts: async () => {
           throw new Error('asset owner unavailable');
         },
+        createAvailabilityEvidenceStorePorts: availabilityFactory,
         createEvidenceStorePorts: evidenceFactory,
       },
     )).resolves.toEqual({
       kind: 'runtime_unavailable',
       reason: 'MEDIA_ASSET_OWNER_UNAVAILABLE',
+    });
+    expect(availabilityFactory).not.toHaveBeenCalled();
+    expect(evidenceFactory).not.toHaveBeenCalled();
+
+    await expect(runMediaSourceAudioDurableRuntimeV1(
+      { jobId: 'job-not-claimed', workerId: 'worker-audio' },
+      {
+        environment: ENVIRONMENT,
+        createPrivateRuntime: privateFactory,
+        createAssetStorePorts: assetFactory,
+        createAvailabilityEvidenceStorePorts: () => {
+          throw new Error('availability owner unavailable');
+        },
+        createEvidenceStorePorts: evidenceFactory,
+      },
+    )).resolves.toEqual({
+      kind: 'runtime_unavailable',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE',
     });
     expect(evidenceFactory).not.toHaveBeenCalled();
 
@@ -86,6 +110,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
         environment: ENVIRONMENT,
         createPrivateRuntime: privateFactory,
         createAssetStorePorts: assetFactory,
+        createAvailabilityEvidenceStorePorts: availabilityFactory,
         createEvidenceStorePorts: () => {
           throw new Error('evidence owner unavailable');
         },
@@ -99,6 +124,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
   it('reuses the preflighted owners through the exact product runtime', async () => {
     const setup = await createSetup('complete');
     const privatePorts = privateRuntime();
+    const availabilityPorts = availabilityStore();
     const evidencePorts = evidenceStore();
     const runProductRuntime = vi.fn(async (
       input: Parameters<typeof runMediaSourceAudioProductRuntimeV1>[0],
@@ -106,6 +132,8 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
     ) => {
       if (!dependencies) throw new Error('TEST_RUNTIME_DEPENDENCIES_MISSING');
       expect(await dependencies.createAssetStorePorts?.()).toBe(setup.assetPorts);
+      expect(dependencies.createAvailabilityEvidenceStorePorts?.())
+        .toBe(availabilityPorts);
       expect(dependencies.createEvidenceStorePorts?.()).toBe(evidencePorts);
       expect(dependencies.createPrivateRuntime?.(ENVIRONMENT)).toBe(privatePorts);
       expect(input.expectedAudioStreamBindings.map(
@@ -123,6 +151,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
       jobStore: setup.jobStore,
       createPrivateRuntime: () => privatePorts,
       createAssetStorePorts: async () => setup.assetPorts,
+      createAvailabilityEvidenceStorePorts: () => availabilityPorts,
       createEvidenceStorePorts: () => evidencePorts,
       runProductRuntime,
       clock: () => WORK_AT,
@@ -150,6 +179,7 @@ describe('MediaSourceAudioDurableRuntimeV1', () => {
       jobStore: setup.jobStore,
       createPrivateRuntime: () => privateRuntime(),
       createAssetStorePorts: async () => setup.assetPorts,
+      createAvailabilityEvidenceStorePorts: () => availabilityStore(),
       createEvidenceStorePorts: () => evidenceStore(),
       runProductRuntime,
       clock: () => WORK_AT,
@@ -216,6 +246,13 @@ function privateRuntime() {
 }
 
 function evidenceStore(): MediaSourceVersionEvidenceStorePortsV1 {
+  return {
+    load: vi.fn(async () => null),
+    compareAndSet: vi.fn(async () => false),
+  };
+}
+
+function availabilityStore(): MediaSourceAudioAvailabilityEvidenceStorePortsV1 {
   return {
     load: vi.fn(async () => null),
     compareAndSet: vi.fn(async () => false),

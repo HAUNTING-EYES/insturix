@@ -4,6 +4,10 @@ import {
   createMediaSourceAudioArtifactAssetMongoPortsV1,
   type MediaSourceAudioArtifactAssetStorePortsV1,
 } from './media-source-audio-artifact-asset-owner-v1';
+import { createMediaSourceAudioAvailabilityEvidenceMongoPortsV1 }
+  from './media-source-audio-availability-evidence-mongo-v1';
+import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
+  from './media-source-audio-availability-evidence-v1';
 import {
   runMediaSourceAudioDurableWorkerV1,
   MediaSourceAudioDurableWorkerPortErrorV1,
@@ -39,6 +43,7 @@ export type MediaSourceAudioDurableRuntimeResultV1 =
       reason:
         | 'PRIVATE_STORAGE_NOT_CONFIGURED'
         | 'MEDIA_ASSET_OWNER_UNAVAILABLE'
+        | 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE'
         | 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE';
     }>;
 
@@ -48,6 +53,8 @@ export type MediaSourceAudioDurableRuntimeDependenciesV1 = Readonly<{
   createPrivateRuntime?: CreatePrivateRuntimeV1;
   createAssetStorePorts?: () =>
     Promise<MediaSourceAudioArtifactAssetStorePortsV1>;
+  createAvailabilityEvidenceStorePorts?: () =>
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
   createEvidenceStorePorts?: () => MediaSourceVersionEvidenceStorePortsV1;
   createSourceLease?:
     MediaSourceAudioProductRuntimeDependenciesV1['createSourceLease'];
@@ -82,6 +89,19 @@ export async function runMediaSourceAudioDurableRuntimeV1(
     return {
       kind: 'runtime_unavailable',
       reason: 'MEDIA_ASSET_OWNER_UNAVAILABLE',
+    };
+  }
+
+  let availabilityEvidenceStorePorts:
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
+  try {
+    availabilityEvidenceStorePorts =
+      (dependencies.createAvailabilityEvidenceStorePorts
+        ?? createMediaSourceAudioAvailabilityEvidenceMongoPortsV1)();
+  } catch {
+    return {
+      kind: 'runtime_unavailable',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE',
     };
   }
 
@@ -130,6 +150,8 @@ export async function runMediaSourceAudioDurableRuntimeV1(
         environment,
         createPrivateRuntime: () => privateRuntime,
         createAssetStorePorts: async () => assetStorePorts,
+        createAvailabilityEvidenceStorePorts: () =>
+          availabilityEvidenceStorePorts,
         createEvidenceStorePorts: () => evidenceStorePorts,
         ...(dependencies.createSourceLease
           ? { createSourceLease: dependencies.createSourceLease }
