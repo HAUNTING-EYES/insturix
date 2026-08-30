@@ -9236,6 +9236,43 @@ runs into a canonical V3 epoch index or publishes it to `MEDIA_ASSETS`. Live
 endpoint/private-R2 proof also remains absent. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Segmented V3 result admission repair Phase 3F-C8h (2026-08-30):** finalizer
+grounding found that the Modal V3 splitter could emit exact GAP/OVERLAP run
+boundaries, but the TypeScript V3 poll client and shared promoter reparsed the
+terminal summary through the V1-only rule requiring each batch start to equal
+the preceding batch end. A valid V3 result would therefore have been rejected
+before finalization. Commit `1754b28e4` corrects that impossible wire
+contract without relaxing the V1 lane.
+
+The raw result codec now exposes a V3-identity-only assertion that keeps exact
+keys, bounds, ordinals, hash chains and immutable V1 staging bytes, while
+allowing successive run starts only when they remain strictly increasing.
+That admits ordinary contiguous splits, positive PTS gaps and positive-start
+overlaps. Repeated or backward starts still fail deterministically because
+they require reset/wrap/edit-list evidence. The V3 HTTP transport uses this
+assertion, and the shared promoter selects it only when both mapper and command
+policy equal `epoch-ffprobe-v3`; V1 transport, durable worker and V1 finalizer
+retain exact-contiguous validation.
+
+This is contextual V3 admission over the shared V1 raw-result schema, kind and
+staging bytes; it is not a distinct V3 terminal wire schema and it is not yet
+semantic boundary proof. A batch summary can prove that its start exceeds the
+preceding batch start, but cannot prove the producer's stronger rule that the
+first PTS in a new run exceeds the immediately preceding frame PTS. The direct
+V3 finalizer must reread every immutable staged batch, verify every frame and
+the cross-batch last-frame/first-frame relation, then derive GAP/OVERLAP or
+fail closed before index creation. For example, a forged prior run containing
+PTS `0,100` followed by summary start `50` may pass summary admission but must
+never be classified or published.
+
+All 28 cadence-map suites pass 146/146, the focused Modal producer tests pass
+17/17, and repository TypeScript plus repository-wide quiet ESLint pass. This
+result is
+`V3_SEGMENTED_RUN_TRANSPORT_AND_PROMOTION_VERIFIED_FINALIZER_OPEN`. No direct
+V3 finalizer, durable V3 lifecycle, live Modal deployment, dedicated private
+R2 proof or reset/wrap/edit-list evidence owner exists yet. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
