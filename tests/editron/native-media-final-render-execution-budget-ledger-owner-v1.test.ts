@@ -162,7 +162,7 @@ function settlementRequest(reservation: { reservationId: string; reservationSha2
     mode: 'METERED_FINAL_ARTIFACT' as const,
     terminalEvidence: {
       jobId: 'dwj_exact_1', jobStatus: 'completed' as const,
-      terminalDisposition: 'PASS' as const, attemptCount: 2,
+      terminalDisposition: 'PASS' as const, attemptCount: 1,
       terminalArtifactSha256: HASH('8'),
     },
     usage: {

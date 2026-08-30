@@ -63,6 +63,20 @@ describe('native final-render execution-budget terminal settlement v1', () => {
     });
   });
 
+  it('names successful retry accounting as conservative until attempts are metered', () => {
+    const fixture = build();
+    const settlement = settle(fixture, {
+      mode: 'CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN',
+      terminalEvidence: terminal({ attemptCount: 2 }),
+      usage: null,
+    });
+    expect(settlement).toMatchObject({
+      mode: 'CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN',
+      settledNanoUsd: '750', releasedNanoUsd: '0', usage: null,
+      costReceiptSha256: fixture.authorization.maximumCostReceiptSha256,
+    });
+  });
+
   it('rejects usage beyond any authorized meter even when the shape is valid', () => {
     const fixture = build();
     expect(() => settle(fixture, {
@@ -85,6 +99,15 @@ describe('native final-render execution-budget terminal settlement v1', () => {
       mode: 'METERED_FINAL_ARTIFACT',
       terminalEvidence: terminal({ terminalDisposition: 'FAIL' }),
       usage: { encodedFrameAttempts: '1', artifactBytesWritten: '1', artifactBytesVerified: '1' },
+    }],
+    ['meter a retry as exact', {
+      mode: 'METERED_FINAL_ARTIFACT',
+      terminalEvidence: terminal({ attemptCount: 2 }),
+      usage: { encodedFrameAttempts: '1', artifactBytesWritten: '1', artifactBytesVerified: '1' },
+    }],
+    ['retry-unknown mode without a retry', {
+      mode: 'CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN',
+      terminalEvidence: terminal(), usage: null,
     }],
     ['conservative PASS', {
       mode: 'CONSERVATIVE_MAX_ACCOUNTING_UNKNOWN',
@@ -133,7 +156,7 @@ function settle(fixture: ReturnType<typeof build>, input: Record<string, unknown
 function terminal(override: Record<string, unknown> = {}) {
   return {
     jobId: 'dwj_exact_1', jobStatus: 'completed', terminalDisposition: 'PASS',
-    attemptCount: 2, terminalArtifactSha256: HASH('8'), ...override,
+    attemptCount: 1, terminalArtifactSha256: HASH('8'), ...override,
   };
 }
 

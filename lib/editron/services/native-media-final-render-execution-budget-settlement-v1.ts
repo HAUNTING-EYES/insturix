@@ -24,6 +24,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 export type NativeMediaFinalRenderExecutionBudgetSettlementModeV1 =
   | 'METERED_FINAL_ARTIFACT'
   | 'RELEASED_NO_EXECUTION'
+  | 'CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN'
   | 'CONSERVATIVE_MAX_ACCOUNTING_UNKNOWN';
 
 export type NativeMediaFinalRenderExecutionBudgetTerminalEvidenceV1 = Readonly<{
@@ -155,7 +156,7 @@ function settlementOutcome(input: Readonly<{
   if (input.mode === 'METERED_FINAL_ARTIFACT') {
     if (input.terminalEvidence.jobStatus !== 'completed'
       || input.terminalEvidence.terminalDisposition !== 'PASS'
-      || input.terminalEvidence.attemptCount < 1 || !input.usage) {
+      || input.terminalEvidence.attemptCount !== 1 || !input.usage) {
       fail('SETTLEMENT_METERED_EVIDENCE_INVALID');
     }
     const receipt = calculateNativeMediaFinalRenderExecutionBudgetCostV1(
@@ -184,6 +185,19 @@ function settlementOutcome(input: Readonly<{
       costReceiptSha256: null,
       settledNanoUsd: '0',
       releasedNanoUsd: reserved.toString(),
+    });
+  }
+  if (input.mode === 'CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN') {
+    if (input.terminalEvidence.jobStatus !== 'completed'
+      || input.terminalEvidence.terminalDisposition !== 'PASS'
+      || input.terminalEvidence.attemptCount <= 1) {
+      fail('SETTLEMENT_PASS_RETRY_EVIDENCE_INVALID');
+    }
+    return Object.freeze({
+      usage: null,
+      costReceiptSha256: input.authorization.maximumCostReceiptSha256,
+      settledNanoUsd: reserved.toString(),
+      releasedNanoUsd: '0',
     });
   }
   if (input.mode !== 'CONSERVATIVE_MAX_ACCOUNTING_UNKNOWN'
