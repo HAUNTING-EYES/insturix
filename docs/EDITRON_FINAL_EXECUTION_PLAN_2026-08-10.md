@@ -8864,6 +8864,33 @@ historical manifest after deployment rotation. Queue item 3 next persists and
 resolves this exact manifest, then composes the worker only if all remaining
 owners are concrete. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render immutable execution-manifest store Phase 3F-C7azl
+(2026-08-30):** commit `6d8dc6b9c` adds the create-only Mongo store and exact
+historical locator for the execution manifest. It creates separate unique
+indexes for the manifest digest and the six-part job/toolchain binding,
+registers with majority write concern, rereads from the primary and revalidates
+the complete canonical manifest before acknowledging creation. An identical
+duplicate is `UNCHANGED`; a missing, conflicting, malformed or unreadable row
+fails. Resolution has no active/latest/default mode: materializer, encoder,
+private-artifact and aggregate runtime-policy hashes plus worker-image and
+compatibility-receipt identities must all match the durable job.
+
+The focused manifest/store suites pass 8/8, every
+`native-media-final-render` suite passes 179/179, and repository TypeScript
+plus repository-wide quiet ESLint pass. The tests cover create/readback,
+idempotent duplicate registration, missing exact binding, non-duplicate write
+failure, corrupt stored hash, explicit majority write and primary read. This
+result is
+`EXACT_RENDER_EXECUTION_MANIFEST_IMMUTABLE_MONGO_STORE_VERIFIED_PRODUCT_COMPOSITION_AND_LIVE_ATLAS_OPEN`.
+
+The collection is injected in proof; no row/index was created in configured
+Atlas, no approved active manifest was registered, no deployment rotation was
+exercised and no product worker consumes the locator yet. Queue item 3 remains
+in progress and next composes the authenticated worker without claiming a job
+unless the exact job, manifest, Finance policy/ledger, private storage,
+ProjectService, media asset and materializer owners are all available.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
