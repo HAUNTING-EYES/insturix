@@ -251,10 +251,15 @@ export function diagnoseThinkForgeDocumentEvidence(input: {
   let verifiedReceipt: ReturnType<typeof verifyThinkForgeGenerationReceipt> | null = null;
 
   if (input.generationReceipt) {
-    try {
-      verifiedReceipt = verifyThinkForgeGenerationReceipt(input.generationReceipt);
-    } catch {
-      receiptCodes.push('generation_receipt_invalid');
+    const { _id: storageId, ...receiptPayload } = input.generationReceipt;
+    if (storageId !== undefined && storageId !== receiptPayload.id) {
+      receiptCodes.push('generation_receipt_storage_id_mismatch');
+    } else {
+      try {
+        verifiedReceipt = verifyThinkForgeGenerationReceipt(receiptPayload);
+      } catch {
+        receiptCodes.push('generation_receipt_invalid');
+      }
     }
   }
 

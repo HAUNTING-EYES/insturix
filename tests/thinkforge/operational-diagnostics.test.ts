@@ -253,6 +253,59 @@ describe('ThinkForge operational document diagnostics', () => {
     });
   });
 
+  it('accepts an untampered receipt returned with its Mongo storage identifier', () => {
+    const evidence = createEvidence();
+    const diagnostics = diagnoseThinkForgeDocumentEvidence({
+      sessionId: 'session_b',
+      scriptId: 'script_b',
+      session: { projectMeta: { brandBinding: { version: 2, brandId: 'brand_b' } } },
+      script: {
+        version: 1,
+        documentType: 'script',
+        contentContract: { outputKind: 'video_script' },
+        content: evidence.content,
+        metadata: evidence.metadata,
+      },
+      generationReceipt: {
+        _id: evidence.generationReceipt?.id,
+        ...evidence.generationReceipt,
+      },
+    });
+
+    expect(diagnostics.generationReceipt).toMatchObject({
+      id: evidence.generationReceipt?.id,
+      valid: true,
+      codes: [],
+    });
+    expect(diagnostics.traceIntegrity).toEqual({ valid: true, codes: [] });
+  });
+
+  it('rejects a receipt whose Mongo storage identifier disagrees with its signed identifier', () => {
+    const evidence = createEvidence();
+    const diagnostics = diagnoseThinkForgeDocumentEvidence({
+      sessionId: 'session_b',
+      scriptId: 'script_b',
+      session: { projectMeta: { brandBinding: { version: 2, brandId: 'brand_b' } } },
+      script: {
+        version: 1,
+        documentType: 'script',
+        contentContract: { outputKind: 'video_script' },
+        content: evidence.content,
+        metadata: evidence.metadata,
+      },
+      generationReceipt: {
+        _id: 'tfgr_wrong_storage_identity',
+        ...evidence.generationReceipt,
+      },
+    });
+
+    expect(diagnostics.generationReceipt).toMatchObject({
+      valid: false,
+      codes: ['generation_receipt_storage_id_mismatch'],
+    });
+    expect(diagnostics.traceIntegrity.codes).toContain('generation_receipt_storage_id_mismatch');
+  });
+
   it('reports a tampered immutable receipt independently of document trace parsing', () => {
     const evidence = createEvidence();
     const diagnostics = diagnoseThinkForgeDocumentEvidence({
