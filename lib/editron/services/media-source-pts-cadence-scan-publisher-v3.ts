@@ -79,6 +79,9 @@ export type MediaSourcePtsCadenceScanPublicationResultV3 =
   | Readonly<{
       disposition: 'RETRYABLE';
       reason:
+        | 'STAGING_READ_FAILED'
+        | 'PROMOTED_ARTIFACT_WRITE_FAILED'
+        | 'PROMOTED_ARTIFACT_READ_FAILED'
         | 'EPOCH_INDEX_WRITE_FAILED'
         | 'EPOCH_INDEX_READ_FAILED'
         | 'BATCH_READ_FAILED'
@@ -137,17 +140,26 @@ export async function publishMediaSourcePtsCadenceScanV3(
 ): Promise<MediaSourcePtsCadenceScanPublicationResultV3> {
   const coverage = verifyExpectedSourceCoverage(input);
   if ('failure' in coverage) return coverage.failure;
-  const prepared = await prepareMediaSourcePtsCadenceScanFinalizationV3({
-    request: coverage.request,
-    result: coverage.result,
-    sourceVersion: input.sourceVersion,
-    qualification: input.qualification,
-    epochIndexResourcePolicy: input.epochIndexResourcePolicy,
-    stagingReader: input.stagingReader,
-    descriptorPort: input.descriptorPort,
-    artifactPort: input.artifactPort,
-    lifecycle: { heartbeat: () => input.lifecycle.heartbeat() },
-  });
+  let prepared: Awaited<ReturnType<
+    typeof prepareMediaSourcePtsCadenceScanFinalizationV3
+  >>;
+  try {
+    prepared = await prepareMediaSourcePtsCadenceScanFinalizationV3({
+      request: coverage.request,
+      result: coverage.result,
+      sourceVersion: input.sourceVersion,
+      qualification: input.qualification,
+      epochIndexResourcePolicy: input.epochIndexResourcePolicy,
+      stagingReader: input.stagingReader,
+      descriptorPort: input.descriptorPort,
+      artifactPort: input.artifactPort,
+      lifecycle: { heartbeat: () => input.lifecycle.heartbeat() },
+    });
+  } catch (error) {
+    const classified = classifyPreparationStorageFailure(error);
+    if (classified) return classified;
+    throw error;
+  }
   if (prepared.disposition === 'UNVERIFIABLE') {
     return frozen({
       disposition: 'UNVERIFIABLE',
@@ -350,6 +362,29 @@ function verifyExpectedSourceCoverage(
     };
   }
   return { request, result };
+}
+
+function classifyPreparationStorageFailure(
+  error: unknown,
+): MediaSourcePtsCadenceScanPublicationResultV3 | null {
+  const code = errorCode(error);
+  if (code === 'MEDIA_SOURCE_PTS_SCAN_R2_READ_FAILED'
+    || code === 'MEDIA_SOURCE_PTS_SCAN_R2_BODY_INVALID') {
+    return retryable('STAGING_READ_FAILED', null);
+  }
+  if (code === 'MEDIA_SOURCE_PTS_CADENCE_R2_V2_WRITE_FAILED'
+    || code === 'MEDIA_SOURCE_PTS_CADENCE_R2_SIDECAR_WRITE_FAILED') {
+    return retryable('PROMOTED_ARTIFACT_WRITE_FAILED', null);
+  }
+  if (code === 'MEDIA_SOURCE_PTS_CADENCE_R2_SIDECAR_READ_FAILED') {
+    return retryable('PROMOTED_ARTIFACT_READ_FAILED', null);
+  }
+  if (code === 'MEDIA_SOURCE_PTS_SCAN_R2_CONTENT_MISMATCH'
+    || code === 'MEDIA_SOURCE_PTS_CADENCE_R2_V2_CONTENT_MISMATCH'
+    || code === 'MEDIA_SOURCE_PTS_CADENCE_R2_SIDECAR_CONTENT_MISMATCH') {
+    return frozen({ disposition: 'UNVERIFIABLE', diagnostic: code, state: null });
+  }
+  return null;
 }
 
 /** Product composition over the dedicated private PTS runtime and MEDIA_ASSETS. */

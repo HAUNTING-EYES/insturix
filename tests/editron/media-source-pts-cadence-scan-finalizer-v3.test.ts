@@ -320,6 +320,32 @@ describe('media source PTS cadence scan publication V3', () => {
     expect(fixture.stateOwner.load).not.toHaveBeenCalled();
     expect(fixture.stateOwner.persist).not.toHaveBeenCalled();
   });
+
+  it('classifies staging transport outage separately from stored-byte corruption', async () => {
+    const outage = finalizationFixture([[frame('0', '40')]]);
+    outage.stagingReader.read.mockRejectedValueOnce(
+      new Error('MEDIA_SOURCE_PTS_SCAN_R2_READ_FAILED'),
+    );
+    await expect(publishMediaSourcePtsCadenceScanV3(outage.publicationInput))
+      .resolves.toEqual({
+        disposition: 'RETRYABLE',
+        reason: 'STAGING_READ_FAILED',
+        state: null,
+      });
+    expect(outage.stateOwner.load).not.toHaveBeenCalled();
+
+    const corruption = finalizationFixture([[frame('0', '40')]]);
+    corruption.stagingReader.read.mockRejectedValueOnce(
+      new Error('MEDIA_SOURCE_PTS_SCAN_R2_CONTENT_MISMATCH'),
+    );
+    await expect(publishMediaSourcePtsCadenceScanV3(corruption.publicationInput))
+      .resolves.toEqual({
+        disposition: 'UNVERIFIABLE',
+        diagnostic: 'MEDIA_SOURCE_PTS_SCAN_R2_CONTENT_MISMATCH',
+        state: null,
+      });
+    expect(corruption.stateOwner.load).not.toHaveBeenCalled();
+  });
 });
 
 type ScanFrame = Readonly<{
