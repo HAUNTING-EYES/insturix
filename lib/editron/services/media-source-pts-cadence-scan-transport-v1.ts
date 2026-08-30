@@ -1,10 +1,13 @@
 import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
 import {
-  isModalProxyEndpointV1,
-  modalProxyAuthHeadersV1,
-  readModalProxyAuthV1,
-  type ModalProxyAuthEnvironmentV1,
-} from './modal-proxy-auth-v1';
+  assertMediaSourcePtsCadenceScanSubmissionIdV1,
+  isMediaSourcePtsCadenceScanFunctionCallIdV1,
+  postMediaSourcePtsCadenceScanJsonV1,
+  readMediaSourcePtsCadenceScanJsonBoundedV1,
+  resolveMediaSourcePtsCadenceScanHttpConfigurationV1,
+  type MediaSourcePtsCadenceScanHttpDependenciesV1,
+} from './media-source-pts-cadence-scan-http-transport-v1';
+import type { ModalProxyAuthEnvironmentV1 } from './modal-proxy-auth-v1';
 import { MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1 } from './media-source-pts-cadence-map-lifecycle-v1';
 import type { MediaSourcePtsCadenceMapperV1 } from './media-source-pts-cadence-shard-v1';
 import type { MediaRationalV1 } from './media-source-probe-v1';
@@ -35,9 +38,6 @@ export const EDITRON_MEDIA_SOURCE_PTS_SCAN_POLL_ENDPOINT_ENV_V1 =
 
 const MAX_SUBMIT_RESPONSE_BYTES = 64 * 1024;
 const MAX_POLL_RESPONSE_BYTES = 16 * 1024 * 1024;
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const FUNCTION_CALL_ID = /^fc-[A-Za-z0-9_-]{8,128}$/;
-const SUBMISSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 export type MediaSourcePtsCadenceScanMapBindingV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof MEDIA_SOURCE_PTS_CADENCE_MAP_KIND_V1;
@@ -82,11 +82,7 @@ export type ScanTransportDiagnosticV1 =
   | 'SCAN_TRANSPORT_HTTP_FAILURE'
   | 'SCAN_TRANSPORT_RESPONSE_TOO_LARGE'
   | 'SCAN_TRANSPORT_RESPONSE_INVALID';
-type TransportDependenciesV1 = Readonly<{
-  environment?: ModalProxyAuthEnvironmentV1;
-  fetchImpl?: typeof fetch;
-  timeoutMs?: number;
-}>;
+type TransportDependenciesV1 = MediaSourcePtsCadenceScanHttpDependenciesV1;
 
 export function createMediaSourcePtsCadenceScanRequestV1(input: {
   mapBinding: MediaSourcePtsCadenceScanMapBindingV1;
@@ -113,7 +109,7 @@ export function createMediaSourcePtsCadenceScanSubmissionV1(input: Readonly<{
   return freezeMediaSourcePtsCadenceScanV1({
     schemaVersion: 1,
     kind: MEDIA_SOURCE_PTS_CADENCE_SCAN_SUBMISSION_KIND_V1,
-    submissionId: assertSubmissionId(input.submissionId),
+    submissionId: assertMediaSourcePtsCadenceScanSubmissionIdV1(input.submissionId),
     request: assertMediaSourcePtsCadenceScanRequestV1(input.request),
   });
 }
@@ -132,10 +128,18 @@ export async function submitMediaSourcePtsCadenceScanV1(
   const config = configuration(environment);
   if (!config) return unverifiable('SCAN_TRANSPORT_NOT_CONFIGURED');
   const validated = assertSubmission(submission);
-  const response = await post(config.submitEndpoint, validated, config.headers, dependencies);
+  const response = await postMediaSourcePtsCadenceScanJsonV1({
+    endpoint: config.submitEndpoint,
+    body: validated,
+    authHeaders: config.headers,
+    dependencies,
+  });
   if (!response) return unverifiable('SCAN_TRANSPORT_REQUEST_FAILED');
   if (!response.ok) return unverifiable('SCAN_TRANSPORT_HTTP_FAILURE');
-  const payload = await readJsonBounded(response, MAX_SUBMIT_RESPONSE_BYTES);
+  const payload = await readMediaSourcePtsCadenceScanJsonBoundedV1(
+    response,
+    MAX_SUBMIT_RESPONSE_BYTES,
+  );
   if (payload === undefined) return unverifiable('SCAN_TRANSPORT_RESPONSE_TOO_LARGE');
   if (payload === null) return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
   try {
@@ -144,8 +148,7 @@ export async function submitMediaSourcePtsCadenceScanV1(
     if (record.ok !== true
       || record.submissionId !== validated.submissionId
       || assertScanSha256V1(record.mapBindingSha256, 'SCAN_TRANSPORT_RESPONSE_INVALID') !== validated.request.mapBindingSha256
-      || typeof record.functionCallId !== 'string'
-      || !FUNCTION_CALL_ID.test(record.functionCallId)) {
+      || !isMediaSourcePtsCadenceScanFunctionCallIdV1(record.functionCallId)) {
       return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
     }
     return freezeMediaSourcePtsCadenceScanV1({
@@ -169,12 +172,20 @@ export async function pollMediaSourcePtsCadenceScanV1(
   const config = configuration(environment);
   if (!config) return unverifiable('SCAN_TRANSPORT_NOT_CONFIGURED');
   const validatedJob = assertMediaSourcePtsCadenceScanJobV1(job);
-  const response = await post(config.pollEndpoint, validatedJob, config.headers, dependencies);
+  const response = await postMediaSourcePtsCadenceScanJsonV1({
+    endpoint: config.pollEndpoint,
+    body: validatedJob,
+    authHeaders: config.headers,
+    dependencies,
+  });
   if (!response) return unverifiable('SCAN_TRANSPORT_REQUEST_FAILED');
   if (response.status !== 200 && response.status !== 202) {
     return unverifiable('SCAN_TRANSPORT_HTTP_FAILURE');
   }
-  const payload = await readJsonBounded(response, MAX_POLL_RESPONSE_BYTES);
+  const payload = await readMediaSourcePtsCadenceScanJsonBoundedV1(
+    response,
+    MAX_POLL_RESPONSE_BYTES,
+  );
   if (payload === undefined) return unverifiable('SCAN_TRANSPORT_RESPONSE_TOO_LARGE');
   if (payload === null) return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
   try {
@@ -260,11 +271,11 @@ export function assertMediaSourcePtsCadenceScanJobV1(
 ): MediaSourcePtsCadenceScanJobV1 {
   const record = assertScanRecordV1(value, 'SCAN_JOB_INVALID');
   assertScanExactKeysV1(record, ['functionCallId', 'mapBindingSha256', 'submissionId'], 'SCAN_JOB_INVALID');
-  if (typeof record.functionCallId !== 'string' || !FUNCTION_CALL_ID.test(record.functionCallId)) {
+  if (!isMediaSourcePtsCadenceScanFunctionCallIdV1(record.functionCallId)) {
     throw new Error('SCAN_JOB_INVALID');
   }
   return freezeMediaSourcePtsCadenceScanV1({
-    submissionId: assertSubmissionId(record.submissionId),
+    submissionId: assertMediaSourcePtsCadenceScanSubmissionIdV1(record.submissionId),
     functionCallId: record.functionCallId,
     mapBindingSha256: assertScanSha256V1(record.mapBindingSha256, 'SCAN_JOB_INVALID'),
   });
@@ -282,16 +293,9 @@ function assertSubmission(value: unknown): MediaSourcePtsCadenceScanSubmissionV1
     throw new Error('SCAN_SUBMISSION_INVALID');
   }
   return createMediaSourcePtsCadenceScanSubmissionV1({
-    submissionId: assertSubmissionId(record.submissionId),
+    submissionId: assertMediaSourcePtsCadenceScanSubmissionIdV1(record.submissionId),
     request: assertMediaSourcePtsCadenceScanRequestV1(record.request),
   });
-}
-
-function assertSubmissionId(value: unknown): string {
-  if (typeof value !== 'string' || !SUBMISSION_ID.test(value.trim())) {
-    throw new Error('SCAN_SUBMISSION_ID_INVALID');
-  }
-  return value.trim();
 }
 
 function assertBoundPolicy(value: unknown, binding: MediaSourcePtsCadenceScanMapBindingV1) {
@@ -303,49 +307,11 @@ function assertBoundPolicy(value: unknown, binding: MediaSourcePtsCadenceScanMap
 }
 
 function configuration(environment: ModalProxyAuthEnvironmentV1) {
-  const submitEndpoint = environment[EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT_ENV_V1]?.trim();
-  const pollEndpoint = environment[EDITRON_MEDIA_SOURCE_PTS_SCAN_POLL_ENDPOINT_ENV_V1]?.trim();
-  const auth = readModalProxyAuthV1(environment);
-  return submitEndpoint && pollEndpoint && auth
-    && isModalProxyEndpointV1(submitEndpoint) && isModalProxyEndpointV1(pollEndpoint)
-    ? { submitEndpoint, pollEndpoint, headers: modalProxyAuthHeadersV1(auth) }
-    : null;
-}
-
-async function post(endpoint: string, body: unknown, authHeaders: Readonly<Record<string, string>>, dependencies: TransportDependenciesV1) {
-  try {
-    return await (dependencies.fetchImpl ?? fetch)(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(dependencies.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function readJsonBounded(response: Response, maximum: number): Promise<unknown | null | undefined> {
-  const declared = Number(response.headers.get('content-length') ?? 0);
-  if (Number.isFinite(declared) && declared > maximum) return undefined;
-  if (!response.body) return null;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximum) {
-      await reader.cancel();
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { return null; }
+  return resolveMediaSourcePtsCadenceScanHttpConfigurationV1({
+    environment,
+    submitEndpointEnvironmentName: EDITRON_MEDIA_SOURCE_PTS_SCAN_SUBMIT_ENDPOINT_ENV_V1,
+    pollEndpointEnvironmentName: EDITRON_MEDIA_SOURCE_PTS_SCAN_POLL_ENDPOINT_ENV_V1,
+  });
 }
 
 function assertHttpsSourceUrl(value: unknown): string {
