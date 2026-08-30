@@ -128,6 +128,7 @@ export async function materializeMediaSourceAudioProductV1(
   let qualification: MediaSourceQualificationRecordV1;
   let observed: readonly number[];
   let bindings: readonly MediaSourceAudioStreamBindingV1[];
+  let bindingsSha256: string;
   try {
     sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
     if (asset.assetId !== normalized.assetId
@@ -151,7 +152,8 @@ export async function materializeMediaSourceAudioProductV1(
         audioStreamIndex,
       })
     ));
-    if (hashEditronCanonicalJsonV1(bindings)
+    bindingsSha256 = hashEditronCanonicalJsonV1(bindings);
+    if (bindingsSha256
       !== hashEditronCanonicalJsonV1(normalized.expectedAudioStreamBindings)) {
       throw failure('EXPECTED_SOURCE_MISMATCH', false);
     }
@@ -265,7 +267,7 @@ export async function materializeMediaSourceAudioProductV1(
     assetId: normalized.assetId,
     userId: normalized.userId,
     sourceVersionSha256: sourceVersion.sourceVersionSha256,
-    audioStreamBindingsSha256: hashEditronCanonicalJsonV1(bindings),
+    audioStreamBindingsSha256: bindingsSha256,
     observedAudioStreamIndexes: observed,
     materializedAudioStreamIndexes: materialized,
     audioArtifactStateSha256: state.sourceAudioArtifactsStateSha256V1,
