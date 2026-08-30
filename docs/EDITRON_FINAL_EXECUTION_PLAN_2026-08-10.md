@@ -10817,6 +10817,51 @@ route remain open. No live R2/Atlas/QStash operation, proxy V3/audio root,
 active relation, ProjectService relink/invalidation, rerender/rollback or GC
 proof is added. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Concrete V2 execution-budget persistence and worker reconciliation Phase
+3F-C8bm (2026-08-31):** commits `a0005a877`, `91f371fb9`, `751fee711`,
+`fd327ef86`, `484f51ce0` and `acaef99c6` close C8bl's abstract V2 budget port
+locally without claiming deployment or live-database proof. The V2 settlement
+receipt binds the prepared-publication artifact-accounting profile, exact
+authorization and reservation, terminal evidence and conserved nano-USD
+amounts. It meters only a single fully evidenced attempt, releases only a
+zero-attempt cancellation and charges the authorized maximum when retry or
+partial-attempt telemetry is unknowable.
+
+Immutable V2 RESERVED/SETTLED records now sit behind one shared transactional
+reserve/resolve/settle control flow with strict V1/V2 schema adapters. V1 and
+V2 also share the actual Mongo snapshot-transaction, majority-write,
+insert-or-compare and expected-record-hash CAS implementation. V2 uses a
+separate V2 collection and rejects V1 records rather than guessing or
+migrating them implicitly. Stored record and Mongo envelopes reject undeclared
+top-level state, invalid chronology, forged hashes, stale CAS and uncommitted
+transactions. The allow-listed Mongo availability classifier is shared while
+each version supplies its own permanent domain-error classes; generic or
+unlabelled driver errors are not guessed retryable.
+
+The V2 worker budget owner independently validates the exact V2 durable job,
+historical policy, reservation, job-bound authorization, prepared state,
+prepared artifact/manifest reference, durable result and terminal PASS
+receipt. One evidenced attempt accounts for prepared and final artifact writes
+plus the manifest, and for the implemented prepared-recovery, publication and
+verification reads. Successful retries remain conservative maximum accounting
+because earlier-attempt telemetry is not yet durable. This worker remains a
+version-specific protocol owner because V2 prepared-publication PASS evidence
+is materially different from V1's direct artifact result; only the ledger and
+persistence state machines are shared.
+
+The complete local proxy/master family passes 324/324 tests across 57 files,
+with repository TypeScript and repository-wide quiet ESLint clean. This result
+is
+`V2_BUDGET_LEDGER_SETTLEMENT_AND_WORKER_RECONCILIATION_LOCALLY_VERIFIED_RUNTIME_ROUTE_LIVE_AND_COMPLETE_COST_PROOF_OPEN`.
+It does not prove deployment-owned composition, a concrete V2 preparation
+owner, dispatch-schema selection, authenticated worker/recovery routes, or a
+live Mongo/R2/QStash run. Local validation and provider-request costs remain
+outside the current artifact accounting profile pending successor telemetry
+and a frozen rate policy. Proxy V3/audio qualification, active-relation CAS,
+ProjectService relink/invalidation, visual rerender/delivery/rollback,
+retention/reachability GC and human review also remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
