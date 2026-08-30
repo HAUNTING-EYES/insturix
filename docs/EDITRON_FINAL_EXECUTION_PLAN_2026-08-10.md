@@ -9800,6 +9800,31 @@ evidence to the qualified-mapping CAS owner. Audio lineage, explicit
 `NO_PRESENTATION` policy, ProjectService relink, invalidation, rerender and
 rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Version-addressed proxy/master V3 evidence audit Phase 3F-C8ad
+(2026-08-30):** the current live owner chain cannot yet supply the two source
+views required by C8aa. `transitionMediaProxyMasterV1` atomically clears the
+active proxy V1/V2/V3 cadence fields when the master becomes active and retains
+only `proxySourceVersionV1`. The later qualification worker materializes the
+unqualified relation but again owns only the active master cadence slot. The V3
+epoch-window reader correctly requires a qualification-bound current asset
+record, so retained private proxy objects without their verified state root
+cannot be reconstructed or trusted. A test may inject two asset snapshots; the
+production MediaAsset cannot currently address both.
+
+This result is
+`VERSION_ADDRESSED_PROXY_V3_EVIDENCE_OWNER_MISSING_CORRESPONDENCE_PRODUCER_BLOCKED`.
+Do not build a producer that infers the missing side from duration, nominal FPS,
+frame count, filename or surviving object keys. Queue item 4 must first add one
+source-version-keyed media-evidence owner with strict owner/asset/version scope,
+CAS lifecycle state and immutable qualification/V3/audio roots. V3 jobs and
+readers must be able to finish and reread evidence by immutable source version
+after the active rendition changes; promotion must change the active binding,
+not erase the historical evidence authority. Existing active-asset records need
+a verified dual-read/backfill migration, and unreachable artifacts need
+reference-aware retention/GC. Only after both relation members resolve to
+complete current roots may the trusted correspondence producer publish and run
+C8aa reproof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
