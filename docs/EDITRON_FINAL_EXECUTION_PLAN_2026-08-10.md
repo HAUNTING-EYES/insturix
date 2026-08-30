@@ -8809,6 +8809,36 @@ not a customer charge. Per-attempt encoder, storage-write and verification
 telemetry plus Finance calibration remain open. Queue item 3 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Exact-render durable-worker execution-budget owner Phase 3F-C7azj
+(2026-08-30):** commit `dcf553d26` implements the worker-facing budget owner
+over the transactional ledger. Before artifact preparation it independently
+revalidates the durable job, exact reservation reference, Finance policy,
+tenant/user/organization/project/sequence, project-revision hash, admission
+receipt, exact-source-request hash and reservation window. Its authorization
+receipt binds the job attempt and input to the persisted authorization and
+reservation. A zero-attempt synthetic running job, foreign scope/policy,
+expired or already-settled reservation cannot authorize preparation.
+
+At a committed terminal state the same owner derives one content-bound
+terminal evidence digest and settles idempotently through the ledger. A
+validated one-attempt PASS meters the artifact's encoded video-frame count and
+exact written/verified byte length. A multi-attempt PASS uses the named
+retry-accounting-unknown maximum; cancellation before any attempt releases the
+reservation; cancellation after an attempt, UNVERIFIABLE/FAIL and dead letter
+use the generic conservative maximum. PASS without a valid source/job-bound
+resume artifact fails rather than inventing usage.
+
+The focused suite passes 7/7, every `native-media-final-render` suite passes
+171/171, and repository TypeScript plus repository-wide quiet ESLint pass.
+This result is
+`EXACT_RENDER_WORKER_BUDGET_OWNER_VERIFIED_PRODUCT_COMPOSITION_AND_LIVE_PROOF_OPEN`.
+
+The tests use an injected ledger owner. No production route instantiates this
+adapter with the Mongo ledger and an approved historical Finance policy; no
+configured-Atlas transaction, partial-attempt telemetry, calibrated rate card,
+customer wallet movement or live terminal redelivery is proven. Queue item 3
+remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
