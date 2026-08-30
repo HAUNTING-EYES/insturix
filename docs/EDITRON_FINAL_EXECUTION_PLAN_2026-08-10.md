@@ -9167,6 +9167,28 @@ deployment or live scan exists yet. It consequently proves safe segmentation
 logic, not production VFR/discontinuity consumption. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Distinct V3 Modal mapper selection Phase 3F-C8e (2026-08-30):** commit
+`f4fc3f944` adds `map_source_pts_epochs_v3` beside the unchanged V1 Modal
+function. The new function requires the exact `epoch-ffprobe-v3` mapper and
+command-policy pair. One central identity-to-algorithm selector maps that pair
+to the safe epoch splitter, maps the original `continuous-ffprobe-v1` pair to
+the frozen continuous scanner and rejects unknown or cross-paired identities
+with `SCAN_MAPPER_CONTRACT_UNREGISTERED` before probing or storage access.
+
+Both functions retain the same selected-stream/timebase verification,
+source-URL policy, dedicated-private-R2 requirement, immutable staging writes
+and FFprobe failure handling. The existing V1 submit/poll endpoints still spawn
+only `map_source_pts`; they were not broadened or silently redirected.
+
+All 47 Modal tests pass, and repository TypeScript plus repository-wide quiet
+ESLint pass. This result is
+`V3_MODAL_FUNCTION_SELECTION_VERIFIED_ENDPOINT_TRANSPORT_FINALIZER_OPEN`.
+No V3 submission/poll contract, TypeScript transport, durable job binding,
+finalizer, deployment or live scan invokes the new function. Reset, wrap and
+edit-list evidence owners also remain absent. This is local executable
+selection, not product reachability or production mixed-rate completion.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
