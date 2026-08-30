@@ -10271,6 +10271,36 @@ materialization, dedicated-R2/Atlas cleanup, unreachable-byte GC, persistent
 no-audio proof and verified historical migration remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Canonical source-audio availability evidence Phase 3F-C8av (2026-08-30):**
+commit `260325171` defines the successor source-version-scoped authority needed
+to prevent “no audio” from becoming an unrelated boolean beside decoded-audio
+truth. One immutable record has exactly one terminal disposition:
+`NO_AUDIO_STREAMS_OBSERVED`, bound to a canonical zero-stream technical
+observation for a real video essence, or `DECODED_ARTIFACT_SET`, bound to the
+complete exact observed stream set and its existing artifact-state root. The
+two states cannot coexist under one owner/asset/source-version scope.
+
+Capture re-proves the source version, provider storage version, qualification
+source binding and request identity, ordered lifecycle timestamps, canonical
+observation hash, unique non-negative stream indexes and every decoded stream
+through the existing binding/artifact owners. Missing and partial artifacts do
+not become availability evidence; an audio-kind source with zero usable audio
+streams is invalid rather than silently called silent video. Persistence uses
+a dedicated strict document schema, unique compound scope index, primary
+reads, majority compare-and-set writes, duplicate-key race handling and exact
+durable reread. Replays are unchanged; conflicts, corruption, bounded race
+exhaustion and store failures remain distinct.
+
+The real no-audio/decoded-private-artifact owner test and adjacent legacy
+evidence cluster pass 27/27; full TypeScript and repository-wide quiet ESLint
+pass. This result is
+`AUDIO_AVAILABILITY_AUTHORITY_AND_MONGO_ADAPTER_VERIFIED_PRODUCT_WIRING_OPEN`.
+This is not convergence yet: the C8ak decoded writer and C8at no-audio branch
+do not yet retain this successor record, existing consumers still read the V1
+artifact-root authority, and historical active/V1 rows have not been migrated.
+Those dual-write/dual-read, migration, live Atlas and cleanup proofs remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
