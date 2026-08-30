@@ -9851,6 +9851,31 @@ the C8aa correspondence producer remains blocked without inference. Queue item
 generation, qualified mapping, relink/invalidation/rerender/rollback or live
 proof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Durable source-version evidence adapter Phase 3F-C8af (2026-08-30):**
+commit `d4e21a60f` implements the C8ae store port over one dedicated Mongo
+collection. Its deterministic scope binds owner kind/identity, asset and
+immutable source-version hash; a unique compound index covers the same scope.
+Reads use the primary, writes use majority acknowledgement, first creation is
+an upsert guarded by absence plus duplicate-key race handling, and later writes
+compare both the envelope and nested record evidence hashes. Every successful
+write is reread and fully revalidated before success is returned. Stored
+document kind, exact fields, scope hash, record hash and canonical evidence are
+all checked; USER and ORG scopes cannot alias. Index, read, write and durability
+failures stay loud rather than degrading to an in-memory or active-asset
+fallback.
+
+The real-record adapter/owner suites pass 9/9; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`SOURCE_VERSION_EVIDENCE_MONGO_ADAPTER_VERIFIED_LIVE_ATLAS_AND_WRITERS_OPEN`.
+Tests use an injected in-memory Mongo command surface: no live Atlas
+collection/index/document was created. More importantly, no terminal V3/audio
+publisher, qualification transition, proxy/master promotion, migration or
+backfill invokes this adapter yet. Production therefore still cannot resolve
+both relation members, and correspondence generation remains blocked. Queue
+item 4 proceeds to lifecycle capture/read wiring and source-version-addressed
+durable job completion before any C8aa producer or qualification permission.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
