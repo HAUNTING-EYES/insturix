@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import type { DurableWorkflowJobRecordV1 } from '@/lib/editron/services/durable-workflow-job-v1';
 import { DurableWorkflowJobStoreV1 } from '@/lib/editron/services/durable-workflow-job-store-v1';
 import {
+  assertNativeMediaFinalRenderPreparationDurableJobV1,
   assertNativeMediaFinalRenderPreparationJobInputV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
   createOrGetNativeMediaFinalRenderPreparationJobV1,
   NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_CONTRACT_INVALID_V1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
 } from '@/lib/editron/services/native-media-final-render-preparation-job-v1';
 import { createNativeMediaFinalRenderPreparationDeliveryRetryPolicyV1 }
@@ -117,6 +120,31 @@ describe('native final-render durable preparation job binding v1', () => {
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_DELIVERY_RETRY_POLICY_BINDING_MISMATCH',
     );
     expect(collection.snapshot()).toEqual([]);
+  });
+
+  it('accepts the exact durable envelope and rejects a rebound operation envelope', async () => {
+    const job = await storedJob();
+
+    expect(assertNativeMediaFinalRenderPreparationDurableJobV1(job))
+      .toEqual(buildNativeMediaFinalRenderPreparationJobContractV1(input()).payload);
+    expect(() => assertNativeMediaFinalRenderPreparationDurableJobV1({
+      ...job,
+      operationKind: 'foreign_render_operation',
+    } as never)).toThrow(
+      NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1,
+    );
+  });
+
+  it('rejects a malformed durable payload as a contract failure', async () => {
+    const job = await storedJob();
+
+    expect(() => assertNativeMediaFinalRenderPreparationDurableJobV1({
+      ...job,
+      input: {
+        ...job.input,
+        payload: { ...job.input.payload, unexpected: true },
+      },
+    })).toThrow(NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_CONTRACT_INVALID_V1);
   });
 
   it('binds exact project, admission, source, policy and worker-image identity without URLs', () => {
@@ -264,6 +292,17 @@ describe('native final-render durable preparation job binding v1', () => {
     })).toThrow('NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_POLICY_FIELDS_INVALID');
   });
 });
+
+async function storedJob() {
+  const collection = new StatefulMongoCollection<DurableWorkflowJobRecordV1>();
+  const jobStore = new DurableWorkflowJobStoreV1(async () => collection.asCollection());
+  return (await createOrGetNativeMediaFinalRenderPreparationJobV1({
+    jobStore,
+    request: input(),
+    deliveryRetryPolicy: deliveryRetryPolicy(),
+    now: NOW,
+  })).job;
+}
 
 function runtimePolicy(overrides: Readonly<{
   retryPolicySha256?: string;

@@ -1,5 +1,4 @@
 import {
-  DURABLE_WORKFLOW_JOB_VERSION_V1,
   DurableWorkflowJobLeaseLostErrorV1,
   hashDurableWorkflowJobJsonV1,
   type DurableWorkflowJobSnapshotV1,
@@ -7,14 +6,12 @@ import {
 } from './durable-workflow-job-v1';
 import type { DurableWorkflowJobStoreV1 } from './durable-workflow-job-store-v1';
 import {
-  assertNativeMediaFinalRenderPreparationJobInputV1,
+  assertNativeMediaFinalRenderPreparationDurableJobV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
-  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
-  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1,
-  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1,
-  type NativeMediaFinalRenderPreparationExecutionProfileV1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1,
   type NativeMediaFinalRenderPreparationJobInputV1,
-  type NativeMediaFinalRenderPreparationPolicyBindingsV1,
+  type NativeMediaFinalRenderPreparationRuntimeContractV1,
+  toNativeMediaFinalRenderPreparationJobContractInputV1,
 } from './native-media-final-render-preparation-job-v1';
 import {
   createNativeMediaFinalRenderPreparationRetryPolicyOwnerV1,
@@ -43,11 +40,6 @@ export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1 =
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
-
-type NativeMediaFinalRenderPreparationRuntimeContractV1 = Readonly<{
-  policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
-  executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
-}>;
 
 type NativeMediaFinalRenderPreparationBudgetAuthorizationV1 = Readonly<
   | {
@@ -318,56 +310,21 @@ export async function runNativeMediaFinalRenderPreparationWorkerV1(input: Readon
 function resolveClaimedJob(
   job: Readonly<DurableWorkflowJobSnapshotV1>,
 ): NativeMediaFinalRenderPreparationJobInputV1 {
-  let payload: NativeMediaFinalRenderPreparationJobInputV1;
-  let contract: ReturnType<typeof buildNativeMediaFinalRenderPreparationJobContractV1>;
   try {
-    payload = assertNativeMediaFinalRenderPreparationJobInputV1(job.input.payload);
-    contract = buildNativeMediaFinalRenderPreparationJobContractV1(contractInput(payload));
-  } catch {
+    return assertNativeMediaFinalRenderPreparationDurableJobV1(job);
+  } catch (error) {
+    if (error instanceof Error
+      && error.message === NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1) {
+      throw new WorkerFailureV1(
+        'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_JOB_BINDING_MISMATCH',
+        false,
+      );
+    }
     throw new WorkerFailureV1(
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_JOB_CONTRACT_INVALID',
       false,
     );
   }
-  if (job.version !== DURABLE_WORKFLOW_JOB_VERSION_V1
-    || job.operationOwner !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1
-    || job.operationKind !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1
-    || job.operationId !== contract.operationIdentity
-    || job.idempotencyKey !== contract.operationIdentity
-    || job.parentCommandId !== null || job.parentReceiptId !== null
-    || job.input.schemaId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1
-    || job.input.bindingSha256 !== contract.bindingSha256
-    || job.tenantId !== payload.tenantId || job.userId !== payload.userId
-    || job.orgId !== payload.orgId || job.projectId !== payload.projectId
-    || hashDurableWorkflowJobJsonV1(job.budgetReservation)
-      !== hashDurableWorkflowJobJsonV1(payload.budgetReservation)
-    || hashDurableWorkflowJobJsonV1(job.dependencies)
-      !== hashDurableWorkflowJobJsonV1(contract.dependencies)) {
-    throw new WorkerFailureV1(
-      'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_JOB_BINDING_MISMATCH',
-      false,
-    );
-  }
-  return payload;
-}
-
-function contractInput(
-  job: NativeMediaFinalRenderPreparationJobInputV1,
-  runtime?: NativeMediaFinalRenderPreparationRuntimeContractV1,
-) {
-  return {
-    tenantId: job.tenantId,
-    userId: job.userId,
-    orgId: job.orgId,
-    projectId: job.projectId,
-    sequenceId: job.sequenceId,
-    projectRevision: job.projectRevision,
-    admissionReceiptSha256: job.admissionReceiptSha256,
-    budgetReservation: job.budgetReservation,
-    exactSourceRequest: job.exactSourceRequest,
-    policyBindings: runtime?.policyBindings ?? job.policyBindings,
-    executionProfile: runtime?.executionProfile ?? job.executionProfile,
-  };
 }
 
 function assertRuntimeContract(
@@ -382,11 +339,12 @@ function assertRuntimeContract(
     'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RUNTIME_CONTRACT_FIELDS_INVALID');
   let rebound: ReturnType<typeof buildNativeMediaFinalRenderPreparationJobContractV1>;
   try {
-    rebound = buildNativeMediaFinalRenderPreparationJobContractV1(contractInput(job, {
-      policyBindings: runtime.policyBindings as NativeMediaFinalRenderPreparationPolicyBindingsV1,
-      executionProfile:
-        runtime.executionProfile as NativeMediaFinalRenderPreparationExecutionProfileV1,
-    }));
+    rebound = buildNativeMediaFinalRenderPreparationJobContractV1(
+      toNativeMediaFinalRenderPreparationJobContractInputV1(job, {
+        policyBindings: runtimeValue.policyBindings,
+        executionProfile: runtimeValue.executionProfile,
+      }),
+    );
   } catch {
     throw new WorkerFailureV1(
       'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RUNTIME_CONTRACT_INVALID',

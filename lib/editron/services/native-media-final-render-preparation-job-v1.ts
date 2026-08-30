@@ -3,6 +3,7 @@ import {
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
 import {
+  DURABLE_WORKFLOW_JOB_VERSION_V1,
   hashDurableWorkflowJobJsonV1,
   type DurableWorkflowJobBudgetReservationV1,
   type DurableWorkflowJobSnapshotV1,
@@ -79,6 +80,16 @@ export type NativeMediaFinalRenderPreparationJobInputV1 = Readonly<{
   executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
 }>;
 
+export type NativeMediaFinalRenderPreparationRuntimeContractV1 = Readonly<{
+  policyBindings: NativeMediaFinalRenderPreparationPolicyBindingsV1;
+  executionProfile: NativeMediaFinalRenderPreparationExecutionProfileV1;
+}>;
+
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_CONTRACT_INVALID_V1 =
+  'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_CONTRACT_INVALID' as const;
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1 =
+  'NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH' as const;
+
 class NativeMediaFinalRenderPreparationJobBindingErrorV1 extends Error {}
 
 export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Readonly<{
@@ -148,6 +159,57 @@ export function buildNativeMediaFinalRenderPreparationJobContractV1(input: Reado
     dependencies,
     operationIdentity: `nmfrprep_${operationSha256}`,
   });
+}
+
+export function toNativeMediaFinalRenderPreparationJobContractInputV1(
+  job: NativeMediaFinalRenderPreparationJobInputV1,
+  runtime?: NativeMediaFinalRenderPreparationRuntimeContractV1,
+): Parameters<typeof buildNativeMediaFinalRenderPreparationJobContractV1>[0] {
+  return {
+    tenantId: job.tenantId,
+    userId: job.userId,
+    orgId: job.orgId,
+    projectId: job.projectId,
+    sequenceId: job.sequenceId,
+    projectRevision: job.projectRevision,
+    admissionReceiptSha256: job.admissionReceiptSha256,
+    budgetReservation: job.budgetReservation,
+    exactSourceRequest: job.exactSourceRequest,
+    policyBindings: runtime?.policyBindings ?? job.policyBindings,
+    executionProfile: runtime?.executionProfile ?? job.executionProfile,
+  };
+}
+
+export function assertNativeMediaFinalRenderPreparationDurableJobV1(
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+): NativeMediaFinalRenderPreparationJobInputV1 {
+  let payload: NativeMediaFinalRenderPreparationJobInputV1;
+  let contract: ReturnType<typeof buildNativeMediaFinalRenderPreparationJobContractV1>;
+  try {
+    payload = assertNativeMediaFinalRenderPreparationJobInputV1(job.input.payload);
+    contract = buildNativeMediaFinalRenderPreparationJobContractV1(
+      toNativeMediaFinalRenderPreparationJobContractInputV1(payload),
+    );
+  } catch {
+    fail(NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_CONTRACT_INVALID_V1);
+  }
+  if (job.version !== DURABLE_WORKFLOW_JOB_VERSION_V1
+    || job.operationOwner !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1
+    || job.operationKind !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1
+    || job.operationId !== contract.operationIdentity
+    || job.idempotencyKey !== contract.operationIdentity
+    || job.parentCommandId !== null || job.parentReceiptId !== null
+    || job.input.schemaId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1
+    || job.input.bindingSha256 !== contract.bindingSha256
+    || job.tenantId !== payload.tenantId || job.userId !== payload.userId
+    || job.orgId !== payload.orgId || job.projectId !== payload.projectId
+    || hashDurableWorkflowJobJsonV1(job.budgetReservation)
+      !== hashDurableWorkflowJobJsonV1(payload.budgetReservation)
+    || hashDurableWorkflowJobJsonV1(job.dependencies)
+      !== hashDurableWorkflowJobJsonV1(contract.dependencies)) {
+    fail(NATIVE_MEDIA_FINAL_RENDER_PREPARATION_DURABLE_JOB_BINDING_MISMATCH_V1);
+  }
+  return payload;
 }
 
 export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: Readonly<{
