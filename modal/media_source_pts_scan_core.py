@@ -57,6 +57,26 @@ def stage_scan_lines(
     lines: Iterable[str], request: dict[str, Any], ffprobe_version: str,
     writer: Callable[[bytes, dict[str, Any]], None],
 ) -> dict[str, Any]:
+    return _stage_scan_lines(lines, request, ffprobe_version, writer, split_safe_deltas=False)
+
+
+def stage_epoch_scan_lines_v3(
+    lines: Iterable[str], request: dict[str, Any], ffprobe_version: str,
+    writer: Callable[[bytes, dict[str, Any]], None],
+) -> dict[str, Any]:
+    """Stage exact continuous runs for V3 without guessing backward causes.
+
+    A later V3 finalizer may classify a positive PTS delta as GAP and a
+    still-forward negative duration delta as OVERLAP. Repeated or backward PTS
+    requires independently recoverable reset/wrap/edit-list evidence.
+    """
+    return _stage_scan_lines(lines, request, ffprobe_version, writer, split_safe_deltas=True)
+
+
+def _stage_scan_lines(
+    lines: Iterable[str], request: dict[str, Any], ffprobe_version: str,
+    writer: Callable[[bytes, dict[str, Any]], None], split_safe_deltas: bool,
+) -> dict[str, Any]:
     validated = validate_scan_request(request)
     binding = validated["mapBinding"]
     if ffprobe_version != binding["mapper"]["ffprobeVersion"]:
@@ -69,10 +89,18 @@ def stage_scan_lines(
         for line in lines:
             frame = parse_ffprobe_frame_line(line)
             previous = state["previous_frame"]
-            if previous and int(frame["presentationTimestampTicks"]) != (
-                int(previous["presentationTimestampTicks"]) + int(previous["durationTicks"])
-            ):
-                raise ScanInputError("SCAN_PRESENTATION_CONTINUITY_INVALID")
+            if previous:
+                current_pts = int(frame["presentationTimestampTicks"])
+                previous_pts = int(previous["presentationTimestampTicks"])
+                expected_pts = previous_pts + int(previous["durationTicks"])
+                if current_pts != expected_pts:
+                    if not split_safe_deltas:
+                        raise ScanInputError("SCAN_PRESENTATION_CONTINUITY_INVALID")
+                    if current_pts <= previous_pts:
+                        raise ScanInputError("SCAN_BACKWARD_BOUNDARY_EVIDENCE_REQUIRED")
+                    if buffer:
+                        _persist_frames(buffer, validated, state, writer)
+                        buffer = []
             state["previous_frame"] = frame
             buffer.append(frame)
             if len(buffer) >= validated["resourcePolicy"]["maxFrameRecords"]:

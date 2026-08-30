@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import sys
 from unittest.mock import patch
@@ -19,6 +20,7 @@ from media_source_pts_scan_core import (
     ScanInputError,
     ScanStorageError,
     canonical_json,
+    stage_epoch_scan_lines_v3,
     stage_scan_lines,
     validate_scan_request,
     write_exact_r2,
@@ -106,6 +108,72 @@ def test_missing_duration_and_pts_gap_are_unverifiable_without_inference():
     assert gap["diagnostic"] == "SCAN_PRESENTATION_CONTINUITY_INVALID"
     assert gap["totalFrameCount"] == "1"
     assert len(writes) == 1
+
+
+def test_epoch_scan_splits_provable_gap_and_overlap_without_changing_frame_time():
+    writes = []
+    result = stage_epoch_scan_lines_v3(
+        [
+            "best_effort_timestamp=0|duration=100\n",
+            "best_effort_timestamp=100|duration=100\n",
+            "best_effort_timestamp=400|duration=100\n",
+            "best_effort_timestamp=450|duration=50\n",
+        ],
+        request_fixture(),
+        FFPROBE_VERSION,
+        lambda body, sidecar: writes.append((body, sidecar)),
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert result["totalFrameCount"] == "4"
+    assert [entry["startPresentationTimestampTicks"] for entry in result["batches"]] == [
+        "0", "400", "450",
+    ]
+    assert [entry["endExclusivePresentationTimestampTicks"] for entry in result["batches"]] == [
+        "200", "500", "500",
+    ]
+    assert [canonical_json(json.loads(body)) for body, _sidecar in writes] == [
+        body.decode("utf-8") for body, _sidecar in writes
+    ]
+    assert [json.loads(body)["frames"] for body, _sidecar in writes] == [
+        [
+            {"presentationTimestampTicks": "0", "durationTicks": "100"},
+            {"presentationTimestampTicks": "100", "durationTicks": "100"},
+        ],
+        [{"presentationTimestampTicks": "400", "durationTicks": "100"}],
+        [{"presentationTimestampTicks": "450", "durationTicks": "50"}],
+    ]
+
+
+def test_epoch_scan_keeps_contiguous_vfr_in_one_run_and_blocks_backward_ambiguity():
+    writes = []
+    vfr = stage_epoch_scan_lines_v3(
+        [
+            "best_effort_timestamp=0|duration=40\n",
+            "best_effort_timestamp=40|duration=55\n",
+            "best_effort_timestamp=95|duration=45\n",
+        ],
+        request_fixture(),
+        FFPROBE_VERSION,
+        lambda body, sidecar: writes.append((body, sidecar)),
+    )
+    assert vfr["status"] == "COMPLETE"
+    assert len(writes) == 1
+    assert vfr["sourceEndExclusivePresentationTimestampTicks"] == "140"
+
+    for ambiguous_pts in ("100", "-50"):
+        result = stage_epoch_scan_lines_v3(
+            [
+                "best_effort_timestamp=0|duration=100\n",
+                "best_effort_timestamp=100|duration=100\n",
+                f"best_effort_timestamp={ambiguous_pts}|duration=100\n",
+            ],
+            request_fixture(),
+            FFPROBE_VERSION,
+            lambda _body, _sidecar: None,
+        )
+        assert result["status"] == "UNVERIFIABLE"
+        assert result["diagnostic"] == "SCAN_BACKWARD_BOUNDARY_EVIDENCE_REQUIRED"
 
 
 def test_batch_count_limit_fails_closed_before_an_extra_write():
