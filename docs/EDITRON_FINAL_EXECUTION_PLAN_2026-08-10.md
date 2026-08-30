@@ -9713,6 +9713,41 @@ Live dedicated private storage, trusted transcode/audio lineage, qualified
 mapping CAS, ProjectService relink, invalidation, rerender and rollback remain
 Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**V3-derived proxy/master correspondence verification Phase 3F-C8aa
+(2026-08-30):** commit `9c5b49c26` composes C8y's artifact-set reproof with
+the current source-bound V3 epoch-window owner. After the complete index/batch
+set passes its first verification, the new read-only owner rereads every exact
+batch by its immutable hash and, per batch, obtains bounded current V3 windows
+for both proxy and master. It independently converts each referenced source
+frame to an exact canonical start/end interval and requires the stored span to
+equal the rational intersection of those two intervals. The first span must
+begin with both sources, and the terminal span must reach the exact final frame
+end in both maps; equal nominal FPS, duration, frame count or adjacent-frame
+guessing cannot pass.
+
+The reload-verifiable receipt binds the relation and full V3 map identities,
+content-addressed index, C8y artifact receipt hash, aggregate resource policy,
+ordered batch hashes, exact ordinal windows, V3 window-evidence hashes, measured
+frame/byte/span work and canonical terminal duration. Receipt validation
+recomputes the basis-scoped index path and source frame totals and rejects policy
+understatement, basis drift or tampering. The focused verifier suite passes 5/5;
+the canonical/batch/index/artifact/derivation cluster passes 29/29; repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`CORRESPONDENCE_V3_DERIVATION_CONTRACT_VERIFIED_LIVE_STORAGE_PRODUCER_AND_GAP_POLICY_OPEN`.
+The focused suite uses an in-memory correspondence store and a mocked V3 window
+producer with the real output contract; no dedicated private R2 object or live
+current asset was consumed. The V1 span form also requires a presented proxy and
+master frame throughout canonical coverage. A genuine canonical interval with
+no picture presentation therefore blocks instead of being filled implicitly.
+Before general discontinuity relinking, a successor contract must explicitly
+represent `NO_PRESENTATION` intervals and bind the chosen black/freeze/nearest
+conform behavior—or prove a trusted transcode produced an equivalent presented
+frame. Trusted correspondence/audio production, private writes/rereads, mapping
+CAS, ProjectService relink, invalidation, rerender and rollback remain Queue item
+4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
