@@ -25,6 +25,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/recover-media-source-pts-cadence-v3",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },
