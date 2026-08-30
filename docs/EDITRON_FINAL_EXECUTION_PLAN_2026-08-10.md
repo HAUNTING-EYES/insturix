@@ -9142,6 +9142,31 @@ can support operational reporting. Direct V3 scan/finalization with real
 boundary evidence, proxy/master mapping, relinking and invalidation remain
 Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Safe V3 scan segmentation Phase 3F-C8d (2026-08-30):** commit
+`f16003eb5` adds a separately named compute primitive for direct V3 timestamp
+scans while leaving the frozen V1 scan entry point unchanged. It retains
+ordinary contiguous variable-frame-rate samples in one staged sequence and
+splits only boundaries that exact decoded timestamps and durations can prove:
+positive gaps and positive-start overlaps. It never changes, rounds or
+normalizes a source timestamp.
+
+Repeated or backward timestamps stop with
+`SCAN_BACKWARD_BOUNDARY_EVIDENCE_REQUIRED`. Generic FFprobe frame output does
+not expose a universal reset, counter-wrap or edit-list boundary; those labels
+therefore require container-specific recoverable evidence rather than a
+heuristic negative delta. FFmpeg's public packet flags do not supply such a
+generic marker, while MPEG-TS discontinuity indicators and MOV edit lists are
+container-specific sources that need their own bounded evidence owners.
+
+All 43 Modal mapper/core tests pass, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V3_SAFE_EPOCH_SCAN_SPLITTER_VERIFIED_MODAL_SELECTION_AND_FINALIZER_OPEN`.
+The primitive is not selected by the Modal mapper, endpoint, TypeScript
+transport or durable job; no V3 finalizer, reset/wrap/edit-list evidence owner,
+deployment or live scan exists yet. It consequently proves safe segmentation
+logic, not production VFR/discontinuity consumption. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
