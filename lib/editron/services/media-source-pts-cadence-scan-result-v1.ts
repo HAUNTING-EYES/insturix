@@ -46,8 +46,36 @@ export type MediaSourcePtsCadenceScanResultV1 = Readonly<{
   sourceEndExclusivePresentationTimestampTicks: string | null;
 }>;
 
+type MediaSourcePtsCadenceScanBatchContinuityV1 =
+  | 'EXACTLY_CONTIGUOUS'
+  | 'MONOTONIC_EPOCH_RUN_STARTS';
+
 /** Validates a Modal result summary; it does not trust or read the named bytes. */
 export function assertMediaSourcePtsCadenceScanResultV1(value: unknown): MediaSourcePtsCadenceScanResultV1 {
+  return assertMediaSourcePtsCadenceScanResultWithContinuityV1(
+    value,
+    'EXACTLY_CONTIGUOUS',
+  );
+}
+
+/**
+ * Validates the shared raw-result schema emitted by the V3 epoch mapper.
+ * Immutable staging batches keep their V1 byte format, while this lane allows
+ * an exact positive-start GAP/OVERLAP between otherwise contiguous runs.
+ */
+export function assertMediaSourcePtsCadenceEpochScanResultV3(
+  value: unknown,
+): MediaSourcePtsCadenceScanResultV1 {
+  return assertMediaSourcePtsCadenceScanResultWithContinuityV1(
+    value,
+    'MONOTONIC_EPOCH_RUN_STARTS',
+  );
+}
+
+function assertMediaSourcePtsCadenceScanResultWithContinuityV1(
+  value: unknown,
+  continuity: MediaSourcePtsCadenceScanBatchContinuityV1,
+): MediaSourcePtsCadenceScanResultV1 {
   const record = assertScanRecordV1(value, 'MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_INVALID');
   assertScanExactKeysV1(record, [
     'batches', 'diagnostic', 'ffprobeVersion', 'kind', 'mapBindingSha256',
@@ -62,7 +90,7 @@ export function assertMediaSourcePtsCadenceScanResultV1(value: unknown): MediaSo
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_INVALID');
   }
   const mapBindingSha256 = assertScanSha256V1(record.mapBindingSha256, 'MEDIA_SOURCE_PTS_CADENCE_SCAN_BINDING_INVALID');
-  const batches = normalizeBatches(record.batches, mapBindingSha256);
+  const batches = normalizeBatches(record.batches, mapBindingSha256, continuity);
   const totalFrameCount = assertScanIntegerTextV1(record.totalFrameCount, 'NON_NEGATIVE',
     'MEDIA_SOURCE_PTS_CADENCE_SCAN_TOTAL_COUNT_INVALID');
   if (totalFrameCount !== batches.reduce(
@@ -105,7 +133,11 @@ export function assertMediaSourcePtsCadenceScanResultV1(value: unknown): MediaSo
   });
 }
 
-function normalizeBatches(value: unknown, binding: string): readonly MediaSourcePtsCadenceScanResultBatchV1[] {
+function normalizeBatches(
+  value: unknown,
+  binding: string,
+  continuity: MediaSourcePtsCadenceScanBatchContinuityV1,
+): readonly MediaSourcePtsCadenceScanResultBatchV1[] {
   if (!Array.isArray(value) || value.length > MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_ABSOLUTE_MAX_BATCHES_V1) {
     throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_BATCHES_INVALID');
   }
@@ -118,16 +150,28 @@ function normalizeBatches(value: unknown, binding: string): readonly MediaSource
     const shardSequence = assertScanSafeIntegerV1(record.shardSequence, false,
       'MEDIA_SOURCE_PTS_CADENCE_SCAN_SEQUENCE_INVALID');
     if (shardSequence !== index) throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_SEQUENCE_GAP');
+    const startPresentationTimestampTicks = assertScanIntegerTextV1(
+      record.startPresentationTimestampTicks,
+      'SIGNED',
+      'MEDIA_SOURCE_PTS_CADENCE_SCAN_BATCH_START_INVALID',
+    );
+    const endExclusivePresentationTimestampTicks = assertScanIntegerTextV1(
+      record.endExclusivePresentationTimestampTicks,
+      'SIGNED',
+      'MEDIA_SOURCE_PTS_CADENCE_SCAN_BATCH_END_INVALID',
+    );
+    if (BigInt(endExclusivePresentationTimestampTicks)
+      <= BigInt(startPresentationTimestampTicks)) {
+      throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_BATCH_RANGE_INVALID');
+    }
     return {
       shardSequence,
       firstFrameOrdinal: assertScanIntegerTextV1(record.firstFrameOrdinal, 'NON_NEGATIVE',
         'MEDIA_SOURCE_PTS_CADENCE_SCAN_ORDINAL_INVALID'),
       frameCount: assertScanIntegerTextV1(record.frameCount, 'POSITIVE',
         'MEDIA_SOURCE_PTS_CADENCE_SCAN_FRAME_COUNT_INVALID'),
-      startPresentationTimestampTicks: assertScanIntegerTextV1(record.startPresentationTimestampTicks, 'SIGNED',
-        'MEDIA_SOURCE_PTS_CADENCE_SCAN_BATCH_START_INVALID'),
-      endExclusivePresentationTimestampTicks: assertScanIntegerTextV1(record.endExclusivePresentationTimestampTicks,
-        'SIGNED', 'MEDIA_SOURCE_PTS_CADENCE_SCAN_BATCH_END_INVALID'),
+      startPresentationTimestampTicks,
+      endExclusivePresentationTimestampTicks,
       previousBatchContentSha256: record.previousBatchContentSha256 === null ? null
         : assertScanSha256V1(record.previousBatchContentSha256,
           'MEDIA_SOURCE_PTS_CADENCE_SCAN_PREVIOUS_HASH_INVALID'),
@@ -139,9 +183,20 @@ function normalizeBatches(value: unknown, binding: string): readonly MediaSource
     if (batch.previousBatchContentSha256 !== (previous?.sidecar.contentSha256 ?? null)) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_HASH_CHAIN_INVALID');
     }
-    if (previous && (BigInt(batch.firstFrameOrdinal) !== BigInt(previous.firstFrameOrdinal) + BigInt(previous.frameCount)
-      || batch.startPresentationTimestampTicks !== previous.endExclusivePresentationTimestampTicks)) {
+    if (previous && BigInt(batch.firstFrameOrdinal)
+      !== BigInt(previous.firstFrameOrdinal) + BigInt(previous.frameCount)) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_CONTINUITY_INVALID');
+    }
+    if (!previous) return;
+    if (continuity === 'EXACTLY_CONTIGUOUS'
+      && batch.startPresentationTimestampTicks
+        !== previous.endExclusivePresentationTimestampTicks) {
+      throw new Error('MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_CONTINUITY_INVALID');
+    }
+    if (continuity === 'MONOTONIC_EPOCH_RUN_STARTS'
+      && BigInt(batch.startPresentationTimestampTicks)
+        <= BigInt(previous.startPresentationTimestampTicks)) {
+      throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_SCAN_RESULT_BOUNDARY_ORDER_INVALID');
     }
   });
   return freezeMediaSourcePtsCadenceScanV1(batches);

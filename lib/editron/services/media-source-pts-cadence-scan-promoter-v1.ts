@@ -8,8 +8,13 @@ import {
 } from './media-source-pts-cadence-manifest-index-v2';
 import { serializeMediaSourcePtsCadenceShardSidecarV1 } from './media-source-pts-cadence-private-sidecar-codec-v1';
 import type { MediaSourcePtsCadenceR2PrivateArtifactPortV2 } from './media-source-pts-cadence-r2-private-sidecar-v1';
+import {
+  MEDIA_SOURCE_PTS_CADENCE_EPOCH_COMMAND_POLICY_VERSION_V3,
+  MEDIA_SOURCE_PTS_CADENCE_EPOCH_MAPPER_VERSION_V3,
+} from './media-source-pts-cadence-epoch-scan-transport-v3';
 import type { MediaSourcePtsCadenceScanStagingReaderV1 } from './media-source-pts-cadence-scan-r2-reader-v1';
 import {
+  assertMediaSourcePtsCadenceEpochScanResultV3,
   assertMediaSourcePtsCadenceScanResultV1,
   type MediaSourcePtsCadenceScanResultBatchV1,
   type MediaSourcePtsCadenceScanResultV1,
@@ -49,7 +54,12 @@ export async function promoteMediaSourcePtsCadenceScanBatchV1(input: {
   artifactPort: MediaSourcePtsCadenceR2PrivateArtifactPortV2;
 }): Promise<PromoteMediaSourcePtsCadenceScanBatchResultV1> {
   const request = assertMediaSourcePtsCadenceScanRequestV1(input.request);
-  const result = assertMediaSourcePtsCadenceScanResultV1(input.result);
+  const mapper = request.mapBinding.mapper;
+  const result = mapper.mapperVersion === MEDIA_SOURCE_PTS_CADENCE_EPOCH_MAPPER_VERSION_V3
+    && mapper.commandPolicyVersion
+      === MEDIA_SOURCE_PTS_CADENCE_EPOCH_COMMAND_POLICY_VERSION_V3
+    ? assertMediaSourcePtsCadenceEpochScanResultV3(input.result)
+    : assertMediaSourcePtsCadenceScanResultV1(input.result);
   if (result.status !== 'COMPLETE') throw new Error('MEDIA_SOURCE_PTS_SCAN_PROMOTION_RESULT_INCOMPLETE');
   assertResultMatchesRequest(request, result);
   const summary = result.batches[input.scanBatchIndex];

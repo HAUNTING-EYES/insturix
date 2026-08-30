@@ -115,10 +115,27 @@ describe('media source PTS epoch scan transport V3', () => {
       mapBindingSha256: job.mapBindingSha256,
       mapperVersion: job.mapperVersion,
       commandPolicyVersion: job.commandPolicyVersion,
-      result: scanResultFixture(job.mapBindingSha256),
+      result: scanResultFixture(job.mapBindingSha256, [
+        [
+          { presentationTimestampTicks: '0', durationTicks: '100' },
+          { presentationTimestampTicks: '100', durationTicks: '100' },
+        ],
+        [{ presentationTimestampTicks: '400', durationTicks: '100' }],
+        [{ presentationTimestampTicks: '450', durationTicks: '50' }],
+      ]),
     })) as unknown as typeof fetch;
     await expect(pollMediaSourcePtsCadenceEpochScanV3(job, { environment, fetchImpl: terminal }))
-      .resolves.toMatchObject({ disposition: 'TERMINAL', result: { status: 'COMPLETE' } });
+      .resolves.toMatchObject({
+        disposition: 'TERMINAL',
+        result: {
+          status: 'COMPLETE',
+          batches: [
+            { startPresentationTimestampTicks: '0', endExclusivePresentationTimestampTicks: '200' },
+            { startPresentationTimestampTicks: '400', endExclusivePresentationTimestampTicks: '500' },
+            { startPresentationTimestampTicks: '450', endExclusivePresentationTimestampTicks: '500' },
+          ],
+        },
+      });
 
     const forged = vi.fn(async () => jsonResponse({
       ok: true,
@@ -133,6 +150,26 @@ describe('media source PTS epoch scan transport V3', () => {
         disposition: 'UNVERIFIABLE',
         diagnostic: 'SCAN_TRANSPORT_RESPONSE_INVALID',
       });
+
+    const backward = vi.fn(async () => jsonResponse({
+      ok: true,
+      status: 'TERMINAL',
+      submissionId: job.submissionId,
+      mapBindingSha256: job.mapBindingSha256,
+      mapperVersion: job.mapperVersion,
+      commandPolicyVersion: job.commandPolicyVersion,
+      result: scanResultFixture(job.mapBindingSha256, [
+        [{ presentationTimestampTicks: '100', durationTicks: '100' }],
+        [{ presentationTimestampTicks: '100', durationTicks: '50' }],
+      ]),
+    })) as unknown as typeof fetch;
+    await expect(pollMediaSourcePtsCadenceEpochScanV3(job, {
+      environment,
+      fetchImpl: backward,
+    })).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      diagnostic: 'SCAN_TRANSPORT_RESPONSE_INVALID',
+    });
   });
 
   it('does not send credentials to an untrusted host and bounds response bytes', async () => {
@@ -204,21 +241,47 @@ function submissionFixture(request = requestFixture()) {
   });
 }
 
-function scanResultFixture(binding: string) {
-  const serialization = serializeMediaSourcePtsCadenceScanStagingBatchV1({
-    schemaVersion: 1,
-    kind: 'EDITRON_MEDIA_SOURCE_PTS_CADENCE_SCAN_STAGING_BATCH_V1',
-    mapBindingSha256: binding,
-    resourcePolicy: requestFixture().resourcePolicy,
-    sourceTimebase: { numerator: '1', denominator: '90000' },
-    timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP',
-    shardSequence: 0,
-    firstFrameOrdinal: '0',
-    previousBatchContentSha256: null,
-    frames: [
-      { presentationTimestampTicks: '0', durationTicks: '3003' },
-      { presentationTimestampTicks: '3003', durationTicks: '3003' },
-    ],
+function scanResultFixture(
+  binding: string,
+  runs: readonly (readonly ScanFrame[])[] = [[
+    { presentationTimestampTicks: '0', durationTicks: '3003' },
+    { presentationTimestampTicks: '3003', durationTicks: '3003' },
+  ]],
+) {
+  const resourcePolicy = requestFixture().resourcePolicy;
+  let firstFrameOrdinal = BigInt(0);
+  let previousBatchContentSha256: string | null = null;
+  const serializations = runs.map((frames, shardSequence) => {
+    const serialization = serializeMediaSourcePtsCadenceScanStagingBatchV1({
+      schemaVersion: 1,
+      kind: 'EDITRON_MEDIA_SOURCE_PTS_CADENCE_SCAN_STAGING_BATCH_V1',
+      mapBindingSha256: binding,
+      resourcePolicy,
+      sourceTimebase: { numerator: '1', denominator: '90000' },
+      timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP',
+      shardSequence,
+      firstFrameOrdinal: firstFrameOrdinal.toString(),
+      previousBatchContentSha256,
+      frames,
+    });
+    firstFrameOrdinal += BigInt(frames.length);
+    previousBatchContentSha256 = serialization.contentSha256;
+    return serialization;
+  });
+  const batches = serializations.map((serialization) => {
+    const frames = serialization.batch.frames;
+    const last = frames.at(-1)!;
+    return {
+      shardSequence: serialization.batch.shardSequence,
+      firstFrameOrdinal: serialization.batch.firstFrameOrdinal,
+      frameCount: String(frames.length),
+      startPresentationTimestampTicks: frames[0]!.presentationTimestampTicks,
+      endExclusivePresentationTimestampTicks: (
+        BigInt(last.presentationTimestampTicks) + BigInt(last.durationTicks)
+      ).toString(),
+      previousBatchContentSha256: serialization.batch.previousBatchContentSha256,
+      sidecar: createMediaSourcePtsCadenceScanBatchSidecarV1({ serialization }),
+    };
   });
   return {
     schemaVersion: 1,
@@ -226,25 +289,23 @@ function scanResultFixture(binding: string) {
     status: 'COMPLETE',
     diagnostic: null,
     mapBindingSha256: binding,
-    resourcePolicy: serialization.batch.resourcePolicy,
+    resourcePolicy,
     ffprobeVersion: 'ffprobe version 8.1',
     videoStreamIndex: 0,
     sourceTimebase: { numerator: '1', denominator: '90000' },
     timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP',
-    batches: [{
-      shardSequence: 0,
-      firstFrameOrdinal: '0',
-      frameCount: '2',
-      startPresentationTimestampTicks: '0',
-      endExclusivePresentationTimestampTicks: '6006',
-      previousBatchContentSha256: null,
-      sidecar: createMediaSourcePtsCadenceScanBatchSidecarV1({ serialization }),
-    }],
-    totalFrameCount: '2',
-    sourceStartPresentationTimestampTicks: '0',
-    sourceEndExclusivePresentationTimestampTicks: '6006',
+    batches,
+    totalFrameCount: firstFrameOrdinal.toString(),
+    sourceStartPresentationTimestampTicks: batches[0]!.startPresentationTimestampTicks,
+    sourceEndExclusivePresentationTimestampTicks:
+      batches.at(-1)!.endExclusivePresentationTimestampTicks,
   };
 }
+
+type ScanFrame = Readonly<{
+  presentationTimestampTicks: string;
+  durationTicks: string;
+}>;
 
 function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {

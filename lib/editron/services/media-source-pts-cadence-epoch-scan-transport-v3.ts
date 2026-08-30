@@ -7,7 +7,7 @@ import {
   type MediaSourcePtsCadenceScanHttpDependenciesV1,
 } from './media-source-pts-cadence-scan-http-transport-v1';
 import {
-  assertMediaSourcePtsCadenceScanResultV1,
+  assertMediaSourcePtsCadenceEpochScanResultV3,
   type MediaSourcePtsCadenceScanResultV1,
 } from './media-source-pts-cadence-scan-result-v1';
 import {
@@ -181,7 +181,7 @@ export async function pollMediaSourcePtsCadenceEpochScanV3(
       || record.mapBindingSha256 !== validatedJob.mapBindingSha256) {
       return unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');
     }
-    const result = assertMediaSourcePtsCadenceScanResultV1(record.result);
+    const result = assertMediaSourcePtsCadenceEpochScanResultV3(record.result);
     return result.mapBindingSha256 === validatedJob.mapBindingSha256
       ? freezeMediaSourcePtsCadenceScanV1({ disposition: 'TERMINAL', result })
       : unverifiable('SCAN_TRANSPORT_RESPONSE_INVALID');

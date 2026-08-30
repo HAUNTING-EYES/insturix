@@ -56,9 +56,59 @@ describe('media source PTS scan promoter V1', () => {
       nextFrameOrdinal: '1',
     })).rejects.toThrow('MEDIA_SOURCE_PTS_SCAN_PROMOTION_ORDINAL_MISMATCH');
   });
+
+  it('promotes a V3 epoch run while preserving a declared inter-run gap', async () => {
+    const fixture = promotionFixture(4, false, 'epoch-ffprobe-v3');
+    const secondStaging = stagingFixture(
+      fixture.input.request,
+      [{ presentationTimestampTicks: '15015', durationTicks: '3003' }],
+      {
+        shardSequence: 1,
+        firstFrameOrdinal: '4',
+        previousBatchContentSha256: fixture.staging.contentSha256,
+      },
+    );
+    const secondSidecar = createMediaSourcePtsCadenceScanBatchSidecarV1({
+      serialization: secondStaging,
+    });
+    const result = {
+      ...fixture.input.result,
+      batches: [
+        fixture.input.result.batches[0]!,
+        {
+          shardSequence: 1,
+          firstFrameOrdinal: '4',
+          frameCount: '1',
+          startPresentationTimestampTicks: '15015',
+          endExclusivePresentationTimestampTicks: '18018',
+          previousBatchContentSha256: fixture.staging.contentSha256,
+          sidecar: secondSidecar,
+        },
+      ],
+      totalFrameCount: '5',
+      sourceEndExclusivePresentationTimestampTicks: '18018',
+    };
+
+    const promoted = await promoteMediaSourcePtsCadenceScanBatchV1({
+      ...fixture.input,
+      result,
+    });
+
+    expect(promoted.nextFrameOrdinal).toBe('4');
+    expect(promoted.batches[0]!.serialization.payload.shard)
+      .toMatchObject({
+        startPresentationTimestampTicks: '0',
+        endExclusivePresentationTimestampTicks: '12012',
+      });
+    expect(fixture.stagingReader.read).toHaveBeenCalledTimes(1);
+  });
 });
 
-function promotionFixture(frameCount: number, forceSplit = false) {
+function promotionFixture(
+  frameCount: number,
+  forceSplit = false,
+  mapperVersion = 'continuous-ffprobe-v1',
+) {
   const storageVersion = createMediaSourceStorageVersionV1({
     locator: { provider: 'R2', objectKey: 'media/source.mov' },
     byteLength: 123_456,
@@ -71,9 +121,9 @@ function promotionFixture(frameCount: number, forceSplit = false) {
   });
   const qualification = qualificationFixture(storageVersion, frameCount);
   const mapper = {
-    mapperVersion: 'continuous-ffprobe-v1',
+    mapperVersion,
     ffprobeVersion: 'ffprobe version 8.1',
-    commandPolicyVersion: 'continuous-ffprobe-v1',
+    commandPolicyVersion: mapperVersion,
     timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP' as const,
   };
   const frames = Array.from({ length: frameCount }, (_, index) => ({
@@ -169,6 +219,15 @@ function promotionFixture(frameCount: number, forceSplit = false) {
 function stagingFixture(
   request: ReturnType<typeof createMediaSourcePtsCadenceScanRequestV1>,
   frames: readonly { presentationTimestampTicks: string; durationTicks: string }[],
+  identity: Readonly<{
+    shardSequence: number;
+    firstFrameOrdinal: string;
+    previousBatchContentSha256: string | null;
+  }> = {
+    shardSequence: 0,
+    firstFrameOrdinal: '0',
+    previousBatchContentSha256: null,
+  },
 ) {
   return serializeMediaSourcePtsCadenceScanStagingBatchV1({
     schemaVersion: 1,
@@ -177,9 +236,9 @@ function stagingFixture(
     resourcePolicy: request.resourcePolicy,
     sourceTimebase: request.mapBinding.sourceTimebase,
     timestampOrigin: 'FFPROBE_BEST_EFFORT_TIMESTAMP',
-    shardSequence: 0,
-    firstFrameOrdinal: '0',
-    previousBatchContentSha256: null,
+    shardSequence: identity.shardSequence,
+    firstFrameOrdinal: identity.firstFrameOrdinal,
+    previousBatchContentSha256: identity.previousBatchContentSha256,
     frames,
   });
 }
