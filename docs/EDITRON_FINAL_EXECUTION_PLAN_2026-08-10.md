@@ -9748,6 +9748,37 @@ frame. Trusted correspondence/audio production, private writes/rereads, mapping
 CAS, ProjectService relink, invalidation, rerender and rollback remain Queue item
 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Private proxy/master correspondence artifact store Phase 3F-C8ab
+(2026-08-30):** commit `499acc7d0` adds the correspondence-specific adapter for
+the dedicated server-only media-evidence R2 scope. It reconstructs the complete
+basis-bound index before storage, rejects forged batch sidecars/index bytes or
+references before object access, then conditionally writes immutable batches
+first and the immutable index last. Every put is reread with an exact bounded
+body, byte count, SHA-256 and canonical payload check. A create collision is an
+idempotent replay only when the existing object is byte-identical; corruption
+or an ordinary storage failure blocks. After index publication the adapter runs
+the complete C8y artifact-set verifier over its own reader before returning a
+receipt.
+
+The allow-list accepts only canonical correspondence batch/index keys in the
+explicit private bucket with no browser route. It never signs, lists or exposes
+an object. If a later batch/index operation fails, earlier unreachable immutable
+batches are retained rather than deleted because another verified index may
+share content-addressed objects; lifecycle GC must prove reachability before
+removal. The focused store suite passes 4/4 and the complete correspondence
+cluster passes 21/21; repository TypeScript and repository-wide quiet ESLint
+pass.
+
+This result is
+`PRIVATE_CORRESPONDENCE_R2_STORE_VERIFIED_RUNTIME_WIRING_AND_LIVE_OBJECT_OPEN`.
+The tests use an in-memory S3-command client. No dedicated private R2 object was
+written, and this port is not yet exposed by the single PTS R2 runtime or called
+by a trusted correspondence producer. Runtime composition, live create/replay/
+corruption/outage evidence, trusted span/audio generation, derivation over live
+V3 assets, qualified mapping CAS, ProjectService relink, invalidation, rerender
+and rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
