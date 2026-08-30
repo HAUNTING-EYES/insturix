@@ -284,7 +284,16 @@ function sha256(value: unknown, label: string): string {
 }
 
 function fail(code: string): never {
-  throw new Error(
-    `MEDIA_PROXY_MASTER_TRANSCODE_EXECUTION_BUDGET_${code}`,
+  throw new MediaProxyMasterTranscodeExecutionBudgetLedgerOwnerErrorV1(
+    code,
   );
+}
+
+export class MediaProxyMasterTranscodeExecutionBudgetLedgerOwnerErrorV1
+  extends Error {
+  constructor(public readonly code: string) {
+    super(`MEDIA_PROXY_MASTER_TRANSCODE_EXECUTION_BUDGET_${code}`);
+    this.name =
+      'MediaProxyMasterTranscodeExecutionBudgetLedgerOwnerErrorV1';
+  }
 }
