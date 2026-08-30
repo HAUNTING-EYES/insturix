@@ -9422,6 +9422,28 @@ ESLint pass. This result is
 been dispatched, no durable attempt consumed, and no live R2 failure was
 exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 durable epoch-worker Phase 3F-C8o (2026-08-30):** commit `8d6bc937f`
+adds the distinct V3 orchestration state machine over the existing generic
+durable-job store. It rebinds the current source and immutable V3 job contract
+before resource access; persists only URL-free `SUBMITTING`/`SUBMITTED` resume
+state with the exact mapper and command-policy identities; reuses one stable
+submission ID across a lost response; treats a healthy Modal wait as a defer
+that does not consume an attempt; and routes a validated terminal result to the
+V3 publisher rather than the V1 finalizer. Publisher storage outages and busy
+ownership retry, deterministic rejection dead-letters, and scan/publisher
+`UNVERIFIABLE` outcomes become truthful durable terminal receipts.
+
+The new worker suite passes 10/10 and the related V1 worker, V3 binding,
+transport and publisher suites pass 27/27; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`V3_DURABLE_WORKER_STATE_MACHINE_VERIFIED_RUNTIME_INGRESS_LIVE_RECOVERY_OPEN`.
+It does not yet compose real media/source URL owners, Modal transport, private
+R2, Atlas state, signed QStash ingress or deployment. A publisher retry
+currently re-polls the same opaque terminal function call; the deployed
+provider's result-retention contract must be proven long enough for the retry
+window or the bounded terminal summary must first be durably stored in private
+storage. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
