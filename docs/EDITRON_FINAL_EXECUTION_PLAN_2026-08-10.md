@@ -9779,6 +9779,27 @@ V3 assets, qualified mapping CAS, ProjectService relink, invalidation, rerender
 and rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is
 unchanged.
 
+**Private correspondence runtime composition Phase 3F-C8ac (2026-08-30):**
+commit `22dcfeda0` now returns the C8ab correspondence artifact store from the
+single dedicated private-media R2 runtime. The port uses the same validated PTS
+account endpoint, server-only S3 client and explicit private bucket scope as the
+V3 cadence, decoded-audio, preview and final-render evidence adapters. Missing
+dedicated configuration still fails closed, and generic R2 credentials or the
+public CDN bucket are not accepted as substitutes. The focused runtime/store
+suite passes 16/16; repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`PRIVATE_CORRESPONDENCE_RUNTIME_COMPOSED_LIVE_BUCKET_AND_PRODUCER_OPEN`. It
+makes the immutable writer/reader available to a trusted server composition; it
+does not itself invoke that writer or prove the configured production bucket.
+No live object, IAM/browser isolation, collision, outage, cleanup or
+reachability-GC lifecycle was exercised. The next trusted producer must read the
+complete current proxy/master V3 maps, construct and shard exact spans, publish
+through this port, independently run C8aa derivation reproof and only then offer
+evidence to the qualified-mapping CAS owner. Audio lineage, explicit
+`NO_PRESENTATION` policy, ProjectService relink, invalidation, rerender and
+rollback remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
