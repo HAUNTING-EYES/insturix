@@ -282,6 +282,9 @@ describe('MediaSourceQualificationRuntimeV1', () => {
     expect(upload.indexOf('insertOne(mediaAsset)')).toBeLessThan(upload.indexOf('const qualificationDispatch = await dispatchMediaSourceQualificationV1'));
     expect(upload).toContain('} catch (qualificationDispatchError: unknown) {');
     expect(worker).toContain("withInternalQStashWorkerAuth(handler, MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1)");
+    expect(worker.indexOf('runMediaSourceQualificationWorkerV1(message)'))
+      .toBeLessThan(worker.indexOf('triggerQualifiedMediaSourcePtsCadenceV3(message)'));
+    expect(worker).toContain("cadenceDispatch.disposition === 'DELIVERY_DEFERRED'");
   });
 });
 
