@@ -9273,6 +9273,35 @@ V3 finalizer, durable V3 lifecycle, live Modal deployment, dedicated private
 R2 proof or reset/wrap/edit-list evidence owner exists yet. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Direct V3 finalization preparation Phase 3F-C8i (2026-08-30):** commit
+`c4fd71adc` adds the first direct-V3 terminal consumer without routing through
+the V1 finalizer or publishing V2 state. It binds the terminal result back to
+the exact scan request, returns an upstream `UNVERIFIABLE` result without
+touching storage, promotes and rereads every immutable staging batch, verifies
+each internal run, and compares the actual previous last-frame PTS/duration to
+the next first-frame PTS. Exact contiguous handoffs remain in one epoch;
+positive gaps and safe positive-start overlaps create exact canonical epochs;
+repeated/backward or otherwise ambiguous handoffs return
+`BOUNDARY_EVIDENCE_REQUIRED` before index creation.
+
+The preparation owner builds and revalidates the canonical V3 epoch index and
+private sidecar in memory using the existing V3 owners. It deliberately does
+not write the epoch index and does not mutate `MEDIA_ASSETS`. That publication
+must still compose the create-only private writer with the V3 state lifecycle:
+expected-source `PENDING` CAS, owned `VERIFYING` claim/renewal, exact artifact
+verification, and terminal `COMPLETE` or retryable/terminal failure handling.
+It must never call the V1 finalizer, which publishes a different state version.
+
+The focused preparation/index/promoter suites pass 22/22; all 29 timestamp-
+cadence suites pass 151/151; repository TypeScript and repository-wide quiet
+ESLint pass. The deceptive summary-admissible sequence whose prior batch holds
+PTS `0,100` and whose next batch starts at `50` is reread and blocked before
+publication. This result is
+`DIRECT_V3_FINALIZATION_PREPARATION_VERIFIED_INDEX_WRITE_STATE_LIFECYCLE_OPEN`.
+No durable direct-V3 job, state publication, live private storage, deployed
+scan, reset/wrap/edit-list evidence owner or production selection caller is
+claimed. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
