@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import type { MediaSourcePtsCadenceMapAssetStateInputV3 } from '@/lib/editron/services/media-source-pts-cadence-map-asset-owner-v3';
 import {
+  createMediaProxyMasterPreparedTranscodeExecutorV1,
   createMediaProxyMasterTranscodeNodeProcessPortV1,
   createMediaProxyMasterTrustedTranscodeExecutorV1,
   type MediaProxyMasterTranscodeProcessPortV1,
@@ -180,6 +181,38 @@ describe('MediaProxyMasterTrustedTranscodeExecutorV1', () => {
     expect(fixture.currentTimeMapPort.read).not.toHaveBeenCalled();
     expect(fixture.processPort.run).not.toHaveBeenCalled();
     expect(fixture.publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('leases verified prepared bytes without claiming final publication', async () => {
+    const fixture = executorFixture();
+    const result = await fixture.preparer.prepare({
+      command: fixture.command,
+      masterAsset: fixture.asset,
+    });
+
+    expect(result.disposition).toBe('PREPARED');
+    if (result.disposition !== 'PREPARED') {
+      throw new Error('TEST_TRANSCODE_NOT_PREPARED');
+    }
+    expect(fixture.publisher.publish).not.toHaveBeenCalled();
+    expect(result.lease.evidence.outputProbe).toMatchObject({
+      proxyByteLength: Buffer.byteLength('exact-encoded-proxy-bytes'),
+      video: { frameCount: '300' },
+    });
+    expect(fixture.revalidate).toHaveBeenCalledTimes(2);
+
+    let preparedLocalPath = '';
+    await result.lease.useLocalArtifact(async (localPath) => {
+      preparedLocalPath = localPath;
+      await expect(pathExists(localPath)).resolves.toBe(true);
+    });
+    await result.lease.revalidateSource();
+    expect(fixture.revalidate).toHaveBeenCalledTimes(3);
+    await result.lease.release();
+    await expect(pathExists(preparedLocalPath)).resolves.toBe(false);
+    await result.lease.release();
+    await expect(result.lease.useLocalArtifact(async () => undefined))
+      .rejects.toThrow('MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_INTERNAL_FAILURE');
   });
 });
 
@@ -426,7 +459,7 @@ function executorFixture(options: ExecutorFixtureOptions = {}) {
       });
     }),
   };
-  const executor = createMediaProxyMasterTrustedTranscodeExecutorV1({
+  const preparedConfig = {
     ffmpegPath: 'fixture-ffmpeg',
     ffprobePath: 'fixture-ffprobe',
     runtime: {
@@ -435,15 +468,22 @@ function executorFixture(options: ExecutorFixtureOptions = {}) {
       ffmpegVersion: 'ffmpeg version 8.1',
       ffprobeVersion: 'ffprobe version 8.1',
     },
-    publisher,
     processPort,
     currentTimeMapPort,
     sourceLeasePortFactory: () => leasePort,
     fetcher: vi.fn(async () => new Response(masterBytes)) as unknown as typeof fetch,
     now: () => new Date('2026-08-30T00:01:04.000Z'),
+  };
+  const preparer = createMediaProxyMasterPreparedTranscodeExecutorV1(
+    preparedConfig,
+  );
+  const executor = createMediaProxyMasterTrustedTranscodeExecutorV1({
+    ...preparedConfig,
+    publisher,
   });
   return {
     executor,
+    preparer,
     command,
     master,
     asset,

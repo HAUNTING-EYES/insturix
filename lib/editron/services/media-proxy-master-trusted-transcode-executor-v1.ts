@@ -39,6 +39,7 @@ import {
 import {
   createQualifiedAssetMediaSourceLeasePortV1,
   materializeVerifiedMediaSourceLocalFileV1,
+  type VerifiedMediaSourceLocalFileEvidenceV1,
   type VerifiedMediaSourceLeasePortV1,
 } from './verified-media-source-local-file-v1';
 
@@ -128,12 +129,16 @@ export interface MediaProxyMasterCurrentTimeMapPortV1 {
   ): Promise<MediaProxyMasterTimeMapReferenceV1 | null>;
 }
 
+export type MediaProxyMasterTranscodeExecutionInputV1 = Readonly<{
+  command: MediaProxyMasterTranscodeCommandV1;
+  masterAsset: MediaSourcePtsCadenceMapAssetStateInputV3;
+  abortSignal?: AbortSignal;
+}>;
+
 export type MediaProxyMasterTrustedTranscodeExecutorV1 = Readonly<{
-  execute(input: Readonly<{
-    command: MediaProxyMasterTranscodeCommandV1;
-    masterAsset: MediaSourcePtsCadenceMapAssetStateInputV3;
-    abortSignal?: AbortSignal;
-  }>): Promise<MediaProxyMasterTrustedTranscodeExecutionResultV1>;
+  execute(
+    input: MediaProxyMasterTranscodeExecutionInputV1,
+  ): Promise<MediaProxyMasterTrustedTranscodeExecutionResultV1>;
 }>;
 
 export type MediaProxyMasterTrustedTranscodeExecutorConfigV1 = Readonly<{
@@ -153,6 +158,57 @@ export type MediaProxyMasterTrustedTranscodeExecutorConfigV1 = Readonly<{
   ) => VerifiedMediaSourceLeasePortV1;
   fetcher?: typeof fetch;
   now?: () => Date;
+}>;
+
+export type MediaProxyMasterPreparedTranscodeExecutorConfigV1 = Omit<
+  MediaProxyMasterTrustedTranscodeExecutorConfigV1,
+  'publisher'
+>;
+
+export type MediaProxyMasterPreparedTranscodeEvidenceV1 = Readonly<{
+  runtime: Readonly<{
+    workerImageDigest: string;
+    platform: string;
+    ffmpegVersion: string;
+    ffprobeVersion: string;
+  }>;
+  process: Readonly<{
+    startedAt: string;
+    completedAt: string;
+    exitCode: 0;
+    stderrByteLength: number;
+    stderrSha256: string;
+  }>;
+  masterLocalFileEvidence: VerifiedMediaSourceLocalFileEvidenceV1;
+  outputProbe: MediaProxyMasterTranscodeOutputProbeV1;
+  outputVideoStreamIndex: 0;
+  outputAudioStreamIndexes: readonly number[];
+}>;
+
+export interface MediaProxyMasterPreparedTranscodeLeaseV1 {
+  readonly evidence: MediaProxyMasterPreparedTranscodeEvidenceV1;
+  readonly abortSignal: AbortSignal;
+  readonly timeoutSignal: AbortSignal;
+  readonly callerSignal?: AbortSignal;
+  useLocalArtifact<T>(consumer: (localPath: string) => Promise<T>): Promise<T>;
+  revalidateSource(): Promise<void>;
+  release(): Promise<void>;
+}
+
+export type MediaProxyMasterPreparedTranscodeExecutionResultV1 =
+  | Readonly<{
+      disposition: 'PREPARED';
+      lease: Readonly<MediaProxyMasterPreparedTranscodeLeaseV1>;
+    }>
+  | Readonly<{
+      disposition: 'UNVERIFIABLE';
+      diagnostic: MediaProxyMasterTrustedTranscodeExecutionDiagnosticV1;
+    }>;
+
+export type MediaProxyMasterPreparedTranscodeExecutorV1 = Readonly<{
+  prepare(
+    input: MediaProxyMasterTranscodeExecutionInputV1,
+  ): Promise<MediaProxyMasterPreparedTranscodeExecutionResultV1>;
 }>;
 
 type SelectedMasterEvidenceV1 = Readonly<{
@@ -260,6 +316,80 @@ export function createMediaProxyMasterTranscodeNodeProcessPortV1(
 export function createMediaProxyMasterTrustedTranscodeExecutorV1(
   config: MediaProxyMasterTrustedTranscodeExecutorConfigV1,
 ): MediaProxyMasterTrustedTranscodeExecutorV1 {
+  const preparer = createMediaProxyMasterPreparedTranscodeExecutorV1(config);
+  const now = config.now ?? (() => new Date());
+
+  return Object.freeze({
+    async execute(input) {
+      const prepared = await preparer.prepare(input);
+      if (prepared.disposition === 'UNVERIFIABLE') return prepared;
+      const lease = prepared.lease;
+      const evidence = lease.evidence;
+      let result: MediaProxyMasterTrustedTranscodeExecutionResultV1;
+      try {
+        const command = assertMediaProxyMasterTranscodeCommandV1(input.command);
+        const objectKey = expectedMediaProxyMasterTranscodeR2ObjectKeyV1({
+          command,
+          proxyContentSha256: evidence.outputProbe.proxyContentSha256,
+        });
+        const proxySourceVersion = await lease.useLocalArtifact(
+          async (localPath) => publishProxyV1(config.publisher, {
+            localPath,
+            objectKey,
+            contentType: 'video/mp4',
+            contentSha256: evidence.outputProbe.proxyContentSha256,
+            byteLength: evidence.outputProbe.proxyByteLength,
+            owner: command.masterSourceVersion.owner,
+            assetId: command.masterSourceVersion.assetId,
+            commandSha256: command.commandSha256,
+            outputProbeSha256: evidence.outputProbe.probeSha256,
+            abortSignal: lease.abortSignal,
+          }),
+        );
+        assertPublishedProxyV1(command, {
+          byteLength: evidence.outputProbe.proxyByteLength,
+          contentSha256: evidence.outputProbe.proxyContentSha256,
+        }, objectKey, proxySourceVersion);
+        await lease.revalidateSource();
+        const completedAt = isoAtOrAfter(now(), evidence.outputProbe.probedAt);
+        const receipt = createMediaProxyMasterTrustedTranscodeReceiptV1({
+          command,
+          runtime: evidence.runtime,
+          process: evidence.process,
+          masterLocalFileEvidence: evidence.masterLocalFileEvidence,
+          proxySourceVersion,
+          outputProbe: evidence.outputProbe,
+          outputVideoStreamIndex: evidence.outputVideoStreamIndex,
+          outputAudioStreamIndexes: evidence.outputAudioStreamIndexes,
+          completedAt,
+        });
+        result = Object.freeze({ disposition: 'COMPLETED', receipt });
+      } catch (error) {
+        result = unavailable(diagnosticFromFailure(
+          error,
+          lease.abortSignal,
+          lease.timeoutSignal,
+          lease.callerSignal,
+        ));
+      }
+
+      try {
+        await lease.release();
+      } catch {
+        if (result.disposition === 'COMPLETED') {
+          result = unavailable(
+            'MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_TEMP_CLEANUP_FAILED',
+          );
+        }
+      }
+      return result;
+    },
+  });
+}
+
+export function createMediaProxyMasterPreparedTranscodeExecutorV1(
+  config: MediaProxyMasterPreparedTranscodeExecutorConfigV1,
+): MediaProxyMasterPreparedTranscodeExecutorV1 {
   const processPort = config.processPort ?? createMediaProxyMasterTranscodeNodeProcessPortV1();
   const currentTimeMapPort = config.currentTimeMapPort
     ?? createMediaProxyMasterCurrentTimeMapPortV1();
@@ -272,7 +402,7 @@ export function createMediaProxyMasterTrustedTranscodeExecutorV1(
   const now = config.now ?? (() => new Date());
 
   return Object.freeze({
-    async execute(input) {
+    async prepare(input) {
       if (input.abortSignal?.aborted) {
         return unavailable('MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_ABORTED');
       }
@@ -289,7 +419,7 @@ export function createMediaProxyMasterTrustedTranscodeExecutorV1(
         : timeoutSignal;
       const deadlineMs = Date.now() + command.policy.timeoutMs;
       let temporaryDirectory: string | null = null;
-      let result: MediaProxyMasterTrustedTranscodeExecutionResultV1;
+      let result: MediaProxyMasterPreparedTranscodeExecutionResultV1;
 
       try {
         const runtime = assertRuntime(config);
@@ -394,50 +524,40 @@ export function createMediaProxyMasterTrustedTranscodeExecutorV1(
         });
         assertOutputPolicyV1(command, masterEvidence, outputProbe);
         await assertSourceCurrent(lease.revalidate, abortSignal);
-
-        const objectKey = expectedMediaProxyMasterTranscodeR2ObjectKeyV1({
-          command,
-          proxyContentSha256: outputIdentity.contentSha256,
-        });
-        const proxySourceVersion = await publishProxyV1(config.publisher, {
-          localPath: proxyOutputPath,
-          objectKey,
-          contentType: 'video/mp4',
-          contentSha256: outputIdentity.contentSha256,
-          byteLength: outputIdentity.byteLength,
-          owner: command.masterSourceVersion.owner,
-          assetId: command.masterSourceVersion.assetId,
-          commandSha256: command.commandSha256,
-          outputProbeSha256: outputProbe.probeSha256,
+        const preparedLease = createPreparedTranscodeLeaseV1({
+          temporaryDirectory,
+          proxyOutputPath,
+          revalidateSource: lease.revalidate,
           abortSignal,
-        });
-        assertPublishedProxyV1(command, outputIdentity, objectKey, proxySourceVersion);
-        await assertSourceCurrent(lease.revalidate, abortSignal);
-
-        const completedAt = isoAtOrAfter(now(), ffprobeResult.completedAt);
-        const receipt = createMediaProxyMasterTrustedTranscodeReceiptV1({
-          command,
-          runtime: {
-            workerImageDigest: runtime.workerImageDigest,
-            platform: runtime.platform,
-            ffmpegVersion: runtime.ffmpegVersion,
-            ffprobeVersion: runtime.ffprobeVersion,
+          timeoutSignal,
+          callerSignal: input.abortSignal,
+          evidence: {
+            runtime: {
+              workerImageDigest: runtime.workerImageDigest,
+              platform: runtime.platform,
+              ffmpegVersion: runtime.ffmpegVersion,
+              ffprobeVersion: runtime.ffprobeVersion,
+            },
+            process: {
+              startedAt: processResult.startedAt,
+              completedAt: processResult.completedAt,
+              exitCode: 0,
+              stderrByteLength: processResult.stderr.byteLength,
+              stderrSha256:
+                createHash('sha256').update(processResult.stderr).digest('hex'),
+            },
+            masterLocalFileEvidence,
+            outputProbe,
+            outputVideoStreamIndex: 0,
+            outputAudioStreamIndexes:
+              outputProbe.audio.map(({ streamIndex }) => streamIndex),
           },
-          process: {
-            startedAt: processResult.startedAt,
-            completedAt: processResult.completedAt,
-            exitCode: 0,
-            stderrByteLength: processResult.stderr.byteLength,
-            stderrSha256: createHash('sha256').update(processResult.stderr).digest('hex'),
-          },
-          masterLocalFileEvidence,
-          proxySourceVersion,
-          outputProbe,
-          outputVideoStreamIndex: 0,
-          outputAudioStreamIndexes: outputProbe.audio.map(({ streamIndex }) => streamIndex),
-          completedAt,
         });
-        result = Object.freeze({ disposition: 'COMPLETED', receipt });
+        temporaryDirectory = null;
+        result = Object.freeze({
+          disposition: 'PREPARED',
+          lease: preparedLease,
+        });
       } catch (error) {
         result = unavailable(diagnosticFromFailure(
           error,
@@ -450,13 +570,68 @@ export function createMediaProxyMasterTrustedTranscodeExecutorV1(
       if (temporaryDirectory !== null) {
         try {
           await removeOwnedTemporaryDirectoryV1(temporaryDirectory);
-        } catch {
-          if (result.disposition === 'COMPLETED') {
-            result = unavailable('MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_TEMP_CLEANUP_FAILED');
-          }
-        }
+        } catch { /* Preserve the primary failed-preparation diagnostic. */ }
       }
       return result;
+    },
+  });
+}
+
+function createPreparedTranscodeLeaseV1(input: Readonly<{
+  temporaryDirectory: string;
+  proxyOutputPath: string;
+  revalidateSource: () => Promise<boolean>;
+  abortSignal: AbortSignal;
+  timeoutSignal: AbortSignal;
+  callerSignal?: AbortSignal;
+  evidence: MediaProxyMasterPreparedTranscodeEvidenceV1;
+}>): Readonly<MediaProxyMasterPreparedTranscodeLeaseV1> {
+  let released = false;
+  let releaseStarted = false;
+  let activeUses = 0;
+  let releasePromise: Promise<void> | null = null;
+  const assertActive = () => {
+    if (released || releaseStarted) {
+      fail('MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_INTERNAL_FAILURE');
+    }
+  };
+  return Object.freeze({
+    evidence: Object.freeze({
+      ...input.evidence,
+      runtime: Object.freeze({ ...input.evidence.runtime }),
+      process: Object.freeze({ ...input.evidence.process }),
+      outputAudioStreamIndexes:
+        Object.freeze([...input.evidence.outputAudioStreamIndexes]),
+    }),
+    abortSignal: input.abortSignal,
+    timeoutSignal: input.timeoutSignal,
+    ...(input.callerSignal ? { callerSignal: input.callerSignal } : {}),
+    async useLocalArtifact<T>(
+      consumer: (localPath: string) => Promise<T>,
+    ): Promise<T> {
+      assertActive();
+      assertNotAborted(input.abortSignal);
+      activeUses += 1;
+      try {
+        return await consumer(input.proxyOutputPath);
+      } finally {
+        activeUses -= 1;
+      }
+    },
+    async revalidateSource(): Promise<void> {
+      assertActive();
+      await assertSourceCurrent(input.revalidateSource, input.abortSignal);
+    },
+    async release(): Promise<void> {
+      if (released) return;
+      if (activeUses !== 0) {
+        fail('MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_INTERNAL_FAILURE');
+      }
+      releaseStarted = true;
+      releasePromise ??=
+        removeOwnedTemporaryDirectoryV1(input.temporaryDirectory);
+      await releasePromise;
+      released = true;
     },
   });
 }
@@ -544,7 +719,7 @@ async function runChildProcessV1(input: Readonly<{
   });
 }
 
-function assertRuntime(config: MediaProxyMasterTrustedTranscodeExecutorConfigV1) {
+function assertRuntime(config: MediaProxyMasterPreparedTranscodeExecutorConfigV1) {
   try {
     const ffmpegPath = executableText(config.ffmpegPath);
     const ffprobePath = executableText(config.ffprobePath);
@@ -944,7 +1119,7 @@ function abortDiagnostic(
 
 function unavailable(
   diagnostic: FailureDiagnosticV1,
-): MediaProxyMasterTrustedTranscodeExecutionResultV1 {
+) {
   return Object.freeze({ disposition: 'UNVERIFIABLE', diagnostic });
 }
 
