@@ -8891,6 +8891,31 @@ unless the exact job, manifest, Finance policy/ledger, private storage,
 ProjectService, media asset and materializer owners are all available.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render operation-scoped pre-claim read Phase 3F-C7azm
+(2026-08-30):** commit `e70f6f310` adds the missing read-only durable-store
+boundary needed by product composition before it leases work. An already-
+authenticated internal worker must provide the exact job ID, operation owner,
+operation kind and input schema. A job ID by itself is not cross-family
+authority. The lookup returns the existing lease-token-free snapshot and does
+not claim, expire, update or decrement attempts. Malformed scope fails before
+the collection provider opens; a missing or wrong-family job returns no row.
+
+The focused store/read suites pass 12/12, every
+`native-media-final-render` plus store/read suite passes 191/191, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial tests cover
+foreign owner, kind and schema, a missing job, a malformed owner with zero
+collection loads, and proof that a successful lookup leaves the job queued at
+attempt zero without a lease. This result is
+`EXACT_RENDER_OPERATION_SCOPED_PRECLAIM_READ_VERIFIED_PRODUCT_RUNNER_COMPOSITION_OPEN`.
+
+This is not a privileged public lookup and is not an exported worker route.
+The existing signed ingress remains the authentication boundary, and no live
+Mongo row, manifest, Finance reservation, R2 object, FFmpeg process or project
+read occurred. Queue item 3 next removes the duplicated exact-render operation
+scope literals, composes the full product runner from the exact job/manifest
+bindings and refuses the request before claim if any bound deployment owner is
+absent or mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
