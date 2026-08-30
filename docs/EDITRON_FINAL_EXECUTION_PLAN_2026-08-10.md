@@ -10185,6 +10185,32 @@ dedicated-R2/Atlas proof, unreachable-object GC, no-audio proof or verified
 historical migration is supplied by this phase. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Durable audio signed delivery Phase 3F-C8as (2026-08-30):** commit
+`40024d4d3` adds the source-audio QStash dispatch owner, request-time
+authenticated worker route and thin Node App Router export. Dispatch requires
+the publisher token plus both signing keys before job creation, uses the shared
+durable QStash owner, publishes exactly `{jobId}` with no URL/source/policy
+payload, records confirmed delivery, does not republish a recorded replay, and
+preserves the distinction between an unconfirmed send and a delivered message
+whose receipt could not be recorded.
+
+The recovery selector admits only stale jobs whose owner, operation kind and
+input schema are exactly the C8an audio family, and derives recovery
+deduplication from the current durable state. The signed route rejects extra
+message fields, rechecks signing configuration at request time, returns 503
+plus retry evidence for runtime/lease deferral, returns 404 for a missing job,
+and imports without store or network work. The focused suite passes 7/7; the
+expanded auth/QStash/source-audio chain passes 51/51 including the real
+FFmpeg/FFprobe adapter; repository TypeScript and repository-wide quiet ESLint
+pass. This result is
+`DURABLE_AUDIO_SIGNED_DISPATCH_VERIFIED_PRODUCT_TRIGGER_CRON_LIVE_PROOF_OPEN`.
+The route and recovery selector were exercised locally with injected stores and
+publishers. No qualification/product hook invokes initial dispatch, no cron
+invokes recovery, and hosted QStash, deployed signing configuration, restart
+redelivery, live dedicated-R2/Atlas, GC, no-audio proof and historical
+migration remain unproven. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
