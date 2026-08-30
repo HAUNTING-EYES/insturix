@@ -794,11 +794,19 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
         let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
 
+        // Resolve semantic authoring intent before optional evidence retrieval so trend activation
+        // is language-neutral and shared by post and script generation.
+        promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
+        if (contentPath !== 'post' && promptUnderstanding.status !== 'resolved') {
+          throw new ScriptPromptUnderstandingError();
+        }
+
         const hasCompletedSelectedTrend = sessionState.metadata.selectedTrend?.analysis?.status === 'completed';
         if (!hasCompletedSelectedTrend) {
           try {
             const trendContext = await resolveThinkForgeTrendContext({
               userPrompt: authoringPrompt,
+              publicTrendContextIntent: promptUnderstanding.publicTrendContextIntent,
               project: sessionState.metadata,
               brandId: sessionState.metadata.brandId,
               contentPath,
@@ -817,13 +825,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               throw trendErr;
             }
             console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
-          }
-        }
-
-        if (contentPath !== 'post') {
-          promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
-          if (promptUnderstanding.status !== 'resolved') {
-            throw new ScriptPromptUnderstandingError();
           }
         }
 

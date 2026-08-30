@@ -66,6 +66,15 @@ describe('buildKnobParserPrompt', () => {
     expect(p).toContain('identity');
   });
 
+  it('requires a language-neutral public trend decision without keyword matching', () => {
+    const instruction = buildKnobParserSystemInstruction();
+
+    expect(instruction).toContain('publicTrendContextIntent');
+    expect(instruction).toContain('Resolve the user\'s meaning in any language');
+    expect(instruction).toContain('never depend on a fixed phrase, keyword');
+    expect(instruction).toContain('latest revision');
+  });
+
   it('keeps trusted intake policy free of named-format classification anchors', () => {
     const instruction = buildKnobParserSystemInstruction();
 
@@ -164,6 +173,29 @@ describe('parseKnobResponse - conservative / never-throws (the safety net)', () 
 
 
 describe('parsePromptUnderstandingResponse - semantic intake', () => {
+  it.each([
+    ['required', 'required'],
+    ['forbidden', 'forbidden'],
+    ['unspecified', 'unspecified'],
+  ] as const)('accepts the %s public trend decision', (_caseName, publicTrendContextIntent) => {
+    const result = parsePromptUnderstandingResponse(resolvedPromptResponse({
+      publicTrendContextIntent,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'resolved',
+      publicTrendContextIntent,
+    });
+  });
+
+  it('leaves a missing or invalid trend decision for the compatibility resolver', () => {
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse())
+      .publicTrendContextIntent).toBeUndefined();
+    expect(parsePromptUnderstandingResponse(resolvedPromptResponse({
+      publicTrendContextIntent: 'sometimes',
+    })).publicTrendContextIntent).toBeUndefined();
+  });
+
   it('keeps output knobs and accepted self-casting intent', () => {
     const r = parsePromptUnderstandingResponse(resolvedPromptResponse({
       requested: { platform: 'youtube' },

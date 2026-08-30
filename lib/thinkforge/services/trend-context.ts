@@ -1,4 +1,5 @@
 import { getTrendsProvider, type Trend, type TrendsProvider } from "@/lib/calos/trends";
+import type { PublicTrendContextIntent } from "../intake/prompt-knob-parser";
 import type { ProjectMeta } from "../state/types";
 
 const TREND_INTENT_PATTERNS = [
@@ -23,6 +24,7 @@ const KNOWN_PLATFORMS = [
 
 export interface ThinkForgeTrendContextInput {
   userPrompt: string;
+  publicTrendContextIntent?: PublicTrendContextIntent;
   project?: ProjectMeta | null;
   brandId?: string;
   contentPath?: "post" | "script" | string | null;
@@ -38,11 +40,30 @@ export interface ThinkForgeTrendContextResult {
     platforms?: string[];
     trends?: Array<Pick<Trend, "title" | "summary" | "platform" | "url">>;
     error?: string;
+    activation: {
+      intent: PublicTrendContextIntent;
+      source: "semantic_intake" | "legacy_lexical_fallback";
+    };
   };
 }
 
+/** Legacy compatibility only. New requests are decided by semantic intake. */
 export function shouldResolveThinkForgeTrendContext(prompt: string): boolean {
   return TREND_INTENT_PATTERNS.some((pattern) => pattern.test(prompt));
+}
+
+function resolveTrendActivation(input: ThinkForgeTrendContextInput): ThinkForgeTrendContextResult["metadata"]["activation"] {
+  if (input.publicTrendContextIntent) {
+    return {
+      intent: input.publicTrendContextIntent,
+      source: "semantic_intake",
+    };
+  }
+
+  return {
+    intent: shouldResolveThinkForgeTrendContext(input.userPrompt) ? "required" : "unspecified",
+    source: "legacy_lexical_fallback",
+  };
 }
 
 function isAbortFailure(error: unknown, abortSignal?: AbortSignal): boolean {
@@ -57,9 +78,16 @@ export async function resolveThinkForgeTrendContext(
   options: { provider?: TrendsProvider; limit?: number } = {},
 ): Promise<ThinkForgeTrendContextResult | null> {
   input.abortSignal?.throwIfAborted();
+  const activation = resolveTrendActivation(input);
 
-  if (!shouldResolveThinkForgeTrendContext(input.userPrompt)) {
-    return null;
+  if (activation.intent !== "required") {
+    return {
+      metadata: {
+        provider: "not_requested",
+        status: "skipped",
+        activation,
+      },
+    };
   }
 
   const provider = options.provider ?? getTrendsProvider();
@@ -68,6 +96,7 @@ export async function resolveThinkForgeTrendContext(
       metadata: {
         provider: provider.name,
         status: "unavailable",
+        activation,
       },
     };
   }
@@ -78,6 +107,7 @@ export async function resolveThinkForgeTrendContext(
       metadata: {
         provider: provider.name,
         status: "skipped",
+        activation,
       },
     };
   }
@@ -111,6 +141,7 @@ export async function resolveThinkForgeTrendContext(
           niche,
           platforms,
           trends: [],
+          activation,
         },
       };
     }
@@ -123,6 +154,7 @@ export async function resolveThinkForgeTrendContext(
         niche,
         platforms,
         trends: publicTrends,
+        activation,
       },
     };
   } catch (error) {
@@ -137,6 +169,7 @@ export async function resolveThinkForgeTrendContext(
         niche,
         platforms,
         error: error instanceof Error ? error.message : String(error),
+        activation,
       },
     };
   }
