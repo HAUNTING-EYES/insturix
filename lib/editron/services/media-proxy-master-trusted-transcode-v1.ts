@@ -18,6 +18,10 @@ import type {
   MediaProxyMasterTimeMapReferenceV1,
   MediaProxyMasterTimeMappingV1,
 } from './media-proxy-master-time-mapping-v1';
+import {
+  assertMediaProxyMasterTranscodeOutputProbeV1,
+  type MediaProxyMasterTranscodeOutputProbeV1,
+} from './media-proxy-master-transcode-output-probe-v1';
 
 export const MEDIA_PROXY_MASTER_TRANSCODE_POLICY_KIND_V1 =
   'EDITRON_MEDIA_PROXY_MASTER_TRANSCODE_POLICY_V1' as const;
@@ -121,6 +125,7 @@ export type MediaProxyMasterTrustedTranscodeReceiptV1 = Readonly<{
   }>;
   proxyEncode: Readonly<{
     sourceVersion: Readonly<MediaSourceVersionV1>;
+    outputProbe: MediaProxyMasterTranscodeOutputProbeV1;
     outputVideoStreamIndex: 0;
     outputAudioStreamIndexes: readonly number[];
     commandSha256: string;
@@ -376,6 +381,7 @@ export function createMediaProxyMasterTrustedTranscodeReceiptV1(input: Readonly<
   process: ProcessInputV1;
   masterLocalFileEvidence: VerifiedMediaSourceLocalFileEvidenceV1;
   proxySourceVersion: Readonly<MediaSourceVersionV1>;
+  outputProbe: MediaProxyMasterTranscodeOutputProbeV1;
   outputVideoStreamIndex: number;
   outputAudioStreamIndexes: readonly number[];
   completedAt: string;
@@ -395,7 +401,7 @@ export function createMediaProxyMasterTrustedTranscodeReceiptV1(input: Readonly<
     input.completedAt,
     'MEDIA_PROXY_MASTER_TRANSCODE_COMPLETED_AT_INVALID',
   );
-  if (completedAt !== process.completedAt) {
+  if (Date.parse(completedAt) < Date.parse(process.completedAt)) {
     fail('MEDIA_PROXY_MASTER_TRANSCODE_COMPLETION_MISMATCH');
   }
   const localFileEvidence = normalizeLocalFileEvidence(
@@ -423,6 +429,7 @@ export function createMediaProxyMasterTrustedTranscodeReceiptV1(input: Readonly<
 
   const proxySourceVersion = assertMediaSourceVersionV1(input.proxySourceVersion);
   assertProxyScope(command, proxySourceVersion);
+  const outputProbe = assertMediaProxyMasterTranscodeOutputProbeV1(input.outputProbe);
   const outputVideoStreamIndex = exactNumber(
     input.outputVideoStreamIndex,
     0,
@@ -432,8 +439,22 @@ export function createMediaProxyMasterTrustedTranscodeReceiptV1(input: Readonly<
     input.outputAudioStreamIndexes,
     command.masterAudioStreamIndexes.length,
   );
+  if (outputProbe.commandSha256 !== command.commandSha256
+    || outputProbe.ffprobeVersion !== runtime.ffprobeVersion
+    || outputProbe.proxyContentSha256 !== proxySourceVersion.contentSha256
+    || outputProbe.proxyByteLength !== proxySourceVersion.byteLength
+    || outputProbe.video.streamIndex !== outputVideoStreamIndex
+    || outputProbe.video.codedWidth > command.policy.maximumWidth
+    || outputProbe.video.codedHeight > command.policy.maximumHeight
+    || canonicalizeEditronJsonV1(outputProbe.audio.map(({ streamIndex }) => streamIndex))
+      !== canonicalizeEditronJsonV1(outputAudioStreamIndexes)
+    || Date.parse(outputProbe.probedAt) < Date.parse(process.completedAt)
+    || Date.parse(outputProbe.probedAt) > Date.parse(completedAt)) {
+    fail('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+  }
   const proxyEncodeMaterial = {
     sourceVersion: proxySourceVersion,
+    outputProbe,
     outputVideoStreamIndex,
     outputAudioStreamIndexes,
     commandSha256: command.commandSha256,
@@ -498,6 +519,7 @@ export function assertMediaProxyMasterTrustedTranscodeReceiptV1(
     masterLocalFileEvidence:
       masterDecode.localFileEvidence as VerifiedMediaSourceLocalFileEvidenceV1,
     proxySourceVersion: proxyEncode.sourceVersion as MediaSourceVersionV1,
+    outputProbe: proxyEncode.outputProbe as MediaProxyMasterTranscodeOutputProbeV1,
     outputVideoStreamIndex: proxyEncode.outputVideoStreamIndex as number,
     outputAudioStreamIndexes: proxyEncode.outputAudioStreamIndexes as number[],
     completedAt: record.completedAt as string,

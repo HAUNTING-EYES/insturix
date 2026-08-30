@@ -13,6 +13,7 @@ import {
   materializeMediaProxyMasterTranscodeArgumentsV1,
   mediaProxyMasterMappingLineageFromTranscodeReceiptV1,
 } from '@/lib/editron/services/media-proxy-master-trusted-transcode-v1';
+import { createMediaProxyMasterTranscodeOutputProbeV1 } from '@/lib/editron/services/media-proxy-master-transcode-output-probe-v1';
 import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 
@@ -185,6 +186,33 @@ describe('MediaProxyMasterTrustedTranscodeV1', () => {
       .toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_AUDIO_STREAM_INVALID');
   });
 
+  it('rejects output probe command, runtime, byte, stream, and time mismatches', () => {
+    const fixture = receiptFixture();
+    expect(() => createReceipt(fixture, {
+      outputProbe: outputProbe(fixture.command, fixture.proxy, {
+        commandSha256: hash('another-command'),
+      }),
+    })).toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+    expect(() => createReceipt(fixture, {
+      outputProbe: outputProbe(fixture.command, fixture.proxy, {
+        ffprobeVersion: 'ffprobe version 9.0',
+      }),
+    })).toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+    expect(() => createReceipt(fixture, {
+      outputProbe: outputProbe(fixture.command, fixture.proxy, {
+        proxyContentSha256: hash('other-proxy-bytes'),
+      }),
+    })).toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+    expect(() => createReceipt(fixture, {
+      outputProbe: outputProbe(fixture.command, fixture.proxy, { audio: [] }),
+    })).toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+    expect(() => createReceipt(fixture, {
+      outputProbe: outputProbe(fixture.command, fixture.proxy, {
+        probedAt: '2026-08-30T00:00:59.000Z',
+      }),
+    })).toThrow('MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_SCOPE_MISMATCH');
+  });
+
   it('rejects nested process/runtime tampering and a forged outer receipt hash', () => {
     const { receipt } = receiptFixture();
     const processTamper = {
@@ -298,9 +326,64 @@ function createReceipt(fixture: ReceiptFixture, overrides: ReceiptOverrides = {}
     },
     masterLocalFileEvidence: fixture.masterLocalFileEvidence,
     proxySourceVersion: fixture.proxy,
+    outputProbe: outputProbe(fixture.command, fixture.proxy),
     outputVideoStreamIndex: 0,
     outputAudioStreamIndexes: [1, 2],
-    completedAt: '2026-08-30T00:01:00.000Z',
+    completedAt: '2026-08-30T00:01:02.000Z',
+    ...overrides,
+  });
+}
+
+type OutputProbeInput = Parameters<
+  typeof createMediaProxyMasterTranscodeOutputProbeV1
+>[0];
+
+function outputProbe(
+  command: ReturnType<typeof commandFixture>['command'],
+  proxy: ReturnType<typeof source>,
+  overrides: Partial<OutputProbeInput> = {},
+) {
+  return createMediaProxyMasterTranscodeOutputProbeV1({
+    commandSha256: command.commandSha256,
+    ffprobeVersion: 'ffprobe version 8.1',
+    proxyContentSha256: proxy.contentSha256,
+    proxyByteLength: proxy.byteLength,
+    container: 'mp4',
+    formatNames: ['mov', 'mp4', 'm4a'],
+    video: {
+      streamIndex: 0,
+      codec: 'h264',
+      pixelFormat: 'yuv420p',
+      codedWidth: 1_280,
+      codedHeight: 720,
+      sourceTimebase: { numerator: '1', denominator: '90000' },
+      sourceStartPts: '0',
+      sourceDurationTicks: '900000',
+      frameCount: '300',
+    },
+    audio: [
+      {
+        streamIndex: 1,
+        codec: 'aac',
+        sampleRate: '48000',
+        channelCount: 2,
+        channelLayout: 'stereo',
+        sourceTimebase: { numerator: '1', denominator: '48000' },
+        sourceStartPts: '0',
+        sourceDurationTicks: '480000',
+      },
+      {
+        streamIndex: 2,
+        codec: 'aac',
+        sampleRate: '48000',
+        channelCount: 6,
+        channelLayout: '5.1(side)',
+        sourceTimebase: { numerator: '1', denominator: '48000' },
+        sourceStartPts: '0',
+        sourceDurationTicks: '480000',
+      },
+    ],
+    probedAt: '2026-08-30T00:01:01.000Z',
     ...overrides,
   });
 }
