@@ -10571,6 +10571,55 @@ relation. Those owners, durable restart/cancellation, live private storage and
 the downstream relink/invalidation/rerender/rollback chain remain Queue item 4.
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Trusted proxy-output observation Phase 3F-C8bc (2026-08-30):** commits
+`6a17967f1` and `16e52daad` add the strict local-FFprobe output contract that
+the C8bb receipt now requires. It self-hashes the exact command, FFprobe
+identity, complete proxy byte identity, MP4 format set, H.264/yuv420p video
+stream, AAC audio streams, rational stream clocks, signed PTS anchors,
+durations, decoded video-frame count, dimensions, sample rates and channel
+layouts. Equivalent rational spellings are reduced before hashing, so
+`2/180000` and `1/90000` cannot create different identities for the same
+clock. Missing fields, unsupported codecs/formats, duplicate streams,
+non-canonical hashes and probe/process time inversions fail closed.
+
+This proves an immutable observation shape and receipt binding; it does not
+prove that FFmpeg or FFprobe ran, that bytes were published immutably, or that
+the proxy is independently qualified against the master.
+
+**Trusted proxy-transcode executor Phase 3F-C8bd (2026-08-30):** commit
+`231a373c6` composes the existing owners into the first real shell-free
+execution boundary. It verifies the current measured source and exact current
+V3 time-map identity, binds the configured worker/platform and exact live
+FFmpeg/FFprobe first-line identities, leases and byte-verifies the master into
+an owned temporary directory, executes only the C8bb argument array, hashes
+and locally probes the complete output, enforces frame-count/no-upscale/
+aspect/timebase/audio-count/sample-rate/channel-layout policy, requests a
+content-addressed R2 publication, revalidates the master before and after the
+expensive and externally visible steps, and issues the existing trusted
+receipt only after the returned proxy source identity matches. Cancellation,
+deadline, bounded stdout/stderr, nonzero termination, malformed output,
+source/map drift and publisher substitution all stop without a success
+receipt. Owned temporary files are removed after both success and failure.
+
+The complete proxy/master family passes 66/66 across 11 files. This includes
+real separate-process proof through Node's executable for shell-free capture,
+stdout overflow, cancellation and timeout; FFmpeg/FFprobe media execution and
+publication remain injected at this layer. Repository TypeScript and
+repository-wide quiet ESLint pass.
+
+This is `TRUSTED_TRANSCODE_EXECUTION_BOUNDARY_VERIFIED_IMMUTABLE_PUBLICATION_AND_RELATION_QUALIFICATION_OPEN`.
+The publisher is intentionally still a port: the generic R2 upload helper is
+not create-only and does not by itself prove replay equality, provider version,
+full reread, or cleanup of unreachable content-addressed outputs. Queue item 4
+therefore still requires a concrete immutable R2 publisher/rereader, durable
+job/lease/idempotency ownership, proxy V3 and source-audio roots, independent
+correspondence/audio verification, relation CAS, ProjectService relink and
+invalidation, rerender/rollback, live dedicated-private-storage evidence and
+retention/GC telemetry. Exact string equality for measured/output channel
+layouts is deliberately fail-closed until a separately proven canonical
+channel-topology owner exists; it is not universal multichannel qualification.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
