@@ -76,6 +76,27 @@ MediaProxyMasterMappingSegmentFixtureV1 {
   );
 }
 
+export function createVariableCadenceMappingSegmentFixtureV1():
+MediaProxyMasterMappingSegmentFixtureV1 {
+  const timebase = rate(1, 6);
+  return createFixture(
+    timeline('proxy', timebase, [
+      epoch('proxy-epoch-0', timebase, '0', '6', '0', 'INITIAL'),
+    ], [
+      frame(0, 'proxy-epoch-0', 0, 1),
+      frame(1, 'proxy-epoch-0', 1, 2),
+      frame(2, 'proxy-epoch-0', 3, 3),
+    ]),
+    timeline('master', timebase, [
+      epoch('master-epoch-0', timebase, '0', '6', '0', 'INITIAL'),
+    ], [
+      frame(0, 'master-epoch-0', 0, 2),
+      frame(1, 'master-epoch-0', 2, 2),
+      frame(2, 'master-epoch-0', 4, 2),
+    ]),
+  );
+}
+
 export function createSharedResetMappingSegmentFixtureV1():
 MediaProxyMasterMappingSegmentFixtureV1 {
   const timebase = rate(1, 2);

@@ -10,6 +10,7 @@ import {
   createSharedResetMappingSegmentFixtureV1,
   createUnequalRateMappingSegmentFixtureV1,
   createUnrepresentableEpochMappingSegmentFixtureV1,
+  createVariableCadenceMappingSegmentFixtureV1,
   fixtureSha256V1,
   type MediaProxyMasterMappingSegmentFixtureV1,
 } from './helpers/media-proxy-master-mapping-segment-fixture';
@@ -81,6 +82,30 @@ describe('MediaProxyMasterMappingSegmentMaterializerV1', () => {
       fixture.derivationReceipt,
     )).toEqual(result);
     expect(Object.isFrozen(result)).toBe(true);
+  });
+
+  it('materializes measured variable cadence without nominal-FPS inference', async () => {
+    const fixture = createVariableCadenceMappingSegmentFixtureV1();
+
+    const result = await materializeMediaProxyMasterMappingSegmentsV1(
+      request(fixture),
+    );
+
+    expect(result).toMatchObject({
+      disposition: 'MAPPING_SEGMENTS_MATERIALIZED',
+      totalPageReads: 4,
+      totalFrameRecords: 6,
+      canonicalEndExclusiveTime: time(1),
+      segments: [{
+        sequence: 0,
+        canonicalStartTime: time(0),
+        canonicalEndExclusiveTime: time(1),
+        proxyFirstFrameOrdinal: '0',
+        proxyEndExclusiveFrameOrdinal: '3',
+        masterFirstFrameOrdinal: '0',
+        masterEndExclusiveFrameOrdinal: '3',
+      }],
+    });
   });
 
   it('splits shared timestamp resets into exact epoch-safe segments', async () => {
