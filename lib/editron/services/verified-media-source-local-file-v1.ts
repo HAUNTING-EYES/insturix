@@ -6,7 +6,10 @@ import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 
 import type { MediaSourcePtsCadenceMapAssetStateInputV3 } from './media-source-pts-cadence-map-asset-owner-v3';
-import type { MediaSourceQualificationRecordV1 } from './media-source-qualification-v1';
+import {
+  MEDIA_SOURCE_QUALIFICATION_VERSION_V1,
+  type MediaSourceQualificationRecordV1,
+} from './media-source-qualification-v1';
 import { resolveVerifiedMediaSourceUrlV1 } from './media-source-qualification-runtime-v1';
 import {
   inspectMediaSourceStorageVersionV1,
@@ -31,6 +34,7 @@ export interface VerifiedMediaSourceLeasePortV1 {
 export type VerifiedMediaSourceLeaseErrorCodesV1 = Readonly<{
   bindingStale: string;
   versionStale: string;
+  sourceUnavailable?: string;
 }>;
 
 export type VerifiedMediaSourceFileErrorCodesV1 = Readonly<{
@@ -53,24 +57,55 @@ export function createVerifiedAssetMediaSourceLeasePortV1(
   asset: MediaSourcePtsCadenceMapAssetStateInputV3,
   errorCodesInput: VerifiedMediaSourceLeaseErrorCodesV1,
 ): VerifiedMediaSourceLeasePortV1 {
+  return createAssetMediaSourceLeasePortV1(asset, errorCodesInput, true);
+}
+
+/** Source/qualification lease for consumers that do not require video V3 timing. */
+export function createQualifiedAssetMediaSourceLeasePortV1(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+  errorCodesInput: VerifiedMediaSourceLeaseErrorCodesV1,
+): VerifiedMediaSourceLeasePortV1 {
+  return createAssetMediaSourceLeasePortV1(asset, errorCodesInput, false);
+}
+
+function createAssetMediaSourceLeasePortV1(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+  errorCodesInput: VerifiedMediaSourceLeaseErrorCodesV1,
+  requireVerifiedVideoEpoch: boolean,
+): VerifiedMediaSourceLeasePortV1 {
   const errorCodes = normalizeLeaseErrorCodes(errorCodesInput);
   return {
     async open(expectedSourceVersion) {
-      const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
-      const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
-      if (!binding
-        || sourceVersion.sourceVersionSha256 !== expectedSourceVersion.sourceVersionSha256
-        || binding.sourceVersionSha256 !== sourceVersion.sourceVersionSha256
-        || binding.storageVersionSha256 !== sourceVersion.storageVersion.storageVersionSha256) {
+      let sourceVersion: MediaSourceVersionV1;
+      let expected: MediaSourceVersionV1;
+      let qualification: MediaSourceQualificationRecordV1;
+      try {
+        sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
+        expected = assertMediaSourceVersionV1(expectedSourceVersion);
+        qualification = assertQualifiedSourceBinding(asset, sourceVersion);
+      } catch {
         throw new Error(errorCodes.bindingStale);
       }
-      const qualification = asset.sourceQualificationV1 as MediaSourceQualificationRecordV1;
+      if (sourceVersion.sourceVersionSha256 !== expected.sourceVersionSha256) {
+        throw new Error(errorCodes.bindingStale);
+      }
+      if (requireVerifiedVideoEpoch) {
+        const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
+        if (!binding
+          || binding.sourceVersionSha256 !== sourceVersion.sourceVersionSha256
+          || binding.storageVersionSha256
+            !== sourceVersion.storageVersion.storageVersionSha256) {
+          throw new Error(errorCodes.bindingStale);
+        }
+      }
       const resolved = await resolveVerifiedMediaSourceUrlV1(qualification);
-      if (resolved.disposition !== 'AVAILABLE'
-        || !sameMediaSourceStorageVersionV1(
-          resolved.storageVersion,
-          sourceVersion.storageVersion,
-        )) {
+      if (resolved.disposition !== 'AVAILABLE') {
+        throw new Error(errorCodes.sourceUnavailable);
+      }
+      if (!sameMediaSourceStorageVersionV1(
+        resolved.storageVersion,
+        sourceVersion.storageVersion,
+      )) {
         throw new Error(errorCodes.versionStale);
       }
       return Object.freeze({
@@ -89,6 +124,29 @@ export function createVerifiedAssetMediaSourceLeasePortV1(
       });
     },
   };
+}
+
+function assertQualifiedSourceBinding(
+  asset: MediaSourcePtsCadenceMapAssetStateInputV3,
+  sourceVersion: MediaSourceVersionV1,
+): MediaSourceQualificationRecordV1 {
+  const qualification = asset.sourceQualificationV1 as MediaSourceQualificationRecordV1;
+  if (asset.assetId !== sourceVersion.assetId
+    || asset.type !== sourceVersion.mediaKind
+    || !qualification
+    || qualification.schemaVersion !== 1
+    || qualification.kind !== MEDIA_SOURCE_QUALIFICATION_VERSION_V1
+    || qualification.status !== 'MEASURED_TECHNICAL'
+    || qualification.assetId !== sourceVersion.assetId
+    || qualification.storageVersion === null
+    || qualification.observation === null
+    || !sameMediaSourceStorageVersionV1(
+      qualification.storageVersion,
+      sourceVersion.storageVersion,
+    )) {
+    throw new Error('VERIFIED_MEDIA_SOURCE_QUALIFICATION_BINDING_INVALID');
+  }
+  return qualification;
 }
 
 export async function materializeVerifiedMediaSourceLocalFileV1(input: Readonly<{
@@ -187,10 +245,14 @@ export async function materializeVerifiedMediaSourceLocalFileV1(input: Readonly<
 
 function normalizeLeaseErrorCodes(
   value: VerifiedMediaSourceLeaseErrorCodesV1,
-): VerifiedMediaSourceLeaseErrorCodesV1 {
+): Required<VerifiedMediaSourceLeaseErrorCodesV1> {
+  const versionStale = errorCode(value?.versionStale);
   return Object.freeze({
     bindingStale: errorCode(value?.bindingStale),
-    versionStale: errorCode(value?.versionStale),
+    versionStale,
+    sourceUnavailable: value?.sourceUnavailable === undefined
+      ? versionStale
+      : errorCode(value.sourceUnavailable),
   });
 }
 
