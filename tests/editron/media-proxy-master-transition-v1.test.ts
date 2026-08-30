@@ -38,6 +38,8 @@ describe('MediaProxyMasterTransitionV1', () => {
         sourcePtsCadenceMapStateSha256V1: null,
         sourcePtsCadenceMapV2: null,
         sourcePtsCadenceMapStateSha256V2: null,
+        sourcePtsCadenceMapV3: null,
+        sourcePtsCadenceMapStateSha256V3: null,
         proxySourceVersionV1: expect.objectContaining({
           sourceVersionSha256: memory.proxySourceVersion.sourceVersionSha256,
         }),
@@ -95,6 +97,8 @@ describe('MediaProxyMasterTransitionV1', () => {
         sourcePtsCadenceMapStateSha256V1: null,
         sourcePtsCadenceMapV2: null,
         sourcePtsCadenceMapStateSha256V2: null,
+        sourcePtsCadenceMapV3: null,
+        sourcePtsCadenceMapStateSha256V3: null,
         proxySourceVersionV1: null,
         proxyMasterRelationV1: null,
         sourceInvalidationPlanV1: null,
@@ -124,6 +128,8 @@ describe('MediaProxyMasterTransitionV1', () => {
       sourcePtsCadenceMapStateSha256V1: null,
       sourcePtsCadenceMapV2: null,
       sourcePtsCadenceMapStateSha256V2: null,
+      sourcePtsCadenceMapV3: null,
+      sourcePtsCadenceMapStateSha256V3: null,
     });
   });
 
@@ -155,6 +161,8 @@ function inMemory(options: {
     sourcePtsCadenceMapStateSha256V1: 'b'.repeat(64),
     sourcePtsCadenceMapV2: { stale: 'proxy-map-v2' },
     sourcePtsCadenceMapStateSha256V2: 'c'.repeat(64),
+    sourcePtsCadenceMapV3: { stale: 'proxy-map-v3' },
+    sourcePtsCadenceMapStateSha256V3: 'd'.repeat(64),
   };
   const upload = options.upload === undefined
     ? { assetId: 'asset-a', userId: 'user-a', status: 'completed', r2Key: 'master-r2-key' }
