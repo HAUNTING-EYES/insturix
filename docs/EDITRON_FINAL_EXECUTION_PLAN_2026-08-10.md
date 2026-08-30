@@ -9691,6 +9691,28 @@ be qualified. Trusted transcode/audio production, asset CAS, ProjectService
 relink, invalidation, rerender and rollback remain Queue item 4 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact epoch-relative canonical-time primitive Phase 3F-C8z
+(2026-08-30):** commit `c4d624539` adds the canonical contract primitive needed
+by the independent proxy/master derivation verifier. Given one validated V3
+presentation epoch and one source PTS coordinate, it computes the continuous
+canonical time with exact integer/rational arithmetic, including negative or
+reset PTS. The epoch's end-exclusive source coordinate is intentionally
+accepted as a boundary; any point before the epoch or beyond that boundary
+fails instead of falling back to nominal FPS, floating-point seconds or an
+adjacent epoch. Canonical output is reduced without discarding precision.
+
+The canonical-time suite passes 12/12, including a timestamp-reset epoch,
+negative PTS, an exact terminal boundary and both outside-range directions;
+repository TypeScript and repository-wide quiet ESLint pass. This result is
+`EXACT_EPOCH_CANONICAL_TIME_PRIMITIVE_VERIFIED_CORRESPONDENCE_DERIVATION_OPEN`.
+It does not read either V3 artifact set or correspondence batch and therefore
+does not yet prove C8y spans. The next owner must stream those verified windows,
+require each persisted span to equal the exact intersection of its referenced
+proxy and master frame intervals, and issue a separate derivation receipt.
+Live dedicated private storage, trusted transcode/audio lineage, qualified
+mapping CAS, ProjectService relink, invalidation, rerender and rollback remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
