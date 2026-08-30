@@ -1,7 +1,10 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-import { createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1 } from './media-proxy-master-correspondence-r2-private-artifact-v1';
+import {
+  createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1,
+  createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1,
+} from './media-proxy-master-correspondence-r2-private-artifact-v1';
 import { MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1 } from './media-source-audio-private-artifact-v1';
 import { createMediaSourceAudioR2PrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
 import { createMediaSourcePtsCadenceR2LifecycleManifestReaderV1 } from './media-source-pts-cadence-r2-lifecycle-manifest-reader-v1';
@@ -137,6 +140,8 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     configuration,
     proxyMasterCorrespondenceArtifact:
       createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1(scope),
+    proxyMasterCorrespondencePublisher:
+      createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1(scope),
     stagingReader: createMediaSourcePtsCadenceScanR2ReaderV1(scope),
     descriptorPort: createMediaSourcePtsCadenceR2PrivateSidecarPortV1(scope),
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
