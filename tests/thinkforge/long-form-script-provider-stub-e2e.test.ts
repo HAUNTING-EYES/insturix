@@ -638,6 +638,22 @@ describe('long-form ThinkForge provider-stub E2E', () => {
     expect(planAgent).toHaveBeenCalledOnce();
     expect(writer).toHaveBeenCalledTimes(2);
     expect(persistence.generateStructuredWithWritingContextCache).toHaveBeenCalledTimes(2);
+    expect(persistence.generateStructuredWithWritingContextCache.mock.calls.map(
+      ([request]) => request.telemetry,
+    )).toEqual([
+      {
+        userId: 'user_1',
+        orgId: 'org_1',
+        projectId: 'brand_1',
+        taskId: 'session_1',
+      },
+      {
+        userId: 'user_1',
+        orgId: 'org_1',
+        projectId: 'brand_1',
+        taskId: 'session_1',
+      },
+    ]);
 
     const command = persistence.applyCommand.mock.calls[0]?.[0] as {
       payload?: {

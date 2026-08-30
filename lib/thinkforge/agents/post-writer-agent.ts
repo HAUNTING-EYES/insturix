@@ -1601,6 +1601,10 @@ Return your response strictly adhering to the JSON schema.`;
     const editorialPlan = resolvedEditorial.executionPlan;
     const promptParts = this.buildPromptParts(input, resolvedEditorial);
     const gen = this.resolveGenConfig(overrides);
+    const writerTelemetry = {
+      projectId: input.brandId,
+      taskId: input.sessionId,
+    };
 
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -1610,6 +1614,7 @@ Return your response strictly adhering to the JSON schema.`;
       temperature: gen.temperature,
       maxTokens: gen.maxTokens,
       abortSignal,
+      telemetry: writerTelemetry,
     });
 
     let result = initialGeneration.result;
@@ -1661,6 +1666,7 @@ Return your response strictly adhering to the JSON schema.`;
         temperature: Math.min(gen.temperature, 0.25),
         maxTokens: gen.maxTokens,
         abortSignal,
+        telemetry: writerTelemetry,
       });
       repairCacheStatus = repairedGeneration.cacheStatus;
       result = repairedGeneration.result;

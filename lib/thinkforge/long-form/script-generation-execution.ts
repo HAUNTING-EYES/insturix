@@ -105,6 +105,12 @@ export async function executeLongFormScriptAction(input: {
         chapterExecution,
         result: output.result,
         abortSignal: signal,
+        telemetry: {
+          userId: job.input.userId,
+          orgId: job.input.orgId ?? undefined,
+          projectId: resolveProjectMetaBrandId(job.input.authoringContext.projectMeta),
+          taskId: job.sessionId,
+        },
       });
       return {
         kind: 'write_chapter',
