@@ -20,13 +20,19 @@ import {
 } from './media-source-audio-evidence-backfill-run-record-v1';
 import {
   assertMediaSourceAudioEvidenceBackfillRecoveryControllerV1,
-  assertMediaSourceAudioEvidenceBackfillRecoverySweepIntentV1,
   createMediaSourceAudioEvidenceBackfillRecoveryControllerV1,
   selectMediaSourceAudioEvidenceBackfillRecoverySweepV1,
   type MediaSourceAudioEvidenceBackfillRecoveryControllerV1,
   type MediaSourceAudioEvidenceBackfillRecoveryOrderCursorV1,
   type MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1,
 } from './media-source-audio-evidence-backfill-recovery-sweep-v1';
+import {
+  createMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1,
+  MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_SWEEP_COLLECTION_V1,
+  parseMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1,
+} from './media-source-audio-evidence-backfill-recovery-sweep-mongo-document-v1';
+import { createMediaSourceAudioEvidenceBackfillRecoverySweepStateV1 }
+  from './media-source-audio-evidence-backfill-recovery-sweep-state-v1';
 
 type MongoRecord = Record<string, unknown>;
 type MongoInsert = Readonly<{ $setOnInsert: Readonly<MongoRecord> }>;
@@ -35,8 +41,6 @@ const RUN_DOCUMENT_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RUN_DOCUMENT_V1' as const;
 const CONTROLLER_DOCUMENT_KIND_V1 =
   'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_CONTROLLER_DOCUMENT_V1' as const;
-const SWEEP_DOCUMENT_KIND_V1 =
-  'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_SWEEP_DOCUMENT_V1' as const;
 const RUN_RECOVERY_INDEX_V1 = 'audio_evidence_backfill_recovery_v1' as const;
 const CONTROLLER_INDEX_V1 =
   'uniq_audio_evidence_backfill_recovery_controller_v1' as const;
@@ -54,9 +58,6 @@ const TRANSACTION_OPTIONS_V1 = Object.freeze({
 
 export const MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_CONTROLLER_COLLECTION_V1 =
   'editron_media_source_audio_evidence_backfill_recovery_controllers_v1' as const;
-export const MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_SWEEP_COLLECTION_V1 =
-  'editron_media_source_audio_evidence_backfill_recovery_sweeps_v1' as const;
-
 export interface MediaSourceAudioEvidenceBackfillRecoveryMongoSessionV1 {
   driverSession: unknown;
   withTransaction<T>(
@@ -316,8 +317,12 @@ async function selectInSnapshot(
     fail('SELECTION_WRITE_NOT_DURABLE');
   }
   const controller = storedControllerRecord(durableController);
-  const sweep = storedPendingSweep(durableSweep);
+  const sweep =
+    parseMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1(
+      durableSweep,
+    );
   if (controller.recordSha256 !== selected.nextController.recordSha256
+    || sweep.status !== 'PENDING'
     || sweep.intent.sweepIntentSha256 !== selected.intent.sweepIntentSha256
     || sweep.attemptPolicy.policySha256
       !== input.attemptPolicy.policySha256) {
@@ -465,7 +470,15 @@ async function insertSweepIntent(
 ): Promise<void> {
   const result = await collection.updateOne(
     { _id: intent.sweepIntentSha256 },
-    { $setOnInsert: storedSweepDocument(intent, attemptPolicy) },
+    {
+      $setOnInsert:
+        createMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1(
+          createMediaSourceAudioEvidenceBackfillRecoverySweepStateV1(
+            intent,
+            attemptPolicy,
+          ),
+        ),
+    },
     { session: driverSession, upsert: true },
   );
   if (result.upsertedCount !== 1) race('SWEEP_CREATE_RACED');
@@ -521,94 +534,6 @@ function storedControllerRecord(
     fail('CONTROLLER_DOCUMENT_ENVELOPE_INVALID');
   }
   return record;
-}
-
-function storedSweepDocument(
-  input: MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1,
-  policyInput: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1,
-): Readonly<MongoRecord> {
-  const intent = assertMediaSourceAudioEvidenceBackfillRecoverySweepIntentV1(
-    input,
-  );
-  const attemptPolicy =
-    assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1(policyInput);
-  return Object.freeze({
-    _id: intent.sweepIntentSha256,
-    schemaVersion: 1,
-    kind: SWEEP_DOCUMENT_KIND_V1,
-    controllerId: intent.controllerId,
-    controllerRecordVersion: intent.controllerRecordVersion,
-    sweepIntentSha256: intent.sweepIntentSha256,
-    status: 'PENDING',
-    attemptCount: 0,
-    attemptPolicy,
-    lastAttemptSha256: null,
-    lastAttemptedAt: null,
-    nextAttemptAt: new Date(intent.selectedAt),
-    claimToken: null,
-    claimedAt: null,
-    leaseExpiresAt: null,
-    intent,
-    createdAt: new Date(intent.selectedAt),
-    updatedAt: new Date(intent.selectedAt),
-  });
-}
-
-function storedPendingSweep(
-  value: unknown,
-): Readonly<{
-  intent: MediaSourceAudioEvidenceBackfillRecoverySweepIntentV1;
-  attemptPolicy: MediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1;
-}> {
-  const document = objectRecord(value, 'SWEEP_DOCUMENT_INVALID');
-  exactKeys(document, [
-    '_id',
-    'attemptCount',
-    'attemptPolicy',
-    'claimedAt',
-    'claimToken',
-    'controllerId',
-    'controllerRecordVersion',
-    'createdAt',
-    'intent',
-    'kind',
-    'lastAttemptedAt',
-    'lastAttemptSha256',
-    'leaseExpiresAt',
-    'nextAttemptAt',
-    'schemaVersion',
-    'status',
-    'sweepIntentSha256',
-    'updatedAt',
-  ], 'SWEEP_DOCUMENT_FIELDS_INVALID');
-  const intent = assertMediaSourceAudioEvidenceBackfillRecoverySweepIntentV1(
-    document.intent,
-  );
-  const attemptPolicy =
-    assertMediaSourceAudioEvidenceBackfillRecoveryAttemptPolicyV1(
-      document.attemptPolicy,
-    );
-  const createdAt = dateIso(document.createdAt, 'SWEEP_CREATED_AT_INVALID');
-  if (document._id !== intent.sweepIntentSha256
-    || document.schemaVersion !== 1
-    || document.kind !== SWEEP_DOCUMENT_KIND_V1
-    || document.controllerId !== intent.controllerId
-    || document.controllerRecordVersion !== intent.controllerRecordVersion
-    || document.sweepIntentSha256 !== intent.sweepIntentSha256
-    || document.status !== 'PENDING'
-    || document.attemptCount !== 0
-    || document.claimToken !== null
-    || document.claimedAt !== null
-    || document.leaseExpiresAt !== null
-    || document.lastAttemptSha256 !== null
-    || document.lastAttemptedAt !== null
-    || dateIso(document.nextAttemptAt, 'SWEEP_NEXT_ATTEMPT_AT_INVALID')
-      !== intent.selectedAt
-    || createdAt !== intent.selectedAt
-    || dateIso(document.updatedAt, 'SWEEP_UPDATED_AT_INVALID') !== createdAt) {
-    fail('SWEEP_DOCUMENT_ENVELOPE_INVALID');
-  }
-  return Object.freeze({ intent, attemptPolicy });
 }
 
 function assertCandidateOrder(

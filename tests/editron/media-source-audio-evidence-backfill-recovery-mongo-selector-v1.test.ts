@@ -12,6 +12,8 @@ import {
   createMediaSourceAudioEvidenceBackfillRunRecordV1,
   type MediaSourceAudioEvidenceBackfillRunRecordV1,
 } from '@/lib/editron/services/media-source-audio-evidence-backfill-run-record-v1';
+import { parseMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1 }
+  from '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-sweep-mongo-document-v1';
 
 const CONTROLLER_ID = 'audio-evidence-backfill-recovery-global-v1';
 const STALE_BEFORE = new Date('2026-08-30T22:00:00.000Z');
@@ -58,18 +60,30 @@ describe('MediaSourceAudioEvidenceBackfillRecoveryMongoSelectorV1', () => {
     });
     expect(memory.controllers.size()).toBe(1);
     expect(memory.sweeps.size()).toBe(1);
-    expect(memory.sweeps.document(result.intent.sweepIntentSha256))
-      .toMatchObject({
-        status: 'PENDING',
-        attemptCount: 0,
-        attemptPolicy: ATTEMPT_POLICY,
-        claimToken: null,
-        claimedAt: null,
-        lastAttemptSha256: null,
-        leaseExpiresAt: null,
-        nextAttemptAt: new Date('2026-08-30T22:01:00.000Z'),
-        intent: result.intent,
-      });
+    const sweepDocument = memory.sweeps.document(
+      result.intent.sweepIntentSha256,
+    );
+    expect(sweepDocument).toMatchObject({
+      status: 'PENDING',
+      attemptCount: 0,
+      attemptPolicySha256: ATTEMPT_POLICY.policySha256,
+      recordVersion: 1,
+      nextAttemptAt: new Date('2026-08-30T22:01:00.000Z'),
+      leaseExpiresAt: null,
+    });
+    expect(parseMediaSourceAudioEvidenceBackfillRecoverySweepMongoDocumentV1(
+      sweepDocument,
+    )).toMatchObject({
+      status: 'PENDING',
+      attemptCount: 0,
+      attemptPolicy: ATTEMPT_POLICY,
+      claimToken: null,
+      claimedAt: null,
+      lastAttemptSha256: null,
+      leaseExpiresAt: null,
+      nextAttemptAt: '2026-08-30T22:01:00.000Z',
+      intent: result.intent,
+    });
     expect(memory.runs.createIndex).toHaveBeenCalledTimes(1);
     expect(memory.controllers.createIndex).toHaveBeenCalledTimes(1);
     expect(memory.sweeps.createIndex).toHaveBeenCalledTimes(2);
