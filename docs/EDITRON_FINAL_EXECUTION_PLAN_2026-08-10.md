@@ -9116,6 +9116,32 @@ scanning/finalization, discontinuity boundary-evidence writes, proxy/master
 mapping, relinking and invalidation remain Queue item 4 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Atomic V2-to-V3 timestamp publication Phase 3F-C8c (2026-08-30):** commit
+`77b78c90e` connects the real terminal-V2 evidence verifier and candidate owner
+to the immutable V3 index writer, then publishes the pending V3 state through
+one exact `MEDIA_ASSETS` compare-and-set. The migration reuses the existing V2
+filter, so source version, storage version, measured qualification, map
+binding, lifecycle status/attempt/checkpoint, manifest and terminal receipt
+must still match. It additionally requires absent V3 and absent migration-
+receipt pairs. The successful single-document update nulls V1/V2, installs the
+V3 state pair and stores the hash-bound migration receipt together.
+
+The verified order is load -> reverify all V2 objects -> write/re-read the V3
+index -> compare-and-set. Altered V2 evidence and failed or mismatched index
+writes stop before database mutation. A concurrent asset change returns
+`RACE_LOST`; the content-addressed index may remain unreferenced but no asset
+can falsely point to it. Missing assets perform no evidence or object work.
+
+All 27 timestamp-map suites pass 141/141, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V2_TO_V3_LOCAL_ATOMIC_PUBLICATION_VERIFIED_LIVE_INFRA_AND_DIRECT_V3_SCAN_OPEN`.
+No configured private PTS bucket or live Atlas document was exercised, and no
+production caller/dispatcher currently selects legacy assets for migration.
+The stored migration receipt also needs a normal read/audit consumer before it
+can support operational reporting. Direct V3 scan/finalization with real
+boundary evidence, proxy/master mapping, relinking and invalidation remain
+Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
