@@ -10419,6 +10419,45 @@ slice is bounded stale-run recovery followed by disposable hosted Atlas/QStash
 proof when its dedicated configuration exists; this does not change
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Bounded audio-backfill recovery Phase 3F-C8ax (2026-08-30):** commit
+`69e85c609` adds the missing stale-`RUNNING` selector and scheduled recovery
+composition without changing the migration worker or fabricating a new
+checkpoint. One indexed oldest-first query uses primary/majority reads, a
+strict projection and exact outer-envelope/inner-record comparison. Each
+selected run is still `RUNNING`, older than the configured boundary and
+hash-valid before the existing dispatcher receives its exact current record
+hash. A concurrent advance therefore makes the recovered message harmlessly
+`SUPERSEDED`; recovery never edits the ledger itself.
+
+The stale interval, per-sweep run limit and worker batch limit have no hidden
+production defaults. Deployments must explicitly configure
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_STALE_MS`,
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RUN_LIMIT` and
+`EDITRON_MEDIA_AUDIO_EVIDENCE_BACKFILL_RECOVERY_BATCH_LIMIT`; invalid or
+missing values fail before Mongo access. Dispatch acknowledgements are
+runtime-normalized, so unknown dispositions, extra fields and invalid message
+or deduplication identities become sanitized `UNCONFIRMED` outcomes rather
+than false confirmation. The hash-bound sweep receipt counts selected,
+confirmed and unconfirmed deliveries. Its strict-secret cron route returns
+503 with retry evidence and a sanitized operational log on any unconfirmed
+delivery, and `vercel.json` registers a five-minute cadence.
+
+The focused recovery/service route suite passes 13/13 and the complete
+backfill family passes 78/78, with full repository TypeScript and repository-
+wide quiet ESLint passing. This result is
+`BOUNDED_AUDIO_BACKFILL_RECOVERY_CONFIGURED_HOSTED_AND_FAIR_FLEET_PROOF_OPEN`.
+It is local/injected proof, not a hosted cron invocation, Atlas query, QStash
+acceptance/redelivery or historical migration run. The returned sweep receipt
+and log are not durably retained by a dedicated operations owner. Oldest-first
+selection is safe but can repeatedly occupy the bounded page if those runs
+never advance, so starvation-free fleet traversal/alert escalation is not yet
+proved. Resolve that bounded fairness/operations gap, then execute one
+disposable hosted Atlas/QStash recovery and cleanup proof before calling
+migration restart-safe. Dedicated-private-R2, exact snapshot membership,
+source-version consumer cutover, proxy/master invalidation/relink,
+rerender/rollback, telemetry and GC remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
