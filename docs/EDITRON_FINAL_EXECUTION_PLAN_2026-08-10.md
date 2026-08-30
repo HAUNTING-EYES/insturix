@@ -10746,6 +10746,46 @@ active-relation CAS, ProjectService relink/invalidation, rerender/rollback or
 reachability GC is proved. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Durable proxy publication V2 lifecycle Phase 3F-C8bk (2026-08-30):** the
+Editron commit sequence after `083bea627`, culminating in `c7b505aef` and
+`6dd6de8ce` (and excluding unrelated ThinkForge commits), closes the local
+crash-boundary model that the earlier V1 lane deliberately left open. The
+sequence adds exact execution-budget reservation/settlement owners for V1,
+persists multipart upload state and part evidence under CAS, renews fenced
+multipart leases, classifies uncertain provider completion without guessing,
+and binds single-PUT versus durable-multipart selection to an immutable private
+publication policy. R2's exact single-request limits are enforced rather than
+rounded, and large output is not silently sent through the single-PUT path.
+
+V2 then separates three independently resumable effects: sequence 0 prepares
+and durably retains immutable proxy bytes plus their measured evidence;
+sequence 1 publishes those already prepared bytes under the bound publication
+policy; sequence 2 records the terminal result. A leased, operation-specific
+worker now claims and heartbeats the shared durable job, authorizes the exact
+reservation, validates every owner and resume-state binding, persists each
+sequence with store CAS, and rereads authorized state after every commit before
+continuing. Cancellation or lease loss aborts the active attempt; owner or
+authorization drift and a forged/stale reread dead-letter; transient
+`UNVERIFIABLE` outcomes follow only the bound retry policy; and lost completion
+or post-commit transport can resume at the committed sequence without
+repreparing or republishing earlier effects. The complete local proxy/master
+family passes 274/274 tests across 49 files, with repository TypeScript and
+repository-wide quiet ESLint clean.
+
+This result is
+`DURABLE_PROXY_V2_SEQUENCE_AND_WORKER_LOCALLY_VERIFIED_CONCRETE_PRODUCT_PORTS_ROUTE_AND_LIVE_PROOF_OPEN`.
+It is not yet a product-runnable V2 lane. The worker still receives abstract V2
+budget, current-asset, preparation and publication owners in its test/runtime
+composition; no authenticated product route or dispatch schema selects V2.
+Queue item 4 must next bind a concrete V2 budget ledger/settlement adapter, the
+current source-version/V3-map owner, and one publication owner that consumes the
+persisted artifact through the selected single-PUT or durable-multipart path,
+then add deployment-owned runtime/route composition. Live private R2/Atlas/
+QStash execution, proxy V3/audio roots, correspondence/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback,
+retention telemetry and reachability GC remain unproved. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
