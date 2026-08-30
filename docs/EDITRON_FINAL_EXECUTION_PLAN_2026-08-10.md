@@ -9540,6 +9540,23 @@ outage/recovery, private PTS R2/Modal execution, alerting and reachability GC
 remain required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
 unchanged.
 
+**V3 proxy-to-master atomic invalidation Phase 3F-C8t (2026-08-30):** commit
+`27741f577` extends the sole server-owned proxy-to-master activation CAS and its
+persisted update shape to clear `sourcePtsCadenceMapV3` plus its state hash in
+the same write that makes the master source active. V1 and V2 were already
+cleared there. The later qualification claim/terminal owner independently
+clears all three generations, but it is no longer the first boundary that
+protects the master from timing evidence derived from proxy bytes.
+
+The proxy/master-transition and source-qualification regressions pass 17/17;
+repository TypeScript, repository-wide quiet ESLint and diff checks pass. This
+result is `V3_PROXY_MASTER_STALE_TIMING_INVALIDATED_MAPPING_RELINK_OPEN`. It
+does not qualify a proxy/master time transform, rebase analysis or project
+bindings, relink preview/final-render consumers, or prove a live promotion.
+The existing relation therefore remains
+`UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`; Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
