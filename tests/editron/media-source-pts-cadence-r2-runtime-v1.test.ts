@@ -164,6 +164,12 @@ describe('media source PTS cadence private R2 runtime V1', () => {
       });
     expect(runtime.proxyMasterTranscodePublication.publisher.publish)
       .toBeTypeOf('function');
+    expect(runtime.proxyMasterPreparedArtifactStore.stage).toBeTypeOf('function');
+    expect(runtime.proxyMasterPreparedArtifactStore.recover).toBeTypeOf('function');
+    expect(runtime.proxyMasterPreparedArtifactStore.reopen).toBeTypeOf('function');
+    expect(runtime.proxyMasterMultipartTransport.createUpload).toBeTypeOf('function');
+    expect(runtime.proxyMasterMultipartTransport.uploadPart).toBeTypeOf('function');
+    expect(runtime.proxyMasterMultipartTransport.complete).toBeTypeOf('function');
     expect(runtime.stagingReader.read).toBeTypeOf('function');
     expect(runtime.descriptorPort.writeImmutableShard).toBeTypeOf('function');
     expect(runtime.artifactPort.writeImmutableFrameBatch).toBeTypeOf('function');

@@ -5,8 +5,12 @@ import {
   createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1,
   createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1,
 } from './media-proxy-master-correspondence-r2-private-artifact-v1';
+import { createMediaProxyMasterR2PreparedArtifactStoreV1 }
+  from './media-proxy-master-r2-prepared-artifact-store-v1';
 import { createMediaProxyMasterR2PrivateBoundSinglePutPublisherV1 }
   from './media-proxy-master-r2-private-publication-policy-v1';
+import { createMediaProxyMasterR2PrivateMultipartTransportV1 }
+  from './media-proxy-master-r2-private-multipart-transport-v1';
 import { MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1 } from './media-source-audio-private-artifact-v1';
 import { createMediaSourceAudioR2PrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
 import { createMediaSourcePtsCadenceR2LifecycleManifestReaderV1 } from './media-source-pts-cadence-r2-lifecycle-manifest-reader-v1';
@@ -146,6 +150,10 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
       createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1(scope),
     proxyMasterTranscodePublication:
       createMediaProxyMasterR2PrivateBoundSinglePutPublisherV1(scope),
+    proxyMasterPreparedArtifactStore:
+      createMediaProxyMasterR2PreparedArtifactStoreV1(scope),
+    proxyMasterMultipartTransport:
+      createMediaProxyMasterR2PrivateMultipartTransportV1(scope),
     stagingReader: createMediaSourcePtsCadenceScanR2ReaderV1(scope),
     descriptorPort: createMediaSourcePtsCadenceR2PrivateSidecarPortV1(scope),
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
