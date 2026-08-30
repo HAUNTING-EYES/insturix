@@ -10715,6 +10715,37 @@ active-relation CAS, ProjectService relink/invalidation, rerender/rollback and
 reachability GC remain Queue item 4. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Proxy-transcode dispatch, current-asset and historical operational-policy
+binding Phase 3F-C8bi/C8bj (2026-08-30):** commits `dc6069080`, `0237008b1`,
+`8e286c8f4`, `7c7c2edef` and `3559873f2` extend the local durable lane without
+claiming deployment. Initial dispatch now persists the fully bound job before
+publishing exactly `{jobId}` through the shared QStash owner; recovery selects
+only stale proxy-transcode jobs and binds redelivery deduplication to the
+selected durable state. Unconfirmed provider publication and a sent message
+whose dispatch receipt could not be recorded remain different outcomes.
+
+The worker-side current-asset owner reloads the exact `MEDIA_ASSETS` row and
+requires the same source version and complete V3 map before FFmpeg. The shared
+dedicated-private R2 runtime exposes the already verified publication owner over
+the same server client and private scope. Retry timing, QStash delivery,
+attempt/retention limits and heartbeat cadence are now immutable hashed policy
+declarations. An immutable active/retained registry resolves both retry and
+heartbeat policies by exact owner/version/hash, so policy rotation preserves an
+old job's semantics; an unknown historical hash is not replaced by the active
+policy. Initial admission also rejects runtime lifecycle or policy bindings
+that do not match the registry before durable job creation.
+
+The widened local proxy/master and private-R2 family passes 126/126 across 21
+files, with repository TypeScript and repository-wide quiet ESLint clean. This
+result is
+`DISPATCH_CURRENT_ASSET_AND_HISTORICAL_OPERATIONAL_POLICY_BINDING_LOCALLY_VERIFIED_PRODUCTION_BUDGET_ROUTE_MULTIPART_QUALIFICATION_AND_LIVE_PROOF_OPEN`.
+No production budget reservation/ledger owner, deployment-owned worker
+composition, authenticated app-route export, scheduled recovery caller, live
+QStash/Atlas/R2 run, multipart/staging resume, proxy V3/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback or
+reachability GC is proved. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
