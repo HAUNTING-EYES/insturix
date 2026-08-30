@@ -102,6 +102,27 @@ export class DurableWorkflowJobStoreV1 {
     return record ? toSnapshot(record) : null;
   }
 
+  /**
+   * Read-only composition lookup for an already-authenticated internal worker.
+   * A job id alone is not cross-family authority, so every caller must bind the
+   * exact operation family and input schema before it can inspect or claim work.
+   */
+  async getForWorkerExecution(input: Readonly<{
+    jobId: string;
+    operationOwner: string;
+    operationKind: string;
+    inputSchemaId: string;
+  }>): Promise<Readonly<DurableWorkflowJobSnapshotV1> | null> {
+    const scope = {
+      _id: requireIdentity(input.jobId, 'JOB_ID'),
+      operationOwner: requireIdentity(input.operationOwner, 'OPERATION_OWNER'),
+      operationKind: requireIdentity(input.operationKind, 'OPERATION_KIND'),
+      'input.schemaId': requireIdentity(input.inputSchemaId, 'INPUT_SCHEMA_ID'),
+    };
+    const record = await (await this.collectionProvider()).findOne(scope);
+    return record ? toSnapshot(record) : null;
+  }
+
   async recordDispatch(input: Readonly<{
     jobId: string;
     transport: string;
