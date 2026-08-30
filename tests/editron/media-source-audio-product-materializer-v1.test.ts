@@ -49,9 +49,10 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     const active = activeStore(fixture.asset);
     const evidence = evidenceStore();
     const materializeStream = materializer(fixture);
+    const beforeActiveStateMutation = vi.fn(async () => {});
 
     const receipt = await materializeMediaSourceAudioProductV1(
-      productInput(fixture),
+      { ...productInput(fixture), beforeActiveStateMutation },
       productPorts(active.ports, evidence.ports, materializeStream),
     );
 
@@ -66,6 +67,7 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     });
     expect(materializeStream.mock.calls.map(([input]) => input.audioStreamIndex))
       .toEqual([4, 9]);
+    expect(beforeActiveStateMutation).toHaveBeenCalledTimes(2);
     expect(readMediaSourceAudioArtifactAssetStateV1(active.current())
       ?.sourceAudioArtifactsV1.records.map(
       ({ audioStreamIndex }) => audioStreamIndex,
@@ -183,6 +185,55 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     expect(active.replace).not.toHaveBeenCalled();
   });
 
+  it('stops an already-aborted call before reading the active asset', async () => {
+    const fixture = sourceFixture('abort-before-load', [4]);
+    const active = activeStore(fixture.asset);
+    const materializeStream = materializer(fixture);
+    const abortController = new AbortController();
+    abortController.abort();
+
+    const error = await materializeMediaSourceAudioProductV1(
+      { ...productInput(fixture), abortSignal: abortController.signal },
+      productPorts(active.ports, evidenceStore().ports, materializeStream),
+    ).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      reason: 'MATERIALIZATION_ABORTED', retryable: true,
+    });
+    expect(active.load).not.toHaveBeenCalled();
+    expect(materializeStream).not.toHaveBeenCalled();
+    expect(active.replace).not.toHaveBeenCalled();
+  });
+
+  it('blocks active publication when cancellation follows private output', async () => {
+    const fixture = sourceFixture('abort-before-cas', [4]);
+    const active = activeStore(fixture.asset);
+    const abortController = new AbortController();
+    const beforeActiveStateMutation = vi.fn(async () => {});
+    const materializeStream = vi.fn((async ({ audioStreamIndex }) => {
+      const result = artifact(fixture, audioStreamIndex);
+      abortController.abort();
+      return result;
+    }) satisfies MaterializeStreamV1);
+
+    const error = await materializeMediaSourceAudioProductV1({
+      ...productInput(fixture),
+      abortSignal: abortController.signal,
+      beforeActiveStateMutation,
+    }, productPorts(
+      active.ports,
+      evidenceStore().ports,
+      materializeStream,
+    )).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      reason: 'MATERIALIZATION_ABORTED', retryable: true,
+    });
+    expect(materializeStream).toHaveBeenCalledTimes(1);
+    expect(beforeActiveStateMutation).not.toHaveBeenCalled();
+    expect(active.replace).not.toHaveBeenCalled();
+  });
+
   it('classifies a private-store outage as retryable without changing active state', async () => {
     const fixture = sourceFixture('outage', [4]);
     const active = activeStore(fixture.asset);
@@ -263,6 +314,7 @@ function activeStore(initial: MediaSourceAudioArtifactAssetStateInputV1) {
   });
   return {
     ports: { load, replace } satisfies MediaSourceAudioArtifactAssetStorePortsV1,
+    load,
     replace,
     current: () => asset,
   };

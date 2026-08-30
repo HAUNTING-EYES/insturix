@@ -47,6 +47,7 @@ type MediaSourceAudioSampleEpochFfmpegInputV1 = Readonly<{
   audioStreamIndex: number;
   sourceLease: VerifiedMediaSourceLeasePortV1;
   resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
+  abortSignal?: AbortSignal;
   ffmpegPath?: string;
   ffprobePath?: string;
 }>;
@@ -84,10 +85,12 @@ export async function materializeMediaSourceAudioPrivateArtifactFfmpegV1(
   return materializeMediaSourceAudioSampleEpochFfmpegCoreV1(
     input,
     async ({ mapSerialization, pcmPath, revalidateSource }) => {
+      assertNotAborted(input.abortSignal);
       const writerResult = await artifactWriter.writeArtifactSetFromPcmStream({
         mapSerialization,
-        pcmBytes: createReadStream(pcmPath),
+        pcmBytes: createReadStream(pcmPath, { signal: input.abortSignal }),
       });
+      assertNotAborted(input.abortSignal);
       const manifestSerialization = normalizePrivateArtifactWriterResult(
         writerResult,
         mapSerialization,
@@ -95,6 +98,7 @@ export async function materializeMediaSourceAudioPrivateArtifactFfmpegV1(
       if (!await revalidateSource()) {
         throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
       }
+      assertNotAborted(input.abortSignal);
       return Object.freeze({ mapSerialization, manifestSerialization });
     },
   );
@@ -108,6 +112,7 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
     revalidateSource: () => Promise<boolean>;
   }>) => Promise<T>,
 ): Promise<T> {
+  assertNotAborted(input.abortSignal);
   const sourceVersion = assertMediaSourceVersionV1(input.sourceVersion);
   const resourcePolicy = assertMediaSourceAudioSampleEpochResourcePolicyV1(
     input.resourcePolicy,
@@ -120,7 +125,9 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
   if (sourceVersion.byteLength > resourcePolicy.maxSourceBytes) {
     throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LIMIT_EXCEEDED');
   }
+  assertNotAborted(input.abortSignal);
   const lease = await input.sourceLease.open(sourceVersion);
+  assertNotAborted(input.abortSignal);
   if (!sameMediaSourceStorageVersionV1(lease.storageVersion, sourceVersion.storageVersion)) {
     throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
   }
@@ -135,6 +142,7 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
       sourceVersion,
       maximumBytes: resourcePolicy.maxSourceBytes,
       timeoutMs: resourcePolicy.timeoutMs,
+      abortSignal: input.abortSignal,
       errorCodes: {
         sourceByteLimitExceeded: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_BYTE_LIMIT_EXCEEDED',
         sourceUrlInvalid: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_URL_INVALID',
@@ -145,22 +153,30 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
         outputWriteFailed: 'MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_WRITE_FAILED',
       },
     });
+    assertNotAborted(input.abortSignal);
     if (!await lease.revalidate()) {
       throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
     }
+    assertNotAborted(input.abortSignal);
 
     const ffmpegPath = input.ffmpegPath ?? getFFmpegPath();
     const ffprobePath = input.ffprobePath ?? 'ffprobe';
     const [ffmpegVersion, ffprobeVersion, frames] = await Promise.all([
-      readToolIdentity(ffmpegPath, resourcePolicy.timeoutMs, 'FFMPEG'),
-      readToolIdentity(ffprobePath, resourcePolicy.timeoutMs, 'FFPROBE'),
+      readToolIdentity(
+        ffmpegPath, resourcePolicy.timeoutMs, 'FFMPEG', input.abortSignal,
+      ),
+      readToolIdentity(
+        ffprobePath, resourcePolicy.timeoutMs, 'FFPROBE', input.abortSignal,
+      ),
       scanDecodedAudioFrames({
         ffprobePath,
         sourcePath,
         audioStreamIndex: binding.audioStreamIndex,
         policy: resourcePolicy,
+        abortSignal: input.abortSignal,
       }),
     ]);
+    assertNotAborted(input.abortSignal);
     await decodePcm({
       ffmpegPath,
       sourcePath,
@@ -168,11 +184,18 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
       audioStreamIndex: binding.audioStreamIndex,
       channelCount: binding.channelCount,
       policy: resourcePolicy,
+      abortSignal: input.abortSignal,
     });
+    assertNotAborted(input.abortSignal);
     if (!await lease.revalidate()) {
       throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_SOURCE_VERSION_STALE');
     }
-    const pcm = await inspectPcm(pcmPath, resourcePolicy.maxDecodedPcmBytes);
+    assertNotAborted(input.abortSignal);
+    const pcm = await inspectPcm(
+      pcmPath,
+      resourcePolicy.maxDecodedPcmBytes,
+      input.abortSignal,
+    );
     const map = createMediaSourceAudioSampleEpochMapV1({
       binding,
       toolchain: {
@@ -184,11 +207,18 @@ async function materializeMediaSourceAudioSampleEpochFfmpegCoreV1<T>(
       frames,
       pcm,
     });
+    assertNotAborted(input.abortSignal);
     const consumed = await consume({
       mapSerialization: serializeMediaSourceAudioSampleEpochMapV1(map),
       pcmPath,
-      revalidateSource: () => lease.revalidate(),
+      revalidateSource: async () => {
+        assertNotAborted(input.abortSignal);
+        const current = await lease.revalidate();
+        assertNotAborted(input.abortSignal);
+        return current;
+      },
     });
+    assertNotAborted(input.abortSignal);
     return consumed;
   } finally {
     await removeOwnedTemporaryDirectory(temporaryDirectory);
@@ -253,7 +283,9 @@ async function scanDecodedAudioFrames(input: Readonly<{
   sourcePath: string;
   audioStreamIndex: number;
   policy: MediaSourceAudioSampleEpochResourcePolicyV1;
+  abortSignal?: AbortSignal;
 }>): Promise<readonly MediaSourceAudioDecodedFrameEvidenceV1[]> {
+  assertNotAborted(input.abortSignal);
   const child = spawn(input.ffprobePath, [
     '-v', 'error',
     '-select_streams', String(input.audioStreamIndex),
@@ -266,6 +298,10 @@ async function scanDecodedAudioFrames(input: Readonly<{
   let terminationError: Error | null = null;
   let stderrBytes = 0;
   let settled = false;
+  const detachAbort = bindAbort(input.abortSignal, () => {
+    terminationError ??= abortedError();
+    child.kill('SIGKILL');
+  });
   const timer = setTimeout(() => {
     terminationError = new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_FFPROBE_TIMEOUT');
     child.kill();
@@ -318,6 +354,7 @@ async function scanDecodedAudioFrames(input: Readonly<{
     lines.close();
   }
   const exitCode = await closed;
+  detachAbort();
   clearTimeout(timer);
   if (terminationError) throw terminationError;
   if (exitCode !== 0) {
@@ -367,6 +404,7 @@ async function decodePcm(input: Readonly<{
   audioStreamIndex: number;
   channelCount: number;
   policy: MediaSourceAudioSampleEpochResourcePolicyV1;
+  abortSignal?: AbortSignal;
 }>): Promise<void> {
   const bytesPerSampleFrame = input.channelCount * 4;
   const outputLimit = input.policy.maxDecodedPcmBytes
@@ -382,19 +420,30 @@ async function decodePcm(input: Readonly<{
     '-f', 's32le',
     '-fs', String(outputLimit),
     '-y', input.pcmPath,
-  ], input.policy.timeoutMs, 'FFMPEG');
+  ], input.policy.timeoutMs, 'FFMPEG', input.abortSignal);
 }
 
 async function inspectPcm(
   pcmPath: string,
   maximumBytes: number,
+  abortSignal?: AbortSignal,
 ): Promise<Readonly<{ decodedByteLength: number; decodedPcmSha256: string }>> {
+  assertNotAborted(abortSignal);
   const file = await stat(pcmPath);
   if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > maximumBytes) {
     throw new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_PCM_BYTE_LIMIT_EXCEEDED');
   }
   const digest = createHash('sha256');
-  for await (const chunk of createReadStream(pcmPath)) digest.update(chunk as Buffer);
+  try {
+    for await (const chunk of createReadStream(pcmPath, { signal: abortSignal })) {
+      assertNotAborted(abortSignal);
+      digest.update(chunk as Buffer);
+    }
+  } catch (error) {
+    assertNotAborted(abortSignal);
+    throw error;
+  }
+  assertNotAborted(abortSignal);
   return { decodedByteLength: file.size, decodedPcmSha256: digest.digest('hex') };
 }
 
@@ -402,8 +451,11 @@ async function readToolIdentity(
   executable: string,
   timeoutMs: number,
   tool: 'FFMPEG' | 'FFPROBE',
+  abortSignal?: AbortSignal,
 ): Promise<string> {
-  const stdout = await captureBounded(executable, ['-version'], timeoutMs, tool);
+  const stdout = await captureBounded(
+    executable, ['-version'], timeoutMs, tool, abortSignal,
+  );
   const identity = stdout.split(/\r?\n/, 1)[0]?.trim();
   if (!identity || identity.length > 256 || /[\u0000-\u001F\u007F]/.test(identity)) {
     throw new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_VERSION_INVALID`);
@@ -416,7 +468,9 @@ async function captureBounded(
   args: readonly string[],
   timeoutMs: number,
   tool: 'FFMPEG' | 'FFPROBE',
+  abortSignal?: AbortSignal,
 ): Promise<string> {
+  assertNotAborted(abortSignal);
   return new Promise((resolve, reject) => {
     const child = spawn(executable, [...args], {
       windowsHide: true,
@@ -426,16 +480,22 @@ async function captureBounded(
     let stderrBytes = 0;
     let settled = false;
     let terminationError: Error | null = null;
+    let detachAbort = () => {};
     const finish = (error: Error | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      detachAbort();
       if (error) reject(error); else resolve(stdout);
     };
     const timer = setTimeout(() => {
       terminationError = new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_TIMEOUT`);
       child.kill();
     }, timeoutMs);
+    detachAbort = bindAbort(abortSignal, () => {
+      terminationError ??= abortedError();
+      child.kill('SIGKILL');
+    });
     child.stdout.on('data', (chunk: Buffer) => {
       if (Buffer.byteLength(stdout) + chunk.byteLength > MAX_TOOL_IDENTITY_BYTES) {
         terminationError ??=
@@ -454,9 +514,8 @@ async function captureBounded(
         return;
       }
     });
-    child.once('error', () => finish(
-      new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_UNAVAILABLE`),
-    ));
+    child.once('error', () => finish(terminationError
+      ?? new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_UNAVAILABLE`)));
     child.once('close', (code) => finish(
       terminationError ?? (code === 0
         ? null
@@ -470,7 +529,9 @@ async function executeBounded(
   args: readonly string[],
   timeoutMs: number,
   tool: 'FFMPEG',
+  abortSignal?: AbortSignal,
 ): Promise<void> {
+  assertNotAborted(abortSignal);
   await new Promise<void>((resolve, reject) => {
     const child = spawn(executable, [...args], {
       windowsHide: true,
@@ -479,16 +540,22 @@ async function executeBounded(
     let stderrBytes = 0;
     let settled = false;
     let terminationError: Error | null = null;
+    let detachAbort = () => {};
     const finish = (error: Error | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      detachAbort();
       if (error) reject(error); else resolve();
     };
     const timer = setTimeout(() => {
       terminationError = new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_TIMEOUT`);
       child.kill();
     }, timeoutMs);
+    detachAbort = bindAbort(abortSignal, () => {
+      terminationError ??= abortedError();
+      child.kill('SIGKILL');
+    });
     child.stderr.on('data', (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
       if (stderrBytes > MAX_PROCESS_DIAGNOSTIC_BYTES) {
@@ -497,15 +564,38 @@ async function executeBounded(
         child.kill();
       }
     });
-    child.once('error', () => finish(
-      new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_UNAVAILABLE`),
-    ));
+    child.once('error', () => finish(terminationError
+      ?? new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_UNAVAILABLE`)));
     child.once('close', (code) => finish(
       terminationError ?? (code === 0
         ? null
         : new Error(`MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_${tool}_FAILED`)),
     ));
   });
+}
+
+function assertNotAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortedError();
+}
+
+function abortedError(): Error {
+  return new Error('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ABORTED');
+}
+
+function bindAbort(
+  signal: AbortSignal | undefined,
+  onAbort: () => void,
+): () => void {
+  if (!signal) return () => {};
+  let handled = false;
+  const listener = () => {
+    if (handled) return;
+    handled = true;
+    onAbort();
+  };
+  signal.addEventListener('abort', listener, { once: true });
+  if (signal.aborted) listener();
+  return () => signal.removeEventListener('abort', listener);
 }
 
 async function removeOwnedTemporaryDirectory(directory: string): Promise<void> {

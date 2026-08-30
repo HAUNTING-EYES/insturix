@@ -138,6 +138,27 @@ describe('media source audio sample epoch FFmpeg adapter V1', () => {
     expect(revalidate).toHaveBeenCalledTimes(2);
   }, 30_000);
 
+  it('honors cancellation before opening the source lease', async () => {
+    const fixture = sourceFixture(fixtureBytes);
+    const abortController = new AbortController();
+    abortController.abort();
+    const open = vi.fn(async () => {
+      throw new Error('TEST_SOURCE_LEASE_MUST_NOT_OPEN');
+    });
+
+    await expect(materializeMediaSourceAudioSampleEpochMapFfmpegV1({
+      sourceVersion: fixture.sourceVersion,
+      qualification: fixture.qualification,
+      audioStreamIndex: 0,
+      sourceLease: { open },
+      resourcePolicy: policy(),
+      abortSignal: abortController.signal,
+      ffmpegPath: getFFmpegPath(),
+      ffprobePath: 'ffprobe',
+    })).rejects.toThrow('MEDIA_SOURCE_AUDIO_SAMPLE_EPOCH_ABORTED');
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it('enforces source, decoded-frame, and PCM resource ceilings', async () => {
     const fixture = sourceFixture(fixtureBytes);
     const invalidPolicyOpen = vi.fn(async () => {

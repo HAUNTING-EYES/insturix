@@ -66,6 +66,7 @@ export type MediaSourceAudioProductMaterializationFailureReasonV1 =
   | 'ASSET_NOT_FOUND'
   | 'SOURCE_BINDING_INVALID'
   | 'EXPECTED_SOURCE_MISMATCH'
+  | 'MATERIALIZATION_ABORTED'
   | 'AUDIO_STREAM_OBSERVATION_INVALID'
   | 'AUDIO_STREAM_COUNT_EXCEEDED'
   | 'NO_AUDIO_PROOF_REQUIRED'
@@ -92,6 +93,8 @@ export type MediaSourceAudioProductMaterializationInputV1 = Readonly<{
   expectedAudioStreamBindings: readonly MediaSourceAudioStreamBindingV1[];
   resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
   publishedAt: Date;
+  abortSignal?: AbortSignal;
+  beforeActiveStateMutation?: () => Promise<void>;
 }>;
 
 export type MediaSourceAudioProductMaterializationPortsV1 = Readonly<{
@@ -115,6 +118,7 @@ export async function materializeMediaSourceAudioProductV1(
 ): Promise<MediaSourceAudioProductMaterializationReceiptV1> {
   const normalized = normalizeInput(input);
   assertPorts(ports);
+  assertNotAborted(normalized.abortSignal);
 
   let asset: MediaSourceAudioArtifactAssetStateInputV1 | null;
   try {
@@ -122,6 +126,7 @@ export async function materializeMediaSourceAudioProductV1(
   } catch (error) {
     throw failure('ASSET_LOAD_FAILED', true, diagnostic(error));
   }
+  assertNotAborted(normalized.abortSignal);
   if (asset === null) throw failure('ASSET_NOT_FOUND', false);
 
   let sourceVersion: ReturnType<typeof assertMediaSourceVersionV1>;
@@ -183,6 +188,7 @@ export async function materializeMediaSourceAudioProductV1(
   });
   let sourceLease: VerifiedMediaSourceLeasePortV1 | null = null;
   if (missing.length > 0) {
+    assertNotAborted(normalized.abortSignal);
     try {
       sourceLease = ports.createSourceLease(asset);
       if (!sourceLease || typeof sourceLease.open !== 'function') {
@@ -191,11 +197,13 @@ export async function materializeMediaSourceAudioProductV1(
     } catch (error) {
       throw failure('SOURCE_LEASE_INVALID', false, diagnostic(error));
     }
+    assertNotAborted(normalized.abortSignal);
   }
 
   const materializeStream = ports.materializeStream
     ?? materializeMediaSourceAudioPrivateArtifactFfmpegV1;
   for (const audioStreamIndex of missing) {
+    assertNotAborted(normalized.abortSignal);
     let artifact: Awaited<ReturnType<MaterializeAudioStreamV1>>;
     try {
       artifact = await materializeStream({
@@ -205,8 +213,10 @@ export async function materializeMediaSourceAudioProductV1(
         sourceLease: sourceLease!,
         resourcePolicy: normalized.resourcePolicy,
         artifactWriter: ports.artifactWriter,
+        abortSignal: normalized.abortSignal,
       });
     } catch (error) {
+      assertNotAborted(normalized.abortSignal);
       const code = diagnostic(error);
       throw failure(
         'STREAM_MATERIALIZATION_FAILED',
@@ -214,6 +224,11 @@ export async function materializeMediaSourceAudioProductV1(
         code,
       );
     }
+    assertNotAborted(normalized.abortSignal);
+    if (normalized.beforeActiveStateMutation) {
+      await normalized.beforeActiveStateMutation();
+    }
+    assertNotAborted(normalized.abortSignal);
 
     let persisted: Awaited<ReturnType<typeof persistMediaSourceAudioArtifactAssetStateV1>>;
     try {
@@ -256,6 +271,7 @@ export async function materializeMediaSourceAudioProductV1(
   }
 
   if (state === null) throw failure('CURRENT_STATE_INVALID', false);
+  if (materialized.length === 0) assertNotAborted(normalized.abortSignal);
   const evidenceSha256 = await readBackTerminalEvidence({
     asset,
     state,
@@ -336,6 +352,11 @@ function normalizeInput(input: MediaSourceAudioProductMaterializationInputV1) {
   try {
     const publishedAt = new Date(input.publishedAt.getTime());
     if (Number.isNaN(publishedAt.getTime())) throw new Error('DATE_INVALID');
+    const abortSignal = normalizeAbortSignal(input.abortSignal);
+    if (input.beforeActiveStateMutation !== undefined
+      && typeof input.beforeActiveStateMutation !== 'function') {
+      throw new Error('BEFORE_ACTIVE_STATE_MUTATION_INVALID');
+    }
     if (!Array.isArray(input.expectedAudioStreamBindings)
       || input.expectedAudioStreamBindings.length
         > MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1) {
@@ -362,10 +383,29 @@ function normalizeInput(input: MediaSourceAudioProductMaterializationInputV1) {
         input.resourcePolicy,
       ),
       publishedAt,
+      abortSignal,
+      beforeActiveStateMutation: input.beforeActiveStateMutation,
     };
   } catch (error) {
     throw failure('INPUT_INVALID', false, diagnostic(error));
   }
+}
+
+function normalizeAbortSignal(value: unknown): AbortSignal | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object'
+    || typeof (value as { aborted?: unknown }).aborted !== 'boolean'
+    || typeof (value as { addEventListener?: unknown }).addEventListener
+      !== 'function'
+    || typeof (value as { removeEventListener?: unknown }).removeEventListener
+      !== 'function') {
+    throw new Error('ABORT_SIGNAL_INVALID');
+  }
+  return value as AbortSignal;
+}
+
+function assertNotAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw failure('MATERIALIZATION_ABORTED', true);
 }
 
 function assertPorts(ports: MediaSourceAudioProductMaterializationPortsV1): void {
