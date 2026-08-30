@@ -138,6 +138,8 @@ describe('media proxy/master private R2 multipart transport v1', () => {
       .toBe(true);
     expect(fixture.memory.commands.some((command) => command instanceof HeadObjectCommand))
       .toBe(true);
+    await expect(fixture.transport.complete({ record: completing }))
+      .rejects.toMatchObject({ code: 'COMPLETE_UPLOAD_NOT_FOUND' });
   });
 
   it('rejects substituted stored bytes and GET-to-HEAD provider changes', async () => {

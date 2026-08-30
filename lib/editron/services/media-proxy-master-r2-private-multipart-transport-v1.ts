@@ -351,8 +351,9 @@ export function createMediaProxyMasterR2PrivateMultipartTransportV1(input: Reado
             })),
           },
         }), request.abortSignal), 'COMPLETE_RESPONSE');
-      } catch {
+      } catch (error) {
         throwIfAborted(request.abortSignal);
+        if (isNoSuchUpload(error)) fail('COMPLETE_UPLOAD_NOT_FOUND');
         fail('COMPLETE_FAILED');
       }
       return eTag(response.ETag, 'COMPLETE_ETAG');
@@ -706,8 +707,11 @@ function fail(code: string): never {
 }
 
 export class MediaProxyMasterR2PrivateMultipartTransportErrorV1 extends Error {
+  readonly code: string;
+
   constructor(code: string) {
     super(`MEDIA_PROXY_MASTER_R2_PRIVATE_MULTIPART_TRANSPORT_${code}`);
     this.name = 'MediaProxyMasterR2PrivateMultipartTransportErrorV1';
+    this.code = code;
   }
 }
