@@ -16,6 +16,8 @@ import {
   MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
   type MediaSourceAudioProductMaterializationInputV1,
 } from '@/lib/editron/services/media-source-audio-product-materializer-v1';
+import { createMediaSourceAudioProductMaterializationReceiptV2 }
+  from '@/lib/editron/services/media-source-audio-product-receipt-v2';
 import type { MediaSourceAudioSampleEpochResourcePolicyV1 }
   from '@/lib/editron/services/media-source-audio-sample-epoch-map-v1';
 import { runMediaSourceAudioDurableWorkerV1 }
@@ -67,6 +69,10 @@ describe('MediaSourceAudioDurableWorkerV1', () => {
         disposition: 'PASS',
         proofReferences: [
           { proofId: `msaudio-product:${setup.job.jobId}`, disposition: 'PASS' },
+          {
+            proofId: `msaudio-availability:${setup.job.jobId}`,
+            disposition: 'PASS',
+          },
           { proofId: `msaudio-evidence:${setup.job.jobId}`, disposition: 'PASS' },
         ],
       },
@@ -194,11 +200,45 @@ describe('MediaSourceAudioDurableWorkerV1', () => {
       status: 'cancelled',
       terminalReceipt: {
         disposition: 'CANCELLED',
-        proofReferences: [{
-          proofId: `msaudio-product:${setup.job.jobId}`,
-          proofSha256: receipt.receiptSha256,
-          disposition: 'PASS',
-        }],
+        proofReferences: [
+          {
+            proofId: `msaudio-product:${setup.job.jobId}`,
+            proofSha256: receipt.receiptSha256,
+            disposition: 'PASS',
+          },
+          {
+            proofId: `msaudio-availability:${setup.job.jobId}`,
+            proofSha256: receipt.sourceAudioAvailabilityEvidenceSha256,
+            disposition: 'PASS',
+          },
+          {
+            proofId: `msaudio-evidence:${setup.job.jobId}`,
+            proofSha256: receipt.sourceVersionEvidenceSha256,
+            disposition: 'PASS',
+          },
+        ],
+      },
+    });
+  });
+
+  it('dead-letters a legacy V1 receipt after canonical-proof cutover', async () => {
+    const setup = await createSetup('legacy-receipt');
+    const materializeProduct = vi.fn(async () => (
+      legacyProductReceipt(setup.job) as never
+    ));
+
+    const result = await runWorker(setup, materializeProduct);
+
+    expect(result).toEqual({
+      kind: 'dead_letter',
+      jobId: setup.job.jobId,
+      errorCode: 'MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_V2_FIELDS_INVALID',
+    });
+    await expect(currentJob(setup)).resolves.toMatchObject({
+      status: 'dead_letter',
+      error: {
+        code: 'MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_V2_FIELDS_INVALID',
+        retryable: false,
       },
     });
   });
@@ -281,6 +321,30 @@ function productReceipt(
   const observedAudioStreamIndexes = payload.audioStreamBindings.map(
     ({ audioStreamIndex }) => audioStreamIndex,
   );
+  return createMediaSourceAudioProductMaterializationReceiptV2({
+    disposition: 'COMPLETED' as const,
+    assetId: payload.assetId,
+    userId: payload.userId,
+    sourceVersionSha256:
+      overrides.sourceVersionSha256
+      ?? payload.audioStreamBindings[0]!.sourceVersionSha256,
+    audioStreamBindingsSha256: payload.audioStreamBindingsSha256,
+    observedAudioStreamIndexes,
+    materializedAudioStreamIndexes: observedAudioStreamIndexes,
+    audioArtifactStateSha256: '2'.repeat(64),
+    sourceAudioAvailabilityEvidenceSha256: '4'.repeat(64),
+    sourceVersionEvidenceSha256: '3'.repeat(64),
+    completedAt: job.createdAt,
+  });
+}
+
+function legacyProductReceipt(
+  job: Readonly<DurableWorkflowJobSnapshotV1>,
+) {
+  const payload = assertMediaSourceAudioDurableJobInputV1(job.input.payload);
+  const observedAudioStreamIndexes = payload.audioStreamBindings.map(
+    ({ audioStreamIndex }) => audioStreamIndex,
+  );
   const material = {
     schemaVersion: 1 as const,
     kind: MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
@@ -288,8 +352,7 @@ function productReceipt(
     assetId: payload.assetId,
     userId: payload.userId,
     sourceVersionSha256:
-      overrides.sourceVersionSha256
-      ?? payload.audioStreamBindings[0]!.sourceVersionSha256,
+      payload.audioStreamBindings[0]!.sourceVersionSha256,
     audioStreamBindingsSha256: payload.audioStreamBindingsSha256,
     observedAudioStreamIndexes,
     materializedAudioStreamIndexes: observedAudioStreamIndexes,

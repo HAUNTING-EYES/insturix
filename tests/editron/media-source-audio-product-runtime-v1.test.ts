@@ -4,8 +4,8 @@ import type { MediaSourceAudioArtifactAssetStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
 import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
-import type { MediaSourceAudioProductMaterializationReceiptV1 }
-  from '@/lib/editron/services/media-source-audio-product-materializer-v1';
+import { createMediaSourceAudioProductMaterializationReceiptV2 }
+  from '@/lib/editron/services/media-source-audio-product-receipt-v2';
 import { runMediaSourceAudioProductRuntimeV1 }
   from '@/lib/editron/services/media-source-audio-product-runtime-v1';
 import type { MediaSourceVersionEvidenceStorePortsV1 }
@@ -117,10 +117,8 @@ function evidencePorts(): MediaSourceVersionEvidenceStorePortsV1 {
   };
 }
 
-function receipt(): MediaSourceAudioProductMaterializationReceiptV1 {
-  return {
-    schemaVersion: 1,
-    kind: 'EDITRON_MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_V1',
+function receipt() {
+  return createMediaSourceAudioProductMaterializationReceiptV2({
     disposition: 'COMPLETED',
     assetId: input.assetId,
     userId: input.userId,
@@ -129,8 +127,8 @@ function receipt(): MediaSourceAudioProductMaterializationReceiptV1 {
     observedAudioStreamIndexes: [0],
     materializedAudioStreamIndexes: [0],
     audioArtifactStateSha256: '2'.repeat(64),
+    sourceAudioAvailabilityEvidenceSha256: '6'.repeat(64),
     sourceVersionEvidenceSha256: '3'.repeat(64),
     completedAt: input.publishedAt.toISOString(),
-    receiptSha256: '4'.repeat(64),
-  };
+  });
 }

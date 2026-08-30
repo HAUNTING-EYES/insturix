@@ -10,10 +10,11 @@ import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
 import type { MediaSourceAudioPrivateArtifactStreamWriterV1 }
   from './media-source-audio-private-artifact-port-v1';
 import {
-  materializeMediaSourceAudioProductV1,
+  materializeMediaSourceAudioProductV2,
   type MediaSourceAudioProductMaterializationInputV1,
-  type MediaSourceAudioProductMaterializationReceiptV1,
 } from './media-source-audio-product-materializer-v1';
+import type { MediaSourceAudioProductMaterializationReceiptV2 }
+  from './media-source-audio-product-receipt-v2';
 import {
   createMediaSourcePtsCadenceR2RuntimePortsV1,
   type MediaSourcePtsCadenceR2RuntimeEnvironmentV1,
@@ -31,10 +32,10 @@ type PrivateAudioRuntimeV1 = Readonly<{
   audioArtifact: MediaSourceAudioPrivateArtifactStreamWriterV1;
 }>;
 
-type MaterializeProductV1 = typeof materializeMediaSourceAudioProductV1;
+type MaterializeProductV2 = typeof materializeMediaSourceAudioProductV2;
 
 export type MediaSourceAudioProductRuntimeResultV1 =
-  | MediaSourceAudioProductMaterializationReceiptV1
+  | MediaSourceAudioProductMaterializationReceiptV2
   | Readonly<{
       kind: 'runtime_unavailable';
       reason:
@@ -57,7 +58,7 @@ export type MediaSourceAudioProductRuntimeDependenciesV1 = Readonly<{
   createSourceLease?: (
     asset: MediaSourceAudioArtifactAssetStateInputV1,
   ) => VerifiedMediaSourceLeasePortV1;
-  materializeProduct?: MaterializeProductV1;
+  materializeProduct?: MaterializeProductV2;
 }>;
 
 /** Composes the product materializer over the dedicated server-only owners. */
@@ -113,7 +114,7 @@ export async function runMediaSourceAudioProductRuntimeV1(
   }
 
   return (dependencies.materializeProduct
-    ?? materializeMediaSourceAudioProductV1)(input, {
+    ?? materializeMediaSourceAudioProductV2)(input, {
     assetStorePorts,
     availabilityEvidenceStorePorts,
     evidenceStorePorts,

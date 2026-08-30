@@ -10,9 +10,8 @@ import { createOrGetMediaSourceAudioDurableJobV1 }
   from '@/lib/editron/services/media-source-audio-durable-job-v1';
 import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
-import {
-  MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
-} from '@/lib/editron/services/media-source-audio-product-materializer-v1';
+import { createMediaSourceAudioProductMaterializationReceiptV2 }
+  from '@/lib/editron/services/media-source-audio-product-receipt-v2';
 import { runMediaSourceAudioProductRuntimeV1 }
   from '@/lib/editron/services/media-source-audio-product-runtime-v1';
 import {
@@ -274,9 +273,7 @@ function productReceipt(
   const observedAudioStreamIndexes = payload.audioStreamBindings.map(
     ({ audioStreamIndex }) => audioStreamIndex,
   );
-  const material = {
-    schemaVersion: 1 as const,
-    kind: MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_KIND_V1,
+  return createMediaSourceAudioProductMaterializationReceiptV2({
     disposition: 'COMPLETED' as const,
     assetId: payload.assetId,
     userId: payload.userId,
@@ -285,13 +282,10 @@ function productReceipt(
     observedAudioStreamIndexes,
     materializedAudioStreamIndexes: observedAudioStreamIndexes,
     audioArtifactStateSha256: '2'.repeat(64),
+    sourceAudioAvailabilityEvidenceSha256: '4'.repeat(64),
     sourceVersionEvidenceSha256: '3'.repeat(64),
     completedAt: job.createdAt,
-  };
-  return {
-    ...material,
-    receiptSha256: hashEditronCanonicalJsonV1(material),
-  };
+  });
 }
 
 function requestFor(fixture: ReturnType<typeof sourceFixture>) {

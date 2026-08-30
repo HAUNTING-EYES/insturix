@@ -15,18 +15,20 @@ import {
 } from './media-source-audio-durable-job-v1';
 import {
   MediaSourceAudioProductMaterializationErrorV1,
-  assertMediaSourceAudioProductMaterializationReceiptV1,
   type MediaSourceAudioProductMaterializationInputV1,
-  type MediaSourceAudioProductMaterializationReceiptV1,
 } from './media-source-audio-product-materializer-v1';
+import {
+  assertMediaSourceAudioProductMaterializationReceiptV2,
+  type MediaSourceAudioProductMaterializationReceiptV2,
+} from './media-source-audio-product-receipt-v2';
 import type { MediaSourceAudioProductRuntimeResultV1 }
   from './media-source-audio-product-runtime-v1';
 import type { MediaSourceQualificationRecordV1 }
   from './media-source-qualification-v1';
 import type { MediaSourceVersionV1 } from './media-source-version-v1';
 
-export const MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V1 =
-  'EDITRON_MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_V1_1' as const;
+export const MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V2 =
+  'EDITRON_MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_V2_1' as const;
 export const MEDIA_SOURCE_AUDIO_DURABLE_HEARTBEAT_INTERVAL_MS_V1 =
   Math.floor(DURABLE_WORKFLOW_JOB_LEASE_MS_V1 / 3);
 
@@ -127,7 +129,7 @@ export async function runMediaSourceAudioDurableWorkerV1(input: Readonly<{
   let cancellationRequested = false;
   let heartbeatInFlight: Promise<void> | null = null;
   let committedProductReceipt:
-    MediaSourceAudioProductMaterializationReceiptV1 | null = null;
+    MediaSourceAudioProductMaterializationReceiptV2 | null = null;
   const heartbeat = (): Promise<void> => {
     if (heartbeatInFlight) return heartbeatInFlight;
     const next = (async () => {
@@ -184,9 +186,9 @@ export async function runMediaSourceAudioDurableWorkerV1(input: Readonly<{
         { runtimeReason: execution.result.reason },
       );
     }
-    let productReceipt: MediaSourceAudioProductMaterializationReceiptV1;
+    let productReceipt: MediaSourceAudioProductMaterializationReceiptV2;
     try {
-      productReceipt = assertMediaSourceAudioProductMaterializationReceiptV1(
+      productReceipt = assertMediaSourceAudioProductMaterializationReceiptV2(
         execution.result,
       );
     } catch (error) {
@@ -326,7 +328,7 @@ async function resolveCurrentJob(
 }
 
 function assertProductReceiptMatchesJob(
-  receipt: Readonly<MediaSourceAudioProductMaterializationReceiptV1>,
+  receipt: Readonly<MediaSourceAudioProductMaterializationReceiptV2>,
   payload: Readonly<MediaSourceAudioDurableJobInputV1>,
   job: Readonly<DurableWorkflowJobSnapshotV1>,
 ): void {
@@ -355,7 +357,7 @@ async function completeTerminal(input: Readonly<{
     job: Readonly<DurableWorkflowJobSnapshotV1>;
     leaseToken: string;
   }>;
-  productReceipt: Readonly<MediaSourceAudioProductMaterializationReceiptV1>;
+  productReceipt: Readonly<MediaSourceAudioProductMaterializationReceiptV2>;
   clock: () => Date;
 }>): Promise<MediaSourceAudioDurableWorkerResultV1> {
   const completedAt = input.clock();
@@ -366,18 +368,25 @@ async function completeTerminal(input: Readonly<{
       'PASS',
     ),
     proofReference(
+      `msaudio-availability:${input.claim.job.jobId}`,
+      input.productReceipt.sourceAudioAvailabilityEvidenceSha256,
+      'PASS',
+    ),
+    proofReference(
       `msaudio-evidence:${input.claim.job.jobId}`,
       input.productReceipt.sourceVersionEvidenceSha256,
       'PASS',
     ),
   ];
   const material = {
-    version: MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V1,
+    version: MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V2,
     jobId: input.claim.job.jobId,
     operationId: input.claim.job.operationId,
     inputBindingSha256: input.claim.job.input.bindingSha256,
     productReceiptSha256: input.productReceipt.receiptSha256,
     audioArtifactStateSha256: input.productReceipt.audioArtifactStateSha256,
+    sourceAudioAvailabilityEvidenceSha256:
+      input.productReceipt.sourceAudioAvailabilityEvidenceSha256,
     sourceVersionEvidenceSha256:
       input.productReceipt.sourceVersionEvidenceSha256,
     disposition: 'PASS' as const,
@@ -475,23 +484,39 @@ function cancellationReceipt(
   job: Readonly<DurableWorkflowJobSnapshotV1>,
   completedAt: Date,
   productReceipt: Readonly<
-    MediaSourceAudioProductMaterializationReceiptV1
+    MediaSourceAudioProductMaterializationReceiptV2
   > | null,
 ): DurableWorkflowJobTerminalReceiptV1 {
   const proofReferences = productReceipt
-    ? [proofReference(
-        `msaudio-product:${job.jobId}`,
-        productReceipt.receiptSha256,
-        'PASS',
-      )]
+    ? [
+        proofReference(
+          `msaudio-product:${job.jobId}`,
+          productReceipt.receiptSha256,
+          'PASS',
+        ),
+        proofReference(
+          `msaudio-availability:${job.jobId}`,
+          productReceipt.sourceAudioAvailabilityEvidenceSha256,
+          'PASS',
+        ),
+        proofReference(
+          `msaudio-evidence:${job.jobId}`,
+          productReceipt.sourceVersionEvidenceSha256,
+          'PASS',
+        ),
+      ]
     : [];
   const material = {
-    version: MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V1,
+    version: MEDIA_SOURCE_AUDIO_DURABLE_WORKER_RECEIPT_VERSION_V2,
     jobId: job.jobId,
     disposition: 'CANCELLED' as const,
     requestedBy: job.cancelRequestedBy,
     reason: job.cancelReason,
     productReceiptSha256: productReceipt?.receiptSha256 ?? null,
+    sourceAudioAvailabilityEvidenceSha256:
+      productReceipt?.sourceAudioAvailabilityEvidenceSha256 ?? null,
+    sourceVersionEvidenceSha256:
+      productReceipt?.sourceVersionEvidenceSha256 ?? null,
     proofReferences,
     completedAt: completedAt.toISOString(),
   };
