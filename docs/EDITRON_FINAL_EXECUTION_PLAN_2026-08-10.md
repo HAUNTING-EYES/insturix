@@ -10946,6 +10946,43 @@ active relation, relink ProjectService, invalidate derivatives, rerender,
 deliver, roll back or garbage-collect unreachable objects. Those remain Queue
 item 4 work, and Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Proxy/master exact V3 mapping-segment materialization Phase 3F-C8bp
+(2026-08-31):** commits `db25545a6` and `751b618a5` add a read-only production
+owner that turns a sealed V3 correspondence-derivation receipt into exact V1
+proxy/master mapping segments. It rereads the complete proxy and master V3
+presentation timelines in bounded pages, rechecks every window hash and all
+immutable map identities, carries the source-version hash into every source
+position, and accounts for page, frame, byte and segment limits in a sealed
+reload-validatable receipt.
+
+The materializer uses per-frame PTS and measured duration only. Unequal exact
+rates and a genuine variable-cadence proxy can therefore map to a CFR master
+without nominal-FPS inference. Timestamp-reset epochs, including negative PTS,
+become separate segments only when both sources have an exact shared frame
+boundary. If either source changes epoch inside the other source's frame, the
+current V1 segment contract cannot represent the fractional boundary; the owner
+returns `UNREPRESENTABLE_EPOCH_BOUNDARY` and emits no receipt rather than
+rounding, dropping or inventing a frame.
+
+The focused suite passes 9/9 and covers unequal rate, variable cadence, shared
+timestamp resets, negative PTS, multi-page coverage, self-consistent wrong-
+source substitution, page and segment resource exhaustion, thrown and reported
+private-reader outages, unrepresentable epoch boundaries, and nested receipt
+tampering. The complete local proxy/master family passes 365/365 tests across
+67 files, with repository TypeScript and repository-wide quiet ESLint clean.
+This result is
+`EXACT_V3_PROXY_MASTER_MAPPING_SEGMENTS_LOCALLY_MATERIALIZED_MAPPING_QUALIFICATION_AND_ACTIVE_RELATION_OPEN`.
+
+The evidence still uses deterministic in-memory V3 windows and does not prove a
+real V2 proxy's private R2 epoch artifacts. Segment materialization is not a
+qualified mapping: the next owner must compose the sealed correspondence-
+derivation receipt, these materialized segments, the decoded-audio lineage
+receipt, the trusted transcode lineage and the existing V1 mapping contract
+under one causal qualification receipt. Active-relation CAS, ProjectService
+proxy/master relink and invalidation, visual rerender/delivery/rollback, live
+private-runtime proof and reachability GC remain open. Queue item 4 and Stage
+2.5 therefore remain `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
