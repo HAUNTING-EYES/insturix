@@ -11141,6 +11141,47 @@ delivery, recovery and rollback execution also remain open. Queue item 4 must
 next build that production binding issuer, then prove those downstream owners.
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Verified proxy-source binding issuance and cutover-authority audit Phase
+3F-C8bu (2026-08-31):** local commit `aaff428cc` adds the missing
+ProjectService command that snapshots every explicit overlay range against the
+current verified V3 proxy source and persists the binding through the same
+project-revision CAS it describes. The binding carries the sole writer
+authority, proxy source/storage identity, canonical V3 time-map-reference hash,
+complete overlay set and project revision. A separate admission receipt is
+issued only after the media asset is re-read following the Project CAS; a lost
+read or changed asset returns `COMMITTED_REVALIDATION_REQUIRED` and cannot be
+presented as admitted. Focused binding plus relink tests pass 18/18, targeted
+quiet ESLint is clean and repository TypeScript is clean. The commit is held
+locally until a consumer can enforce that admission without creating a false
+activation claim.
+
+The same audit found two architectural facts that supersede the earlier
+single-project activation assumption. First, `MediaAsset` records are
+user/org-level and reusable: projects store only `overlays.assetId`, the same
+asset can create multiple projects, and no project-exclusive schema constraint
+or complete reverse-reference revision exists. A receipt from one project can
+therefore never authorize a global cutover. Second, the live URL resolver still
+chooses `originalR2Key` whenever the transition sets `isProxy:false`; it does
+not consume `proxyMasterActiveMappingV1`. The active-mapping CAS is consequently
+an evidence owner used by exact-boundary/relink code, not yet the playback
+decision owner. The current transition can expose master bytes before project
+binding, active mapping, exact relink or invalidation completes.
+
+Queue item 4 must correct that producer-to-consumer chain before this local
+binding commit is pushed. The production direction is explicit per-project
+source-version pinning rather than a global one-project admission: ProjectService
+must issue immutable proxy pins with the binding CAS, replace them with master
+pins only in the exact relink CAS, and protect those fields from browser or
+worker forgery. Preview, analysis, final render and delivery must resolve each
+overlay from that authenticated pin; an eligible active mapping may authorize a
+master pin but may not switch other projects. A dual-version asset with no valid
+pin must be visibly `UNVERIFIABLE`, not silently resolved from `isProxy`, a URL,
+nominal FPS or timestamp ordering. New-overlay writers and legacy projects need
+an owner-issued pin/migration path, and rollback must restore both proxy
+coordinates and the proxy pin. Only after those consumers are wired may
+downstream invalidation, rerender, delivery and recovery claim source admission.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
