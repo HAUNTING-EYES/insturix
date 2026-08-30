@@ -24,6 +24,8 @@ import {
   assertNativeMediaFinalRenderPreparationJobInputV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1,
   type NativeMediaFinalRenderPreparationJobInputV1,
 } from './native-media-final-render-preparation-job-v1';
 import {
@@ -47,8 +49,6 @@ const NATIVE_MEDIA_FINAL_RENDER_PREPARED_SOURCE_PUBLICATION_KIND_V1 =
 const NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_RECEIPT_KIND_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PUBLICATION_RIGHTS_RECEIPT_V1' as const;
 
-const OPERATION_OWNER = 'NATIVE_MEDIA_FINAL_RENDER';
-const OPERATION_KIND = 'native_media_final_render_prepare_source';
 const SHA256 = /^[a-f0-9]{64}$/;
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 
@@ -327,7 +327,8 @@ function resolveCompletedPreparation(
   deliveryRetryPolicy: NativeMediaFinalRenderPreparationDeliveryRetryPolicyV1,
 ) {
   if (job.version !== DURABLE_WORKFLOW_JOB_VERSION_V1 || job.status !== 'completed'
-    || job.operationOwner !== OPERATION_OWNER || job.operationKind !== OPERATION_KIND
+    || job.operationOwner !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1
+    || job.operationKind !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1
     || job.jobId !== input.jobId || job.tenantId !== input.tenantId
     || job.userId !== input.userId || job.projectId !== input.projectId
     || job.leaseOwnerId !== null || job.leaseExpiresAt !== null || job.error !== null

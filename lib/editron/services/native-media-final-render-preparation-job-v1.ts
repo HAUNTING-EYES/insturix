@@ -33,6 +33,10 @@ import type { ProjectRevisionV1 } from './project-service';
 
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_V1_3' as const;
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1 =
+  'NATIVE_MEDIA_FINAL_RENDER' as const;
+export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1 =
+  'native_media_final_render_prepare_source' as const;
 export const NATIVE_MEDIA_FINAL_RENDER_ARTIFACT_PROFILE_V1 =
   'EDITRON_EXACT_TIMESTAMP_AV_MEZZANINE_V1' as const;
 
@@ -180,8 +184,8 @@ export async function createOrGetNativeMediaFinalRenderPreparationJobV1(input: R
     userId: contract.payload.userId,
     orgId: contract.payload.orgId,
     projectId: contract.payload.projectId,
-    operationOwner: 'NATIVE_MEDIA_FINAL_RENDER',
-    operationKind: 'native_media_final_render_prepare_source',
+    operationOwner: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1,
+    operationKind: NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1,
     operationId: contract.operationIdentity,
     parentCommandId: null,
     parentReceiptId: null,

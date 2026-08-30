@@ -10,6 +10,8 @@ import {
   assertNativeMediaFinalRenderPreparationJobInputV1,
   buildNativeMediaFinalRenderPreparationJobContractV1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1,
   type NativeMediaFinalRenderPreparationExecutionProfileV1,
   type NativeMediaFinalRenderPreparationJobInputV1,
   type NativeMediaFinalRenderPreparationPolicyBindingsV1,
@@ -39,8 +41,6 @@ const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_WORKER_RECEIPT_VERSION_V1 =
 export const NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OWNER_ID_V1 =
   'NATIVE_MEDIA_FINAL_RENDER_SOURCE_MATERIALIZER' as const;
 
-const OPERATION_OWNER = 'NATIVE_MEDIA_FINAL_RENDER';
-const OPERATION_KIND = 'native_media_final_render_prepare_source';
 const SHA256 = /^[a-f0-9]{64}$/;
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 
@@ -330,7 +330,8 @@ function resolveClaimedJob(
     );
   }
   if (job.version !== DURABLE_WORKFLOW_JOB_VERSION_V1
-    || job.operationOwner !== OPERATION_OWNER || job.operationKind !== OPERATION_KIND
+    || job.operationOwner !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1
+    || job.operationKind !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1
     || job.operationId !== contract.operationIdentity
     || job.idempotencyKey !== contract.operationIdentity
     || job.parentCommandId !== null || job.parentReceiptId !== null

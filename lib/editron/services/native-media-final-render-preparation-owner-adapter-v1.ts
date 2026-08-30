@@ -10,6 +10,8 @@ import {
 import {
   assertNativeMediaFinalRenderPreparationJobInputV1,
   NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1,
+  NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1,
   type NativeMediaFinalRenderPreparationJobInputV1,
 } from './native-media-final-render-preparation-job-v1';
 import {
@@ -191,8 +193,9 @@ function assertAdapterJobScope(
   input: NativeMediaFinalRenderPreparationJobInputV1,
 ): NativeMediaFinalRenderPreparationJobInputV1 {
   const jobInput = assertNativeMediaFinalRenderPreparationJobInputV1(input);
-  if (!job || job.operationOwner !== 'NATIVE_MEDIA_FINAL_RENDER'
-    || job.operationKind !== 'native_media_final_render_prepare_source'
+  if (!job
+    || job.operationOwner !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_OWNER_V1
+    || job.operationKind !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_OPERATION_KIND_V1
     || job.userId !== jobInput.userId || job.projectId !== jobInput.projectId
     || job.input?.schemaId !== NATIVE_MEDIA_FINAL_RENDER_PREPARATION_JOB_INPUT_VERSION_V1
     || job.input.bindingSha256 !== hashDurableWorkflowJobJsonV1(jobInput)
