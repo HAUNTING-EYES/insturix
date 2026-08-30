@@ -58,6 +58,8 @@ type CleanupResolutionInput = Parameters<
   typeof resolveMediaProxyMasterR2MultipartCleanupV1
 >[1];
 
+export const MEDIA_PROXY_MASTER_R2_MULTIPART_MONGO_STORE_VERSION_V1 =
+  'EDITRON_MEDIA_PROXY_MASTER_R2_MULTIPART_MONGO_STORE_V1' as const;
 export const MEDIA_PROXY_MASTER_R2_MULTIPART_COLLECTION_V1 =
   'editron_media_proxy_master_r2_multipart_v1' as const;
 
