@@ -10620,6 +10620,38 @@ layouts is deliberately fail-closed until a separately proven canonical
 channel-topology owner exists; it is not universal multichannel qualification.
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Private proxy publication Phase 3F-C8be (2026-08-30):** commit
+`33dc99148` adds the first concrete executor publisher for proxy outputs within
+Cloudflare R2's documented single-request ceiling. It rejects the public CDN
+bucket and any scope with a browser route, verifies the local regular-file
+length and complete SHA-256, sends one private-cache/no-store create-only PUT,
+and treats HTTP 412 only as a request to prove an existing object. Both a new
+object and a replay are then fully streamed through GET, checked against exact
+content/type/disposition/lineage metadata, and fenced by a subsequent HEAD
+whose ETag, length and metadata must still match. Only then does the adapter
+issue the exact R2 storage version and canonical proxy source version. A
+corrupt collision, short/long body, substituted metadata, changed ETag,
+non-precondition write failure, abort, wrong key/hash or unsafe bucket cannot
+become success.
+
+The complete proxy/master family passes 71/71 across 12 files with repository
+TypeScript and repository-wide quiet ESLint passing. The S3 client and bucket
+remain injected; no live object was written. This result is
+`PRIVATE_PROXY_SINGLE_PUT_CREATE_REPLAY_REREAD_VERIFIED_MULTIPART_RUNTIME_AND_LIVE_PROOF_OPEN`.
+It is not universal large-video publication. The adapter deliberately blocks
+above R2's 4.995-GiB single-request ceiling. Current R2 guidance recommends
+multipart for large video and allows up to 10,000 uniform parts; conditional
+multipart completion exists, but Editron still needs a durable upload record,
+part manifests/ETags, fenced resume, conditional completion, abort/cleanup,
+complete reread and cost/latency telemetry. The executor also has not yet been
+composed with a deployment-owned canonical private-media R2 namespace, and
+its terminal receipt binds the returned source/storage identity rather than a
+separate publisher-policy receipt. Add those owners before claiming large-
+object, restart-safe or independently auditable publication. Proxy V3/audio
+roots, relation qualification/CAS, relink/invalidation, rerender/rollback and
+live private-storage proof remain Queue item 4. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
