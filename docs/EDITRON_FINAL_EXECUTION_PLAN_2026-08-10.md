@@ -9644,6 +9644,27 @@ V3 maps, trusted transcode producer, audio-lineage composition, asset CAS,
 ProjectService relink and downstream invalidation/render consumers remain Queue
 item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Proxy/master correspondence manifest Phase 3F-C8x (2026-08-30):** commit
+`338af9de7` adds the multi-batch index and exact private reference consumed by
+the C8v mapping contract. Index creation revalidates each supplied canonical
+batch plus sidecar, binds one relation/V3 basis and required batch policy,
+checks batch and span sequence, exact cross-batch canonical continuity, legal
+zero-or-one frame advances, zero-based starts and complete terminal proxy and
+master frame coverage. The persisted index parser independently rejects forged
+summary gaps and nonzero starts; the reference is content-addressed under the
+same basis hash and cannot name public storage.
+
+The correspondence batch/index cluster passes 8/8; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_MANIFEST_CODEC_SEALED_PRIVATE_ARTIFACT_REPROOF_OPEN`.
+No private object was written or read, and an index sidecar summary is not the
+batch payload it names. The next owner must conditionally write/reread the
+manifest and every batch, verify their bytes/hashes/summaries against both V3
+artifact sets, and issue a separate verification receipt. Trusted transcode
+production, audio composition, asset CAS, ProjectService relink, invalidation,
+rerender and rollback remain Queue item 4 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
