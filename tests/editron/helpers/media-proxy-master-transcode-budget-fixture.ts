@@ -13,7 +13,12 @@ import {
 import {
   createMediaProxyMasterTranscodeCommandV1,
   createMediaProxyMasterTranscodePolicyV1,
+  createMediaProxyMasterTrustedTranscodeReceiptV1,
+  expectedMediaProxyMasterTranscodeR2ObjectKeyV1,
+  type MediaProxyMasterTranscodeCommandV1,
 } from '@/lib/editron/services/media-proxy-master-trusted-transcode-v1';
+import { createMediaProxyMasterTranscodeOutputProbeV1 }
+  from '@/lib/editron/services/media-proxy-master-transcode-output-probe-v1';
 import { createMediaSourceStorageVersionV1 }
   from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 }
@@ -112,6 +117,88 @@ export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
 
 export function mediaProxyMasterBudgetHashV1(value: string): string {
   return Buffer.from(value).toString('hex').padEnd(64, '0').slice(0, 64);
+}
+
+export function createMediaProxyMasterTranscodeBudgetTrustedReceiptV1(
+  command: Readonly<MediaProxyMasterTranscodeCommandV1>,
+) {
+  const contentSha256 = hash('proxy-content');
+  const storageVersion = createMediaSourceStorageVersionV1({
+    locator: {
+      provider: 'R2',
+      objectKey: expectedMediaProxyMasterTranscodeR2ObjectKeyV1({
+        command,
+        proxyContentSha256: contentSha256,
+      }),
+    },
+    byteLength: 40_000,
+    providerVersion: { kind: 'R2_ETAG', value: 'etag-proxy-budget' },
+  });
+  const proxy = createMediaSourceVersionV1({
+    owner: command.masterSourceVersion.owner,
+    assetId: command.masterSourceVersion.assetId,
+    mediaKind: 'video',
+    byteLength: storageVersion.byteLength,
+    contentSha256,
+    storageVersion,
+  });
+  return createMediaProxyMasterTrustedTranscodeReceiptV1({
+    command,
+    runtime: {
+      workerImageDigest: hash('worker-image'),
+      platform: 'linux-x64',
+      ffmpegVersion: 'ffmpeg version 8.1',
+      ffprobeVersion: 'ffprobe version 8.1',
+    },
+    process: {
+      startedAt: '2026-08-30T00:11:00.000Z',
+      completedAt: '2026-08-30T00:12:00.000Z',
+      exitCode: 0,
+      stderrByteLength: 0,
+      stderrSha256: hash('empty-stderr'),
+    },
+    masterLocalFileEvidence: {
+      sourceVersionSha256: command.masterSourceVersion.sourceVersionSha256,
+      storageVersionSha256:
+        command.masterSourceVersion.storageVersion.storageVersionSha256,
+      byteLength: command.masterSourceVersion.byteLength,
+      contentSha256: command.masterSourceVersion.contentSha256,
+    },
+    proxySourceVersion: proxy,
+    outputProbe: createMediaProxyMasterTranscodeOutputProbeV1({
+      commandSha256: command.commandSha256,
+      ffprobeVersion: 'ffprobe version 8.1',
+      proxyContentSha256: proxy.contentSha256,
+      proxyByteLength: proxy.byteLength,
+      container: 'mp4',
+      formatNames: ['mov', 'mp4'],
+      video: {
+        streamIndex: 0,
+        codec: 'h264',
+        pixelFormat: 'yuv420p',
+        codedWidth: 1_280,
+        codedHeight: 720,
+        sourceTimebase: { numerator: '1', denominator: '90000' },
+        sourceStartPts: '0',
+        sourceDurationTicks: '900000',
+        frameCount: command.masterTimeMap.totalFrameCount,
+      },
+      audio: [{
+        streamIndex: 1,
+        codec: 'aac',
+        sampleRate: '48000',
+        channelCount: 2,
+        channelLayout: 'stereo',
+        sourceTimebase: { numerator: '1', denominator: '48000' },
+        sourceStartPts: '0',
+        sourceDurationTicks: '480000',
+      }],
+      probedAt: '2026-08-30T00:12:01.000Z',
+    }),
+    outputVideoStreamIndex: 0,
+    outputAudioStreamIndexes: [1],
+    completedAt: '2026-08-30T00:12:02.000Z',
+  });
 }
 
 function masterSource() {
