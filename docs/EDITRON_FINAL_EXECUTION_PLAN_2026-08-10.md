@@ -9212,6 +9212,30 @@ finalizer publishes their staged batches, and neither the Modal app nor the
 dedicated private R2 scope was deployed/exercised in this phase. Queue item 4
 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Identity-bound V3 product HTTP transport Phase 3F-C8g (2026-08-30):**
+commit `34f4fcea9` adds the TypeScript V3 submission/job/poll contract for the
+authenticated epoch endpoints. It accepts only requests whose bound mapper and
+command policy are both `epoch-ffprobe-v3`. Returned jobs contain no signed
+source URL and bind submission ID, Modal call ID, map-binding hash and both
+mapper identities. Pending and terminal responses require exact keys and exact
+identity/hash equality; cross-version, malformed, oversized or untrusted-host
+responses become named `UNVERIFIABLE` transport results.
+
+The existing V1 transport now shares one neutral owner for trusted Modal
+endpoint resolution, proxy headers, timeout, bounded response streaming,
+fatal-UTF-8 JSON parsing and call/submission ID validation. Its public request,
+submission, job, response and diagnostic contracts are unchanged. V1 and V3
+remain separate domain producers over shared HTTP plumbing.
+
+All 28 timestamp-map suites pass 145/145, all 49 Modal tests pass, and
+repository TypeScript plus repository-wide quiet ESLint pass. This result is
+`V3_PRODUCT_HTTP_TRANSPORT_VERIFIED_DURABLE_JOB_FINALIZER_DEPLOYMENT_OPEN`.
+No production composition selects this transport, no durable lifecycle owns
+submission/poll/redelivery, and no finalizer converts its V1-compatible staged
+runs into a canonical V3 epoch index or publishes it to `MEDIA_ASSETS`. Live
+endpoint/private-R2 proof also remains absent. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
