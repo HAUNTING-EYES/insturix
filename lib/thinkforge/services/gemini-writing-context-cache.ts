@@ -43,6 +43,13 @@ interface CacheEntry {
   contextHash: string;
 }
 
+export interface WritingContextTelemetry {
+  userId?: string;
+  orgId?: string;
+  projectId?: string;
+  taskId?: string;
+}
+
 export interface WritingContextGenerationInput {
   prompt: string;
   /**
@@ -59,6 +66,7 @@ export interface WritingContextGenerationInput {
   temperature?: number;
   maxTokens?: number;
   abortSignal?: AbortSignal;
+  telemetry?: WritingContextTelemetry;
 }
 
 export interface WritingContextGenerationResult {
@@ -137,6 +145,7 @@ async function recordThinkForgeWritingContextCost(input: {
   thinkingLevel?: GeminiThinkingLevel;
   providerRequestCount?: number;
   retryCount?: number;
+  telemetry?: WritingContextTelemetry;
   error?: unknown;
 }) {
   const requestCount = Math.max(0, Math.floor(input.providerRequestCount ?? 1));
@@ -153,6 +162,10 @@ async function recordThinkForgeWritingContextCost(input: {
 
   void recordProviderCostEvent({
     status: input.status,
+    userId: input.telemetry?.userId,
+    orgId: input.telemetry?.orgId,
+    projectId: input.telemetry?.projectId,
+    taskId: input.telemetry?.taskId,
     service: 'thinkforge',
     action: 'writing_context_cache',
     route: 'lib/thinkforge/services/gemini-writing-context-cache',
@@ -247,6 +260,7 @@ function assertWritingPromptPreflight(
       functionMs: Date.now() - startedAt,
       privacyAudit,
       providerRequestCount: 0,
+      telemetry: input.telemetry,
       error,
     });
     throw error;
@@ -903,6 +917,7 @@ export async function generateWithWritingContextCache(
       privacyAudit,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
     });
     return { text, cacheStatus: context.cacheStatus, modelName };
   } catch (error) {
@@ -918,6 +933,7 @@ export async function generateWithWritingContextCache(
       privacyAudit: failedAudit,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
       error,
     });
     throw error;
@@ -1038,6 +1054,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       thinkingLevel,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
     });
     return {
       result: generation.object,
@@ -1065,6 +1082,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       thinkingLevel,
       providerRequestCount: providerAttemptCount,
       retryCount: Math.max(0, providerAttemptCount - 1),
+      telemetry: input.telemetry,
       error: failure,
     });
     throw failure;

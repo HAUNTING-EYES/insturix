@@ -97,7 +97,9 @@ export function normalizeProviderCostEvent(input: ProviderCostEventInput): Provi
     { pricingVersion: input.pricingVersion },
   );
   const chargedCredits = cleanNumber(input.chargedCredits);
-  const costBasis = input.costBasis ?? estimate.costBasis;
+  const hasNoProviderRequests = units.requestCount === 0;
+  const costBasis = input.costBasis
+    ?? (hasNoProviderRequests ? 'provider_usage' : estimate.costBasis);
 
   return stripUndefined({
     eventId: input.eventId ?? `pce_${randomUUID()}`,
@@ -124,11 +126,19 @@ export function normalizeProviderCostEvent(input: ProviderCostEventInput): Provi
     estimatedCostUsd:
       (input.estimatedCostUsd !== undefined
         ? cleanNullableNumber(input.estimatedCostUsd)
-        : estimate.estimatedCostUsd) ?? null,
-    actualCostUsd: cleanNullableNumber(input.actualCostUsd),
+        : hasNoProviderRequests
+          ? 0
+          : estimate.estimatedCostUsd) ?? null,
+    actualCostUsd: input.actualCostUsd !== undefined
+      ? cleanNullableNumber(input.actualCostUsd)
+      : hasNoProviderRequests
+        ? 0
+        : undefined,
     pricingVersion: input.pricingVersion ?? estimate.pricingVersion ?? PROVIDER_COST_PRICING_VERSION,
     costBasis,
-    missingPricing: costBasis === 'pricing_to_be_seen' || estimate.missingPricing,
+    missingPricing: hasNoProviderRequests
+      ? false
+      : costBasis === 'pricing_to_be_seen' || estimate.missingPricing,
     vendorRequestId: cleanString(input.vendorRequestId),
     providerJobId: cleanString(input.providerJobId),
     units,

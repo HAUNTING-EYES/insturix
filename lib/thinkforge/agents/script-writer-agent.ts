@@ -2082,6 +2082,10 @@ ${treatmentRuntimeDataRule}`;
     const modelSchema = usesSemanticVideoTreatment
       ? ScriptWriterV3ModelOutputSchema
       : ScriptWriterModelOutputSchema;
+    const writerTelemetry = {
+      projectId: executionInput.brandId,
+      taskId: executionInput.sessionId,
+    };
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
       cacheSystemInstruction: promptParts.systemInstruction,
@@ -2092,6 +2096,7 @@ ${treatmentRuntimeDataRule}`;
       thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
       thinkingLevel: 'medium',
       abortSignal,
+      telemetry: writerTelemetry,
     });
 
     const identityPolicy = scriptWriterIdentityPolicy(resolvedEditorial.chapterExecution);
@@ -2172,6 +2177,7 @@ ${treatmentRuntimeDataRule}`;
         thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
         thinkingLevel: 'low',
         abortSignal,
+        telemetry: writerTelemetry,
       });
       repairCacheStatus = repairedGeneration.cacheStatus;
       modelOutput = repairedGeneration.result as AnyScriptWriterModelOutput;

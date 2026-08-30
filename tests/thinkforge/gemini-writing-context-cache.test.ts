@@ -26,7 +26,8 @@ vi.mock('ai', () => ({
   generateObject: sdkMocks.generateObject,
 }));
 
-vi.mock('@/lib/financials/provider-cost-events', () => ({
+vi.mock('@/lib/financials/provider-cost-events', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/financials/provider-cost-events')>()),
   recordProviderCostEvent: sdkMocks.recordProviderCostEvent,
 }));
 
@@ -44,6 +45,7 @@ import {
   getCreativeContentKnowledgeText,
   resetWritingContextCacheMemoryForTests,
 } from '@/lib/thinkforge/services/gemini-writing-context-cache';
+import { normalizeProviderCostEvent } from '@/lib/financials/provider-cost-events';
 import { resolveThinkForgeGenerationFailureMessage } from '@/lib/thinkforge/client-generation-lifecycle';
 import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
 import { PostWriterAgent, PostWriterResultSchema } from '@/lib/thinkforge/agents/post-writer-agent';
@@ -374,16 +376,68 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     await expect(generateStructuredWithWritingContextCache({
       prompt: 'Write a post.',
       schema: z.object({ output: z.string() }),
+      telemetry: {
+        projectId: 'brand_b',
+        taskId: 'session_b',
+      },
     })).resolves.toMatchObject({ result: { output: 'Recovered copy' } });
 
     expect(sdkMocks.generateObject).toHaveBeenCalledTimes(2);
     expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]).toMatchObject({
       status: 'success',
+      projectId: 'brand_b',
+      taskId: 'session_b',
       units: { requestCount: 2, retryCount: 1 },
       metadata: { retryCount: 1 },
     });
     expect(resolveThinkForgeGenerationFailureMessage('This model is currently experiencing high demand.'))
       .toBe('The writing service is temporarily busy. No draft was saved. Please try again in a moment.');
+  });
+
+  it('records provider-free receipts as explicit zero-cost events', () => {
+    const event = normalizeProviderCostEvent({
+      service: 'thinkforge',
+      action: 'video_treatment_planning',
+      provider: 'gemini',
+      model: 'gemini-3.6-flash',
+      operation: 'treatment_planning_receipt',
+      units: { requestCount: 0 },
+    });
+
+    expect(event).toMatchObject({
+      estimatedCostUsd: 0,
+      actualCostUsd: 0,
+      costBasis: 'provider_usage',
+      missingPricing: false,
+    });
+  });
+
+  it.each([
+    'llm_stream',
+    'llm_structured',
+    'llm_structured_fallback',
+    'llm_stream_direct',
+    'llm_structured_direct',
+    'llm_search_grounded_direct',
+    'llm_structured_cached_context',
+    'llm_structured_inline_context',
+  ])('prices the Gemini writer operation %s from token usage', (operation) => {
+    const event = normalizeProviderCostEvent({
+      service: 'thinkforge',
+      action: 'writing_context_cache',
+      provider: 'gemini',
+      model: 'gemini-3.6-flash',
+      operation,
+      units: {
+        requestCount: 1,
+        inputTokens: 1_000,
+        outputTokens: 100,
+      },
+    });
+
+    expect(event.estimatedCostUsd).toBeCloseTo(0.001125, 8);
+    expect(event.costBasis).toBe('estimated_table');
+    expect(event.missingPricing).toBe(false);
   });
 
   it('keeps nested writer retries bounded after both high-demand attempts fail', async () => {
