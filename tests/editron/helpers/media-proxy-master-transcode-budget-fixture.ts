@@ -11,6 +11,10 @@ import {
   createMediaProxyMasterTranscodeExecutionBudgetReservationV1,
 } from '@/lib/editron/services/media-proxy-master-transcode-execution-budget-reservation-v1';
 import {
+  createMediaProxyMasterTranscodeHeartbeatPolicyV1,
+  createMediaProxyMasterTranscodeRetryPolicyV1,
+} from '@/lib/editron/services/media-proxy-master-transcode-operational-policy-v1';
+import {
   createMediaProxyMasterTranscodeCommandV1,
   createMediaProxyMasterTranscodePolicyV1,
   createMediaProxyMasterTrustedTranscodeReceiptV1,
@@ -75,7 +79,8 @@ export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
     masterVideoStreamIndex: 0,
     masterAudioStreamIndexes: [1],
   });
-  const runtimePolicy = runtime(policy);
+  const operationalPolicies = createOperationalPolicies();
+  const runtimePolicy = runtime(policy, operationalPolicies);
   const publicationPolicy =
     createMediaProxyMasterR2PrivatePublicationPolicyV1({
       bucketName: 'editron-media-proxy-private',
@@ -108,6 +113,7 @@ export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
   return {
     policy,
     command,
+    operationalPolicies,
     runtimePolicy,
     publicationPolicy,
     authorization,
@@ -217,16 +223,19 @@ function masterSource() {
   });
 }
 
-function runtime(policy: MediaProxyMasterTranscodeExecutionBudgetPolicyV1) {
+function runtime(
+  policy: MediaProxyMasterTranscodeExecutionBudgetPolicyV1,
+  operationalPolicies: ReturnType<typeof createOperationalPolicies>,
+) {
   return createMediaProxyMasterTranscodeDurableRuntimePolicyV1({
-    lifecycle: { maxAttempts: 6, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+    lifecycle: operationalPolicies.retry.durableJob,
     executionBudgetPolicy: {
       ownerId: policy.ownerId,
       ownerVersion: policy.ownerVersion,
       policySha256: policy.policySha256,
     },
-    retryPolicy: owner('retry'),
-    heartbeatPolicy: owner('heartbeat'),
+    retryPolicy: binding(operationalPolicies.retry),
+    heartbeatPolicy: binding(operationalPolicies.heartbeat),
     executionProfile: {
       workerImageDigest: hash('worker-image'),
       platform: 'linux-x64',
@@ -237,11 +246,43 @@ function runtime(policy: MediaProxyMasterTranscodeExecutionBudgetPolicyV1) {
   });
 }
 
-function owner(tag: string) {
+function createOperationalPolicies() {
   return {
-    ownerId: `editron-${tag}-owner`,
-    ownerVersion: `editron-${tag}-v1`,
-    policySha256: hash(`${tag}-policy`),
+    retry: createMediaProxyMasterTranscodeRetryPolicyV1({
+      durableJob: {
+        maxAttempts: 6,
+        retentionMs: 7 * 24 * 60 * 60 * 1_000,
+      },
+      qstashDelivery: {
+        retries: 2,
+        retryDelayMs: 30_000,
+        timeoutSeconds: 300,
+      },
+      workerRetry: {
+        baseDelayMs: 1_000,
+        maximumDelayMs: 30_000,
+        backoffMultiplier: 2,
+        deterministicJitterPermille: 200,
+        retryableDiagnostics: [
+          'MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_SOURCE_UNAVAILABLE',
+        ],
+      },
+    }),
+    heartbeat: createMediaProxyMasterTranscodeHeartbeatPolicyV1({
+      heartbeatIntervalMs: 1_000,
+    }),
+  };
+}
+
+function binding(policy: Readonly<{
+  ownerId: string;
+  ownerVersion: string;
+  policySha256: string;
+}>) {
+  return {
+    ownerId: policy.ownerId,
+    ownerVersion: policy.ownerVersion,
+    policySha256: policy.policySha256,
   };
 }
 
