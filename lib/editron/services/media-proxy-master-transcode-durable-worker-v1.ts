@@ -137,6 +137,21 @@ class WorkerFailureV1 extends Error {
   }
 }
 
+export type MediaProxyMasterTranscodeDurableWorkerPortFailureCodeV1 =
+  | 'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_LOAD_FAILED'
+  | 'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_INVALID';
+
+export class MediaProxyMasterTranscodeDurableWorkerPortErrorV1 extends Error {
+  constructor(
+    public readonly code:
+      MediaProxyMasterTranscodeDurableWorkerPortFailureCodeV1,
+    public readonly retryable: boolean,
+  ) {
+    super(code);
+    this.name = 'MediaProxyMasterTranscodeDurableWorkerPortErrorV1';
+  }
+}
+
 class CancellationRequestedV1 extends Error {}
 
 export async function runMediaProxyMasterTranscodeDurableWorkerV1(
@@ -764,6 +779,9 @@ async function settleFailure(input: Readonly<{
 
 function toWorkerFailure(error: unknown): WorkerFailureV1 {
   if (error instanceof WorkerFailureV1) return error;
+  if (error instanceof MediaProxyMasterTranscodeDurableWorkerPortErrorV1) {
+    return new WorkerFailureV1(error.code, error.retryable);
+  }
   return new WorkerFailureV1(
     'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_EXECUTION_FAILED',
     false,

@@ -25,6 +25,7 @@ import {
   MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_ID_V1,
   MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_VERSION_V1,
   MEDIA_PROXY_MASTER_TRANSCODE_EXECUTION_OWNER_ID_V1,
+  MediaProxyMasterTranscodeDurableWorkerPortErrorV1,
   runMediaProxyMasterTranscodeDurableWorkerV1,
   type MediaProxyMasterTranscodeBudgetOwnerV1,
   type MediaProxyMasterTranscodeExecutionOwnerV1,
@@ -145,6 +146,54 @@ describe('MediaProxyMasterTranscodeDurableWorkerV1', () => {
         'execution-budget-authorization', 'private-publication-policy',
         'trusted-proxy-transcode-execution', 'retry-policy-decision',
       ]);
+    expect(fixture.budgetOwner.settleTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a typed current-asset owner outage without executor access',
+    async () => {
+      const fixture = await workerFixture();
+      fixture.currentAssetOwner.resolve.mockRejectedValueOnce(
+        new MediaProxyMasterTranscodeDurableWorkerPortErrorV1(
+          'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_LOAD_FAILED',
+          true,
+        ),
+      );
+
+      expect(await fixture.run()).toEqual({
+        kind: 'retry_wait',
+        jobId: fixture.jobId,
+        errorCode:
+          'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_LOAD_FAILED',
+      });
+      expect(await fixture.snapshot()).toMatchObject({
+        status: 'retry_wait',
+        error: {
+          code:
+            'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_LOAD_FAILED',
+          retryable: true,
+        },
+      });
+      expect(fixture.transcodeOwner.execute).not.toHaveBeenCalled();
+      expect(fixture.budgetOwner.settleTerminal).not.toHaveBeenCalled();
+    });
+
+  it('dead-letters typed invalid current-asset evidence', async () => {
+    const fixture = await workerFixture();
+    fixture.currentAssetOwner.resolve.mockRejectedValueOnce(
+      new MediaProxyMasterTranscodeDurableWorkerPortErrorV1(
+        'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_INVALID',
+        false,
+      ),
+    );
+
+    expect(await fixture.run()).toEqual({
+      kind: 'dead_letter',
+      jobId: fixture.jobId,
+      errorCode:
+        'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_INVALID',
+    });
+    expect(fixture.transcodeOwner.execute).not.toHaveBeenCalled();
+    expect(fixture.retryOwner.decide).not.toHaveBeenCalled();
     expect(fixture.budgetOwner.settleTerminal).toHaveBeenCalledTimes(1);
   });
 
