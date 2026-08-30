@@ -9557,6 +9557,43 @@ The existing relation therefore remains
 `UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED`; Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Unqualified proxy-consumer guard Phase 3F-C8u (2026-08-30):** commit
+`5eaa9a65a` closes a live enforcement gap behind the earlier pure-contract
+test. Both Mongo asset projections used by V3 scanning and native-media
+preview/analysis/final render now load `proxyMasterRelationV1`. The sole
+verified V3 source-binding resolver validates that relation against the active
+master owner, asset, media kind, source hash, content hash and storage hash,
+then rejects the still-unqualified mapping before any private epoch artifact
+read or media decode. This central boundary covers every current resolver
+consumer rather than duplicating checks in individual renderers.
+
+The direct asset-owner/timestamp cluster passes 22/22 and all downstream
+preview/local-source/final-render consumers pass 51/51; repository TypeScript,
+repository-wide quiet ESLint and diff checks pass. This result is
+`UNQUALIFIED_PROXY_CONSUMER_BYPASS_CLOSED_TRUSTED_MAPPING_OWNER_OPEN`.
+
+The producer audit also proves that today's quick proxy is not mapping
+evidence. `lib/editron/client/video-compressor.ts` runs FFmpeg-WASM in the
+browser with scale/H.264/AAC-mono output, default timestamp synchronization,
+and no immutable transcode-lineage or per-epoch proxy-to-master anchor receipt.
+The browser then uploads that proxy before the original. A shared filename,
+asset ID, reported duration or frame count cannot qualify the relation.
+Official Premiere matching uses metadata including timecode, Resolve requires
+identical timecode and frame rate for externally generated proxies, and FFmpeg
+documents that frame-sync and muxer choices can alter timestamps.
+
+The production mapping phase must therefore make trusted server-generated
+proxies the primary route: derive the proxy from a canonical immutable master,
+emit source-version-bound per-epoch video anchors plus exact audio/cadence/
+stream and encoder-policy evidence, scan both objects through V3, and reverify
+the receipt before relink. The current proxy-first browser route may remain a
+provisional low-latency surface only while its project coordinates stay bound
+to the proxy source version. It may switch to the master only after an
+independent server verifier creates equivalent mapping evidence; otherwise it
+must remain visibly on the proxy or blocked. ProjectService relink receipts,
+derivative invalidation/rerender and rollback remain required. Queue item 4
+and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
