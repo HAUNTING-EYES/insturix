@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
+import type {
+  MediaSourcePtsCadenceBoundarySemanticVerifierV3,
+  MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3,
+} from '@/lib/editron/services/media-source-pts-cadence-epoch-artifact-verifier-v3';
+import {
+  persistMediaSourcePtsCadenceMapAssetStateV3,
+  type MediaSourcePtsCadenceMapAssetStateInputV3,
+  type MediaSourcePtsCadenceMapAssetStorePortsV3,
+} from '@/lib/editron/services/media-source-pts-cadence-map-asset-owner-v3';
+import type { MediaSourcePtsCadenceR2EpochIndexWriterV3 }
+  from '@/lib/editron/services/media-source-pts-cadence-r2-epoch-index-writer-v3';
 import {
   prepareMediaSourcePtsCadenceScanFinalizationV3,
 } from '@/lib/editron/services/media-source-pts-cadence-scan-finalizer-v3';
+import {
+  publishMediaSourcePtsCadenceScanV3,
+  type MediaSourcePtsCadenceScanPublisherStateOwnerV3,
+} from '@/lib/editron/services/media-source-pts-cadence-scan-publisher-v3';
 import { MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_KIND_V1 }
   from '@/lib/editron/services/media-source-pts-cadence-scan-result-v1';
 import {
@@ -157,6 +172,136 @@ describe('media source PTS cadence scan finalizer V3 preparation', () => {
   });
 });
 
+describe('media source PTS cadence scan publication V3', () => {
+  it('writes, claims, renews, verifies, completes, and replays without false work', async () => {
+    const fixture = finalizationFixture([
+      [frame('0', '40'), frame('40', '60')],
+      [frame('100', '40'), frame('140', '60')],
+    ]);
+
+    const first = await publishMediaSourcePtsCadenceScanV3(fixture.publicationInput);
+    expect(first).toMatchObject({
+      disposition: 'COMPLETED',
+      state: {
+        sourcePtsCadenceMapV3: {
+          status: 'COMPLETE',
+          attemptCount: 1,
+          terminalReceipt: { disposition: 'PUBLISHED' },
+          verificationReceipt: {
+            disposition: 'EPOCH_ARTIFACT_SET_VERIFIED',
+            verifiedBatchCount: 2,
+            verifiedFrameCount: '4',
+          },
+        },
+      },
+    });
+    expect(fixture.persistedStatuses).toEqual([
+      'PENDING', 'VERIFYING', 'VERIFYING', 'COMPLETE',
+    ]);
+    expect(fixture.epochIndexWriter.writeImmutableEpochIndex).toHaveBeenCalledTimes(1);
+    expect(fixture.lifecycle.nextClaimExpiresAt).toHaveBeenCalledTimes(5);
+
+    const replay = await publishMediaSourcePtsCadenceScanV3(fixture.publicationInput);
+    expect(replay).toMatchObject({ disposition: 'ALREADY_COMPLETE' });
+    expect(fixture.epochIndexWriter.writeImmutableEpochIndex).toHaveBeenCalledTimes(1);
+    expect(fixture.stateOwner.persist).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps transient artifact reads retryable and blocks a foreign claimant', async () => {
+    const fixture = finalizationFixture([[frame('0', '40')]]);
+    fixture.controls.failNextArtifactRead = true;
+
+    const retryable = await publishMediaSourcePtsCadenceScanV3(fixture.publicationInput);
+    expect(retryable).toMatchObject({
+      disposition: 'RETRYABLE',
+      reason: 'EPOCH_INDEX_READ_FAILED',
+      state: { sourcePtsCadenceMapV3: { status: 'VERIFYING', attemptCount: 1 } },
+    });
+    expect(fixture.asset.sourcePtsCadenceMapV3).toMatchObject({
+      status: 'VERIFYING',
+      terminalReceipt: null,
+    });
+
+    const busy = await publishMediaSourcePtsCadenceScanV3({
+      ...fixture.publicationInput,
+      claimId: 'foreign-publication-claim',
+    });
+    expect(busy).toEqual({
+      disposition: 'BUSY',
+      activeClaimId: 'direct-v3-publication-claim',
+    });
+    expect(fixture.asset.sourcePtsCadenceMapV3).toMatchObject({ status: 'VERIFYING' });
+  });
+
+  it('terminalizes deterministic stored-batch corruption without reporting success', async () => {
+    const fixture = finalizationFixture([[frame('0', '40'), frame('40', '60')]]);
+    fixture.controls.tamperFrameBatchReads = true;
+
+    const result = await publishMediaSourcePtsCadenceScanV3(fixture.publicationInput);
+    expect(result).toMatchObject({
+      disposition: 'UNVERIFIABLE',
+      diagnostic: 'BATCH_BYTE_LENGTH_MISMATCH',
+      state: {
+        sourcePtsCadenceMapV3: {
+          status: 'UNVERIFIABLE',
+          verificationReceipt: null,
+          terminalReceipt: { disposition: 'UNVERIFIABLE' },
+        },
+      },
+    });
+    expect(fixture.persistedStatuses.at(-1)).toBe('UNVERIFIABLE');
+  });
+
+  it('keeps a post-read lifecycle heartbeat outage retryable', async () => {
+    const fixture = finalizationFixture([[frame('0', '40')]]);
+    fixture.controls.failHeartbeatAfterArtifactRead = true;
+
+    const result = await publishMediaSourcePtsCadenceScanV3(fixture.publicationInput);
+    expect(result).toMatchObject({
+      disposition: 'RETRYABLE',
+      reason: 'LIFECYCLE_HEARTBEAT_FAILED',
+      state: { sourcePtsCadenceMapV3: { status: 'VERIFYING' } },
+    });
+    expect(fixture.asset.sourcePtsCadenceMapV3).toMatchObject({
+      status: 'VERIFYING',
+      terminalReceipt: null,
+    });
+  });
+
+  it('leaves state untouched when the immutable index write is unavailable', async () => {
+    const fixture = finalizationFixture([[frame('0', '40')]]);
+    fixture.epochIndexWriter.writeImmutableEpochIndex.mockRejectedValueOnce(
+      new Error('MEDIA_SOURCE_PTS_CADENCE_R2_V3_EPOCH_INDEX_WRITE_FAILED'),
+    );
+
+    await expect(publishMediaSourcePtsCadenceScanV3(fixture.publicationInput))
+      .resolves.toEqual({
+        disposition: 'RETRYABLE',
+        reason: 'EPOCH_INDEX_WRITE_FAILED',
+        state: null,
+      });
+    expect(fixture.asset.sourcePtsCadenceMapV3).toBeUndefined();
+    expect(fixture.stateOwner.persist).not.toHaveBeenCalled();
+  });
+
+  it('does not create an index or state for an ambiguous backward boundary', async () => {
+    const fixture = finalizationFixture([
+      [frame('0', '100'), frame('100', '100')],
+      [frame('50', '25')],
+    ]);
+
+    await expect(publishMediaSourcePtsCadenceScanV3(fixture.publicationInput))
+      .resolves.toEqual({
+        disposition: 'UNVERIFIABLE',
+        diagnostic: 'SCAN_BACKWARD_BOUNDARY_EVIDENCE_REQUIRED',
+        state: null,
+      });
+    expect(fixture.epochIndexWriter.writeImmutableEpochIndex).not.toHaveBeenCalled();
+    expect(fixture.stateOwner.load).not.toHaveBeenCalled();
+    expect(fixture.stateOwner.persist).not.toHaveBeenCalled();
+  });
+});
+
 type ScanFrame = Readonly<{
   presentationTimestampTicks: string;
   durationTicks: string;
@@ -288,32 +433,158 @@ function finalizationFixture(runs: readonly (readonly ScanFrame[])[]) {
     writeImmutableShard: vi.fn(async ({ expected }) => expected),
     writeImmutableManifest: vi.fn(async ({ expected }) => expected),
   };
+  type StoredArtifact = Readonly<{
+    canonicalJson: string;
+    byteLength: number;
+    contentSha256: string;
+  }>;
+  const artifacts = new Map<string, StoredArtifact>();
+  const frameBatchKeys = new Set<string>();
   const artifactPort = {
-    writeImmutableFrameBatch: vi.fn(async ({ expected }) => expected),
+    writeImmutableFrameBatch: vi.fn(async ({ serialization, expected }) => {
+      artifacts.set(expected.objectKey, {
+        canonicalJson: serialization.canonicalJson,
+        byteLength: serialization.byteLength,
+        contentSha256: serialization.contentSha256,
+      });
+      frameBatchKeys.add(expected.objectKey);
+      return expected;
+    }),
     writeImmutableManifestIndex: vi.fn(async ({ expected }) => expected),
-    read: vi.fn(async () => { throw new Error('TEST_UNUSED'); }),
+    read: vi.fn(async (sidecar) => {
+      const object = artifacts.get(sidecar.objectKey);
+      if (!object) throw new Error('TEST_ARTIFACT_NOT_FOUND');
+      return object;
+    }),
   };
-  const lifecycle = { heartbeat: vi.fn(async () => undefined) };
-  return {
+  const epochIndexWriter = {
+    writeImmutableEpochIndex: vi.fn(async ({ serialization, expected }) => {
+      artifacts.set(expected.objectKey, {
+        canonicalJson: serialization.canonicalJson,
+        byteLength: serialization.byteLength,
+        contentSha256: serialization.contentSha256,
+      });
+      return expected;
+    }),
+  } satisfies MediaSourcePtsCadenceR2EpochIndexWriterV3;
+  const controls = {
+    failNextArtifactRead: false,
+    tamperFrameBatchReads: false,
+    failHeartbeatAfterArtifactRead: false,
+    failNextHeartbeat: false,
+  };
+  const epochArtifactReader = {
+    read: vi.fn(async (sidecar) => {
+      if (controls.failNextArtifactRead) {
+        controls.failNextArtifactRead = false;
+        throw new Error('TEST_TRANSIENT_ARTIFACT_READ_FAILED');
+      }
+      const object = artifacts.get(sidecar.objectKey);
+      if (!object) throw new Error('TEST_ARTIFACT_NOT_FOUND');
+      if (controls.failHeartbeatAfterArtifactRead) {
+        controls.failHeartbeatAfterArtifactRead = false;
+        controls.failNextHeartbeat = true;
+      }
+      return controls.tamperFrameBatchReads && frameBatchKeys.has(sidecar.objectKey)
+        ? { ...object, canonicalJson: `${object.canonicalJson} ` }
+        : object;
+    }),
+  } satisfies MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+  const boundarySemanticVerifier = {
+    verify: vi.fn(async () => ({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: 'TEST_UNEXPECTED_EXTERNAL_BOUNDARY_EVIDENCE',
+    })),
+  } satisfies MediaSourcePtsCadenceBoundarySemanticVerifierV3;
+  const asset: MediaSourcePtsCadenceMapAssetStateInputV3 = {
+    assetId: 'asset-v3',
+    type: 'video',
+    sourceVersionV1: sourceVersion,
+    sourceQualificationV1: qualification,
+  };
+  const persistedStatuses: string[] = [];
+  const statePorts: MediaSourcePtsCadenceMapAssetStorePortsV3 = {
+    load: vi.fn(async () => asset),
+    replace: vi.fn(async ({ expectedState, nextState }) => {
+      if ((asset.sourcePtsCadenceMapStateSha256V3 ?? null)
+        !== (expectedState?.sourcePtsCadenceMapStateSha256V3 ?? null)) return false;
+      Object.assign(asset, nextState, {
+        sourcePtsCadenceMapV1: null,
+        sourcePtsCadenceMapStateSha256V1: null,
+        sourcePtsCadenceMapV2: null,
+        sourcePtsCadenceMapStateSha256V2: null,
+      });
+      persistedStatuses.push(nextState.sourcePtsCadenceMapV3.status);
+      return true;
+    }),
+  };
+  const stateOwner = {
+    load: vi.fn((assetId: string, userId: string) => statePorts.load(assetId, userId)),
+    persist: vi.fn((stateInput) => persistMediaSourcePtsCadenceMapAssetStateV3(
+      stateInput,
+      statePorts,
+    )),
+  } satisfies MediaSourcePtsCadenceScanPublisherStateOwnerV3;
+  let claimExpiryCall = 0;
+  const lifecycle = {
+    heartbeat: vi.fn(async () => {
+      if (controls.failNextHeartbeat) {
+        controls.failNextHeartbeat = false;
+        throw new Error('TEST_LIFECYCLE_HEARTBEAT_FAILED');
+      }
+    }),
+    nextClaimExpiresAt: vi.fn(() => {
+      claimExpiryCall += 1;
+      return new Date(claimExpiryCall === 1
+        ? '2026-08-30T00:10:00.000Z'
+        : '2026-08-30T00:20:00.000Z');
+    }),
+  };
+  const verificationPolicy = {
+    policyVersion: 'direct-v3-verification-policy-v1',
+    maxBatchReads: 100,
+    maxBoundaryEvidenceReads: 100,
+    maxTotalArtifactBytes: 10_000_000,
+    boundaryEvidenceRegistryVersion: 'direct-v3-boundary-registry-v1',
+  };
+  const preparationInput = {
+    request,
+    result,
+    sourceVersion,
+    qualification,
+    epochIndexResourcePolicy: {
+      policyVersion: 'direct-v3-epoch-index-policy-v1',
+      maxCanonicalJsonBytes: 1_000_000,
+      maxEpochEntries: 100,
+      maxBatchEntries: 100,
+    },
     stagingReader,
     descriptorPort,
     artifactPort,
     lifecycle,
-    input: {
-      request,
-      result,
-      sourceVersion,
-      qualification,
-      epochIndexResourcePolicy: {
-        policyVersion: 'direct-v3-epoch-index-policy-v1',
-        maxCanonicalJsonBytes: 1_000_000,
-        maxEpochEntries: 100,
-        maxBatchEntries: 100,
-      },
-      stagingReader,
-      descriptorPort,
-      artifactPort,
-      lifecycle,
+  };
+  return {
+    stagingReader,
+    descriptorPort,
+    artifactPort,
+    epochIndexWriter,
+    stateOwner,
+    asset,
+    persistedStatuses,
+    controls,
+    lifecycle,
+    input: preparationInput,
+    publicationInput: {
+      ...preparationInput,
+      assetId: 'asset-v3',
+      userId: 'user-v3',
+      claimId: 'direct-v3-publication-claim',
+      now: () => new Date('2026-08-30T00:01:00.000Z'),
+      verificationPolicy,
+      epochIndexWriter,
+      epochArtifactReader,
+      boundarySemanticVerifier,
+      stateOwner,
     },
   };
 }
