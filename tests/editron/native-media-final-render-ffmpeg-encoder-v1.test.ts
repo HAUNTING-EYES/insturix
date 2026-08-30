@@ -30,6 +30,7 @@ vi.mock('@/lib/editron/services/video-source-time-transform-v1', async (importOr
 import {
   createNativeMediaFinalRenderFfmpegEncoderV1,
   NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1,
+  qualifyNativeMediaFinalRenderFfmpegRuntimeV1,
 } from '@/lib/editron/services/native-media-final-render-ffmpeg-encoder-v1';
 import {
   assertNativeMediaFinalRenderPcmEquivalenceReceiptV1,
@@ -54,6 +55,17 @@ const SAMPLE_RATE = 48_000;
 const CHANNEL_COUNT = 2;
 const SAMPLE_FRAME_COUNT = 6_400;
 const TIMEOUT_MS = 120_000;
+const ENCODER_POLICY = Object.freeze({
+  policyVersion: NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1,
+  maxSourceBytes: 10 * 1024 * 1024,
+  maxTimelineFrames: 100,
+  maxFrameBytes: 1024 * 1024,
+  maxDecodedSequenceBytes: 100 * 1024 * 1024,
+  maxPcmBytes: 100 * 1024 * 1024,
+  maxArtifactBytes: 100 * 1024 * 1024,
+  maxDimension: 1024,
+  timeoutMs: TIMEOUT_MS,
+});
 const HASH = Object.freeze({
   binding: '1'.repeat(64),
   map: '4'.repeat(64),
@@ -164,6 +176,30 @@ afterAll(async () => {
 });
 
 describe.sequential('native media final-render FFmpeg encoder v1', () => {
+  it('qualifies the exact toolchain without opening source media', async () => {
+    await expect(qualifyNativeMediaFinalRenderFfmpegRuntimeV1({
+      ffmpegPath,
+      ffprobePath,
+      compatibilityReceipt: profile,
+      policy: ENCODER_POLICY,
+    })).resolves.toBeUndefined();
+  });
+
+  it('rejects a valid receipt for a different toolchain', async () => {
+    const { receiptSha256, ...profileMaterial } = profile;
+    void receiptSha256;
+    const mismatched = createNativeMediaFinalRenderProfileReceiptV1({
+      ...profileMaterial,
+      ffmpegVersion: `${profile.ffmpegVersion}-mismatch`,
+    });
+    await expect(qualifyNativeMediaFinalRenderFfmpegRuntimeV1({
+      ffmpegPath,
+      ffprobePath,
+      compatibilityReceipt: mismatched,
+      policy: ENCODER_POLICY,
+    })).rejects.toThrow('NATIVE_MEDIA_FINAL_RENDER_RUNTIME_PROFILE_MISMATCH');
+  });
+
   it('materializes repeated exact frames and no unrequested audio', async () => {
     const runtime = setup();
     const result = await runtime.encoder.encode({
@@ -350,17 +386,7 @@ function setup(options: Readonly<{
     artifactStager: { stage: stage as never },
     ...(options.pcmReader ? { pcmReader: options.pcmReader as never } : {}),
     sourceLeaseFactory: () => ({ open: openLease as never }),
-    policy: {
-      policyVersion: NATIVE_MEDIA_FINAL_RENDER_FFMPEG_ENCODER_POLICY_VERSION_V1,
-      maxSourceBytes: 10 * 1024 * 1024,
-      maxTimelineFrames: 100,
-      maxFrameBytes: 1024 * 1024,
-      maxDecodedSequenceBytes: 100 * 1024 * 1024,
-      maxPcmBytes: 100 * 1024 * 1024,
-      maxArtifactBytes: 100 * 1024 * 1024,
-      maxDimension: 1024,
-      timeoutMs: TIMEOUT_MS,
-    },
+    policy: ENCODER_POLICY,
   });
   return { encoder, stagedPath, revalidate, openLease, stage };
 }

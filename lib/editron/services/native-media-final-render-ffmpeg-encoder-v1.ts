@@ -124,7 +124,12 @@ export function createNativeMediaFinalRenderFfmpegEncoderV1(input: Readonly<{
     async encode(encodeInput) {
       try {
         throwIfAborted(encodeInput.abortSignal);
-        runtimeQualification ??= qualifyRuntime({ ffmpegPath, ffprobePath, profile, policy });
+        runtimeQualification ??= qualifyNativeMediaFinalRenderFfmpegRuntimeV1({
+          ffmpegPath,
+          ffprobePath,
+          compatibilityReceipt: profile,
+          policy,
+        });
         await runtimeQualification;
         throwIfAborted(encodeInput.abortSignal);
         return Object.freeze({
@@ -150,6 +155,21 @@ export function createNativeMediaFinalRenderFfmpegEncoderV1(input: Readonly<{
       }
     },
   };
+}
+
+/** Qualifies the exact deployed toolchain before a durable worker claims work. */
+export async function qualifyNativeMediaFinalRenderFfmpegRuntimeV1(input: Readonly<{
+  ffmpegPath: string;
+  ffprobePath: string;
+  compatibilityReceipt: NativeMediaFinalRenderProfileReceiptV1;
+  policy: NativeMediaFinalRenderFfmpegEncoderPolicyV1;
+}>): Promise<void> {
+  return qualifyRuntime({
+    ffmpegPath: executable(input.ffmpegPath),
+    ffprobePath: executable(input.ffprobePath),
+    profile: assertNativeMediaFinalRenderProfileReceiptV1(input.compatibilityReceipt),
+    policy: normalizePolicy(input.policy),
+  });
 }
 
 async function encodeArtifact(input: Readonly<{
