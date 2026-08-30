@@ -8935,6 +8935,30 @@ to exact manifest/Finance/storage/ProjectService/materializer composition and
 must still refuse before claim if any bound deployment owner is absent or
 mismatched. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render pre-claim toolchain qualification Phase 3F-C7azo
+(2026-08-30):** commit `353dd72f3` exposes the FFmpeg encoder owner's existing
+immutable toolchain qualification as a reusable pre-claim boundary. The same
+owner now verifies the declared FFmpeg first-version line, FFprobe/FFmpeg
+version parity, minimum FFmpeg major, operating-system/architecture tuple,
+Remotion version and platform compositor version both when explicitly invoked
+and when encoding begins. A product runner can therefore reject a rotated or
+mismatched deployment before it leases a durable job, without duplicating the
+encoder's qualification logic or opening source media.
+
+The real-binary qualifier suite passes 8/8, every
+`native-media-final-render` plus store/read suite passes 193/193, and repository
+TypeScript plus repository-wide quiet ESLint pass. The added adversarial proof
+uses a separately valid compatibility receipt with a different FFmpeg identity
+and receives `NATIVE_MEDIA_FINAL_RENDER_RUNTIME_PROFILE_MISMATCH`. This result
+is `EXACT_RENDER_TOOLCHAIN_PRECLAIM_QUALIFIER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+This is a reusable qualifier, not a product runner or deployment proof. No job
+was claimed, source opened, manifest/Finance row resolved, R2 object touched,
+ProjectService revision read or hosted worker exercised. Queue item 3 remains
+in progress: the next bounded phase composes those existing owners and must
+invoke this qualifier before claim. `FROZEN_MODIFY_DECISION_ISSUED` is
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
