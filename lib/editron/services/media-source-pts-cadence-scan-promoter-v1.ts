@@ -61,7 +61,7 @@ export async function promoteMediaSourcePtsCadenceScanBatchV1(input: {
     ? assertMediaSourcePtsCadenceEpochScanResultV3(input.result)
     : assertMediaSourcePtsCadenceScanResultV1(input.result);
   if (result.status !== 'COMPLETE') throw new Error('MEDIA_SOURCE_PTS_SCAN_PROMOTION_RESULT_INCOMPLETE');
-  assertResultMatchesRequest(request, result);
+  assertMediaSourcePtsCadenceScanResultMatchesRequestV1(request, result);
   const summary = result.batches[input.scanBatchIndex];
   if (!summary) throw new Error('MEDIA_SOURCE_PTS_SCAN_PROMOTION_BATCH_MISSING');
   const nextFrameOrdinal = nonNegativeInteger(input.nextFrameOrdinal);
@@ -158,7 +158,7 @@ async function promoteFrames(input: {
   };
 }
 
-function assertResultMatchesRequest(
+export function assertMediaSourcePtsCadenceScanResultMatchesRequestV1(
   request: MediaSourcePtsCadenceScanRequestV1,
   result: MediaSourcePtsCadenceScanResultV1,
 ): void {

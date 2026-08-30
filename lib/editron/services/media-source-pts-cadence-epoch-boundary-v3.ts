@@ -67,6 +67,59 @@ export type CreateMediaSourcePtsCadenceEpochBoundaryInputV3 = Readonly<{
   externalEvidence: MediaSourcePtsCadenceBoundaryEvidenceSidecarV3 | null;
 }>;
 
+export type MediaSourcePtsCadenceDirectEpochBoundaryKindV3 =
+  | 'INITIAL'
+  | 'GAP'
+  | 'OVERLAP';
+
+/**
+ * Derives the exact reduced canonical start owned by the direct V3 mapper.
+ * Only arithmetic-proven INITIAL/GAP/OVERLAP boundaries are admitted here;
+ * reset, wrap and edit-list handoffs require their separate evidence owners.
+ */
+export function deriveMediaSourcePtsCadenceEpochCanonicalStartTimeV3(
+  input: Readonly<{
+    previousEpoch: PresentationEpochV1 | null;
+    boundaryKind: MediaSourcePtsCadenceDirectEpochBoundaryKindV3;
+    nextStartPresentationTimestampTicks: string;
+  }>,
+): CanonicalMediaTimeV1 {
+  const nextStart = BigInt(signedIntegerText(
+    input.nextStartPresentationTimestampTicks,
+    'MEDIA_SOURCE_PTS_CADENCE_EPOCH_CANONICAL_NEXT_PTS_INVALID',
+  ));
+  if (input.previousEpoch === null) {
+    if (input.boundaryKind !== 'INITIAL') {
+      throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_CANONICAL_PREDECESSOR_REQUIRED');
+    }
+    return parseCanonicalMediaTimeV1({ ticks: '0', timescale: '1' });
+  }
+  if (input.boundaryKind === 'INITIAL') {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_CANONICAL_INITIAL_PREDECESSOR_INVALID');
+  }
+
+  const previousEpoch = normalizedEpoch(input.previousEpoch);
+  const previousCanonicalEnd = canonicalEnd(previousEpoch);
+  const sourceDelta = nextStart
+    - BigInt(previousEpoch.sourceEndExclusivePresentationTimestampTicks);
+  if (input.boundaryKind === 'GAP') {
+    if (sourceDelta <= BigInt(0)) {
+      throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_GAP_SOURCE_DELTA_INVALID');
+    }
+    return canonicalTime(addFraction(
+      previousCanonicalEnd,
+      fraction(
+        sourceDelta * BigInt(previousEpoch.secondsPerSourceTick.numerator),
+        BigInt(previousEpoch.secondsPerSourceTick.denominator),
+      ),
+    ));
+  }
+  if (sourceDelta >= BigInt(0)) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_BACKWARD_DELTA_REQUIRED');
+  }
+  return canonicalTime(previousCanonicalEnd);
+}
+
 /**
  * Creates a hash-bound discontinuity declaration from adjacent immutable
  * frame-batch identities. PTS arithmetic may prove a gap or overlap; reset,
@@ -336,12 +389,13 @@ export function assertMediaSourcePtsCadenceEpochHandoffV3(input: Readonly<{
     if (sourceDelta <= BigInt(0)) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_GAP_SOURCE_DELTA_INVALID');
     }
-    const expectedStart = addFraction(
-      previousCanonicalEnd,
-      fraction(
-        sourceDelta * BigInt(epoch.secondsPerSourceTick.numerator),
-        BigInt(epoch.secondsPerSourceTick.denominator),
-      ),
+    const expectedStart = canonicalFraction(
+      deriveMediaSourcePtsCadenceEpochCanonicalStartTimeV3({
+        previousEpoch,
+        boundaryKind: 'GAP',
+        nextStartPresentationTimestampTicks:
+          epoch.sourceStartPresentationTimestampTicks,
+      }),
     );
     if (compareFraction(nextCanonicalStart, expectedStart) !== 0) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_GAP_CANONICAL_DURATION_MISMATCH');
@@ -354,7 +408,15 @@ export function assertMediaSourcePtsCadenceEpochHandoffV3(input: Readonly<{
     if (sourceDelta >= BigInt(0)) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_BACKWARD_DELTA_REQUIRED');
     }
-    if (compareFraction(nextCanonicalStart, previousCanonicalEnd) !== 0) {
+    const expectedStart = epoch.boundaryKind === 'OVERLAP'
+      ? canonicalFraction(deriveMediaSourcePtsCadenceEpochCanonicalStartTimeV3({
+          previousEpoch,
+          boundaryKind: 'OVERLAP',
+          nextStartPresentationTimestampTicks:
+            epoch.sourceStartPresentationTimestampTicks,
+        }))
+      : previousCanonicalEnd;
+    if (compareFraction(nextCanonicalStart, expectedStart) !== 0) {
       throw new Error('MEDIA_SOURCE_PTS_CADENCE_EPOCH_BACKWARD_CANONICAL_HANDOFF_INVALID');
     }
   }
@@ -414,6 +476,13 @@ function canonicalEnd(epoch: PresentationEpochV1): ExactFraction {
 function canonicalFraction(value: CanonicalMediaTimeV1): ExactFraction {
   const parsed = parseCanonicalMediaTimeV1(value);
   return fraction(BigInt(parsed.ticks), BigInt(parsed.timescale));
+}
+
+function canonicalTime(value: ExactFraction): CanonicalMediaTimeV1 {
+  return parseCanonicalMediaTimeV1({
+    ticks: value.numerator.toString(),
+    timescale: value.denominator.toString(),
+  });
 }
 
 function assertReducedCanonicalTime(value: CanonicalMediaTimeV1): void {
