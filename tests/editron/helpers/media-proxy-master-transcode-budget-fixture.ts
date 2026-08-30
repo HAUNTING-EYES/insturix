@@ -28,7 +28,9 @@ import { createMediaSourceStorageVersionV1 }
 import { createMediaSourceVersionV1 }
   from '@/lib/editron/services/media-source-version-v1';
 
-export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
+export function buildMediaProxyMasterTranscodeBudgetBasisFixtureV1(
+  options: Readonly<{ maxOutputBytes?: number }> = {},
+) {
   const policy = createMediaProxyMasterTranscodeExecutionBudgetPolicyV1({
     ownerVersion: 'finance-proxy-v1',
     effectiveAt: '2026-08-30T00:00:00.000Z',
@@ -58,7 +60,7 @@ export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
       audioCodec: 'aac',
       audioBitrateBitsPerSecond: 192_000,
       maxSourceBytes: 5_000_000,
-      maxOutputBytes: 2_000_000,
+      maxOutputBytes: options.maxOutputBytes ?? 2_000_000,
       timeoutMs: 120_000,
     }),
     masterSourceVersion: master,
@@ -81,6 +83,18 @@ export function buildMediaProxyMasterTranscodeBudgetFixtureV1() {
   });
   const operationalPolicies = createOperationalPolicies();
   const runtimePolicy = runtime(policy, operationalPolicies);
+  return { policy, command, operationalPolicies, runtimePolicy };
+}
+
+export function buildMediaProxyMasterTranscodeBudgetFixtureV1(
+  options: Readonly<{ maxOutputBytes?: number }> = {},
+) {
+  const {
+    policy,
+    command,
+    operationalPolicies,
+    runtimePolicy,
+  } = buildMediaProxyMasterTranscodeBudgetBasisFixtureV1(options);
   const publicationPolicy =
     createMediaProxyMasterR2PrivatePublicationPolicyV1({
       bucketName: 'editron-media-proxy-private',
@@ -127,8 +141,10 @@ export function mediaProxyMasterBudgetHashV1(value: string): string {
 
 export function createMediaProxyMasterTranscodeBudgetTrustedReceiptV1(
   command: Readonly<MediaProxyMasterTranscodeCommandV1>,
+  options: Readonly<{ proxyByteLength?: number }> = {},
 ) {
   const contentSha256 = hash('proxy-content');
+  const proxyByteLength = options.proxyByteLength ?? 40_000;
   const storageVersion = createMediaSourceStorageVersionV1({
     locator: {
       provider: 'R2',
@@ -137,7 +153,7 @@ export function createMediaProxyMasterTranscodeBudgetTrustedReceiptV1(
         proxyContentSha256: contentSha256,
       }),
     },
-    byteLength: 40_000,
+    byteLength: proxyByteLength,
     providerVersion: { kind: 'R2_ETAG', value: 'etag-proxy-budget' },
   });
   const proxy = createMediaSourceVersionV1({

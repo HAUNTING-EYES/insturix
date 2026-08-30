@@ -6,7 +6,10 @@ import {
   expectedMediaProxyMasterR2PreparedArtifactHandleV1,
   serializeMediaProxyMasterR2PreparedArtifactManifestV1,
 } from '@/lib/editron/services/media-proxy-master-r2-prepared-artifact-manifest-v1';
-import { createMediaProxyMasterR2PreparedArtifactPolicyV1 }
+import {
+  createMediaProxyMasterR2PreparedArtifactPolicyV1,
+  resolveMediaProxyMasterR2PreparedArtifactChunkPlanV1,
+}
   from '@/lib/editron/services/media-proxy-master-r2-prepared-artifact-policy-v1';
 import { createMediaProxyMasterR2PreparedArtifactReferenceV1 }
   from '@/lib/editron/services/media-proxy-master-r2-prepared-artifact-reference-v1';
@@ -24,7 +27,7 @@ import {
 import { createMediaProxyMasterTranscodePreparedEvidenceV2 }
   from '@/lib/editron/services/media-proxy-master-transcode-prepared-evidence-v2';
 import {
-  buildMediaProxyMasterTranscodeBudgetFixtureV1,
+  buildMediaProxyMasterTranscodeBudgetBasisFixtureV1,
   createMediaProxyMasterTranscodeBudgetTrustedReceiptV1,
 } from './media-proxy-master-transcode-budget-fixture';
 
@@ -35,9 +38,17 @@ export const MEDIA_PROXY_MASTER_TRANSCODE_V2_FIXTURE_EXPIRES_AT =
   '2026-09-06T00:00:00.000Z';
 
 export function buildMediaProxyMasterTranscodeV2Fixture(
-  options: Readonly<{ retainUntil?: string }> = {},
+  options: Readonly<{
+    retainUntil?: string;
+    artifactByteLength?: number;
+    maxOutputBytes?: number;
+  }> = {},
 ) {
-  const base = buildMediaProxyMasterTranscodeBudgetFixtureV1();
+  const artifactByteLength = options.artifactByteLength ?? 40_000;
+  const base = buildMediaProxyMasterTranscodeBudgetBasisFixtureV1({
+    maxOutputBytes: options.maxOutputBytes
+      ?? Math.max(2_000_000, artifactByteLength),
+  });
   const publicationPolicy = createMediaProxyMasterR2PrivatePublicationPolicyV2({
     bucketName: 'editron-media-proxy-private',
     storagePolicyVersion: 'private-proxy-media-v1',
@@ -78,7 +89,9 @@ export function buildMediaProxyMasterTranscodeV2Fixture(
   });
   const job = mediaProxyMasterTranscodeV2SnapshotFixture(contract, null);
   const seedReceipt =
-    createMediaProxyMasterTranscodeBudgetTrustedReceiptV1(base.command);
+    createMediaProxyMasterTranscodeBudgetTrustedReceiptV1(base.command, {
+      proxyByteLength: artifactByteLength,
+    });
   const preparedEvidence = createMediaProxyMasterTranscodePreparedEvidenceV2({
     jobInput: contract.payload,
     process: {
@@ -171,24 +184,39 @@ function createReference(input: Readonly<{
     artifactContentSha256: probe.proxyContentSha256,
   };
   const artifactHandle = expectedMediaProxyMasterR2PreparedArtifactHandleV1(base);
-  const chunkSha256 = probe.proxyContentSha256;
-  const manifest = createMediaProxyMasterR2PreparedArtifactManifestV1({
-    ...base,
-    chunks: [{
-      sequence: 1,
-      startByte: 0,
-      endExclusiveByte: probe.proxyByteLength,
-      byteLength: probe.proxyByteLength,
+  const chunkPlan = resolveMediaProxyMasterR2PreparedArtifactChunkPlanV1({
+    policy: input.policy,
+    artifactByteLength: probe.proxyByteLength,
+  });
+  const chunks = Array.from({ length: chunkPlan.totalChunks }, (_, index) => {
+    const sequence = index + 1;
+    const startByte = index * chunkPlan.chunkSize;
+    const endExclusiveByte = Math.min(
+      startByte + chunkPlan.chunkSize,
+      probe.proxyByteLength,
+    );
+    const chunkSha256 = chunkPlan.totalChunks === 1
+      ? probe.proxyContentSha256
+      : fixtureHash(`prepared-chunk-${sequence}`);
+    return {
+      sequence,
+      startByte,
+      endExclusiveByte,
+      byteLength: endExclusiveByte - startByte,
       contentSha256: chunkSha256,
       objectKey: expectedMediaProxyMasterR2PreparedArtifactChunkObjectKeyV1(
         artifactHandle,
-        1,
+        sequence,
         chunkSha256,
       ),
-      fullGetETag: 'prepared-chunk-etag',
-      headETag: 'prepared-chunk-etag',
+      fullGetETag: `prepared-chunk-etag-${sequence}`,
+      headETag: `prepared-chunk-etag-${sequence}`,
       verifiedAt: '2026-08-30T00:12:01.250Z',
-    }],
+    };
+  });
+  const manifest = createMediaProxyMasterR2PreparedArtifactManifestV1({
+    ...base,
+    chunks,
     stagedAt: '2026-08-30T00:12:01.500Z',
     retainUntil: input.retainUntil,
   });
@@ -202,6 +230,10 @@ function createReference(input: Readonly<{
     manifestFullGetETag: 'prepared-manifest-etag',
     manifestHeadETag: 'prepared-manifest-etag',
   });
+}
+
+function fixtureHash(value: string): string {
+  return Buffer.from(value).toString('hex').padEnd(64, '0').slice(0, 64);
 }
 
 function mediaProxyMasterTranscodeV2SnapshotFixture(
