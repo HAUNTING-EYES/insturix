@@ -9618,6 +9618,32 @@ asset; and no ProjectService binding, renderer, analysis, invalidation, rerender
 or rollback consumer admits it. Those owners and live private-storage evidence
 remain Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Proxy/master correspondence-batch codec Phase 3F-C8w (2026-08-30):**
+commit `9976028cc` adds the immutable sharded evidence format required beneath
+the C8v mapping contract. Each batch is bound to the exact relation and both
+complete V3 time-map identities. It records contiguous rational canonical-time
+spans over the union of proxy and master frame boundaries, allowing one source
+ordinal to repeat only when the other source advances. This represents VFR and
+different proxy/master frame counts without nominal-FPS inference, floating-
+point conversion, dropped evidence or nearest-frame rounding. A later relink
+owner can distinguish a boundary where both sources advance exactly from one
+that is not safe for arbitrary edit rebasing.
+
+The codec requires canonical JSON, full basis hashes, bounded resource policy,
+content-addressed `R2_PRIVATE` sidecars, sequential span ordinals, contiguous
+time, zero-based full-map scope and per-source frame steps of only zero or one.
+It rejects canonical gaps, skipped/out-of-range frames, no-op boundaries,
+cross-map tampering, noncanonical JSON, altered serialization receipts, public
+keys and impossible sidecar summaries. The focused suite passes 4/4; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`CORRESPONDENCE_BATCH_CODEC_SEALED_MANIFEST_ARTIFACT_VERIFIER_OPEN`.
+
+This is still a codec, not observed correspondence. The multi-batch manifest,
+private object writer/reader, full artifact-set verifier against both decoded
+V3 maps, trusted transcode producer, audio-lineage composition, asset CAS,
+ProjectService relink and downstream invalidation/render consumers remain Queue
+item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
