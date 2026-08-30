@@ -10906,6 +10906,46 @@ relation CAS, ProjectService relink/invalidation, visual rerender/delivery/
 rollback, retention/reachability GC and qualified human evidence remain open.
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Proxy/master decoded-audio lineage verification Phase 3F-C8bo
+(2026-08-31):** commit `58348fc93` replaces the previously hand-authored
+`VERIFIED_SAMPLE_TIMELINE_LINEAGE` test input with a read-only production
+verifier. It revalidates the unqualified relation, complete trusted transcode
+receipt and immutable source-version audio-availability evidence for both
+master and proxy. Every selected audio stream must equal the complete observed
+master stream set and the complete sequential proxy output set; the verifier
+does not infer a default stream or accept a selected subset as a general
+proxy/master relation. Genuine no-audio qualifies only when both independent
+source observations and the transcode command/receipt all contain no audio.
+
+For audio-bearing sources, the verifier rereads both private manifests and
+canonical sample-epoch maps through their content-addressed references and
+reconstructs their bindings before comparison. Sample rate, channel count and
+channel-layout identity must match exactly. The sample timeline is compared
+with exact rational arithmetic after subtracting only each source's first
+sample-position origin, which permits the transcode policy's declared shared
+origin shift while rejecting any duration change, gap, overlap, timestamp
+reset, decoded-sample-count or epoch-boundary drift. AAC waveform bytes are
+not falsely required to equal the master PCM bytes. The immutable verification
+receipt binds the relation, transcode receipt, policy, both availability
+records, artifact records/manifests/maps, normalized timeline, ordered stream
+mapping, bounded read count and causal verification time; reload validation
+recomputes its nested lineage hashes.
+
+The focused suite passes 6/6 and covers origin-shifted success, true no-audio,
+omitted observed streams, read-policy understatement, impossible evidence
+chronology, sample-rate/layout/timeline drift, source substitution, private
+read failure, artifact substitution and nested-receipt tampering. The complete
+local proxy/master family passes 356/356 tests across 66 files, with repository
+TypeScript and repository-wide quiet ESLint clean. This result is
+`PROXY_MASTER_AUDIO_LINEAGE_VERIFIER_LOCALLY_VERIFIED_LIVE_AUDIO_TRANSCODE_AND_MAPPING_QUALIFICATION_OPEN`.
+The evidence uses deterministic in-memory private-artifact fixtures; it does
+not prove that a real AAC proxy produced by the V2 worker satisfies the exact
+timeline contract. It also does not compose the independent V3 video
+correspondence receipt and this audio receipt into a qualified mapping, CAS an
+active relation, relink ProjectService, invalidate derivatives, rerender,
+deliver, roll back or garbage-collect unreachable objects. Those remain Queue
+item 4 work, and Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
