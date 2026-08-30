@@ -10685,6 +10685,36 @@ correspondence/audio qualification, active-relation CAS, relink/invalidation,
 rerender/rollback and reachability GC. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Durable proxy-transcode result and leased worker Phase 3F-C8bh
+(2026-08-30):** commits `674b7c924` and `b902fdf6d` close the local leased-
+execution ordering gap without claiming a deployed worker. The complete trusted
+transcode receipt is now a hash-verified, sequence-CAS durable resume payload.
+The worker claims the existing generic job, verifies every bound owner/policy,
+authorizes the exact budget reservation, resolves the current V3-bound master,
+heartbeats while the executor runs, persists that result before terminal PASS,
+and settles the committed terminal state. A retry after completion-transport
+loss reuses the persisted receipt and cannot transcode again. Terminal replay
+reconciles budget again through the idempotent budget owner.
+
+Cancellation and lease loss abort the in-flight executor. Transient outcomes
+can retry only through the exact bound retry policy; permanent executor gaps
+become `UNVERIFIABLE`; owner drift and a canonically rehashed forged resume
+dead-letter before false success. The focused worker suite passes 7/7, and the
+complete proxy/master family passes 89/89 across 16 files. Repository
+TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`LEASED_PROXY_TRANSCODE_RESULT_BEFORE_TERMINAL_LOCALLY_VERIFIED_RUNTIME_MULTIPART_QUALIFICATION_AND_LIVE_PROOF_OPEN`.
+The current proof composes in-memory owners around the real durable store; it
+does not yet expose a production dispatch/recovery route or deployment-owned
+worker factory, run FFmpeg plus private R2 inside that leased loop, survive
+loss of the ephemeral transcode file, or publish above the single-PUT ceiling.
+Durable multipart/staging, canonical private-runtime composition, live
+R2/Atlas/QStash evidence, V3/audio roots, correspondence/audio qualification,
+active-relation CAS, ProjectService relink/invalidation, rerender/rollback and
+reachability GC remain Queue item 4. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
