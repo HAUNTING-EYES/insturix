@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ recovery: vi.fn() }));
 vi.mock(
-  '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-v1',
-  () => ({ recoverMediaSourceAudioEvidenceBackfillRunsV1: mocks.recovery }),
+  '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-owner-v2',
+  () => ({ recoverMediaSourceAudioEvidenceBackfillSweepsV2: mocks.recovery }),
 );
 
 import { GET }
@@ -14,7 +14,7 @@ import { GET }
 const repoRoot = resolve(__dirname, '../..');
 const RECEIPT_HASH = 'c'.repeat(64);
 
-describe('media source audio evidence backfill recovery cron V1', () => {
+describe('media source audio evidence backfill recovery cron V2', () => {
   beforeEach(() => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     mocks.recovery.mockReset();
@@ -33,9 +33,9 @@ describe('media source audio evidence backfill recovery cron V1', () => {
     expect(mocks.recovery).not.toHaveBeenCalled();
   });
 
-  it('returns success only when every selected delivery is confirmed', async () => {
+  it('returns success only when every claimed delivery is confirmed', async () => {
     mocks.recovery.mockResolvedValue(receipt({
-      selectedCount: 2,
+      claimedCount: 2,
       confirmedCount: 2,
       unconfirmedCount: 0,
     }));
@@ -46,7 +46,7 @@ describe('media source audio evidence backfill recovery cron V1', () => {
     await expect(response.json()).resolves.toMatchObject({
       success: true,
       recovery: {
-        selectedCount: 2,
+        claimedCount: 2,
         confirmedCount: 2,
         unconfirmedCount: 0,
         recoveryReceiptSha256: RECEIPT_HASH,
@@ -57,7 +57,7 @@ describe('media source audio evidence backfill recovery cron V1', () => {
   it('returns a retryable receipt and sanitized alert for partial delivery', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.recovery.mockResolvedValue(receipt({
-      selectedCount: 2,
+      claimedCount: 2,
       confirmedCount: 1,
       unconfirmedCount: 1,
     }));
@@ -70,17 +70,17 @@ describe('media source audio evidence backfill recovery cron V1', () => {
     expect(body).toMatchObject({
       success: false,
       recovery: {
-        selectedCount: 2,
+        claimedCount: 2,
         unconfirmedCount: 1,
         recoveryReceiptSha256: RECEIPT_HASH,
       },
     });
     expect(errorLog).toHaveBeenCalledWith(
-      '[MediaSourceAudioEvidenceBackfillRecoveryV1]',
+      '[MediaSourceAudioEvidenceBackfillRecoveryV2]',
       {
         code: 'RECOVERY_DELIVERY_UNCONFIRMED',
         recoveryReceiptSha256: RECEIPT_HASH,
-        selectedCount: 2,
+        claimedCount: 2,
         unconfirmedCount: 1,
       },
     );
@@ -103,7 +103,7 @@ describe('media source audio evidence backfill recovery cron V1', () => {
     });
     expect(JSON.stringify(body)).not.toContain('database-secret-detail');
     expect(errorLog).toHaveBeenCalledWith(
-      '[MediaSourceAudioEvidenceBackfillRecoveryV1] sweep unavailable:',
+      '[MediaSourceAudioEvidenceBackfillRecoveryV2] sweep unavailable:',
       'Error',
     );
   });
@@ -130,20 +130,62 @@ function request(secret?: string): Request {
 }
 
 function receipt(counts: Readonly<{
-  selectedCount: number;
+  claimedCount: number;
   confirmedCount: number;
   unconfirmedCount: number;
 }>) {
+  const retryRequired = counts.unconfirmedCount > 0;
   return {
-    schemaVersion: 1,
-    kind: 'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RECEIPT_V1',
-    selectedAt: '2026-08-30T20:00:00.000Z',
-    staleBefore: '2026-08-30T19:50:00.000Z',
-    staleMs: 600_000,
-    runLimit: 10,
+    schemaVersion: 2,
+    kind: 'EDITRON_MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECOVERY_RECEIPT_V2',
+    invokedAt: '2026-08-30T20:00:00.000Z',
     batchLimit: 25,
+    selection: {
+      disposition: 'SELECTED',
+      selectedSweepIntentSha256: 'd'.repeat(64),
+      staleBefore: '2026-08-30T19:50:00.000Z',
+      selectionLimit: 10,
+    },
+    claim: {
+      sweepIntentSha256: 'd'.repeat(64),
+      selectedAt: '2026-08-30T20:00:00.000Z',
+      staleBefore: '2026-08-30T19:50:00.000Z',
+      entryCount: counts.claimedCount,
+      attemptNumber: 1,
+      claimedRecordSha256: 'e'.repeat(64),
+      claimedAt: '2026-08-30T20:00:00.000Z',
+      leaseExpiresAt: '2026-08-30T20:02:00.000Z',
+      attemptPolicySha256: 'f'.repeat(64),
+    },
+    attempt: {
+      attemptSha256: 'a'.repeat(64),
+      disposition: retryRequired ? 'RETRY_REQUIRED' : 'COMPLETE',
+      attemptedAt: '2026-08-30T20:00:01.000Z',
+    },
+    settlement: {
+      disposition: 'SETTLED',
+      sweepRecordSha256: 'b'.repeat(64),
+      sweepStatus: retryRequired ? 'RETRY_WAIT' : 'COMPLETE',
+      attemptCount: 1,
+    },
     ...counts,
-    results: [],
+    results: Array.from({ length: counts.claimedCount }, (_, index) => ({
+      migrationRunId: `run-${index}`,
+      expectedRecordSha256: '1'.repeat(64),
+      runUpdatedAt: '2026-08-30T19:00:00.000Z',
+      dispatch: index < counts.confirmedCount
+        ? {
+            disposition: 'DISPATCHED',
+            messageId: `message-${index}`,
+            deduplicationId: '2'.repeat(64),
+          }
+        : {
+            disposition: 'UNCONFIRMED',
+            reason: 'QSTASH_PUBLISH_REJECTED',
+            messageId: null,
+            deduplicationId: '3'.repeat(64),
+          },
+    })),
     recoveryReceiptSha256: RECEIPT_HASH,
   };
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { recoverMediaSourceAudioEvidenceBackfillRunsV1 }
-  from '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-v1';
+import { recoverMediaSourceAudioEvidenceBackfillSweepsV2 }
+  from '@/lib/editron/services/media-source-audio-evidence-backfill-recovery-owner-v2';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -22,12 +22,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const recovery = await recoverMediaSourceAudioEvidenceBackfillRunsV1();
+    const recovery = await recoverMediaSourceAudioEvidenceBackfillSweepsV2();
     if (recovery.unconfirmedCount > 0) {
-      console.error('[MediaSourceAudioEvidenceBackfillRecoveryV1]', {
+      console.error('[MediaSourceAudioEvidenceBackfillRecoveryV2]', {
         code: 'RECOVERY_DELIVERY_UNCONFIRMED',
         recoveryReceiptSha256: recovery.recoveryReceiptSha256,
-        selectedCount: recovery.selectedCount,
+        claimedCount: recovery.claimedCount,
         unconfirmedCount: recovery.unconfirmedCount,
       });
       return NextResponse.json({ success: false, recovery }, {
@@ -38,7 +38,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ success: true, recovery }, { status: 200 });
   } catch (error: unknown) {
     console.error(
-      '[MediaSourceAudioEvidenceBackfillRecoveryV1] sweep unavailable:',
+      '[MediaSourceAudioEvidenceBackfillRecoveryV2] sweep unavailable:',
       error instanceof Error ? error.name : 'unknown',
     );
     return NextResponse.json({
