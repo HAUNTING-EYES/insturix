@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   qualify: vi.fn(),
   triggerCadence: vi.fn(),
+  triggerAudio: vi.fn(),
   withWorkerAuth: vi.fn((handler: unknown) => handler),
 }));
 
@@ -19,6 +20,9 @@ vi.mock('@/lib/editron/services/media-source-qualification-runtime-v1', () => ({
 }));
 vi.mock('@/lib/editron/services/media-source-pts-cadence-product-trigger-v3', () => ({
   triggerQualifiedMediaSourcePtsCadenceV3: mocks.triggerCadence,
+}));
+vi.mock('@/lib/editron/services/media-source-audio-product-trigger-v1', () => ({
+  triggerQualifiedMediaSourceAudioMaterializationV1: mocks.triggerAudio,
 }));
 
 import { NextRequest } from 'next/server';
@@ -39,10 +43,18 @@ describe('media source qualification product route V3', () => {
   beforeEach(() => {
     mocks.qualify.mockReset();
     mocks.triggerCadence.mockReset();
+    mocks.triggerAudio.mockReset();
     mocks.qualify.mockResolvedValue(QUALIFICATION);
+    mocks.triggerAudio.mockResolvedValue({
+      disposition: 'SCHEDULED',
+      jobId: 'dwj_audio_1',
+      created: true,
+      delivery: 'CONFIRMED',
+      messageId: 'qstash-audio-message-1',
+    });
   });
 
-  it('qualifies first and returns the confirmed V3 schedule receipt', async () => {
+  it('qualifies first and returns both confirmed product receipts', async () => {
     mocks.triggerCadence.mockResolvedValue({
       disposition: 'SCHEDULED',
       jobId: 'dwj_pts_v3_1',
@@ -63,11 +75,21 @@ describe('media source qualification product route V3', () => {
         delivery: 'CONFIRMED',
         messageId: 'qstash-message-1',
       },
+      audioDispatch: {
+        disposition: 'SCHEDULED',
+        jobId: 'dwj_audio_1',
+        created: true,
+        delivery: 'CONFIRMED',
+        messageId: 'qstash-audio-message-1',
+      },
     });
     expect(mocks.qualify).toHaveBeenCalledWith(MESSAGE);
     expect(mocks.triggerCadence).toHaveBeenCalledWith(MESSAGE);
+    expect(mocks.triggerAudio).toHaveBeenCalledWith(MESSAGE);
     expect(mocks.qualify.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.triggerCadence.mock.invocationCallOrder[0]!);
+    expect(mocks.triggerCadence.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.triggerAudio.mock.invocationCallOrder[0]!);
   });
 
   it('returns retryable HTTP while retaining the durable undelivered job', async () => {
@@ -90,6 +112,41 @@ describe('media source qualification product route V3', () => {
         jobId: 'dwj_pts_v3_2',
       },
     });
+    expect(mocks.triggerAudio).not.toHaveBeenCalled();
+  });
+
+  it('returns retryable HTTP while retaining an undelivered audio job', async () => {
+    mocks.triggerCadence.mockResolvedValue({
+      disposition: 'SCHEDULED',
+      jobId: 'dwj_pts_v3_3',
+      created: false,
+      delivery: 'ALREADY_CONFIRMED',
+      messageId: 'qstash-message-3',
+    });
+    mocks.triggerAudio.mockResolvedValue({
+      disposition: 'DELIVERY_DEFERRED',
+      jobId: 'dwj_audio_3',
+      created: true,
+      reason: 'DISPATCH_RUNTIME_UNAVAILABLE',
+    });
+
+    const response = await POST(request(MESSAGE));
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('30');
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: { code: 'MEDIA_SOURCE_AUDIO_DELIVERY_DEFERRED' },
+      result: QUALIFICATION,
+      cadenceDispatch: {
+        disposition: 'SCHEDULED',
+        jobId: 'dwj_pts_v3_3',
+      },
+      audioDispatch: {
+        disposition: 'DELIVERY_DEFERRED',
+        jobId: 'dwj_audio_3',
+      },
+    });
+    expect(mocks.triggerAudio).toHaveBeenCalledWith(MESSAGE);
   });
 
   it('rejects malformed JSON before either owner runs', async () => {
@@ -100,6 +157,7 @@ describe('media source qualification product route V3', () => {
     expect(response.status).toBe(400);
     expect(mocks.qualify).not.toHaveBeenCalled();
     expect(mocks.triggerCadence).not.toHaveBeenCalled();
+    expect(mocks.triggerAudio).not.toHaveBeenCalled();
   });
 });
 

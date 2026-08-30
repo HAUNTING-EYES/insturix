@@ -6,6 +6,8 @@ import {
   MEDIA_SOURCE_QUALIFICATION_WORKER_ROUTE_ID_V1,
   runMediaSourceQualificationWorkerV1,
 } from '@/lib/editron/services/media-source-qualification-runtime-v1';
+import { triggerQualifiedMediaSourceAudioMaterializationV1 }
+  from '@/lib/editron/services/media-source-audio-product-trigger-v1';
 import { triggerQualifiedMediaSourcePtsCadenceV3 }
   from '@/lib/editron/services/media-source-pts-cadence-product-trigger-v3';
 
@@ -41,7 +43,27 @@ async function handler(request: NextRequest): Promise<Response> {
         { status: 503, headers: { 'Retry-After': '30' } },
       );
     }
-    return NextResponse.json({ success: true, result, cadenceDispatch });
+    const audioDispatch = await triggerQualifiedMediaSourceAudioMaterializationV1(
+      message,
+    );
+    if (audioDispatch.disposition === 'DELIVERY_DEFERRED') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: 'MEDIA_SOURCE_AUDIO_DELIVERY_DEFERRED' },
+          result,
+          cadenceDispatch,
+          audioDispatch,
+        },
+        { status: 503, headers: { 'Retry-After': '30' } },
+      );
+    }
+    return NextResponse.json({
+      success: true,
+      result,
+      cadenceDispatch,
+      audioDispatch,
+    });
   } catch {
     return NextResponse.json(
       { success: false, error: { code: 'MEDIA_SOURCE_QUALIFICATION_WORKER_UNAVAILABLE' } },
