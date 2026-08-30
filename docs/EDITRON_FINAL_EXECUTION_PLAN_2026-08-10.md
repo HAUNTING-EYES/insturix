@@ -10301,6 +10301,21 @@ artifact-root authority, and historical active/V1 rows have not been migrated.
 Those dual-write/dual-read, migration, live Atlas and cleanup proofs remain
 Queue item 4 work. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+Commit `5246d8954` adds the explicit successor write decorator and proves the
+required crash-safe order for a terminal decoded set: canonical availability
+retention, then the legacy compatibility record, then the active asset CAS.
+Partial sets still mutate without claiming terminal evidence. Canonical
+no-audio/decoded conflict and canonical CAS exhaustion stop before either the
+legacy or active writer; legacy conflict/race stops before the active writer
+after the already-valid canonical root can be replayed. The focused and
+widened clusters pass 7/7 and 22/22 respectively, with full TypeScript and
+repository-wide quiet ESLint passing. This result is
+`AUDIO_AVAILABILITY_ORDERED_WRITER_VERIFIED_PRODUCT_SWITCH_OPEN`: the sole
+product materializer still invokes the legacy-only compatibility factory, so
+decoded product dual-retention is not yet claimed. No-audio product retention,
+receipt/consumer cutover, historical migration and live proof also remain
+open; Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
