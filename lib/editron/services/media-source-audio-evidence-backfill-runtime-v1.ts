@@ -71,6 +71,7 @@ export type MediaSourceAudioEvidenceBackfillRuntimeV1 = Readonly<{
   }>): Promise<MediaSourceAudioEvidenceBackfillRunInitializeResultV1>;
   runNextBatch(input: Readonly<{
     migrationRunId: string;
+    expectedRecordSha256: string;
     limit: number;
   }>): Promise<MediaSourceAudioEvidenceBackfillRuntimeNextResultV1>;
 }>;
@@ -132,9 +133,16 @@ export function createMediaSourceAudioEvidenceBackfillRuntimeV1(
 
     runNextBatch: async (value) => {
       const limit = batchLimit(value.limit);
+      const expectedRecordSha256 = sha256(value.expectedRecordSha256);
       const current = await runOwner.resolve(value.migrationRunId);
       if (current === null) {
         return Object.freeze({ disposition: 'RUN_NOT_FOUND' as const });
+      }
+      if (current.recordSha256 !== expectedRecordSha256) {
+        return Object.freeze({
+          disposition: 'SUPERSEDED' as const,
+          record: current,
+        });
       }
       if (current.status !== 'RUNNING') {
         return Object.freeze({
@@ -250,6 +258,13 @@ function batchLimit(value: unknown): number {
     fail('LIMIT_INVALID');
   }
   return Number(value);
+}
+
+function sha256(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    fail('EXPECTED_RECORD_SHA256_INVALID');
+  }
+  return value;
 }
 
 function clockDate(now: () => Date, floor?: string): Date {

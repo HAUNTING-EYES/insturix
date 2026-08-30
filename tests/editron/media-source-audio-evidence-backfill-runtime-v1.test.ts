@@ -55,25 +55,36 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
       candidateSource,
       now: dates(T0, T1),
     });
-    await runtime.initialize({
+    const initialized = await runtime.initialize({
       migrationRunId: 'audio-run-empty',
       policyVersion: 'audio-policy-v1',
     });
 
     const completed = await runtime.runNextBatch({
       migrationRunId: 'audio-run-empty',
-      limit: 10,
-    });
-    const replay = await runtime.runNextBatch({
-      migrationRunId: 'audio-run-empty',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     });
 
     expect(completed.disposition).toBe('BATCH_COMMITTED');
     if (completed.disposition !== 'BATCH_COMMITTED') throw new Error('TEST_INVALID');
+    const duplicate = await runtime.runNextBatch({
+      migrationRunId: 'audio-run-empty',
+      expectedRecordSha256: initialized.record.recordSha256,
+      limit: 10,
+    });
+    const replay = await runtime.runNextBatch({
+      migrationRunId: 'audio-run-empty',
+      expectedRecordSha256: completed.record.recordSha256,
+      limit: 10,
+    });
     expect(completed.record.status).toBe('COMPLETE');
     expect(completed.record.committedBatchCount).toBe(1);
     expect(ledger.acceptedReceipts).toHaveLength(1);
+    expect(duplicate).toEqual({
+      disposition: 'SUPERSEDED',
+      record: completed.record,
+    });
     expect(replay).toEqual({
       disposition: 'ALREADY_TERMINAL',
       record: completed.record,
@@ -87,6 +98,7 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
     const runtime = runtimeFixture({ ledger, candidateSource, now: dates(T0) });
     await expect(runtime.runNextBatch({
       migrationRunId: 'missing-run',
+      expectedRecordSha256: 'a'.repeat(64),
       limit: 10,
     })).resolves.toEqual({ disposition: 'RUN_NOT_FOUND' });
     expect(candidateSource.loadCandidates).not.toHaveBeenCalled();
@@ -110,6 +122,7 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
 
     const result = await runtime.runNextBatch({
       migrationRunId: 'audio-run-retry-load',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     });
 
@@ -135,13 +148,14 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
       candidateSource,
       now: dates(T0, T1),
     });
-    await runtime.initialize({
+    const initialized = await runtime.initialize({
       migrationRunId: 'audio-run-invalid-page',
       policyVersion: 'audio-policy-v1',
     });
 
     const result = await runtime.runNextBatch({
       migrationRunId: 'audio-run-invalid-page',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     });
 
@@ -168,6 +182,7 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
 
     const result = await runtime.runNextBatch({
       migrationRunId: 'audio-run-retry-evidence',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     });
 
@@ -187,12 +202,13 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
       candidateSource,
       now: dates(T1, T0),
     });
-    await runtime.initialize({
+    const initialized = await runtime.initialize({
       migrationRunId: 'audio-run-clock',
       policyVersion: 'audio-policy-v1',
     });
     await expect(runtime.runNextBatch({
       migrationRunId: 'audio-run-clock',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     })).rejects.toThrow(
       'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RUNTIME_CLOCK_REGRESSION',
@@ -233,6 +249,7 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
 
     await expect(runtime.runNextBatch({
       migrationRunId: 'audio-run-race',
+      expectedRecordSha256: initialized.record.recordSha256,
       limit: 10,
     })).resolves.toEqual({ disposition: 'SUPERSEDED', record: winner });
   });
@@ -243,9 +260,17 @@ describe('MediaSourceAudioEvidenceBackfillRuntimeV1', () => {
     const runtime = runtimeFixture({ ledger, candidateSource, now: dates(T0) });
     await expect(runtime.runNextBatch({
       migrationRunId: 'audio-run-limit',
+      expectedRecordSha256: 'a'.repeat(64),
       limit: 101,
     })).rejects.toThrow(
       'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RUNTIME_LIMIT_INVALID',
+    );
+    await expect(runtime.runNextBatch({
+      migrationRunId: 'audio-run-limit',
+      expectedRecordSha256: 'not-a-sha256',
+      limit: 10,
+    })).rejects.toThrow(
+      'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RUNTIME_EXPECTED_RECORD_SHA256_INVALID',
     );
   });
 });
