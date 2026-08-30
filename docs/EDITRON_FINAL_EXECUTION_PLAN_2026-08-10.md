@@ -9955,6 +9955,26 @@ Queue item 4 proceeds with that durable composition and migration work;
 C8aa correspondence remains blocked until both relation members resolve from
 immutable evidence. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Independent audio/V3 evidence-root capture Phase 3F-C8aj (2026-08-30):**
+commit `a2b28b511` corrects one lifecycle coupling found while tracing the
+product audio composition. The V3 decorator was already safe because it builds
+a V3-only candidate. The audio decorator, however, built its candidate by
+spreading the full active asset, so an unrelated nonterminal V3 slot could
+prevent an otherwise exact terminal audio set from being retained. Audio now
+validates completeness against the full active asset but captures an explicit
+audio-only source-version view. The immutable evidence owner remains the sole
+place where independently terminal V3 and audio roots merge.
+
+The focused audio/V3/merge regression cluster passes 14/14; repository
+TypeScript and repository-wide quiet ESLint pass. The adversarial case keeps a
+nonterminal V3 slot active while terminal audio evidence is retained, verifies
+that the historical candidate contains no V3 root, and verifies that the
+active V3 slot is not modified. This result is
+`AUDIO_AND_V3_EVIDENCE_ROOT_LIFECYCLES_ISOLATED_PRODUCT_COMPOSITION_OPEN`.
+It does not create the FFmpeg/private-R2 durable product caller, backfill
+historical rows or prove live storage. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
