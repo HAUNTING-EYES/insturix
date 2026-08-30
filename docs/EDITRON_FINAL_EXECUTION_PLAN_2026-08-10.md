@@ -10111,6 +10111,23 @@ and no durable worker, trigger, signed route, restart/dead-letter lifecycle or
 live Atlas/R2 object has used this boundary yet. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Product audio receipt verification Phase 3F-C8ap (2026-08-30):** commit
+`7c03939fa` adds the strict read boundary beside the sole C8ak receipt creator.
+It accepts only the exact receipt field set and identity, canonical ISO
+completion time, bounded identities, valid SHA-256 roots, sorted unique
+observed/materialized stream sets, a materialized subset of the observation,
+and a disposition compatible with that subset. It then reconstructs and
+re-hashes the complete receipt material. A structurally plausible object with
+a replacement proof root and stale receipt hash is rejected.
+
+The product/runtime suites pass 14/14 focused tests; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`PRODUCT_AUDIO_RECEIPT_REPROOF_VERIFIED_DURABLE_WORKER_SETTLEMENT_OPEN`. It
+prevents the later worker from trusting a typed or provider-returned object by
+shape alone. It does not claim/heartbeat/complete the C8an job and does not
+prove cancellation races, restart, dead-letter, dispatch or live storage.
+Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
