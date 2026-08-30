@@ -9321,6 +9321,36 @@ No finalizer invokes renewal yet, no private index write/state sequence is
 composed, and no live long-running verifier or Atlas race was exercised. Queue
 item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Direct V3 publication composition Phase 3F-C8k (2026-08-30):** commit
+`c3291a97a` composes the direct-V3 preparation owner into the create-only
+private epoch-index writer, the sole V3 `MEDIA_ASSETS` state owner and the full
+epoch-artifact verifier. The exact sequence is now immutable promoted batches
+-> immutable index write and reread -> source-qualified `PENDING` CAS -> owned
+`VERIFYING` claim -> same-claim renewal before each index/batch/evidence read ->
+complete stored-artifact reread -> terminal `COMPLETE` CAS. A product runner
+selects the dedicated `EDITRON_MEDIA_PTS_R2_*` runtime and the existing Mongo
+CAS owner; it never routes through the V1 finalizer.
+
+The publisher reports success only after the verification receipt is bound
+into a source/index/policy-matching terminal state. Identical redelivery returns
+`ALREADY_COMPLETE`; an active foreign claimant returns `BUSY`; transient index,
+batch or evidence reads and lifecycle-heartbeat loss remain `RETRYABLE` with a
+nonterminal claim; deterministic byte/hash/schema/semantic failures create an
+`UNVERIFIABLE` terminal receipt. An ambiguous backward timestamp boundary
+still exits before index or state creation. Immutable objects orphaned by a
+later CAS race remain the responsibility of a future reachability-governed GC
+owner.
+
+The focused preparation/publication, V3 state and epoch-writer suites pass
+22/22; all 29 timestamp-cadence suites pass 158/158; repository TypeScript and
+repository-wide quiet ESLint pass. This result is
+`DIRECT_V3_LOCAL_PUBLICATION_SEQUENCE_VERIFIED_DURABLE_DISPATCH_LIVE_PROOF_OPEN`.
+No durable V3 job submits, polls and invokes this publisher yet; no deployed
+Modal endpoint, dedicated private R2 object, live Atlas race, long-running
+multi-renewal verification, reset/wrap/edit-list evidence or recovery/GC run
+was exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
