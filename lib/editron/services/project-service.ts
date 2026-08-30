@@ -9,9 +9,11 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
+import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 import type {
   Keyframe,
   KeyframeTrack,
+  ClipOverlay,
   Overlay,
   AspectRatio,
 } from "@/components/editron/editor/version-7.0.0/types";
@@ -87,6 +89,28 @@ import {
   type VideoSourceRangeRetimeEffectV1,
   type VideoSourceRangeRetimeSafeStopReasonV1,
 } from "./video-source-range-retime-v1";
+import {
+  readMediaProxyMasterActiveMappingAssetStateV1,
+  type MediaProxyMasterActiveMappingAssetInputV1,
+  type MediaProxyMasterActiveMappingAssetStateV1,
+} from "./media-proxy-master-active-mapping-asset-owner-v1";
+import {
+  assertMediaProxyMasterExactBoundaryResolutionReceiptV1,
+  type MediaProxyMasterExactBoundaryResolutionReceiptV1,
+} from "./media-proxy-master-exact-boundary-resolver-v1";
+import {
+  PROJECT_PROXY_MASTER_RELINK_POLICY_V1,
+  assertProjectProxyMasterRelinkStateHistoryV1,
+  assertProjectProxyMasterRelinkStateV1,
+  assertProjectProxySourceBindingHistoryV1,
+  createProjectProxyMasterRelinkCommitReceiptV1,
+  createProjectProxyMasterRelinkStateV1,
+  type ProjectProxyMasterRelinkActorKindV1,
+  type ProjectProxyMasterRelinkCommitReceiptV1,
+  type ProjectProxyMasterRelinkOverlayChangeV1,
+  type ProjectProxyMasterRelinkStateV1,
+  type ProjectProxySourceBindingV1,
+} from "./project-proxy-master-relink-contract-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -121,6 +145,46 @@ export interface ProjectMutationReceiptV1 {
   revision: ProjectRevisionV1;
   committedAt: string;
 }
+
+export interface ProjectProxyMasterRelinkCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectProxyMasterRelinkActorKindV1;
+  assetId: string;
+  boundaryResolution: MediaProxyMasterExactBoundaryResolutionReceiptV1;
+}
+
+export type ProjectProxyMasterRelinkBlockReasonV1 =
+  | "SOURCE_ASSET_NOT_FOUND"
+  | "ASSET_EVIDENCE_UNAVAILABLE"
+  | "ACTIVE_MAPPING_NOT_FOUND"
+  | "ACTIVE_MAPPING_INVALID"
+  | "BOUNDARY_EVIDENCE_INVALID"
+  | "TARGET_OVERLAYS_NOT_FOUND"
+  | "TARGET_OVERLAY_IDENTITY_INVALID"
+  | "SOURCE_RANGE_INCOMPLETE"
+  | "SOURCE_RANGE_INVALID"
+  | "SOURCE_COORDINATE_CONFLICT"
+  | "SOURCE_COORDINATE_UNREPRESENTABLE"
+  | "AUDIO_RIGHTS_REQUIRED_OR_INVALID"
+  | "SOURCE_BINDING_NOT_FOUND"
+  | "SOURCE_BINDING_STALE_OR_MISMATCHED"
+  | "RELINK_HISTORY_INVALID"
+  | "EXISTING_MASTER_BINDING_REBASE_REQUIRED"
+  | "EXISTING_MASTER_BINDING_DRIFTED"
+  | "ASSET_CHANGED_BEFORE_COMMIT";
+
+export type ProjectProxyMasterRelinkResultV1 =
+  | Readonly<{
+      disposition: "APPLIED" | "UNCHANGED";
+      commitReceipt: ProjectProxyMasterRelinkCommitReceiptV1;
+    }>
+  | Readonly<{
+      disposition: "COMMITTED_REVALIDATION_REQUIRED";
+      reason:
+        | "ASSET_CHANGED_AFTER_COMMIT"
+        | "ASSET_REVALIDATION_UNAVAILABLE";
+      commitReceipt: ProjectProxyMasterRelinkCommitReceiptV1;
+    }>;
 
 /**
  * Current product frame-coordinate vocabulary for ProjectService timeline
@@ -987,6 +1051,19 @@ export class ProjectMutationWriteError extends Error {
   }
 }
 
+export class ProjectProxyMasterRelinkBlockedErrorV1 extends Error {
+  readonly code = "PROJECT_PROXY_MASTER_RELINK_BLOCKED";
+
+  constructor(
+    readonly reason: ProjectProxyMasterRelinkBlockReasonV1,
+    readonly currentRevision: ProjectRevisionV1,
+    message = `Proxy-to-master relink blocked: ${reason}.`,
+  ) {
+    super(message);
+    this.name = "ProjectProxyMasterRelinkBlockedErrorV1";
+  }
+}
+
 export type ProjectTimelineRangeRebaseBlockReasonV1 =
   | "EXPECTED_REVISION_NOT_OLDER"
   | "HISTORY_INCOMPLETE"
@@ -1066,6 +1143,10 @@ export interface Project {
   projectRevision?: number;
   /** ProjectService-owned active and in-flight generated composition revisions. */
   generatedCompositions?: ProjectGeneratedCompositionEntryV1[];
+  /** Sole ProjectService-owned proxy-to-qualified-master binding per asset. */
+  proxyMasterRelinkStatesV1?: ProjectProxyMasterRelinkStateV1[];
+  /** ProjectService-issued proof of the exact proxy basis before promotion. */
+  proxySourceBindingsV1?: ProjectProxySourceBindingV1[];
   /** Bounded ProjectService-owned history for timeline-range reconciliation. */
   timelineRangeChangeReceipts?: ProjectTimelineRangeChangeReceiptV1[];
   /** Bounded idempotency/receipt history for signed BGM and SFX worker deliveries. */
@@ -1556,6 +1637,325 @@ export class ProjectService {
       project: structuredClone(project),
       revision: projectRevisionFor(project),
     };
+  }
+
+  /**
+   * Relink every explicitly source-bounded video overlay for one logical asset
+   * from its ProjectService-proved proxy basis to the currently qualified
+   * master. Project coordinates and the durable relink state share one CAS.
+   * Media evidence is re-read before and after that CAS; a post-commit race is
+   * reported as requiring revalidation and is never represented as success.
+   */
+  async relinkProjectProxyToQualifiedMasterV1(
+    userId: string,
+    projectId: string,
+    input: ProjectProxyMasterRelinkCommandV1,
+  ): Promise<ProjectProxyMasterRelinkResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectProxyMasterRelinkActorAndAssetV1(
+      input.actorKind,
+      input.assetId,
+    );
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    const block = (
+      reason: ProjectProxyMasterRelinkBlockReasonV1,
+      message?: string,
+    ): ProjectProxyMasterRelinkBlockedErrorV1 =>
+      new ProjectProxyMasterRelinkBlockedErrorV1(
+        reason,
+        currentRevision,
+        message,
+      );
+    const mediaAssets = db.collection(COLLECTIONS.MEDIA_ASSETS);
+    const loadAssetEvidence = async (): Promise<
+    ProjectProxyMasterRelinkAssetEvidenceV1
+    > => {
+      let asset: ProjectProxyMasterRelinkAssetRecordV1 | null;
+      try {
+        asset = (await mediaAssets.findOne({
+          assetId: input.assetId,
+          userId,
+        })) as ProjectProxyMasterRelinkAssetRecordV1 | null;
+      } catch {
+        throw block(
+          "ASSET_EVIDENCE_UNAVAILABLE",
+          "The media asset could not be reloaded for relink verification.",
+        );
+      }
+      if (!asset) {
+        throw block(
+          "SOURCE_ASSET_NOT_FOUND",
+          "The relink source asset no longer exists for this owner.",
+        );
+      }
+      try {
+        return readProjectProxyMasterRelinkAssetEvidenceV1(
+          asset,
+          input.assetId,
+        );
+      } catch (error) {
+        if (error instanceof ProjectProxyMasterRelinkPreparationErrorV1) {
+          throw block(error.reason, error.message);
+        }
+        throw block(
+          "ACTIVE_MAPPING_INVALID",
+          "The current proxy/master asset evidence is invalid.",
+        );
+      }
+    };
+
+    const initialAssetEvidence = await loadAssetEvidence();
+    let boundaryResolution: MediaProxyMasterExactBoundaryResolutionReceiptV1;
+    try {
+      boundaryResolution =
+        assertMediaProxyMasterExactBoundaryResolutionReceiptV1(
+          input.boundaryResolution,
+          initialAssetEvidence.activeMappingState,
+        );
+    } catch {
+      throw block(
+        "BOUNDARY_EVIDENCE_INVALID",
+        "The exact proxy/master boundary receipt is missing, stale or invalid.",
+      );
+    }
+
+    let relinkStates: readonly ProjectProxyMasterRelinkStateV1[];
+    try {
+      relinkStates = assertProjectProxyMasterRelinkStateHistoryV1(
+        project.proxyMasterRelinkStatesV1,
+        projectId,
+        PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+      );
+    } catch {
+      throw block(
+        "RELINK_HISTORY_INVALID",
+        "The server-owned project relink history is invalid.",
+      );
+    }
+    const existingState = relinkStates.find(
+      (state) => state.assetId === input.assetId,
+    );
+    if (existingState) {
+      let validatedState: ProjectProxyMasterRelinkStateV1;
+      try {
+        validatedState = assertProjectProxyMasterRelinkStateV1(
+          existingState,
+          initialAssetEvidence.activeMappingState,
+        );
+      } catch {
+        throw block(
+          "EXISTING_MASTER_BINDING_REBASE_REQUIRED",
+          "This project is already bound through a different active master mapping.",
+        );
+      }
+      if (validatedState.boundaryResolution.resolutionSha256
+          !== boundaryResolution.resolutionSha256) {
+        throw block(
+          "EXISTING_MASTER_BINDING_REBASE_REQUIRED",
+          "The replayed boundary evidence differs from the committed master binding.",
+        );
+      }
+      if (!projectMatchesCommittedProxyMasterRelinkStateV1(
+        project,
+        validatedState,
+      )) {
+        throw block(
+          "EXISTING_MASTER_BINDING_DRIFTED",
+          "The committed master coordinates no longer match the current project.",
+        );
+      }
+      return {
+        disposition: "UNCHANGED",
+        commitReceipt: createProjectProxyMasterRelinkCommitReceiptV1({
+          state: validatedState,
+          activeMappingState: initialAssetEvidence.activeMappingState,
+          mutationReceipt:
+            projectProxyMasterRelinkMutationReceiptFromStateV1(validatedState),
+        }),
+      };
+    }
+
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before retrying.",
+      );
+    }
+
+    let sourceBindings: readonly ProjectProxySourceBindingV1[];
+    try {
+      sourceBindings = assertProjectProxySourceBindingHistoryV1(
+        project.proxySourceBindingsV1,
+        projectId,
+        PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+      );
+    } catch {
+      throw block(
+        "RELINK_HISTORY_INVALID",
+        "The server-owned proxy source-binding history is invalid.",
+      );
+    }
+    const sourceBinding = sourceBindings.find(
+      (binding) => binding.assetId === input.assetId,
+    );
+    if (!sourceBinding) {
+      throw block(
+        "SOURCE_BINDING_NOT_FOUND",
+        "The project has no durable proof that these coordinates belong to the proxy source.",
+      );
+    }
+
+    let prepared: ProjectProxyMasterPreparedRelinkV1;
+    try {
+      prepared = prepareProjectProxyMasterRelinkV1({
+        project,
+        currentRevision,
+        sourceBinding,
+        activeMappingState: initialAssetEvidence.activeMappingState,
+        boundaryResolution,
+      });
+    } catch (error) {
+      if (error instanceof ProjectProxyMasterRelinkPreparationErrorV1) {
+        throw block(error.reason, error.message);
+      }
+      throw block(
+        "SOURCE_RANGE_INVALID",
+        "The project source ranges cannot be relinked safely.",
+      );
+    }
+
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => prepared.overlayChanges.some((change) =>
+      frameRangesOverlapHalfOpenV1(lock.frameRange, {
+        startFrame: change.timelineStartFrame,
+        endFrame: change.timelineEndFrameExclusive,
+      })));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the proxy/master relink.",
+      );
+    }
+
+    const committedAt = new Date();
+    let relinkState: ProjectProxyMasterRelinkStateV1;
+    try {
+      relinkState = createProjectProxyMasterRelinkStateV1({
+        projectId,
+        assetId: input.assetId,
+        actorKind: input.actorKind,
+        activeMappingState: initialAssetEvidence.activeMappingState,
+        beforeSourceBinding: sourceBinding,
+        boundaryResolution,
+        sourceInvalidationPlanSha256:
+          initialAssetEvidence.activeMappingState.proxyMasterActiveMappingV1
+            .sourceInvalidationPlanSha256,
+        audioRightsEvidenceSha256:
+          initialAssetEvidence.audioRightsEvidenceSha256,
+        beforeProjectRevision: currentRevision,
+        overlayChanges: prepared.overlayChanges,
+        policy: PROJECT_PROXY_MASTER_RELINK_POLICY_V1,
+        relinkedAt: committedAt,
+      });
+    } catch {
+      throw block(
+        "BOUNDARY_EVIDENCE_INVALID",
+        "The relink state could not be bound to the current project and media evidence.",
+      );
+    }
+    const nextRelinkStates = assertProjectProxyMasterRelinkStateHistoryV1(
+      [...relinkStates, relinkState].sort((left, right) =>
+        left.assetId.localeCompare(right.assetId)),
+      projectId,
+      PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+    );
+
+    const preCommitAssetEvidence = await loadAssetEvidence();
+    if (!sameProjectProxyMasterRelinkAssetEvidenceV1(
+      initialAssetEvidence,
+      preCommitAssetEvidence,
+    )) {
+      throw block(
+        "ASSET_CHANGED_BEFORE_COMMIT",
+        "The active media mapping or audio-rights evidence changed before the project CAS.",
+      );
+    }
+
+    const persistedOverlays = assetResolver.stripUrlsForLLM(
+      prepared.overlays,
+    );
+    const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(currentRevision),
+      },
+      {
+        $set: {
+          overlays: persistedOverlays,
+          proxyMasterRelinkStatesV1: nextRelinkStates,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (update.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (update.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: currentRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    const commitReceipt = createProjectProxyMasterRelinkCommitReceiptV1({
+      state: relinkState,
+      activeMappingState: initialAssetEvidence.activeMappingState,
+      mutationReceipt,
+    });
+    this.publishMutationReceipt(mutationReceipt);
+
+    let postCommitAssetEvidence: ProjectProxyMasterRelinkAssetEvidenceV1;
+    try {
+      postCommitAssetEvidence = await loadAssetEvidence();
+    } catch {
+      return {
+        disposition: "COMMITTED_REVALIDATION_REQUIRED",
+        reason: "ASSET_REVALIDATION_UNAVAILABLE",
+        commitReceipt,
+      };
+    }
+    if (!sameProjectProxyMasterRelinkAssetEvidenceV1(
+      initialAssetEvidence,
+      postCommitAssetEvidence,
+    )) {
+      return {
+        disposition: "COMMITTED_REVALIDATION_REQUIRED",
+        reason: "ASSET_CHANGED_AFTER_COMMIT",
+        commitReceipt,
+      };
+    }
+    return { disposition: "APPLIED", commitReceipt };
   }
 
   /**
@@ -7233,6 +7633,338 @@ function assertGenericProjectUpdateFields(
       "Generated composition state must use its ProjectService command boundary.",
     );
   }
+  if (fields.some((field) =>
+    field === "proxySourceBindingsV1"
+    || field.startsWith("proxySourceBindingsV1.")
+    || field === "proxyMasterRelinkStatesV1"
+    || field.startsWith("proxyMasterRelinkStatesV1."))) {
+    throw new ProjectMutationWriteError(
+      "Proxy source bindings and relink state must use their ProjectService command boundaries.",
+    );
+  }
+}
+
+type ProjectProxyMasterRelinkAssetRecordV1 =
+  MediaProxyMasterActiveMappingAssetInputV1 & Readonly<{
+    audioRights?: unknown;
+  }>;
+
+type ProjectProxyMasterRelinkAssetEvidenceV1 = Readonly<{
+  activeMappingState: MediaProxyMasterActiveMappingAssetStateV1;
+  audioRightsEvidenceSha256: string | null;
+}>;
+
+type ProjectProxyMasterPreparedRelinkV1 = Readonly<{
+  overlays: Overlay[];
+  overlayChanges: readonly ProjectProxyMasterRelinkOverlayChangeV1[];
+}>;
+
+class ProjectProxyMasterRelinkPreparationErrorV1 extends Error {
+  constructor(
+    readonly reason: ProjectProxyMasterRelinkBlockReasonV1,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProjectProxyMasterRelinkPreparationErrorV1";
+  }
+}
+
+function assertProjectProxyMasterRelinkActorAndAssetV1(
+  actorKind: ProjectProxyMasterRelinkActorKindV1,
+  assetId: string,
+): void {
+  if (actorKind !== "USER" && actorKind !== "AGENT"
+    && actorKind !== "SYSTEM") {
+    throw new ProjectMutationWriteError(
+      "A proxy/master relink requires an explicit actor.",
+    );
+  }
+  if (typeof assetId !== "string" || assetId.trim() !== assetId
+    || assetId.length === 0 || assetId.length > 512
+    || /[^\x21-\x7E]/.test(assetId)) {
+    throw new ProjectMutationWriteError(
+      "A proxy/master relink requires one stable ASCII asset identity.",
+    );
+  }
+}
+
+function readProjectProxyMasterRelinkAssetEvidenceV1(
+  asset: ProjectProxyMasterRelinkAssetRecordV1,
+  assetId: string,
+): ProjectProxyMasterRelinkAssetEvidenceV1 {
+  let activeMappingState: MediaProxyMasterActiveMappingAssetStateV1 | null;
+  try {
+    activeMappingState = readMediaProxyMasterActiveMappingAssetStateV1(asset);
+  } catch {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "ACTIVE_MAPPING_INVALID",
+      "The active proxy/master mapping does not match the current media asset.",
+    );
+  }
+  if (!activeMappingState) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "ACTIVE_MAPPING_NOT_FOUND",
+      "The media asset has no qualified active proxy/master mapping.",
+    );
+  }
+  const mapping = activeMappingState.proxyMasterActiveMappingV1
+    .qualification.mapping;
+  if (mapping.audio.disposition === "NO_AUDIO_IN_EITHER_SOURCE") {
+    return { activeMappingState, audioRightsEvidenceSha256: null };
+  }
+  const issue = getAudioRightsContractIssue(asset.audioRights);
+  const rights = asset.audioRights as AudioRightsContract | undefined;
+  if (issue || !rights || rights.licensed !== true
+    || rights.userChoice !== "attested"
+    || rights.mediaRole !== "native-video"
+    || rights.evidence?.sourceAssetId !== assetId) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "AUDIO_RIGHTS_REQUIRED_OR_INVALID",
+      "Playable native audio requires current source-bound rights evidence before relink.",
+    );
+  }
+  return {
+    activeMappingState,
+    audioRightsEvidenceSha256: hashEditronCanonicalJsonV1(rights),
+  };
+}
+
+function prepareProjectProxyMasterRelinkV1(input: Readonly<{
+  project: Project;
+  currentRevision: ProjectRevisionV1;
+  sourceBinding: ProjectProxySourceBindingV1;
+  activeMappingState: MediaProxyMasterActiveMappingAssetStateV1;
+  boundaryResolution: MediaProxyMasterExactBoundaryResolutionReceiptV1;
+}>): ProjectProxyMasterPreparedRelinkV1 {
+  const active = input.activeMappingState.proxyMasterActiveMappingV1;
+  const relation = active.qualification.relation;
+  const binding = input.sourceBinding;
+  if (!sameProjectRevisionV1(binding.projectRevision, input.currentRevision)
+    || binding.assetId !== relation.assetId
+    || binding.projectId !== input.project.projectId
+    || binding.proxySourceVersionSha256
+      !== relation.proxy.sourceVersionSha256
+    || binding.proxyTimeMapReferenceSha256
+      !== hashEditronCanonicalJsonV1(
+        active.qualification.mapping.proxyTimeMap,
+      )
+    || Date.parse(binding.boundAt) >= Date.parse(active.activatedAt)) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "SOURCE_BINDING_STALE_OR_MISMATCHED",
+      "The proxy source binding is not current for this project and mapping.",
+    );
+  }
+  const targets = input.project.overlays
+    .filter((overlay): overlay is ClipOverlay =>
+      overlay.type === "video" && overlay.assetId === relation.assetId)
+    .sort((left, right) => left.id - right.id);
+  if (targets.length === 0) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "TARGET_OVERLAYS_NOT_FOUND",
+      "No video overlay uses the qualified proxy/master asset.",
+    );
+  }
+  if (targets.length !== binding.overlays.length) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "SOURCE_BINDING_STALE_OR_MISMATCHED",
+      "The current asset-backed overlay set differs from its proxy binding.",
+    );
+  }
+  const bindingById = new Map(
+    binding.overlays.map((entry) => [entry.overlayId, entry]),
+  );
+  const masterByProxyBoundary = new Map(
+    input.boundaryResolution.resolvedBoundaries.map((entry) => [
+      entry.proxyBoundaryOrdinal,
+      entry.masterBoundaryOrdinal,
+    ]),
+  );
+  const updates = new Map<Overlay, Overlay>();
+  const overlayChanges: ProjectProxyMasterRelinkOverlayChangeV1[] = [];
+  let previousOverlayId = -1;
+  for (const overlay of targets) {
+    if (!Number.isSafeInteger(overlay.id) || overlay.id < 0
+      || overlay.id <= previousOverlayId) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "TARGET_OVERLAY_IDENTITY_INVALID",
+        "Relink targets require unique non-negative numeric overlay IDs.",
+      );
+    }
+    previousOverlayId = overlay.id;
+    const sourceStartFrameWasExplicit = overlay.sourceStartFrame !== undefined;
+    const videoStartTimeWasExplicit = overlay.videoStartTime !== undefined;
+    const sourceEndFrameWasExplicit = overlay.sourceEndFrame !== undefined;
+    if ((!sourceStartFrameWasExplicit && !videoStartTimeWasExplicit)
+      || !sourceEndFrameWasExplicit) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_RANGE_INCOMPLETE",
+        "Every relink target requires an explicit source start alias and exclusive source end.",
+      );
+    }
+    const sourceStartFrame = sourceStartFrameWasExplicit
+      ? overlay.sourceStartFrame
+      : overlay.videoStartTime;
+    const sourceEndFrameExclusive = overlay.sourceEndFrame;
+    if (!Number.isSafeInteger(sourceStartFrame)
+      || !Number.isSafeInteger(sourceEndFrameExclusive)
+      || (sourceStartFrame as number) < 0
+      || (sourceEndFrameExclusive as number) <= (sourceStartFrame as number)
+      || !Number.isSafeInteger(overlay.from) || overlay.from < 0
+      || !Number.isSafeInteger(overlay.durationInFrames)
+      || overlay.durationInFrames <= 0
+      || !Number.isSafeInteger(overlay.from + overlay.durationInFrames)) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_RANGE_INVALID",
+        "Relink source and timeline ranges must be positive safe-integer intervals.",
+      );
+    }
+    if (sourceStartFrameWasExplicit && videoStartTimeWasExplicit
+      && overlay.sourceStartFrame !== overlay.videoStartTime) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_COORDINATE_CONFLICT",
+        "sourceStartFrame and videoStartTime disagree for a relink target.",
+      );
+    }
+    const bound = bindingById.get(overlay.id);
+    if (!bound
+      || bound.timelineStartFrame !== overlay.from
+      || bound.timelineEndFrameExclusive
+        !== overlay.from + overlay.durationInFrames
+      || bound.proxySourceStartFrame !== sourceStartFrame
+      || bound.proxySourceEndFrameExclusive !== sourceEndFrameExclusive
+      || bound.sourceStartFrameWasExplicit !== sourceStartFrameWasExplicit
+      || bound.sourceEndFrameWasExplicit !== true
+      || bound.videoStartTimeWasExplicit !== videoStartTimeWasExplicit) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_BINDING_STALE_OR_MISMATCHED",
+        "A current overlay no longer matches its proxy source-binding receipt.",
+      );
+    }
+    const masterStartText = masterByProxyBoundary.get(
+      String(sourceStartFrame),
+    );
+    const masterEndText = masterByProxyBoundary.get(
+      String(sourceEndFrameExclusive),
+    );
+    if (!masterStartText || !masterEndText) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "BOUNDARY_EVIDENCE_INVALID",
+        "The boundary receipt does not resolve every target source in/out.",
+      );
+    }
+    const masterSourceStartFrame = safeProjectSourceOrdinalV1(masterStartText);
+    const masterSourceEndFrameExclusive = safeProjectSourceOrdinalV1(
+      masterEndText,
+    );
+    if (masterSourceEndFrameExclusive <= masterSourceStartFrame) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_RANGE_INVALID",
+        "The exact master source interval is empty or reversed.",
+      );
+    }
+    const change: ProjectProxyMasterRelinkOverlayChangeV1 = {
+      overlayId: overlay.id,
+      timelineStartFrame: overlay.from,
+      timelineEndFrameExclusive: overlay.from + overlay.durationInFrames,
+      proxySourceStartFrame: sourceStartFrame as number,
+      proxySourceEndFrameExclusive: sourceEndFrameExclusive as number,
+      masterSourceStartFrame,
+      masterSourceEndFrameExclusive,
+      sourceStartFrameWasExplicit,
+      sourceEndFrameWasExplicit: true,
+      videoStartTimeWasExplicit,
+    };
+    overlayChanges.push(change);
+    updates.set(overlay, withAtomicOverlayUpdateReceipt(
+      overlay,
+      {
+        sourceStartFrame: masterSourceStartFrame,
+        sourceEndFrame: masterSourceEndFrameExclusive,
+        ...(videoStartTimeWasExplicit
+          ? { videoStartTime: masterSourceStartFrame }
+          : {}),
+      } as Partial<Overlay>,
+      {
+        source: "project-service-proxy-master-relink-v1",
+        intent: "relink-proxy-to-qualified-master",
+        reason: "exact qualified proxy/master boundaries persisted through ProjectService",
+      },
+    ));
+  }
+  return {
+    overlays: input.project.overlays.map((overlay) =>
+      updates.get(overlay) ?? overlay),
+    overlayChanges,
+  };
+}
+
+function projectMatchesCommittedProxyMasterRelinkStateV1(
+  project: Project,
+  state: ProjectProxyMasterRelinkStateV1,
+): boolean {
+  const targets = project.overlays.filter((overlay): overlay is ClipOverlay =>
+    overlay.type === "video" && overlay.assetId === state.assetId);
+  if (targets.length !== state.overlayChanges.length) return false;
+  const targetsById = new Map<number, ClipOverlay>();
+  for (const overlay of targets) {
+    if (targetsById.has(overlay.id)) return false;
+    targetsById.set(overlay.id, overlay);
+  }
+  return state.overlayChanges.every((change) => {
+    const overlay = targetsById.get(change.overlayId);
+    return Boolean(overlay
+      && overlay.from === change.timelineStartFrame
+      && overlay.from + overlay.durationInFrames
+        === change.timelineEndFrameExclusive
+      && overlay.sourceStartFrame === change.masterSourceStartFrame
+      && overlay.sourceEndFrame === change.masterSourceEndFrameExclusive
+      && (change.videoStartTimeWasExplicit
+        ? overlay.videoStartTime === change.masterSourceStartFrame
+        : overlay.videoStartTime === undefined));
+  });
+}
+
+function projectProxyMasterRelinkMutationReceiptFromStateV1(
+  state: ProjectProxyMasterRelinkStateV1,
+): ProjectMutationReceiptV1 {
+  return {
+    schemaVersion: 1,
+    projectId: state.projectId,
+    revision: {
+      schemaVersion: 1,
+      value: state.expectedAfterProjectRevisionValue,
+      compatibilityUpdatedAt: state.relinkedAt,
+    },
+    committedAt: state.relinkedAt,
+  };
+}
+
+function sameProjectProxyMasterRelinkAssetEvidenceV1(
+  left: ProjectProxyMasterRelinkAssetEvidenceV1,
+  right: ProjectProxyMasterRelinkAssetEvidenceV1,
+): boolean {
+  return left.activeMappingState.proxyMasterActiveMappingStateSha256V1
+      === right.activeMappingState.proxyMasterActiveMappingStateSha256V1
+    && left.audioRightsEvidenceSha256 === right.audioRightsEvidenceSha256;
+}
+
+function safeProjectSourceOrdinalV1(value: string): number {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "SOURCE_COORDINATE_UNREPRESENTABLE",
+      "A resolved master source ordinal is not an integer.",
+    );
+  }
+  if (parsed < BigInt(0) || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ProjectProxyMasterRelinkPreparationErrorV1(
+      "SOURCE_COORDINATE_UNREPRESENTABLE",
+      "A resolved master source ordinal exceeds the current Project overlay model.",
+    );
+  }
+  return Number(parsed);
 }
 
 function validDimensions(

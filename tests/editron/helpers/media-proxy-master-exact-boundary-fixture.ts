@@ -10,6 +10,7 @@ import { hashEditronCanonicalJsonV1 }
   from '@/lib/editron/services/canonical-json-v1';
 import {
   createMediaProxyMasterActiveMappingAssetStateV1,
+  type MediaProxyMasterActiveMappingAssetInputV1,
   type MediaProxyMasterActiveMappingAssetStateV1,
 } from '@/lib/editron/services/media-proxy-master-active-mapping-asset-owner-v1';
 import {
@@ -74,6 +75,7 @@ type IntervalV1 = Readonly<{
 
 export type MediaProxyMasterExactBoundaryFixtureV1 = Readonly<{
   activeMappingState: MediaProxyMasterActiveMappingAssetStateV1;
+  asset: MediaProxyMasterActiveMappingAssetInputV1;
   qualification: MediaProxyMasterMappingQualificationReceiptV1;
   objects: ReadonlyMap<string, StoredObjectV1>;
   indexObjectKey: string;
@@ -84,7 +86,7 @@ export type MediaProxyMasterExactBoundaryFixtureV1 = Readonly<{
 
 export async function buildMediaProxyMasterExactBoundaryFixtureV1(input: Readonly<{
   tag: string;
-  cadence: 'EQUAL' | 'VARIABLE';
+  cadence: 'EQUAL' | 'VARIABLE' | 'OFFSET';
 }>): Promise<MediaProxyMasterExactBoundaryFixtureV1> {
   const base = await buildMediaProxyMasterMappingQualificationFixtureV1({
     tag: input.tag,
@@ -101,7 +103,9 @@ export async function buildMediaProxyMasterExactBoundaryFixtureV1(input: Readonl
   );
   const proxyDurations = input.cadence === 'EQUAL'
     ? [...masterDurations]
-    : [2_000, 4_000, 2_000, 4_000, ...masterDurations.slice(4)];
+    : input.cadence === 'VARIABLE'
+      ? [2_000, 4_000, 2_000, 4_000, ...masterDurations.slice(4)]
+      : [1_500, 1_500, 4_500, 4_500, ...masterDurations.slice(4)];
   const proxyTimeline = timeline('proxy', proxyDurations);
   const masterTimeline = timeline('master', masterDurations);
   assertEqualTerminalDuration(proxyTimeline, masterTimeline);
@@ -233,6 +237,13 @@ export async function buildMediaProxyMasterExactBoundaryFixtureV1(input: Readonl
   });
   return {
     activeMappingState,
+    asset: {
+      ...asset,
+      proxyMasterActiveMappingV1:
+        activeMappingState.proxyMasterActiveMappingV1,
+      proxyMasterActiveMappingStateSha256V1:
+        activeMappingState.proxyMasterActiveMappingStateSha256V1,
+    },
     qualification,
     objects,
     indexObjectKey: indexReference.objectKey,
