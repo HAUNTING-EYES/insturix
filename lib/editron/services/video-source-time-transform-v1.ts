@@ -53,6 +53,7 @@ import {
   type MediaSourcePtsCadenceMapAssetStateInputV3,
 } from './media-source-pts-cadence-map-asset-owner-v3';
 import {
+  assertMediaProxyMasterRelationV1,
   assertMediaSourceVersionV1,
 } from './media-source-version-v1';
 import type { ProjectRevisionV1 } from './project-service';
@@ -854,6 +855,25 @@ export function resolveVerifiedVideoSourceEpochTimeBindingV3(
     return null;
   }
   const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
+  if (asset.proxyMasterRelationV1 !== undefined && asset.proxyMasterRelationV1 !== null) {
+    const relation = assertMediaProxyMasterRelationV1(asset.proxyMasterRelationV1);
+    const ownerMatches = relation.owner.kind === sourceVersion.owner.kind
+      && (relation.owner.kind === 'USER'
+        ? sourceVersion.owner.kind === 'USER'
+          && relation.owner.userId === sourceVersion.owner.userId
+        : sourceVersion.owner.kind === 'ORG'
+          && relation.owner.orgId === sourceVersion.owner.orgId);
+    if (!ownerMatches
+      || relation.assetId !== sourceVersion.assetId
+      || relation.mediaKind !== sourceVersion.mediaKind
+      || relation.master.sourceVersionSha256 !== sourceVersion.sourceVersionSha256
+      || relation.master.contentSha256 !== sourceVersion.contentSha256
+      || relation.master.storageVersionSha256
+        !== sourceVersion.storageVersion.storageVersionSha256) {
+      throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_RELATION_SCOPE_MISMATCH');
+    }
+    throw new Error('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
+  }
   const sourceCadence = verification.verifiedEpochCount === 1
     && verification.observedCadence.kind === 'UNIFORM_FRAME_DURATIONS'
     ? {

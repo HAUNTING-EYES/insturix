@@ -78,6 +78,7 @@ export type MediaSourcePtsCadenceMapAssetStateV3 = Readonly<{
 
 export type MediaSourcePtsCadenceMapAssetStateInputV3 =
   MediaSourcePtsCadenceMapAssetStateInputV2 & Readonly<{
+    proxyMasterRelationV1?: unknown;
     sourcePtsCadenceMapV3?: unknown;
     sourcePtsCadenceMapStateSha256V3?: unknown;
   }>;
@@ -383,6 +384,7 @@ export async function createMediaSourcePtsCadenceMapAssetMongoPortsV3(
             type: 1,
             sourceVersionV1: 1,
             sourceQualificationV1: 1,
+            proxyMasterRelationV1: 1,
             sourcePtsCadenceMapV1: 1,
             sourcePtsCadenceMapStateSha256V1: 1,
             sourcePtsCadenceMapV2: 1,

@@ -56,7 +56,10 @@ import {
   type MediaSourcePtsCadenceFrameInputV1,
 } from '@/lib/editron/services/media-source-pts-cadence-shard-v1';
 import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
-import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
+import {
+  createMediaProxyMasterRelationV1,
+  createMediaSourceVersionV1,
+} from '@/lib/editron/services/media-source-version-v1';
 import {
   createNativeMediaTimestampAnalysisEngineOutputV1,
   type NativeMediaTimestampAnalysisEnginePortV1,
@@ -276,6 +279,30 @@ describe('native media timestamp consumer V1', () => {
       },
     })).rejects.toThrow('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
     expect(proxy.reader.read).not.toHaveBeenCalled();
+
+    const promoted = await verifiedFixture('promoted-proxy');
+    const historicalProxyStorage = createMediaSourceStorageVersionV1({
+      locator: { provider: 'R2', objectKey: 'media/promoted-proxy-low.mp4' },
+      byteLength: 50_000,
+      providerVersion: { kind: 'R2_ETAG', value: 'etag-promoted-proxy-low' },
+    });
+    const historicalProxy = createMediaSourceVersionV1({
+      owner: promoted.sourceVersion.owner,
+      assetId: promoted.sourceVersion.assetId,
+      mediaKind: 'video',
+      byteLength: historicalProxyStorage.byteLength,
+      contentSha256: hashUtf8('promoted-proxy-low'),
+      storageVersion: historicalProxyStorage,
+    });
+    const relation = createMediaProxyMasterRelationV1({
+      proxy: historicalProxy,
+      master: promoted.sourceVersion,
+    });
+    promoted.reader.read.mockClear();
+    await expect(createConform(promoted, {
+      asset: { ...promoted.asset, proxyMasterRelationV1: relation },
+    })).rejects.toThrow('VIDEO_SOURCE_CONFORM_PROXY_MASTER_MAPPING_REQUIRED');
+    expect(promoted.reader.read).not.toHaveBeenCalled();
   });
 
   it('blocks stale sources and invalid decoder identity, resources, and execution', async () => {

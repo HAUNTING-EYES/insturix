@@ -289,6 +289,7 @@ export async function createMediaSourceAudioArtifactAssetMongoPortsV1(
             type: 1,
             sourceVersionV1: 1,
             sourceQualificationV1: 1,
+            proxyMasterRelationV1: 1,
             sourcePtsCadenceMapV1: 1,
             sourcePtsCadenceMapStateSha256V1: 1,
             sourcePtsCadenceMapV2: 1,
