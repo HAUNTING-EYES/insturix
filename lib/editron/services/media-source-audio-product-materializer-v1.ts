@@ -10,6 +10,11 @@ import {
   type MediaSourceAudioArtifactAssetStateV1,
   type MediaSourceAudioArtifactAssetStorePortsV1,
 } from './media-source-audio-artifact-asset-owner-v1';
+import {
+  captureMediaSourceAudioAvailabilityEvidenceV1,
+  retainMediaSourceAudioAvailabilityEvidenceV1,
+  type MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+} from './media-source-audio-availability-evidence-v1';
 import type { MediaSourceAudioPrivateArtifactStreamWriterV1 }
   from './media-source-audio-private-artifact-port-v1';
 import {
@@ -22,7 +27,7 @@ import {
 import { materializeMediaSourceAudioPrivateArtifactFfmpegV1 }
   from './media-source-audio-sample-epoch-ffmpeg-v1';
 import {
-  createMediaSourceAudioVersionEvidenceStorePortsV1,
+  createMediaSourceAudioAvailabilityBoundStorePortsV1,
   MediaSourceAudioVersionEvidenceErrorV1,
 } from './media-source-audio-version-evidence-store-v1';
 import { readNativeMediaExactAudioStreamIndexesV1 }
@@ -151,6 +156,8 @@ export type MediaSourceAudioProductMaterializationFailureReasonV1 =
   | 'ACTIVE_STATE_STORE_FAILED'
   | 'ACTIVE_STATE_RACE'
   | 'ACTIVE_STATE_REJECTED'
+  | 'SOURCE_AUDIO_AVAILABILITY_INVALID'
+  | 'SOURCE_AUDIO_AVAILABILITY_REJECTED'
   | 'SOURCE_VERSION_EVIDENCE_REJECTED'
   | 'SOURCE_VERSION_EVIDENCE_READ_FAILED'
   | 'SOURCE_VERSION_EVIDENCE_READBACK_MISSING'
@@ -173,6 +180,8 @@ export type MediaSourceAudioProductMaterializationInputV1 = Readonly<{
 
 export type MediaSourceAudioProductMaterializationPortsV1 = Readonly<{
   assetStorePorts: MediaSourceAudioArtifactAssetStorePortsV1;
+  availabilityEvidenceStorePorts:
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
   evidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1;
   artifactWriter: MediaSourceAudioPrivateArtifactStreamWriterV1;
   createSourceLease(
@@ -256,8 +265,9 @@ export async function materializeMediaSourceAudioProductV1(
   }
   const missing = observed.filter((audioStreamIndex) => !recorded.includes(audioStreamIndex));
   const materialized: number[] = [];
-  const evidenceBoundStore = createMediaSourceAudioVersionEvidenceStorePortsV1({
+  const evidenceBoundStore = createMediaSourceAudioAvailabilityBoundStorePortsV1({
     assetStorePorts: ports.assetStorePorts,
+    availabilityEvidenceStorePorts: ports.availabilityEvidenceStorePorts,
     evidenceStorePorts: ports.evidenceStorePorts,
   });
   let sourceLease: VerifiedMediaSourceLeasePortV1 | null = null;
@@ -348,9 +358,10 @@ export async function materializeMediaSourceAudioProductV1(
   if (materialized.length === 0) assertNotAborted(normalized.abortSignal);
   const evidenceSha256 = await readBackTerminalEvidence({
     asset,
+    availabilityPorts: ports.availabilityEvidenceStorePorts,
+    evidencePorts: ports.evidenceStorePorts,
     state,
     materializedCount: materialized.length,
-    ports: ports.evidenceStorePorts,
   });
   return receipt({
     disposition: materialized.length === 0 ? 'ALREADY_COMPLETE' : 'COMPLETED',
@@ -368,10 +379,45 @@ export async function materializeMediaSourceAudioProductV1(
 
 async function readBackTerminalEvidence(input: Readonly<{
   asset: MediaSourceAudioArtifactAssetStateInputV1;
+  availabilityPorts: MediaSourceAudioAvailabilityEvidenceStorePortsV1;
+  evidencePorts: MediaSourceVersionEvidenceStorePortsV1;
   state: MediaSourceAudioArtifactAssetStateV1;
   materializedCount: number;
-  ports: MediaSourceVersionEvidenceStorePortsV1;
 }>): Promise<string> {
+  let availabilityCandidate;
+  try {
+    availabilityCandidate = captureMediaSourceAudioAvailabilityEvidenceV1({
+      ...input.asset,
+      ...input.state,
+    });
+  } catch (error) {
+    throw failure(
+      'SOURCE_AUDIO_AVAILABILITY_INVALID',
+      false,
+      diagnostic(error),
+    );
+  }
+  let availabilityRetained;
+  try {
+    availabilityRetained = await retainMediaSourceAudioAvailabilityEvidenceV1(
+      availabilityCandidate,
+      input.availabilityPorts,
+    );
+  } catch (error) {
+    throw failure(
+      'SOURCE_AUDIO_AVAILABILITY_REJECTED',
+      true,
+      diagnostic(error),
+    );
+  }
+  if (availabilityRetained.disposition === 'REJECTED') {
+    throw failure(
+      'SOURCE_AUDIO_AVAILABILITY_REJECTED',
+      availabilityRetained.retryable,
+      availabilityRetained.reason,
+    );
+  }
+
   let candidate;
   try {
     candidate = captureMediaSourceVersionEvidenceV1({
@@ -386,7 +432,9 @@ async function readBackTerminalEvidence(input: Readonly<{
   }
   let loaded: unknown | null;
   try {
-    loaded = await input.ports.load(mediaSourceVersionEvidenceScopeV1(candidate));
+    loaded = await input.evidencePorts.load(
+      mediaSourceVersionEvidenceScopeV1(candidate),
+    );
   } catch (error) {
     throw failure('SOURCE_VERSION_EVIDENCE_READ_FAILED', true, diagnostic(error));
   }
@@ -547,6 +595,9 @@ function assertPorts(ports: MediaSourceAudioProductMaterializationPortsV1): void
   if (!ports || !ports.assetStorePorts
     || typeof ports.assetStorePorts.load !== 'function'
     || typeof ports.assetStorePorts.replace !== 'function'
+    || !ports.availabilityEvidenceStorePorts
+    || typeof ports.availabilityEvidenceStorePorts.load !== 'function'
+    || typeof ports.availabilityEvidenceStorePorts.compareAndSet !== 'function'
     || !ports.evidenceStorePorts
     || typeof ports.evidenceStorePorts.load !== 'function'
     || typeof ports.evidenceStorePorts.compareAndSet !== 'function'

@@ -3,6 +3,10 @@ import {
   type MediaSourceAudioArtifactAssetStateInputV1,
   type MediaSourceAudioArtifactAssetStorePortsV1,
 } from './media-source-audio-artifact-asset-owner-v1';
+import { createMediaSourceAudioAvailabilityEvidenceMongoPortsV1 }
+  from './media-source-audio-availability-evidence-mongo-v1';
+import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
+  from './media-source-audio-availability-evidence-v1';
 import type { MediaSourceAudioPrivateArtifactStreamWriterV1 }
   from './media-source-audio-private-artifact-port-v1';
 import {
@@ -36,6 +40,7 @@ export type MediaSourceAudioProductRuntimeResultV1 =
       reason:
         | 'PRIVATE_STORAGE_NOT_CONFIGURED'
         | 'MEDIA_ASSET_OWNER_UNAVAILABLE'
+        | 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE'
         | 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE';
     }>;
 
@@ -46,6 +51,8 @@ export type MediaSourceAudioProductRuntimeDependenciesV1 = Readonly<{
   ) => PrivateAudioRuntimeV1;
   createAssetStorePorts?: () =>
     Promise<MediaSourceAudioArtifactAssetStorePortsV1>;
+  createAvailabilityEvidenceStorePorts?: () =>
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
   createEvidenceStorePorts?: () => MediaSourceVersionEvidenceStorePortsV1;
   createSourceLease?: (
     asset: MediaSourceAudioArtifactAssetStateInputV1,
@@ -81,6 +88,19 @@ export async function runMediaSourceAudioProductRuntimeV1(
     };
   }
 
+  let availabilityEvidenceStorePorts:
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1;
+  try {
+    availabilityEvidenceStorePorts =
+      (dependencies.createAvailabilityEvidenceStorePorts
+        ?? createMediaSourceAudioAvailabilityEvidenceMongoPortsV1)();
+  } catch {
+    return {
+      kind: 'runtime_unavailable',
+      reason: 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE',
+    };
+  }
+
   let evidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1;
   try {
     evidenceStorePorts = (dependencies.createEvidenceStorePorts
@@ -95,6 +115,7 @@ export async function runMediaSourceAudioProductRuntimeV1(
   return (dependencies.materializeProduct
     ?? materializeMediaSourceAudioProductV1)(input, {
     assetStorePorts,
+    availabilityEvidenceStorePorts,
     evidenceStorePorts,
     artifactWriter: privateRuntime.audioArtifact,
     createSourceLease: dependencies.createSourceLease

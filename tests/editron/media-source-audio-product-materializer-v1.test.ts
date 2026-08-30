@@ -11,6 +11,10 @@ import {
   type MediaSourceAudioArtifactAssetStateInputV1,
   type MediaSourceAudioArtifactAssetStorePortsV1,
 } from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
+import type {
+  MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+  MediaSourceAudioAvailabilityEvidenceV1,
+} from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
 import {
   createMediaSourceAudioEpochMapArtifactReferenceV1,
   createMediaSourceAudioPcmChunkPlanV1,
@@ -32,7 +36,10 @@ import {
   serializeMediaSourceAudioSampleEpochMapV1,
   type MediaSourceAudioSampleEpochResourcePolicyV1,
 } from '@/lib/editron/services/media-source-audio-sample-epoch-map-v1';
-import type { MediaSourceQualificationRecordV1 }
+import {
+  createMediaSourceQualificationV1,
+  type MediaSourceQualificationRecordV1,
+}
   from '@/lib/editron/services/media-source-qualification-v1';
 import { createMediaSourceStorageVersionV1 }
   from '@/lib/editron/services/media-source-storage-version-v1';
@@ -48,13 +55,19 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
   it('materializes every observed stream in canonical order and proves the terminal root', async () => {
     const fixture = sourceFixture('complete', [9, 4]);
     const active = activeStore(fixture.asset);
+    const availability = availabilityStore();
     const evidence = evidenceStore();
     const materializeStream = materializer(fixture);
     const beforeActiveStateMutation = vi.fn(async () => {});
 
     const receipt = await materializeMediaSourceAudioProductV1(
       { ...productInput(fixture), beforeActiveStateMutation },
-      productPorts(active.ports, evidence.ports, materializeStream),
+      productPorts(
+        active.ports,
+        evidence.ports,
+        materializeStream,
+        availability.ports,
+      ),
     );
 
     expect(receipt).toMatchObject({
@@ -76,6 +89,12 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     expect(evidence.current()?.sourceAudioArtifactsV1?.records.map(
       ({ audioStreamIndex }) => audioStreamIndex,
     )).toEqual([4, 9]);
+    expect(availability.current()?.availability).toMatchObject({
+      disposition: 'DECODED_ARTIFACT_SET',
+      sourceAudioArtifactsV1: {
+        records: [{ audioStreamIndex: 4 }, { audioStreamIndex: 9 }],
+      },
+    });
     expect(assertMediaSourceAudioProductMaterializationReceiptV1(receipt))
       .toEqual(receipt);
   });
@@ -120,24 +139,32 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
       .toBe(receipt.audioArtifactStateSha256);
   });
 
-  it('requires explicit migration evidence for a historically complete active set', async () => {
+  it('retains canonical availability but requires legacy evidence for a historical set', async () => {
     const fixture = sourceFixture('historical', [4]);
     const complete = createMediaSourceAudioArtifactAssetStateV1({
       asset: fixture.asset,
       records: [record(fixture, 4)],
     });
     const active = activeStore({ ...fixture.asset, ...complete });
+    const availability = availabilityStore();
     const materializeStream = materializer(fixture);
 
     const error = await materializeMediaSourceAudioProductV1(
       productInput(fixture),
-      productPorts(active.ports, evidenceStore().ports, materializeStream),
+      productPorts(
+        active.ports,
+        evidenceStore().ports,
+        materializeStream,
+        availability.ports,
+      ),
     ).catch((value: unknown) => value);
 
     expect(error).toBeInstanceOf(MediaSourceAudioProductMaterializationErrorV1);
     expect(error).toMatchObject({
       reason: 'HISTORICAL_EVIDENCE_REQUIRED', retryable: false,
     });
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
     expect(materializeStream).not.toHaveBeenCalled();
   });
 
@@ -149,12 +176,18 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     });
     const completeAsset = { ...fixture.asset, ...complete };
     const active = activeStore(completeAsset);
+    const availability = availabilityStore();
     const evidence = evidenceStore(captureMediaSourceVersionEvidenceV1(completeAsset));
     const materializeStream = materializer(fixture);
 
     const receipt = await materializeMediaSourceAudioProductV1(
       productInput(fixture),
-      productPorts(active.ports, evidence.ports, materializeStream),
+      productPorts(
+        active.ports,
+        evidence.ports,
+        materializeStream,
+        availability.ports,
+      ),
     );
 
     expect(receipt).toMatchObject({
@@ -164,6 +197,8 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     });
     expect(materializeStream).not.toHaveBeenCalled();
     expect(active.replace).not.toHaveBeenCalled();
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
   });
 
   it('blocks an audio-less observation pending its separate no-audio proof owner', async () => {
@@ -296,9 +331,13 @@ function productPorts(
   assetStorePorts: MediaSourceAudioArtifactAssetStorePortsV1,
   evidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1,
   materializeStream: MaterializeStreamV1,
+  availabilityEvidenceStorePorts:
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1 =
+      availabilityStore().ports,
 ): MediaSourceAudioProductMaterializationPortsV1 {
   return {
     assetStorePorts,
+    availabilityEvidenceStorePorts,
     evidenceStorePorts,
     artifactWriter: {
       writeArtifactSetFromPcmStream: vi.fn(async () => {
@@ -356,6 +395,30 @@ function evidenceStore(
   });
   return {
     ports: { load, compareAndSet } satisfies MediaSourceVersionEvidenceStorePortsV1,
+    current: () => current,
+  };
+}
+
+function availabilityStore(
+  initial: MediaSourceAudioAvailabilityEvidenceV1 | null = null,
+) {
+  let current = initial;
+  const load = vi.fn(async () => current);
+  const compareAndSet = vi.fn(async ({
+    expectedEvidenceSha256,
+    next,
+  }: Parameters<
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1['compareAndSet']
+  >[0]) => {
+    if ((current?.evidenceSha256 ?? null) !== expectedEvidenceSha256) return false;
+    current = next;
+    return true;
+  });
+  return {
+    ports: {
+      load,
+      compareAndSet,
+    } satisfies MediaSourceAudioAvailabilityEvidenceStorePortsV1,
     current: () => current,
   };
 }
@@ -442,6 +505,15 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
     contentSha256: digest(Buffer.from(`source-${tag}`)),
     storageVersion,
   });
+  const created = createMediaSourceQualificationV1({
+    asset: {
+      assetId: sourceVersion.assetId,
+      source: 'user-upload',
+      r2Key: storageVersion.locator.objectKey,
+    },
+    now: new Date('2026-08-30T00:00:00.000Z'),
+  });
+  if (created.disposition !== 'CREATED') throw new Error('TEST_FIXTURE_INVALID');
   const observationMaterial = {
     schemaVersion: 1 as const,
     kind: 'EDITRON_MEDIA_SOURCE_PROBE_V1' as const,
@@ -462,15 +534,9 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
     })),
   };
   const qualification: MediaSourceQualificationRecordV1 = {
-    schemaVersion: 1,
-    kind: 'EDITRON_MEDIA_SOURCE_QUALIFICATION_V1',
+    ...created.record,
     status: 'MEASURED_TECHNICAL',
-    assetId: sourceVersion.assetId,
-    locator: storageVersion.locator,
-    sourceBindingSha256: digest(Buffer.from(`binding-${tag}`)),
-    requestId: `request-${tag}`,
     attemptCount: 1,
-    requestedAt: '2026-08-30T00:00:00.000Z',
     startedAt: '2026-08-30T00:00:01.000Z',
     completedAt: '2026-08-30T00:00:02.000Z',
     storageVersion,
@@ -478,7 +544,6 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
       ...observationMaterial,
       observationSha256: hashEditronCanonicalJsonV1(observationMaterial),
     },
-    diagnostic: null,
   };
   const asset: MediaSourceAudioArtifactAssetStateInputV1 = {
     assetId: sourceVersion.assetId,

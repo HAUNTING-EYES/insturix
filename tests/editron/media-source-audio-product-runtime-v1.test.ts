@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { MediaSourceAudioArtifactAssetStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
+import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
+  from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
 import type { MediaSourceAudioProductMaterializationReceiptV1 }
   from '@/lib/editron/services/media-source-audio-product-materializer-v1';
 import { runMediaSourceAudioProductRuntimeV1 }
@@ -30,6 +32,7 @@ describe('MediaSourceAudioProductRuntimeV1', () => {
   it('composes dedicated private, asset, evidence and source-lease owners', async () => {
     const artifactWriter = { writeArtifactSetFromPcmStream: vi.fn() };
     const assetStorePorts = assetPorts();
+    const availabilityEvidenceStorePorts = availabilityPorts();
     const evidenceStorePorts = evidencePorts();
     const createSourceLease = vi.fn();
     const materializeProduct = vi.fn(async () => receipt());
@@ -38,6 +41,8 @@ describe('MediaSourceAudioProductRuntimeV1', () => {
       environment: {},
       createPrivateRuntime: vi.fn(() => ({ audioArtifact: artifactWriter })),
       createAssetStorePorts: vi.fn(async () => assetStorePorts),
+      createAvailabilityEvidenceStorePorts:
+        vi.fn(() => availabilityEvidenceStorePorts),
       createEvidenceStorePorts: vi.fn(() => evidenceStorePorts),
       createSourceLease,
       materializeProduct,
@@ -46,6 +51,7 @@ describe('MediaSourceAudioProductRuntimeV1', () => {
     expect(result).toEqual(receipt());
     expect(materializeProduct).toHaveBeenCalledWith(input, {
       assetStorePorts,
+      availabilityEvidenceStorePorts,
       evidenceStorePorts,
       artifactWriter,
       createSourceLease,
@@ -55,6 +61,7 @@ describe('MediaSourceAudioProductRuntimeV1', () => {
   it.each([
     ['private', 'PRIVATE_STORAGE_NOT_CONFIGURED'],
     ['asset', 'MEDIA_ASSET_OWNER_UNAVAILABLE'],
+    ['availability', 'SOURCE_AUDIO_AVAILABILITY_OWNER_UNAVAILABLE'],
     ['evidence', 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE'],
   ] as const)('reports %s composition failure without running the product owner', async (
     failed,
@@ -70,6 +77,12 @@ describe('MediaSourceAudioProductRuntimeV1', () => {
       createAssetStorePorts: async () => {
         if (failed === 'asset') throw new Error('ATLAS_OFFLINE');
         return assetPorts();
+      },
+      createAvailabilityEvidenceStorePorts: () => {
+        if (failed === 'availability') {
+          throw new Error('AUDIO_AVAILABILITY_OFFLINE');
+        }
+        return availabilityPorts();
       },
       createEvidenceStorePorts: () => {
         if (failed === 'evidence') throw new Error('EVIDENCE_OFFLINE');
@@ -87,6 +100,13 @@ function assetPorts(): MediaSourceAudioArtifactAssetStorePortsV1 {
   return {
     load: vi.fn(async () => null),
     replace: vi.fn(async () => false),
+  };
+}
+
+function availabilityPorts(): MediaSourceAudioAvailabilityEvidenceStorePortsV1 {
+  return {
+    load: vi.fn(async () => null),
+    compareAndSet: vi.fn(async () => false),
   };
 }
 
