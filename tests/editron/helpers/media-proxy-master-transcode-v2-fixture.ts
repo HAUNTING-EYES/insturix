@@ -97,7 +97,8 @@ export function buildMediaProxyMasterTranscodeV2Fixture(
     job,
     policy: preparedArtifactPolicy,
     preparedEvidence,
-    retainUntil: options.retainUntil ?? '2026-09-07T00:00:00.000Z',
+    retainUntil: options.retainUntil
+      ?? MEDIA_PROXY_MASTER_TRANSCODE_V2_FIXTURE_EXPIRES_AT,
   });
   return {
     base,
