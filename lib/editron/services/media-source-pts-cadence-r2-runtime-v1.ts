@@ -4,6 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MEDIA_SOURCE_AUDIO_PRIVATE_ARTIFACT_DEFAULT_POLICY_V1 } from './media-source-audio-private-artifact-v1';
 import { createMediaSourceAudioR2PrivateArtifactStoreV1 } from './media-source-audio-r2-private-artifact-v1';
 import { createMediaSourcePtsCadenceR2LifecycleManifestReaderV1 } from './media-source-pts-cadence-r2-lifecycle-manifest-reader-v1';
+import { createMediaSourcePtsCadenceR2EpochIndexWriterV3 } from './media-source-pts-cadence-r2-epoch-index-writer-v3';
 import {
   createMediaSourcePtsCadenceR2PrivateArtifactPortV2,
   createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3,
@@ -136,6 +137,7 @@ export function createMediaSourcePtsCadenceR2RuntimePortsV1(
     stagingReader: createMediaSourcePtsCadenceScanR2ReaderV1(scope),
     descriptorPort: createMediaSourcePtsCadenceR2PrivateSidecarPortV1(scope),
     artifactPort: createMediaSourcePtsCadenceR2PrivateArtifactPortV2(scope),
+    epochIndexWriter: createMediaSourcePtsCadenceR2EpochIndexWriterV3(scope),
     epochArtifactReader: createMediaSourcePtsCadenceR2PrivateEpochArtifactReaderV3(scope),
     lifecycleManifestReader: createMediaSourcePtsCadenceR2LifecycleManifestReaderV1(scope),
     audioArtifact: createMediaSourceAudioR2PrivateArtifactStoreV1({

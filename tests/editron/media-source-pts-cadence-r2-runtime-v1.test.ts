@@ -151,6 +151,7 @@ describe('media source PTS cadence private R2 runtime V1', () => {
     expect(runtime.stagingReader.read).toBeTypeOf('function');
     expect(runtime.descriptorPort.writeImmutableShard).toBeTypeOf('function');
     expect(runtime.artifactPort.writeImmutableFrameBatch).toBeTypeOf('function');
+    expect(runtime.epochIndexWriter.writeImmutableEpochIndex).toBeTypeOf('function');
     expect(runtime.lifecycleManifestReader.read).toBeTypeOf('function');
     expect(runtime.audioArtifact.writeArtifactSetFromPcmStream).toBeTypeOf('function');
     expect(runtime.audioArtifact.readArtifactSet).toBeTypeOf('function');
