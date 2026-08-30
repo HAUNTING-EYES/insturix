@@ -14,6 +14,17 @@ describe('MediaProxyMasterTranscodeOutputProbeV1', () => {
     expect(probe.probeSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(assertMediaProxyMasterTranscodeOutputProbeV1(probe)).toEqual(probe);
     expect(Object.isFrozen(probe.audio[0])).toBe(true);
+
+    const equivalentClock = outputProbe({
+      video: {
+        ...videoInput(),
+        sourceTimebase: { numerator: '2', denominator: '180000' },
+      },
+    });
+    expect(equivalentClock.video.sourceTimebase).toEqual({
+      numerator: '1',
+      denominator: '90000',
+    });
   });
 
   it('rejects a non-MP4 format set and duplicate format names', () => {

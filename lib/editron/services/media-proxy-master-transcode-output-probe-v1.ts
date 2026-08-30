@@ -246,10 +246,26 @@ function normalizeAudio(value: unknown): readonly MediaProxyMasterTranscodeOutpu
 function rational(value: unknown): MediaProxyMasterTranscodeOutputProbeRationalV1 {
   const record = object(value, 'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_INVALID');
   exactKeys(record, ['numerator', 'denominator'], 'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_FIELDS_INVALID');
+  const numerator = BigInt(positiveIntegerText(
+    record.numerator,
+    'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_INVALID',
+  ));
+  const denominator = BigInt(positiveIntegerText(
+    record.denominator,
+    'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_INVALID',
+  ));
+  const divisor = greatestCommonDivisor(numerator, denominator);
   return frozen({
-    numerator: positiveIntegerText(record.numerator, 'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_INVALID'),
-    denominator: positiveIntegerText(record.denominator, 'MEDIA_PROXY_MASTER_TRANSCODE_OUTPUT_PROBE_TIMEBASE_INVALID'),
+    numerator: (numerator / divisor).toString(),
+    denominator: (denominator / divisor).toString(),
   });
+}
+
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  let a = left;
+  let b = right;
+  while (b !== BigInt(0)) [a, b] = [b, a % b];
+  return a;
 }
 
 function object(value: unknown, error: string): Record<string, unknown> {
