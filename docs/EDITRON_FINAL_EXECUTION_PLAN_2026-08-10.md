@@ -9189,6 +9189,29 @@ edit-list evidence owners also remain absent. This is local executable
 selection, not product reachability or production mixed-rate completion.
 Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**Authenticated V3 scan endpoint contract Phase 3F-C8f (2026-08-30):** commit
+`35390cc40` adds separate proxy-authenticated submit and poll endpoints for the
+V3 epoch mapper. V3 submission requires
+`EDITRON_MEDIA_SOURCE_PTS_EPOCH_SCAN_SUBMISSION_V3`, validates the exact
+`epoch-ffprobe-v3` mapper/policy pair and spawns only
+`map_source_pts_epochs_v3`. Its accepted and polled records bind both identity
+fields; missing, partial, cross-version or extra poll fields fail before a
+Modal function lookup.
+
+The endpoint implementation factors shared parsing, allowlist, private-storage
+preflight and terminal-result checks into common owners. The V1 endpoint still
+accepts its original submission kind, spawns only `map_source_pts` and retains
+its original submit/poll response shapes. It does not acquire V3 fields or an
+implicit mode switch.
+
+All 49 Modal tests pass, and repository TypeScript plus repository-wide quiet
+ESLint pass. This result is
+`V3_AUTHENTICATED_ENDPOINT_CONTRACT_VERIFIED_TYPESCRIPT_AND_DEPLOYMENT_OPEN`.
+No TypeScript V3 transport or durable job calls these endpoints, no V3
+finalizer publishes their staged batches, and neither the Modal app nor the
+dedicated private R2 scope was deployed/exercised in this phase. Queue item 4
+and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
