@@ -9064,6 +9064,36 @@ remains open for concrete environment and end-to-end render proof; live
 redelivery/recovery/cost certification remains Queue 8-9 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Contiguous V2-to-V3 timestamp migration preparation Phase 3F-C8a
+(2026-08-30):** commit `ad57ac39f` adds the storage-neutral migration
+candidate owner for a terminal V2 cadence map. It rereads the immutable V2
+manifest and every referenced frame batch, reruns the existing manifest-index
+integrity verifier, and checks the freshly observed scope, range, frame count
+and cadence against the terminal V2 receipt before creating any V3 material.
+Only then does it use the existing V3 epoch/index and asset-record owners to
+build one explicit `INITIAL` epoch at canonical time zero over the unchanged
+V2 batch sidecars. The resulting receipt binds the exact V2 state, terminal
+receipt, manifest, fresh verification, V3 epoch index and pending V3 record.
+
+The owner deliberately performs zero private-storage writes and zero
+`MEDIA_ASSETS` mutations. Missing, partial or parallel V2/V3 state; a changed
+source binding; an altered object; a terminal-range mismatch; or a cadence
+claim that disagrees with freshly decoded frame evidence returns a structured
+non-success. It never infers a timestamp reset from V2, because V2 could only
+prove one globally contiguous sequence. Real reset/discontinuity sources must
+be discovered by the future production V3 scanner and boundary-evidence
+owner, not manufactured during migration.
+
+All 25 timestamp-map suites pass 132/132, and repository TypeScript plus
+repository-wide quiet ESLint pass. This result is
+`V2_TO_V3_CONTIGUOUS_MIGRATION_CANDIDATE_VERIFIED_STORAGE_AND_CAS_OPEN`.
+Queue item 4 next requires an immutable V3 epoch-index writer and an atomic
+compare-and-set owner that persists the exact candidate and replaces only the
+expected V2 state. Dedicated private PTS configuration, a direct production
+V3 scanner/finalizer, discontinuity evidence, proxy/master mapping, relinking,
+invalidation and live object/database proof remain open.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
