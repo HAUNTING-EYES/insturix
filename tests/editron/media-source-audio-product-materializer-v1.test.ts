@@ -26,9 +26,12 @@ import {
 import {
   assertMediaSourceAudioProductMaterializationReceiptV1,
   materializeMediaSourceAudioProductV1,
+  materializeMediaSourceAudioProductV2,
   MediaSourceAudioProductMaterializationErrorV1,
   type MediaSourceAudioProductMaterializationPortsV1,
 } from '@/lib/editron/services/media-source-audio-product-materializer-v1';
+import { assertMediaSourceAudioProductMaterializationReceiptV2 }
+  from '@/lib/editron/services/media-source-audio-product-receipt-v2';
 import {
   createMediaSourceAudioSampleEpochMapV1,
   createMediaSourceAudioStreamBindingV1,
@@ -60,7 +63,7 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     const materializeStream = materializer(fixture);
     const beforeActiveStateMutation = vi.fn(async () => {});
 
-    const receipt = await materializeMediaSourceAudioProductV1(
+    const receipt = await materializeMediaSourceAudioProductV2(
       { ...productInput(fixture), beforeActiveStateMutation },
       productPorts(
         active.ports,
@@ -71,11 +74,15 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     );
 
     expect(receipt).toMatchObject({
+      schemaVersion: 2,
+      kind: 'EDITRON_MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_V2',
       disposition: 'COMPLETED',
       observedAudioStreamIndexes: [4, 9],
       materializedAudioStreamIndexes: [4, 9],
       audioStreamBindingsSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       audioArtifactStateSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      sourceAudioAvailabilityEvidenceSha256:
+        expect.stringMatching(/^[a-f0-9]{64}$/),
       sourceVersionEvidenceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       receiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
@@ -95,14 +102,16 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
         records: [{ audioStreamIndex: 4 }, { audioStreamIndex: 9 }],
       },
     });
-    expect(assertMediaSourceAudioProductMaterializationReceiptV1(receipt))
+    expect(receipt.sourceAudioAvailabilityEvidenceSha256)
+      .toBe(availability.current()?.evidenceSha256);
+    expect(assertMediaSourceAudioProductMaterializationReceiptV2(receipt))
       .toEqual(receipt);
   });
 
   it('rejects a well-shaped product receipt whose proof root was altered', async () => {
     const fixture = sourceFixture('receipt-tamper', [4]);
     const active = activeStore(fixture.asset);
-    const receipt = await materializeMediaSourceAudioProductV1(
+    const receipt = await materializeMediaSourceAudioProductV2(
       productInput(fixture),
       productPorts(
         active.ports,
@@ -111,10 +120,36 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
       ),
     );
 
-    expect(() => assertMediaSourceAudioProductMaterializationReceiptV1({
+    expect(() => assertMediaSourceAudioProductMaterializationReceiptV2({
       ...receipt,
       audioArtifactStateSha256: 'f'.repeat(64),
-    })).toThrow('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_HASH_MISMATCH');
+    })).toThrow('MEDIA_SOURCE_AUDIO_PRODUCT_RECEIPT_V2_HASH_MISMATCH');
+  });
+
+  it('continues to validate immutable V1 receipts for historical readers', () => {
+    const material = {
+      schemaVersion: 1 as const,
+      kind: (
+        'EDITRON_MEDIA_SOURCE_AUDIO_PRODUCT_MATERIALIZATION_RECEIPT_V1'
+      ) as const,
+      disposition: 'COMPLETED' as const,
+      assetId: 'asset-historical-receipt',
+      userId: 'user-product-audio',
+      sourceVersionSha256: '1'.repeat(64),
+      audioStreamBindingsSha256: '2'.repeat(64),
+      observedAudioStreamIndexes: [4],
+      materializedAudioStreamIndexes: [4],
+      audioArtifactStateSha256: '3'.repeat(64),
+      sourceVersionEvidenceSha256: '4'.repeat(64),
+      completedAt: '2026-08-30T13:00:00.000Z',
+    };
+    const receipt = {
+      ...material,
+      receiptSha256: hashEditronCanonicalJsonV1(material),
+    };
+
+    expect(assertMediaSourceAudioProductMaterializationReceiptV1(receipt))
+      .toEqual(receipt);
   });
 
   it('resumes a validated partial set without rematerializing completed streams', async () => {

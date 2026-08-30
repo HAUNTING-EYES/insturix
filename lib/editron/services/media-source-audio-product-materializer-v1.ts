@@ -30,6 +30,10 @@ import {
   createMediaSourceAudioAvailabilityBoundStorePortsV1,
   MediaSourceAudioVersionEvidenceErrorV1,
 } from './media-source-audio-version-evidence-store-v1';
+import {
+  createMediaSourceAudioProductMaterializationReceiptV2,
+  type MediaSourceAudioProductMaterializationReceiptV2,
+} from './media-source-audio-product-receipt-v2';
 import { readNativeMediaExactAudioStreamIndexesV1 }
   from './native-media-exact-audio-evidence-v1';
 import type { MediaSourceQualificationRecordV1 }
@@ -191,14 +195,37 @@ export type MediaSourceAudioProductMaterializationPortsV1 = Readonly<{
 }>;
 
 /**
- * Composes existing source, FFmpeg, private-artifact, asset-CAS and immutable
- * evidence owners. It is resumable per observed stream but owns no dispatch,
- * retry budget, user-facing selection or no-audio policy.
+ * Preserves the historical receipt envelope while executing the same successor
+ * materialization owner. Remove only after durable consumers finish cutover.
  */
 export async function materializeMediaSourceAudioProductV1(
   input: MediaSourceAudioProductMaterializationInputV1,
   ports: MediaSourceAudioProductMaterializationPortsV1,
 ): Promise<MediaSourceAudioProductMaterializationReceiptV1> {
+  const successor = await materializeMediaSourceAudioProductV2(input, ports);
+  return createLegacyReceiptV1({
+    disposition: successor.disposition,
+    assetId: successor.assetId,
+    userId: successor.userId,
+    sourceVersionSha256: successor.sourceVersionSha256,
+    audioStreamBindingsSha256: successor.audioStreamBindingsSha256,
+    observedAudioStreamIndexes: successor.observedAudioStreamIndexes,
+    materializedAudioStreamIndexes: successor.materializedAudioStreamIndexes,
+    audioArtifactStateSha256: successor.audioArtifactStateSha256,
+    sourceVersionEvidenceSha256: successor.sourceVersionEvidenceSha256,
+    completedAt: successor.completedAt,
+  });
+}
+
+/**
+ * Composes existing source, FFmpeg, private-artifact, asset-CAS and immutable
+ * evidence owners. It is resumable per observed stream but owns no dispatch,
+ * retry budget, user-facing selection or no-audio policy.
+ */
+export async function materializeMediaSourceAudioProductV2(
+  input: MediaSourceAudioProductMaterializationInputV1,
+  ports: MediaSourceAudioProductMaterializationPortsV1,
+): Promise<MediaSourceAudioProductMaterializationReceiptV2> {
   const normalized = normalizeInput(input);
   assertPorts(ports);
   assertNotAborted(normalized.abortSignal);
@@ -356,14 +383,14 @@ export async function materializeMediaSourceAudioProductV1(
 
   if (state === null) throw failure('CURRENT_STATE_INVALID', false);
   if (materialized.length === 0) assertNotAborted(normalized.abortSignal);
-  const evidenceSha256 = await readBackTerminalEvidence({
+  const evidenceHashes = await readBackTerminalEvidence({
     asset,
     availabilityPorts: ports.availabilityEvidenceStorePorts,
     evidencePorts: ports.evidenceStorePorts,
     state,
     materializedCount: materialized.length,
   });
-  return receipt({
+  return createMediaSourceAudioProductMaterializationReceiptV2({
     disposition: materialized.length === 0 ? 'ALREADY_COMPLETE' : 'COMPLETED',
     assetId: normalized.assetId,
     userId: normalized.userId,
@@ -372,7 +399,10 @@ export async function materializeMediaSourceAudioProductV1(
     observedAudioStreamIndexes: observed,
     materializedAudioStreamIndexes: materialized,
     audioArtifactStateSha256: state.sourceAudioArtifactsStateSha256V1,
-    sourceVersionEvidenceSha256: evidenceSha256,
+    sourceAudioAvailabilityEvidenceSha256:
+      evidenceHashes.sourceAudioAvailabilityEvidenceSha256,
+    sourceVersionEvidenceSha256:
+      evidenceHashes.sourceVersionEvidenceSha256,
     completedAt: normalized.publishedAt.toISOString(),
   });
 }
@@ -383,7 +413,10 @@ async function readBackTerminalEvidence(input: Readonly<{
   evidencePorts: MediaSourceVersionEvidenceStorePortsV1;
   state: MediaSourceAudioArtifactAssetStateV1;
   materializedCount: number;
-}>): Promise<string> {
+}>): Promise<Readonly<{
+  sourceAudioAvailabilityEvidenceSha256: string;
+  sourceVersionEvidenceSha256: string;
+}>> {
   let availabilityCandidate;
   try {
     availabilityCandidate = captureMediaSourceAudioAvailabilityEvidenceV1({
@@ -458,7 +491,11 @@ async function readBackTerminalEvidence(input: Readonly<{
       !== input.state.sourceAudioArtifactsStateSha256V1) {
     throw failure('SOURCE_VERSION_EVIDENCE_CONFLICT', false);
   }
-  return evidence.evidenceSha256;
+  return Object.freeze({
+    sourceAudioAvailabilityEvidenceSha256:
+      availabilityRetained.record.evidenceSha256,
+    sourceVersionEvidenceSha256: evidence.evidenceSha256,
+  });
 }
 
 const RETRYABLE_MATERIALIZATION_CODES = new Set([
@@ -610,7 +647,7 @@ function assertPorts(ports: MediaSourceAudioProductMaterializationPortsV1): void
   }
 }
 
-function receipt(input: Omit<
+function createLegacyReceiptV1(input: Omit<
   MediaSourceAudioProductMaterializationReceiptV1,
   'schemaVersion' | 'kind' | 'receiptSha256'
 >): MediaSourceAudioProductMaterializationReceiptV1 {
