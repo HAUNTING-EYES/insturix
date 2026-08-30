@@ -9825,6 +9825,32 @@ reference-aware retention/GC. Only after both relation members resolve to
 complete current roots may the trusted correspondence producer publish and run
 C8aa reproof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Source-version evidence owner Phase 3F-C8ae (2026-08-30):** commit
+`5a01d9723` defines the first source-version-addressed evidence authority needed
+by C8ad. It captures only already-terminal, independently validated V3 cadence
+and/or decoded-audio roots from the existing active asset owners, binds them to
+the exact owner, asset, immutable source version and qualification, and hashes
+the complete canonical snapshot. The owner can reconstruct the exact read-only
+asset view expected by the existing V3/audio readers without treating orphaned
+object keys as evidence. Existing roots are immutable; a later compare-and-set
+may add a previously absent V3 or audio root but cannot replace one. Empty,
+partial, nonterminal, cross-asset, cross-version, malformed, tampered, stale,
+raced and conflicting writes fail explicitly. Deterministic replay is
+`UNCHANGED`, while an unknown storage/programming exception remains loud.
+
+The focused owner plus adjacent V3/audio/correspondence-derivation cluster
+passes 20/20; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`SOURCE_VERSION_EVIDENCE_CONTRACT_AND_CAS_VERIFIED_DURABLE_WIRING_OPEN`.
+The exercised store is injected and in-memory: no Mongo collection/index,
+transactional adapter, lifecycle writer, active-record backfill, durable-job
+source-version read path, retention/GC policy or live Atlas record exists yet.
+Consequently production still cannot resolve both proxy and master roots, and
+the C8aa correspondence producer remains blocked without inference. Queue item
+4 proceeds to durable persistence and lifecycle wiring before correspondence
+generation, qualified mapping, relink/invalidation/rerender/rollback or live
+proof. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
