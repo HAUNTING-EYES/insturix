@@ -8787,6 +8787,28 @@ worker budget adapter, partial-attempt telemetry, calibrated rate card,
 customer wallet movement or product composition root exists yet. Queue item 3
 remains in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render successful-retry accounting correction Phase 3F-C7azi
+(2026-08-30):** commit `c14ce90f5` closes an ambiguity discovered before the
+worker adapter was connected. `METERED_FINAL_ARTIFACT` now requires exactly one
+job attempt: the final artifact proves its own encoded frames and verified
+bytes, but it cannot reveal how much work a failed earlier attempt consumed. A
+completed PASS with more than one attempt must instead use the explicit
+`CONSERVATIVE_MAX_PASS_RETRY_ACCOUNTING_UNKNOWN` mode and settle the authorized
+maximum until per-attempt telemetry exists. The generic unknown-accounting mode
+continues to reject PASS so the reason for uncertainty cannot be erased.
+
+Exact metering of retries, the retry-unknown mode without a retry, generic
+conservative PASS, release after execution and unexpected usage all fail
+closed. The settlement suite passes 12/12, the focused settlement/ledger suites
+pass 23/23, every `native-media-final-render` suite passes 164/164, and
+repository TypeScript plus repository-wide quiet ESLint pass. This result is
+`EXACT_RENDER_SUCCESSFUL_RETRY_ACCOUNTING_FAIL_CLOSED_WORKER_ADAPTER_OPEN`.
+
+This is conservative internal-cost accounting, not measured retry usage and
+not a customer charge. Per-attempt encoder, storage-write and verification
+telemetry plus Finance calibration remain open. Queue item 3 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
