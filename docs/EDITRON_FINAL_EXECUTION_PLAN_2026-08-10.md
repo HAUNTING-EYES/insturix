@@ -9487,6 +9487,36 @@ one existing media lifecycle decision owner to this producer without adding a
 second qualification authority, then prove the deployed path. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 qualification-to-product trigger Phase 3F-C8r (2026-08-30):** commits
+`85c5dbd25` and `47243dcdb` close the previously missing local product caller
+without creating another qualification authority. The existing source-
+qualification owner now clears V1, V2 and V3 cadence state in both its claimed
+and terminal compare-and-set writes, so a newly measured source cannot retain a
+V3 map derived from earlier bytes. After that owner commits, its existing
+signed route reloads the current `MEDIA_ASSETS` record through the V3 asset
+owner, derives durable tenant scope from the canonical source-version owner,
+and admits only an exact measured video source with one unambiguous video
+stream. Audio/image sources are not applicable; zero-stream video is
+ineligible; multi-stream video requires an explicit future selection owner and
+is never silently treated as stream zero.
+
+The trigger creates the exact V3 durable job before attempting transport, then
+invokes the existing signed producer against the same idempotent operation.
+Consequently incomplete QStash/public-origin configuration returns a durable
+undelivered job plus retryable HTTP rather than losing the scan request. A
+terminal qualification redelivery reuses the same job and does not republish a
+confirmed delivery. The product-trigger, qualification, dispatch and route
+suites pass 28/28; repository TypeScript, repository-wide quiet ESLint and diff
+checks pass. This result is
+`V3_PRODUCT_TRIGGER_BOUND_DURABLY_LIVE_DELIVERY_RECOVERY_OPEN`.
+
+No hosted QStash delivery/redelivery, deployed V3 Modal exchange, dedicated
+private PTS R2 write, live Atlas crash recovery or reachability GC is claimed.
+The stale-job recovery selector exists but still needs an authenticated
+scheduled product caller and live outage proof. Explicit multi-stream essence
+selection also remains product work. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
