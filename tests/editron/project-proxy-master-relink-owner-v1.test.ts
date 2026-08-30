@@ -477,8 +477,13 @@ function project(options: Readonly<{
           proxySourceBindingsV1: [createProjectProxySourceBindingV1({
             projectId: PROJECT_ID,
             assetId,
+            actorKind: 'SYSTEM',
             proxySourceVersionSha256:
               fixture.qualification.relation.proxy.sourceVersionSha256,
+            verifiedSourceBindingSha256: hashEditronCanonicalJsonV1({
+              kind: 'TEST_VERIFIED_PROXY_SOURCE_BINDING',
+              proxyTimeMap: fixture.qualification.mapping.proxyTimeMap,
+            }),
             proxyTimeMapReferenceSha256:
               options.bindingTimeMapReferenceSha256
                 ?? hashEditronCanonicalJsonV1(

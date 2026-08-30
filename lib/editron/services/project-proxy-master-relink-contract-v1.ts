@@ -19,6 +19,12 @@ export const PROJECT_PROXY_MASTER_RELINK_COMMIT_KIND_V1 =
   'EDITRON_PROJECT_PROXY_MASTER_RELINK_COMMIT_V1' as const;
 export const PROJECT_PROXY_SOURCE_BINDING_KIND_V1 =
   'EDITRON_PROJECT_PROXY_SOURCE_BINDING_V1' as const;
+export const PROJECT_PROXY_SOURCE_BINDING_COMMIT_KIND_V1 =
+  'EDITRON_PROJECT_PROXY_SOURCE_BINDING_COMMIT_V1' as const;
+export const PROJECT_PROXY_SOURCE_BINDING_ADMISSION_KIND_V1 =
+  'EDITRON_PROJECT_PROXY_SOURCE_BINDING_ADMISSION_V1' as const;
+export const PROJECT_PROXY_SOURCE_BINDING_OWNER_V1 =
+  'EDITRON_PROJECT_SERVICE_VERIFIED_V3_PROXY_BINDING_OWNER_V1' as const;
 export const PROJECT_PROXY_MASTER_RELINK_POLICY_VERSION_V1 =
   'EDITRON_PROJECT_PROXY_MASTER_RELINK_POLICY_V1' as const;
 
@@ -89,15 +95,50 @@ export type ProjectProxySourceBindingOverlayV1 = Readonly<{
 export type ProjectProxySourceBindingV1 = Readonly<{
   schemaVersion: 1;
   kind: typeof PROJECT_PROXY_SOURCE_BINDING_KIND_V1;
+  writerAuthority: typeof PROJECT_PROXY_SOURCE_BINDING_OWNER_V1;
   disposition: 'PROJECT_OVERLAYS_BOUND_TO_PROXY_SOURCE';
   projectId: string;
   assetId: string;
+  actorKind: ProjectProxyMasterRelinkActorKindV1;
   proxySourceVersionSha256: string;
+  verifiedSourceBindingSha256: string;
   proxyTimeMapReferenceSha256: string;
   projectRevision: ProjectProxyMasterRelinkRevisionV1;
   overlays: readonly ProjectProxySourceBindingOverlayV1[];
   boundAt: string;
   bindingSha256: string;
+}>;
+
+export type ProjectProxySourceBindingMutationReceiptV1 = Readonly<{
+  schemaVersion: 1;
+  projectId: string;
+  revision: ProjectProxyMasterRelinkRevisionV1;
+  committedAt: string;
+}>;
+
+export type ProjectProxySourceBindingCommitReceiptV1 = Readonly<{
+  schemaVersion: 1;
+  kind: typeof PROJECT_PROXY_SOURCE_BINDING_COMMIT_KIND_V1;
+  disposition: 'PROJECT_PROXY_SOURCE_BINDING_COMMITTED';
+  binding: ProjectProxySourceBindingV1;
+  mutationReceipt: ProjectProxySourceBindingMutationReceiptV1;
+  commitSha256: string;
+}>;
+
+export type ProjectProxySourceBindingAdmissionReceiptV1 = Readonly<{
+  schemaVersion: 1;
+  kind: typeof PROJECT_PROXY_SOURCE_BINDING_ADMISSION_KIND_V1;
+  writerAuthority: typeof PROJECT_PROXY_SOURCE_BINDING_OWNER_V1;
+  disposition: 'PROJECT_PROXY_SOURCE_BINDING_ADMITTED_AFTER_ASSET_REVALIDATION';
+  projectId: string;
+  assetId: string;
+  projectRevision: ProjectProxyMasterRelinkRevisionV1;
+  bindingSha256: string;
+  commitSha256: string;
+  verifiedSourceBindingSha256: string;
+  proxyTimeMapReferenceSha256: string;
+  admittedAt: string;
+  admissionSha256: string;
 }>;
 
 export type ProjectProxyMasterRelinkStateV1 = Readonly<{
@@ -154,7 +195,9 @@ export type ProjectProxyMasterRelinkCommitReceiptV1 = Readonly<{
 export function createProjectProxySourceBindingV1(input: Readonly<{
   projectId: string;
   assetId: string;
+  actorKind: ProjectProxyMasterRelinkActorKindV1;
   proxySourceVersionSha256: string;
+  verifiedSourceBindingSha256: string;
   proxyTimeMapReferenceSha256: string;
   projectRevision: ProjectProxyMasterRelinkRevisionV1;
   overlays: readonly ProjectProxySourceBindingOverlayV1[];
@@ -167,6 +210,7 @@ export function createProjectProxySourceBindingV1(input: Readonly<{
   const material = {
     schemaVersion: 1 as const,
     kind: PROJECT_PROXY_SOURCE_BINDING_KIND_V1,
+    writerAuthority: PROJECT_PROXY_SOURCE_BINDING_OWNER_V1,
     disposition: 'PROJECT_OVERLAYS_BOUND_TO_PROXY_SOURCE' as const,
     projectId: identifier(
       input.projectId,
@@ -176,9 +220,14 @@ export function createProjectProxySourceBindingV1(input: Readonly<{
       input.assetId,
       'PROJECT_PROXY_SOURCE_BINDING_ASSET_ID_INVALID',
     ),
+    actorKind: assertActorKind(input.actorKind),
     proxySourceVersionSha256: sha256(
       input.proxySourceVersionSha256,
       'PROJECT_PROXY_SOURCE_BINDING_SOURCE_INVALID',
+    ),
+    verifiedSourceBindingSha256: sha256(
+      input.verifiedSourceBindingSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_VERIFIED_SOURCE_INVALID',
     ),
     proxyTimeMapReferenceSha256: sha256(
       input.proxyTimeMapReferenceSha256,
@@ -205,18 +254,21 @@ export function assertProjectProxySourceBindingV1(
 ): ProjectProxySourceBindingV1 {
   const record = object(value, 'PROJECT_PROXY_SOURCE_BINDING_INVALID');
   exactKeys(record, [
-    'schemaVersion', 'kind', 'disposition', 'projectId', 'assetId',
-    'proxySourceVersionSha256', 'proxyTimeMapReferenceSha256',
+    'schemaVersion', 'kind', 'writerAuthority', 'disposition', 'projectId',
+    'assetId', 'actorKind', 'proxySourceVersionSha256',
+    'verifiedSourceBindingSha256', 'proxyTimeMapReferenceSha256',
     'projectRevision', 'overlays', 'boundAt', 'bindingSha256',
   ], 'PROJECT_PROXY_SOURCE_BINDING_FIELDS_INVALID');
   if (record.schemaVersion !== 1
     || record.kind !== PROJECT_PROXY_SOURCE_BINDING_KIND_V1
+    || record.writerAuthority !== PROJECT_PROXY_SOURCE_BINDING_OWNER_V1
     || record.disposition !== 'PROJECT_OVERLAYS_BOUND_TO_PROXY_SOURCE') {
     fail('PROJECT_PROXY_SOURCE_BINDING_IDENTITY_INVALID');
   }
   const material = {
     schemaVersion: 1 as const,
     kind: PROJECT_PROXY_SOURCE_BINDING_KIND_V1,
+    writerAuthority: PROJECT_PROXY_SOURCE_BINDING_OWNER_V1,
     disposition: 'PROJECT_OVERLAYS_BOUND_TO_PROXY_SOURCE' as const,
     projectId: identifier(
       record.projectId,
@@ -226,9 +278,14 @@ export function assertProjectProxySourceBindingV1(
       record.assetId,
       'PROJECT_PROXY_SOURCE_BINDING_ASSET_ID_INVALID',
     ),
+    actorKind: assertActorKind(record.actorKind),
     proxySourceVersionSha256: sha256(
       record.proxySourceVersionSha256,
       'PROJECT_PROXY_SOURCE_BINDING_SOURCE_INVALID',
+    ),
+    verifiedSourceBindingSha256: sha256(
+      record.verifiedSourceBindingSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_VERIFIED_SOURCE_INVALID',
     ),
     proxyTimeMapReferenceSha256: sha256(
       record.proxyTimeMapReferenceSha256,
@@ -258,7 +315,12 @@ export function assertProjectProxySourceBindingV1(
   if (bindingSha256 !== hashEditronCanonicalJsonV1(material)) {
     fail('PROJECT_PROXY_SOURCE_BINDING_HASH_MISMATCH');
   }
-  return frozen({ ...material, bindingSha256 });
+  const binding = frozen({ ...material, bindingSha256 });
+  if (Buffer.byteLength(canonicalizeEditronJsonV1(binding), 'utf8')
+    > MAX_RELINK_STATE_BYTES) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_BYTE_LIMIT_EXCEEDED');
+  }
+  return binding;
 }
 
 export function assertProjectProxySourceBindingHistoryV1(
@@ -289,6 +351,197 @@ export function assertProjectProxySourceBindingHistoryV1(
     previousAssetId = binding.assetId;
     return binding;
   }));
+}
+
+export function createProjectProxySourceBindingCommitReceiptV1(
+  input: Readonly<{
+    binding: ProjectProxySourceBindingV1;
+    mutationReceipt: ProjectProxySourceBindingMutationReceiptV1;
+  }>,
+): ProjectProxySourceBindingCommitReceiptV1 {
+  const binding = assertProjectProxySourceBindingV1(input.binding);
+  const material = {
+    schemaVersion: 1 as const,
+    kind: PROJECT_PROXY_SOURCE_BINDING_COMMIT_KIND_V1,
+    disposition: 'PROJECT_PROXY_SOURCE_BINDING_COMMITTED' as const,
+    binding,
+    mutationReceipt: input.mutationReceipt,
+  };
+  return assertProjectProxySourceBindingCommitReceiptV1({
+    ...material,
+    commitSha256: hashEditronCanonicalJsonV1(material),
+  });
+}
+
+export function assertProjectProxySourceBindingCommitReceiptV1(
+  value: unknown,
+): ProjectProxySourceBindingCommitReceiptV1 {
+  const record = object(value, 'PROJECT_PROXY_SOURCE_BINDING_COMMIT_INVALID');
+  exactKeys(record, [
+    'schemaVersion', 'kind', 'disposition', 'binding', 'mutationReceipt',
+    'commitSha256',
+  ], 'PROJECT_PROXY_SOURCE_BINDING_COMMIT_FIELDS_INVALID');
+  if (record.schemaVersion !== 1
+    || record.kind !== PROJECT_PROXY_SOURCE_BINDING_COMMIT_KIND_V1
+    || record.disposition !== 'PROJECT_PROXY_SOURCE_BINDING_COMMITTED') {
+    fail('PROJECT_PROXY_SOURCE_BINDING_COMMIT_IDENTITY_INVALID');
+  }
+  const binding = assertProjectProxySourceBindingV1(record.binding);
+  const mutationReceipt = normalizeSourceBindingMutationReceipt(
+    record.mutationReceipt,
+  );
+  const material = {
+    schemaVersion: 1 as const,
+    kind: PROJECT_PROXY_SOURCE_BINDING_COMMIT_KIND_V1,
+    disposition: 'PROJECT_PROXY_SOURCE_BINDING_COMMITTED' as const,
+    binding,
+    mutationReceipt,
+  };
+  if (mutationReceipt.projectId !== binding.projectId
+    || canonicalizeEditronJsonV1(mutationReceipt.revision)
+      !== canonicalizeEditronJsonV1(binding.projectRevision)
+    || mutationReceipt.committedAt !== binding.boundAt) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_COMMIT_SCOPE_MISMATCH');
+  }
+  const commitSha256 = sha256(
+    record.commitSha256,
+    'PROJECT_PROXY_SOURCE_BINDING_COMMIT_HASH_INVALID',
+  );
+  if (commitSha256 !== hashEditronCanonicalJsonV1(material)) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_COMMIT_HASH_MISMATCH');
+  }
+  return frozen({ ...material, commitSha256 });
+}
+
+export function createProjectProxySourceBindingAdmissionReceiptV1(
+  input: Readonly<{
+    commitReceipt: ProjectProxySourceBindingCommitReceiptV1;
+    currentVerifiedSourceBindingSha256: string;
+    admittedAt: Date;
+  }>,
+): ProjectProxySourceBindingAdmissionReceiptV1 {
+  const commitReceipt = assertProjectProxySourceBindingCommitReceiptV1(
+    input.commitReceipt,
+  );
+  const currentVerifiedSourceBindingSha256 = sha256(
+    input.currentVerifiedSourceBindingSha256,
+    'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_CURRENT_SOURCE_INVALID',
+  );
+  if (currentVerifiedSourceBindingSha256
+    !== commitReceipt.binding.verifiedSourceBindingSha256) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_ADMISSION_CURRENT_SOURCE_MISMATCH');
+  }
+  const material = {
+    schemaVersion: 1 as const,
+    kind: PROJECT_PROXY_SOURCE_BINDING_ADMISSION_KIND_V1,
+    writerAuthority: PROJECT_PROXY_SOURCE_BINDING_OWNER_V1,
+    disposition:
+      'PROJECT_PROXY_SOURCE_BINDING_ADMITTED_AFTER_ASSET_REVALIDATION' as const,
+    projectId: commitReceipt.binding.projectId,
+    assetId: commitReceipt.binding.assetId,
+    projectRevision: commitReceipt.binding.projectRevision,
+    bindingSha256: commitReceipt.binding.bindingSha256,
+    commitSha256: commitReceipt.commitSha256,
+    verifiedSourceBindingSha256: currentVerifiedSourceBindingSha256,
+    proxyTimeMapReferenceSha256:
+      commitReceipt.binding.proxyTimeMapReferenceSha256,
+    admittedAt: isoDate(
+      input.admittedAt,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_TIME_INVALID',
+    ),
+  };
+  return assertProjectProxySourceBindingAdmissionReceiptV1({
+    ...material,
+    admissionSha256: hashEditronCanonicalJsonV1(material),
+  }, commitReceipt);
+}
+
+export function assertProjectProxySourceBindingAdmissionReceiptV1(
+  value: unknown,
+  expectedCommitReceipt: ProjectProxySourceBindingCommitReceiptV1,
+): ProjectProxySourceBindingAdmissionReceiptV1 {
+  const commitReceipt = assertProjectProxySourceBindingCommitReceiptV1(
+    expectedCommitReceipt,
+  );
+  const record = object(
+    value,
+    'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_INVALID',
+  );
+  exactKeys(record, [
+    'schemaVersion', 'kind', 'writerAuthority', 'disposition', 'projectId',
+    'assetId', 'projectRevision', 'bindingSha256', 'commitSha256',
+    'verifiedSourceBindingSha256', 'proxyTimeMapReferenceSha256',
+    'admittedAt', 'admissionSha256',
+  ], 'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_FIELDS_INVALID');
+  if (record.schemaVersion !== 1
+    || record.kind !== PROJECT_PROXY_SOURCE_BINDING_ADMISSION_KIND_V1
+    || record.writerAuthority !== PROJECT_PROXY_SOURCE_BINDING_OWNER_V1
+    || record.disposition
+      !== 'PROJECT_PROXY_SOURCE_BINDING_ADMITTED_AFTER_ASSET_REVALIDATION') {
+    fail('PROJECT_PROXY_SOURCE_BINDING_ADMISSION_IDENTITY_INVALID');
+  }
+  const material = {
+    schemaVersion: 1 as const,
+    kind: PROJECT_PROXY_SOURCE_BINDING_ADMISSION_KIND_V1,
+    writerAuthority: PROJECT_PROXY_SOURCE_BINDING_OWNER_V1,
+    disposition:
+      'PROJECT_PROXY_SOURCE_BINDING_ADMITTED_AFTER_ASSET_REVALIDATION' as const,
+    projectId: identifier(
+      record.projectId,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_PROJECT_ID_INVALID',
+    ),
+    assetId: identifier(
+      record.assetId,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_ASSET_ID_INVALID',
+    ),
+    projectRevision: revision(
+      record.projectRevision,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_REVISION_INVALID',
+    ),
+    bindingSha256: sha256(
+      record.bindingSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_BINDING_INVALID',
+    ),
+    commitSha256: sha256(
+      record.commitSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_COMMIT_INVALID',
+    ),
+    verifiedSourceBindingSha256: sha256(
+      record.verifiedSourceBindingSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_SOURCE_INVALID',
+    ),
+    proxyTimeMapReferenceSha256: sha256(
+      record.proxyTimeMapReferenceSha256,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_TIME_MAP_INVALID',
+    ),
+    admittedAt: isoInstant(
+      record.admittedAt,
+      'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_TIME_INVALID',
+    ),
+  };
+  const expected = commitReceipt.binding;
+  if (material.projectId !== expected.projectId
+    || material.assetId !== expected.assetId
+    || canonicalizeEditronJsonV1(material.projectRevision)
+      !== canonicalizeEditronJsonV1(expected.projectRevision)
+    || material.bindingSha256 !== expected.bindingSha256
+    || material.commitSha256 !== commitReceipt.commitSha256
+    || material.verifiedSourceBindingSha256
+      !== expected.verifiedSourceBindingSha256
+    || material.proxyTimeMapReferenceSha256
+      !== expected.proxyTimeMapReferenceSha256
+    || Date.parse(material.admittedAt)
+      < Date.parse(commitReceipt.mutationReceipt.committedAt)) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_ADMISSION_SCOPE_MISMATCH');
+  }
+  const admissionSha256 = sha256(
+    record.admissionSha256,
+    'PROJECT_PROXY_SOURCE_BINDING_ADMISSION_HASH_INVALID',
+  );
+  if (admissionSha256 !== hashEditronCanonicalJsonV1(material)) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_ADMISSION_HASH_MISMATCH');
+  }
+  return frozen({ ...material, admissionSha256 });
 }
 
 export function createProjectProxyMasterRelinkStateV1(input: Readonly<{
@@ -922,6 +1175,36 @@ function normalizeMutationReceipt(
     committedAt: isoInstant(
       record.committedAt,
       'PROJECT_PROXY_MASTER_RELINK_MUTATION_TIME_INVALID',
+    ),
+  });
+}
+
+function normalizeSourceBindingMutationReceipt(
+  value: unknown,
+): ProjectProxySourceBindingMutationReceiptV1 {
+  const record = object(
+    value,
+    'PROJECT_PROXY_SOURCE_BINDING_MUTATION_RECEIPT_INVALID',
+  );
+  exactKeys(record, [
+    'schemaVersion', 'projectId', 'revision', 'committedAt',
+  ], 'PROJECT_PROXY_SOURCE_BINDING_MUTATION_RECEIPT_FIELDS_INVALID');
+  if (record.schemaVersion !== 1) {
+    fail('PROJECT_PROXY_SOURCE_BINDING_MUTATION_RECEIPT_IDENTITY_INVALID');
+  }
+  return frozen({
+    schemaVersion: 1 as const,
+    projectId: identifier(
+      record.projectId,
+      'PROJECT_PROXY_SOURCE_BINDING_MUTATION_PROJECT_ID_INVALID',
+    ),
+    revision: revision(
+      record.revision,
+      'PROJECT_PROXY_SOURCE_BINDING_MUTATION_REVISION_INVALID',
+    ),
+    committedAt: isoInstant(
+      record.committedAt,
+      'PROJECT_PROXY_SOURCE_BINDING_MUTATION_TIME_INVALID',
     ),
   });
 }

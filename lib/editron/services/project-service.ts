@@ -80,6 +80,7 @@ import {
   classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
   rebindSourcePresentationTimestampV1,
+  resolveVerifiedVideoSourceEpochTimeBindingV3,
   resolveVerifiedVideoSourceTimeBindingV1,
   type ProjectVideoSourceTimeTransformV1,
   type SourcePresentationTimestampRebindV1,
@@ -98,17 +99,25 @@ import {
   assertMediaProxyMasterExactBoundaryResolutionReceiptV1,
   type MediaProxyMasterExactBoundaryResolutionReceiptV1,
 } from "./media-proxy-master-exact-boundary-resolver-v1";
+import type { MediaProxyMasterTimeMapReferenceV1 }
+  from "./media-proxy-master-time-mapping-v1";
 import {
   PROJECT_PROXY_MASTER_RELINK_POLICY_V1,
   assertProjectProxyMasterRelinkStateHistoryV1,
   assertProjectProxyMasterRelinkStateV1,
   assertProjectProxySourceBindingHistoryV1,
+  createProjectProxySourceBindingAdmissionReceiptV1,
+  createProjectProxySourceBindingCommitReceiptV1,
+  createProjectProxySourceBindingV1,
   createProjectProxyMasterRelinkCommitReceiptV1,
   createProjectProxyMasterRelinkStateV1,
   type ProjectProxyMasterRelinkActorKindV1,
   type ProjectProxyMasterRelinkCommitReceiptV1,
   type ProjectProxyMasterRelinkOverlayChangeV1,
   type ProjectProxyMasterRelinkStateV1,
+  type ProjectProxySourceBindingAdmissionReceiptV1,
+  type ProjectProxySourceBindingCommitReceiptV1,
+  type ProjectProxySourceBindingOverlayV1,
   type ProjectProxySourceBindingV1,
 } from "./project-proxy-master-relink-contract-v1";
 
@@ -152,6 +161,39 @@ export interface ProjectProxyMasterRelinkCommandV1 {
   assetId: string;
   boundaryResolution: MediaProxyMasterExactBoundaryResolutionReceiptV1;
 }
+
+export interface ProjectProxySourceBindingCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectProxyMasterRelinkActorKindV1;
+  assetId: string;
+}
+
+export type ProjectProxySourceBindingBlockReasonV1 =
+  | "SOURCE_ASSET_NOT_FOUND"
+  | "ASSET_EVIDENCE_UNAVAILABLE"
+  | "VERIFIED_V3_PROXY_SOURCE_REQUIRED"
+  | "TARGET_OVERLAYS_NOT_FOUND"
+  | "TARGET_OVERLAY_IDENTITY_INVALID"
+  | "SOURCE_RANGE_INCOMPLETE"
+  | "SOURCE_RANGE_INVALID"
+  | "SOURCE_COORDINATE_CONFLICT"
+  | "BINDING_HISTORY_INVALID"
+  | "RELINK_ALREADY_PRESENT"
+  | "ASSET_CHANGED_BEFORE_COMMIT";
+
+export type ProjectProxySourceBindingResultV1 =
+  | Readonly<{
+      disposition: "APPLIED" | "UNCHANGED";
+      commitReceipt: ProjectProxySourceBindingCommitReceiptV1;
+      admissionReceipt: ProjectProxySourceBindingAdmissionReceiptV1;
+    }>
+  | Readonly<{
+      disposition: "COMMITTED_REVALIDATION_REQUIRED";
+      reason:
+        | "ASSET_CHANGED_AFTER_COMMIT"
+        | "ASSET_REVALIDATION_UNAVAILABLE";
+      commitReceipt: ProjectProxySourceBindingCommitReceiptV1;
+    }>;
 
 export type ProjectProxyMasterRelinkBlockReasonV1 =
   | "SOURCE_ASSET_NOT_FOUND"
@@ -1064,6 +1106,19 @@ export class ProjectProxyMasterRelinkBlockedErrorV1 extends Error {
   }
 }
 
+export class ProjectProxySourceBindingBlockedErrorV1 extends Error {
+  readonly code = "PROJECT_PROXY_SOURCE_BINDING_BLOCKED";
+
+  constructor(
+    readonly reason: ProjectProxySourceBindingBlockReasonV1,
+    readonly currentRevision: ProjectRevisionV1,
+    message = `Proxy source binding blocked: ${reason}.`,
+  ) {
+    super(message);
+    this.name = "ProjectProxySourceBindingBlockedErrorV1";
+  }
+}
+
 export type ProjectTimelineRangeRebaseBlockReasonV1 =
   | "EXPECTED_REVISION_NOT_OLDER"
   | "HISTORY_INCOMPLETE"
@@ -1636,6 +1691,264 @@ export class ProjectService {
     return {
       project: structuredClone(project),
       revision: projectRevisionFor(project),
+    };
+  }
+
+  /**
+   * Snapshot every explicit project source range for one current proxy asset
+   * against the verified V3 timestamp owner before proxy/master activation.
+   * The binding and the revision it describes share one Project document CAS.
+   * Media evidence is re-read before and after that CAS because project and
+   * media collections do not share a transaction boundary.
+   */
+  async bindProjectOverlaysToVerifiedProxySourceV1(
+    userId: string,
+    projectId: string,
+    input: ProjectProxySourceBindingCommandV1,
+  ): Promise<ProjectProxySourceBindingResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectProxyMasterRelinkActorAndAssetV1(
+      input.actorKind,
+      input.assetId,
+    );
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    const block = (
+      reason: ProjectProxySourceBindingBlockReasonV1,
+      message?: string,
+    ): ProjectProxySourceBindingBlockedErrorV1 =>
+      new ProjectProxySourceBindingBlockedErrorV1(
+        reason,
+        currentRevision,
+        message,
+      );
+    const mediaAssets = db.collection(COLLECTIONS.MEDIA_ASSETS);
+    const loadAssetEvidence = async (): Promise<
+    ProjectProxySourceBindingAssetEvidenceV1
+    > => {
+      let asset: ProjectProxySourceBindingAssetRecordV1 | null;
+      try {
+        asset = (await mediaAssets.findOne({
+          assetId: input.assetId,
+          userId,
+        })) as ProjectProxySourceBindingAssetRecordV1 | null;
+      } catch {
+        throw block(
+          "ASSET_EVIDENCE_UNAVAILABLE",
+          "The proxy asset could not be reloaded for source-binding verification.",
+        );
+      }
+      if (!asset) {
+        throw block(
+          "SOURCE_ASSET_NOT_FOUND",
+          "The proxy source asset no longer exists for this owner.",
+        );
+      }
+      try {
+        return readProjectProxySourceBindingAssetEvidenceV1(
+          asset,
+          input.assetId,
+        );
+      } catch (error) {
+        if (error instanceof ProjectProxySourceBindingPreparationErrorV1) {
+          throw block(error.reason, error.message);
+        }
+        throw block(
+          "VERIFIED_V3_PROXY_SOURCE_REQUIRED",
+          "The current asset is not a complete verified V3 proxy source.",
+        );
+      }
+    };
+
+    const initialAssetEvidence = await loadAssetEvidence();
+    let relinkStates: readonly ProjectProxyMasterRelinkStateV1[];
+    let sourceBindings: readonly ProjectProxySourceBindingV1[];
+    try {
+      relinkStates = assertProjectProxyMasterRelinkStateHistoryV1(
+        project.proxyMasterRelinkStatesV1,
+        projectId,
+        PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+      );
+      sourceBindings = assertProjectProxySourceBindingHistoryV1(
+        project.proxySourceBindingsV1,
+        projectId,
+        PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+      );
+    } catch {
+      throw block(
+        "BINDING_HISTORY_INVALID",
+        "The server-owned proxy binding or relink history is invalid.",
+      );
+    }
+    if (relinkStates.some((state) => state.assetId === input.assetId)) {
+      throw block(
+        "RELINK_ALREADY_PRESENT",
+        "A project already relinked to a master cannot be rebound as a proxy.",
+      );
+    }
+
+    let overlays: readonly ProjectProxySourceBindingOverlayV1[];
+    try {
+      overlays = prepareProjectProxySourceBindingOverlaysV1({
+        project,
+        assetId: input.assetId,
+        totalSourceFrameCount:
+          initialAssetEvidence.verifiedBinding.totalSourceFrameCount,
+      });
+    } catch (error) {
+      if (error instanceof ProjectProxySourceBindingPreparationErrorV1) {
+        throw block(error.reason, error.message);
+      }
+      throw block(
+        "SOURCE_RANGE_INVALID",
+        "The project proxy source ranges cannot be bound safely.",
+      );
+    }
+
+    const existingBinding = sourceBindings.find(
+      (binding) => binding.assetId === input.assetId,
+    );
+    if (existingBinding
+      && projectProxySourceBindingMatchesCurrentEvidenceV1({
+        binding: existingBinding,
+        currentRevision,
+        evidence: initialAssetEvidence,
+        overlays,
+      })) {
+      const commitReceipt = createProjectProxySourceBindingCommitReceiptV1({
+        binding: existingBinding,
+        mutationReceipt:
+          projectProxySourceBindingMutationReceiptFromBindingV1(
+            existingBinding,
+          ),
+      });
+      return {
+        disposition: "UNCHANGED",
+        commitReceipt,
+        admissionReceipt: createProjectProxySourceBindingAdmissionReceiptV1({
+          commitReceipt,
+          currentVerifiedSourceBindingSha256:
+            initialAssetEvidence.verifiedBinding.bindingSha256,
+          admittedAt: new Date(),
+        }),
+      };
+    }
+
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before retrying.",
+      );
+    }
+
+    const preCommitAssetEvidence = await loadAssetEvidence();
+    if (!sameProjectProxySourceBindingAssetEvidenceV1(
+      initialAssetEvidence,
+      preCommitAssetEvidence,
+    )) {
+      throw block(
+        "ASSET_CHANGED_BEFORE_COMMIT",
+        "The verified proxy source changed before the project binding CAS.",
+      );
+    }
+
+    const committedAt = new Date();
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: currentRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    const binding = createProjectProxySourceBindingV1({
+      projectId,
+      assetId: input.assetId,
+      actorKind: input.actorKind,
+      proxySourceVersionSha256:
+        initialAssetEvidence.verifiedBinding.sourceVersionSha256,
+      verifiedSourceBindingSha256:
+        initialAssetEvidence.verifiedBinding.bindingSha256,
+      proxyTimeMapReferenceSha256:
+        initialAssetEvidence.proxyTimeMapReferenceSha256,
+      projectRevision: mutationReceipt.revision,
+      overlays,
+      boundAt: committedAt,
+    });
+    const nextBindings = assertProjectProxySourceBindingHistoryV1(
+      [
+        ...sourceBindings.filter((entry) => entry.assetId !== input.assetId),
+        binding,
+      ].sort((left, right) => left.assetId.localeCompare(right.assetId)),
+      projectId,
+      PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
+    );
+    const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(currentRevision),
+      },
+      {
+        $set: {
+          proxySourceBindingsV1: nextBindings,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (update.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (update.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const commitReceipt = createProjectProxySourceBindingCommitReceiptV1({
+      binding,
+      mutationReceipt,
+    });
+    this.publishMutationReceipt(mutationReceipt);
+
+    let postCommitAssetEvidence: ProjectProxySourceBindingAssetEvidenceV1;
+    try {
+      postCommitAssetEvidence = await loadAssetEvidence();
+    } catch {
+      return {
+        disposition: "COMMITTED_REVALIDATION_REQUIRED",
+        reason: "ASSET_REVALIDATION_UNAVAILABLE",
+        commitReceipt,
+      };
+    }
+    if (!sameProjectProxySourceBindingAssetEvidenceV1(
+      initialAssetEvidence,
+      postCommitAssetEvidence,
+    )) {
+      return {
+        disposition: "COMMITTED_REVALIDATION_REQUIRED",
+        reason: "ASSET_CHANGED_AFTER_COMMIT",
+        commitReceipt,
+      };
+    }
+    return {
+      disposition: "APPLIED",
+      commitReceipt,
+      admissionReceipt: createProjectProxySourceBindingAdmissionReceiptV1({
+        commitReceipt,
+        currentVerifiedSourceBindingSha256:
+          postCommitAssetEvidence.verifiedBinding.bindingSha256,
+        admittedAt: new Date(),
+      }),
     };
   }
 
@@ -7642,6 +7955,217 @@ function assertGenericProjectUpdateFields(
       "Proxy source bindings and relink state must use their ProjectService command boundaries.",
     );
   }
+}
+
+type ProjectProxySourceBindingAssetRecordV1 =
+  Parameters<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>[0]
+  & Readonly<{ isProxy?: unknown }>;
+
+type ProjectProxySourceBindingVerifiedV3 = NonNullable<
+ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>
+>;
+
+type ProjectProxySourceBindingAssetEvidenceV1 = Readonly<{
+  verifiedBinding: ProjectProxySourceBindingVerifiedV3;
+  proxyTimeMapReference: MediaProxyMasterTimeMapReferenceV1;
+  proxyTimeMapReferenceSha256: string;
+}>;
+
+class ProjectProxySourceBindingPreparationErrorV1 extends Error {
+  constructor(
+    readonly reason: ProjectProxySourceBindingBlockReasonV1,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProjectProxySourceBindingPreparationErrorV1";
+  }
+}
+
+function readProjectProxySourceBindingAssetEvidenceV1(
+  asset: ProjectProxySourceBindingAssetRecordV1,
+  assetId: string,
+): ProjectProxySourceBindingAssetEvidenceV1 {
+  if (asset.isProxy !== true) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "VERIFIED_V3_PROXY_SOURCE_REQUIRED",
+      "The current source must still be explicitly identified as the proxy.",
+    );
+  }
+  let verifiedBinding: ProjectProxySourceBindingVerifiedV3 | null;
+  try {
+    verifiedBinding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
+  } catch {
+    verifiedBinding = null;
+  }
+  if (!verifiedBinding || verifiedBinding.assetId !== assetId) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "VERIFIED_V3_PROXY_SOURCE_REQUIRED",
+      "A complete current verified V3 proxy-source binding is required.",
+    );
+  }
+  const proxyTimeMapReference = {
+    sourceVersionSha256: verifiedBinding.sourceVersionSha256,
+    storageVersionSha256: verifiedBinding.storageVersionSha256,
+    sourceBindingSha256: verifiedBinding.sourceBindingSha256,
+    technicalObservationSha256:
+      verifiedBinding.technicalObservationSha256,
+    sourcePtsCadenceMapStateSha256V3:
+      verifiedBinding.sourcePtsCadenceMapStateSha256V3,
+    mapBindingSha256: verifiedBinding.mapBindingSha256,
+    terminalReceiptSha256: verifiedBinding.terminalReceiptSha256,
+    verificationSha256: verifiedBinding.verificationSha256,
+    epochIndexContentSha256: verifiedBinding.epochIndexContentSha256,
+    streamId: verifiedBinding.streamId,
+    videoStreamIndex: verifiedBinding.videoStreamIndex,
+    totalFrameCount: verifiedBinding.totalSourceFrameCount,
+  } satisfies MediaProxyMasterTimeMapReferenceV1;
+  return {
+    verifiedBinding,
+    proxyTimeMapReference,
+    proxyTimeMapReferenceSha256:
+      hashEditronCanonicalJsonV1(proxyTimeMapReference),
+  };
+}
+
+function prepareProjectProxySourceBindingOverlaysV1(input: Readonly<{
+  project: Project;
+  assetId: string;
+  totalSourceFrameCount: string;
+}>): readonly ProjectProxySourceBindingOverlayV1[] {
+  let totalSourceFrameCount: bigint;
+  try {
+    totalSourceFrameCount = BigInt(input.totalSourceFrameCount);
+  } catch {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "VERIFIED_V3_PROXY_SOURCE_REQUIRED",
+      "The verified V3 proxy frame count is invalid.",
+    );
+  }
+  if (totalSourceFrameCount <= BigInt(0)) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "VERIFIED_V3_PROXY_SOURCE_REQUIRED",
+      "The verified V3 proxy frame count must be positive.",
+    );
+  }
+  const targets = input.project.overlays.filter(
+    (overlay): overlay is ClipOverlay =>
+      overlay.type === "video" && overlay.assetId === input.assetId,
+  );
+  if (targets.length === 0) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "TARGET_OVERLAYS_NOT_FOUND",
+      "No video overlay uses the current verified proxy source.",
+    );
+  }
+  if (targets.length
+    > PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxTargetOverlays) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "SOURCE_RANGE_INVALID",
+      "The proxy source-binding overlay limit was exceeded.",
+    );
+  }
+  const overlays = targets.map((overlay) => {
+    if (!Number.isSafeInteger(overlay.id) || overlay.id < 0) {
+      throw new ProjectProxySourceBindingPreparationErrorV1(
+        "TARGET_OVERLAY_IDENTITY_INVALID",
+        "Proxy source bindings require non-negative numeric overlay IDs.",
+      );
+    }
+    const sourceStartFrameWasExplicit = overlay.sourceStartFrame !== undefined;
+    const videoStartTimeWasExplicit = overlay.videoStartTime !== undefined;
+    const sourceEndFrameWasExplicit = overlay.sourceEndFrame !== undefined;
+    if ((!sourceStartFrameWasExplicit && !videoStartTimeWasExplicit)
+      || !sourceEndFrameWasExplicit) {
+      throw new ProjectProxySourceBindingPreparationErrorV1(
+        "SOURCE_RANGE_INCOMPLETE",
+        "Every proxy target requires an explicit source start alias and exclusive source end.",
+      );
+    }
+    const sourceStartFrame = sourceStartFrameWasExplicit
+      ? overlay.sourceStartFrame
+      : overlay.videoStartTime;
+    const sourceEndFrameExclusive = overlay.sourceEndFrame;
+    if (!Number.isSafeInteger(sourceStartFrame)
+      || !Number.isSafeInteger(sourceEndFrameExclusive)
+      || (sourceStartFrame as number) < 0
+      || (sourceEndFrameExclusive as number) <= (sourceStartFrame as number)
+      || BigInt(sourceEndFrameExclusive as number) > totalSourceFrameCount
+      || !Number.isSafeInteger(overlay.from) || overlay.from < 0
+      || !Number.isSafeInteger(overlay.durationInFrames)
+      || overlay.durationInFrames <= 0
+      || !Number.isSafeInteger(overlay.from + overlay.durationInFrames)) {
+      throw new ProjectProxySourceBindingPreparationErrorV1(
+        "SOURCE_RANGE_INVALID",
+        "Proxy source and timeline ranges must be bounded safe-integer intervals.",
+      );
+    }
+    if (sourceStartFrameWasExplicit && videoStartTimeWasExplicit
+      && overlay.sourceStartFrame !== overlay.videoStartTime) {
+      throw new ProjectProxySourceBindingPreparationErrorV1(
+        "SOURCE_COORDINATE_CONFLICT",
+        "sourceStartFrame and videoStartTime disagree for a proxy target.",
+      );
+    }
+    return {
+      overlayId: overlay.id,
+      timelineStartFrame: overlay.from,
+      timelineEndFrameExclusive: overlay.from + overlay.durationInFrames,
+      proxySourceStartFrame: sourceStartFrame as number,
+      proxySourceEndFrameExclusive: sourceEndFrameExclusive as number,
+      sourceStartFrameWasExplicit,
+      sourceEndFrameWasExplicit: true as const,
+      videoStartTimeWasExplicit,
+    };
+  }).sort((left, right) => left.overlayId - right.overlayId);
+  if (overlays.some((overlay, index) =>
+    index > 0 && overlay.overlayId === overlays[index - 1]!.overlayId)) {
+    throw new ProjectProxySourceBindingPreparationErrorV1(
+      "TARGET_OVERLAY_IDENTITY_INVALID",
+      "Proxy source bindings require unique numeric overlay IDs.",
+    );
+  }
+  return overlays;
+}
+
+function projectProxySourceBindingMatchesCurrentEvidenceV1(input: Readonly<{
+  binding: ProjectProxySourceBindingV1;
+  currentRevision: ProjectRevisionV1;
+  evidence: ProjectProxySourceBindingAssetEvidenceV1;
+  overlays: readonly ProjectProxySourceBindingOverlayV1[];
+}>): boolean {
+  return sameProjectRevisionV1(
+    input.binding.projectRevision,
+    input.currentRevision,
+  )
+    && input.binding.proxySourceVersionSha256
+      === input.evidence.verifiedBinding.sourceVersionSha256
+    && input.binding.verifiedSourceBindingSha256
+      === input.evidence.verifiedBinding.bindingSha256
+    && input.binding.proxyTimeMapReferenceSha256
+      === input.evidence.proxyTimeMapReferenceSha256
+    && hashEditronCanonicalJsonV1(input.binding.overlays)
+      === hashEditronCanonicalJsonV1(input.overlays);
+}
+
+function sameProjectProxySourceBindingAssetEvidenceV1(
+  left: ProjectProxySourceBindingAssetEvidenceV1,
+  right: ProjectProxySourceBindingAssetEvidenceV1,
+): boolean {
+  return left.verifiedBinding.bindingSha256
+      === right.verifiedBinding.bindingSha256
+    && left.proxyTimeMapReferenceSha256
+      === right.proxyTimeMapReferenceSha256;
+}
+
+function projectProxySourceBindingMutationReceiptFromBindingV1(
+  binding: ProjectProxySourceBindingV1,
+): ProjectMutationReceiptV1 {
+  return {
+    schemaVersion: 1,
+    projectId: binding.projectId,
+    revision: binding.projectRevision,
+    committedAt: binding.boundAt,
+  };
 }
 
 type ProjectProxyMasterRelinkAssetRecordV1 =
