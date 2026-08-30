@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ScriptDraftAgent } from '@/lib/thinkforge/agents/script-draft-agent';
 import { ScriptAuthorAgent, type ScriptAuthorInput } from '@/lib/thinkforge/agents/script-author-agent';
+import { StylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
 import { formatSystemBrief, type RetrievedContext } from '@/lib/thinkforge/context';
 import { deriveBrandSignalProfile, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 import type { UnifiedBrand } from '@/lib/shared/brand-registry';
@@ -57,6 +58,13 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
 
     const agent = new ScriptDraftAgent();
     const captured: { authorInput?: ScriptAuthorInput } = {};
+    const checkVoice = vi.spyOn(StylistAgent.prototype, 'checkVoice').mockResolvedValue({
+      overallScore: 72,
+      voiceSummary: 'The draft needs a targeted cleanup.',
+      flags: [],
+      patternInterrupts: [],
+    });
+    const rewriteFlagged = vi.spyOn(StylistAgent.prototype, 'rewriteFlagged').mockResolvedValue(null);
 
     (agent as any).contractAgent = {
       setAbortSignal: () => {},
@@ -94,7 +102,7 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
       run: async (input: ScriptAuthorInput) => {
         captured.authorInput = input;
         return {
-          stream: streamText('Approval cycles drop by 37% when review owners are named upfront. Reply with the bottleneck you want fixed first?'),
+          stream: streamText("In today's fast-paced world, let's dive in and leverage a seamless workflow. Perhaps it seems this might work, and it could potentially improve things. In summary, this game-changing process could potentially help. Approval cycles drop by 37% when review owners are named upfront."),
         };
       },
     };
@@ -171,6 +179,14 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
 
     const profile = captured.authorInput?.contentSignalProfile;
     expect(profile?.sources.brandContextPresent).toBe(true);
+    expect(checkVoice).toHaveBeenCalledWith(expect.objectContaining({
+      brandId: 'brand_1',
+      sessionId: 'session_1',
+    }));
+    expect(rewriteFlagged).toHaveBeenCalledWith(expect.objectContaining({
+      brandId: 'brand_1',
+      sessionId: 'session_1',
+    }));
     expect(profile?.sources.brandVaultProfilePresent).toBe(true);
     expect(profile?.sources.projectFactsUsed).toBe(1);
     expect(profile?.sources.interactionPatternsUsed).toBe(1);

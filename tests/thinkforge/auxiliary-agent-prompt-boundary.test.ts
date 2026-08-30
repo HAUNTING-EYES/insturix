@@ -6,6 +6,7 @@ import { ScopeDetectorAgent } from '@/lib/thinkforge/agents/scope-detector-agent
 import { ScriptSectionAgent, type SectionInput } from '@/lib/thinkforge/agents/script-section-agent';
 import { StylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
 import type { AgentInput } from '@/lib/thinkforge/agents/types';
+import { recordThinkForgeDirectCost } from '@/lib/thinkforge/services/provider-cost-telemetry';
 import { UrlBriefAgent } from '@/lib/thinkforge/agents/url-brief-agent';
 
 const aiMocks = vi.hoisted(() => ({
@@ -145,6 +146,8 @@ describe('ThinkForge auxiliary-agent prompt boundaries', () => {
       violations: [`AI filler detected. ${INJECTION}`],
       flags: [`CTA is off-brand. ${INJECTION}`],
       brandContext: `Use a direct, warm voice. ${INJECTION}`,
+      brandId: 'brand_stylist_1',
+      sessionId: 'session_stylist_1',
     });
 
     expect(rewritten).toContain('brand-aligned sentence');
@@ -161,6 +164,35 @@ describe('ThinkForge auxiliary-agent prompt boundaries', () => {
     expect(call.system).toContain('<thinkforge_prompt_boundary');
     expect(call.prompt).toContain('\\u003csystem\\u003e');
     expect(call).not.toHaveProperty('maxTokens');
+    expect(vi.mocked(recordThinkForgeDirectCost)).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'stylist_rewrite',
+        projectId: 'brand_stylist_1',
+        taskId: 'session_stylist_1',
+      }),
+    );
+  });
+
+  it('keeps Stylist failure telemetry correlated to the originating draft', async () => {
+    aiMocks.generateText.mockRejectedValueOnce(new Error('provider unavailable'));
+
+    await expect(new StylistAgent().rewriteFlagged({
+      content: 'Draft copy long enough to reach the provider failure path safely.',
+      violations: ['AI filler detected.'],
+      flags: [],
+      brandId: 'brand_stylist_failure',
+      sessionId: 'session_stylist_failure',
+    })).resolves.toBeNull();
+
+    expect(vi.mocked(recordThinkForgeDirectCost)).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        action: 'stylist_rewrite',
+        projectId: 'brand_stylist_failure',
+        taskId: 'session_stylist_failure',
+        error: expect.any(Error),
+      }),
+    );
   });
 
   it('passes isolated scraped URL data through the production brief path', async () => {

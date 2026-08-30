@@ -253,6 +253,8 @@ export class ScriptDraftAgent {
         const stylist = new StylistAgent();
         const review = await stylist.checkVoice({
           context: signalAwareInput.context,
+          brandId: signalAwareInput.brandId ?? signalAwareInput.project?.brandId,
+          sessionId: signalAwareInput.sessionId,
           userPrompt: content,
         });
         stylistFlags = review.flags.filter(f => f.severity === 'high').map(f => `${f.issue}: ${f.suggestion}`);
@@ -268,6 +270,8 @@ export class ScriptDraftAgent {
             violations: qualityViolations,
             flags: stylistFlags,
             brandContext: signalAwareInput.context.systemBrief,
+            brandId: signalAwareInput.brandId ?? signalAwareInput.project?.brandId,
+            sessionId: signalAwareInput.sessionId,
           });
           if (rewritten) {
             const newScore = scoreContent(rewritten);
