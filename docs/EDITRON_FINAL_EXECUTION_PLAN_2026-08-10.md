@@ -9351,6 +9351,36 @@ multi-renewal verification, reset/wrap/edit-list evidence or recovery/GC run
 was exercised. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
 unchanged.
 
+**Durable V3 job binding Phase 3F-C8l (2026-08-30):** commit `64bef150b`
+creates a distinct, URL-free durable-job contract for direct V3 epoch scans.
+The sole generic durable store now receives a source-qualified
+`media_source_pts_cadence_epoch_scan` identity whose canonical input binds the
+selected video stream, source/storage/binding/technical-observation hashes,
+exact FFprobe version, `epoch-ffprobe-v3` mapper and command policy, scan
+resource ceiling, expected source coverage, epoch-index ceiling, direct
+artifact-verification policy and dedicated private-storage policy. Rebuilding
+the same source contract returns the same job; the existing V1 operation,
+mapper identity and finalizer remain distinct.
+
+The direct policy deliberately permits zero external-boundary evidence reads.
+That matches the currently proven arithmetic-only path: exact contiguous,
+positive-gap and safe positive-start-overlap handoffs may proceed, while a
+repeated/backward timestamp still requires a future container-specific
+reset/wrap/edit-list evidence owner. Copied hashes, altered numeric limits,
+weakened verification policy, source-owner mismatch and unqualified FFprobe
+identity fail before job creation. The epoch-index owner now exports its
+existing bounded policy normalizer so the durable contract does not duplicate
+that validation authority.
+
+The focused V1/V3 binding and epoch-index suites pass 21/21; repository
+TypeScript, repository-wide quiet ESLint and diff checks pass. This result is
+`DURABLE_V3_JOB_BINDING_VERIFIED_WORKER_DISPATCH_LIVE_PROOF_OPEN`. It does not
+yet submit or poll Modal, persist resume state, invoke the V3 publisher,
+authenticate signed ingress, redeliver/recover work, deploy an endpoint, touch
+dedicated private R2 or live Atlas, reclaim unreachable artifacts, or prove
+long-running renewal. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
