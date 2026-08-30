@@ -10365,6 +10365,23 @@ historical complete rows, explicit dual-read consumer cutover, live Atlas/R2
 proof, retention telemetry and safe unreachable-object GC remain open. Queue
 item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+Commits `eb00f3f6a`, `f36c6a4eb` and `a722d7f58` close the new-execution
+audio-receipt cutover without creating a second materialization pipeline. The
+successor V2 receipt is exact-key, immutable and hash-bound; it carries both
+the canonical source-audio-availability evidence hash and the legacy
+source-version evidence hash. One shared materialization owner can still emit
+the historical V1 envelope for explicit compatibility reads, while the product
+runtime now emits V2 and the durable worker refuses V1 as a new PASS result.
+Successful and post-proof-cancelled jobs persist three distinct proof
+references: product receipt, canonical audio availability and legacy evidence.
+The focused cutover proof passes 34/34 and the widened audio-product family
+passes 102/102 across 19 files, with full TypeScript and repository-wide quiet
+ESLint passing. This result is
+`CANONICAL_AUDIO_RECEIPT_CUTOVER_VERIFIED_HISTORICAL_MIGRATION_OPEN`.
+It does not migrate historical complete/no-audio rows or prove live Atlas/R2,
+retention telemetry, unreachable-object GC, or all source-version-addressed
+readers. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
