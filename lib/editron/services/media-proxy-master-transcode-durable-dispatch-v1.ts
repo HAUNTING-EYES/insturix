@@ -8,7 +8,6 @@ import {
   createDurableWorkflowQStashRecoveryStateBindingV1,
   publishAndRecordDurableWorkflowQStashJobV1,
   resolveDurableWorkflowQStashDispatchConfigurationV1,
-  type DurableWorkflowQStashDeliveryPolicyV1,
   type DurableWorkflowQStashDispatchConfigurationV1,
   type DurableWorkflowQStashDispatchEnvironmentV1,
   type DurableWorkflowQStashPublisherV1,
@@ -17,8 +16,20 @@ import {
   MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_JOB_INPUT_VERSION_V1,
   MEDIA_PROXY_MASTER_TRANSCODE_OPERATION_KIND_V1,
   MEDIA_PROXY_MASTER_TRANSCODE_OPERATION_OWNER_V1,
+  assertMediaProxyMasterTranscodeDurableJobV1,
+  assertMediaProxyMasterTranscodeDurableRuntimePolicyV1,
   createOrGetMediaProxyMasterTranscodeDurableJobV1,
+  type MediaProxyMasterTranscodeDurableRuntimePolicyV1,
 } from './media-proxy-master-transcode-durable-job-v1';
+import type {
+  MediaProxyMasterTranscodeOperationalPolicyRegistryV1,
+} from './media-proxy-master-transcode-operational-policy-registry-v1';
+import {
+  assertMediaProxyMasterTranscodeHeartbeatPolicyV1,
+  assertMediaProxyMasterTranscodeRetryPolicyV1,
+  type MediaProxyMasterTranscodeHeartbeatPolicyV1,
+  type MediaProxyMasterTranscodeRetryPolicyV1,
+} from './media-proxy-master-transcode-operational-policy-v1';
 
 const MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_PATH_V1 =
   '/api/internal/workers/media-proxy-master-transcode' as const;
@@ -93,7 +104,15 @@ export type MediaProxyMasterTranscodeDurableRecoveryResultV1 = Readonly<{
   scanned: number;
   eligible: number;
   skipped: number;
-  results: readonly Readonly<{ jobId: string } & DispatchStateV1>[];
+  results: readonly Readonly<
+    | ({ jobId: string } & DispatchStateV1)
+    | {
+        state: 'policy_unavailable';
+        jobId: string;
+        reason: 'JOB_CONTRACT_INVALID' | 'RETRY_POLICY_UNAVAILABLE'
+          | 'HEARTBEAT_POLICY_UNAVAILABLE' | 'LIFECYCLE_POLICY_MISMATCH';
+      }
+  >[];
 }>;
 
 export class MediaProxyMasterTranscodeDurableDispatchErrorV1 extends Error {
@@ -109,7 +128,9 @@ export async function dispatchMediaProxyMasterTranscodeDurableJobV1(
       typeof createOrGetMediaProxyMasterTranscodeDurableJobV1
     >[0]['request'];
     jobStore: Pick<DurableWorkflowJobStoreV1, 'createOrGet' | 'recordDispatch'>;
-    deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
+    policyRegistry: Readonly<
+      MediaProxyMasterTranscodeOperationalPolicyRegistryV1
+    >;
     env?: MediaProxyMasterTranscodeDurableDispatchEnvironmentV1;
     publisher?: Readonly<MediaProxyMasterTranscodeQStashPublisherV1>;
     now?: Date;
@@ -117,6 +138,8 @@ export async function dispatchMediaProxyMasterTranscodeDurableJobV1(
 ): Promise<MediaProxyMasterTranscodeDurableDispatchResultV1> {
   const environment = input.env ?? processEnvironment();
   const configuration = requireConfiguration(environment);
+  const policies = activeOperationalPolicies(input.policyRegistry);
+  assertRuntimePolicies(input.request.runtimePolicy, policies);
   const bound = await createOrGetMediaProxyMasterTranscodeDurableJobV1({
     jobStore: input.jobStore,
     request: input.request,
@@ -129,7 +152,7 @@ export async function dispatchMediaProxyMasterTranscodeDurableJobV1(
     message: assertMediaProxyMasterTranscodeDurableWorkerMessageV1({
       jobId: bound.job.jobId,
     }),
-    deliveryPolicy: input.deliveryPolicy,
+    deliveryPolicy: policies.retry.qstashDelivery,
     dispatchIntent: {
       kind: 'INITIAL_QUEUED',
       deduplicationId: bound.job.jobId,
@@ -146,7 +169,9 @@ export async function recoverMediaProxyMasterTranscodeDurableJobsV1(
     jobStore: Pick<DurableWorkflowJobStoreV1,
       'listRecoverable' | 'recordDispatch'>;
     staleBefore: Date;
-    deliveryPolicy: DurableWorkflowQStashDeliveryPolicyV1;
+    policyRegistry: Readonly<
+      MediaProxyMasterTranscodeOperationalPolicyRegistryV1
+    >;
     now?: Date;
     limit?: number;
     env?: MediaProxyMasterTranscodeDurableDispatchEnvironmentV1;
@@ -166,8 +191,41 @@ export async function recoverMediaProxyMasterTranscodeDurableJobsV1(
     isProxyTranscodeJob(job)
       && Date.parse(job.updatedAt) <= staleBefore.getTime()
   ));
-  const results: Array<Readonly<{ jobId: string } & DispatchStateV1>> = [];
+  const results: Array<MediaProxyMasterTranscodeDurableRecoveryResultV1[
+    'results'
+  ][number]> = [];
   for (const job of eligible) {
+    let jobInput: ReturnType<typeof assertMediaProxyMasterTranscodeDurableJobV1>;
+    try {
+      jobInput = assertMediaProxyMasterTranscodeDurableJobV1(job);
+    } catch {
+      results.push(policyUnavailable(job.jobId, 'JOB_CONTRACT_INVALID'));
+      continue;
+    }
+    let retry: MediaProxyMasterTranscodeRetryPolicyV1;
+    try {
+      retry = resolveRetryPolicy(
+        input.policyRegistry,
+        jobInput.runtimePolicy.retryPolicy,
+      );
+    } catch {
+      results.push(policyUnavailable(job.jobId, 'RETRY_POLICY_UNAVAILABLE'));
+      continue;
+    }
+    let heartbeat: MediaProxyMasterTranscodeHeartbeatPolicyV1;
+    try {
+      heartbeat = resolveHeartbeatPolicy(
+        input.policyRegistry,
+        jobInput.runtimePolicy.heartbeatPolicy,
+      );
+    } catch {
+      results.push(policyUnavailable(job.jobId, 'HEARTBEAT_POLICY_UNAVAILABLE'));
+      continue;
+    }
+    if (!runtimePoliciesMatch(jobInput.runtimePolicy, { retry, heartbeat })) {
+      results.push(policyUnavailable(job.jobId, 'LIFECYCLE_POLICY_MISMATCH'));
+      continue;
+    }
     const dispatched = await publishAndRecordDurableWorkflowQStashJobV1({
       job,
       configuration,
@@ -175,7 +233,7 @@ export async function recoverMediaProxyMasterTranscodeDurableJobsV1(
       message: assertMediaProxyMasterTranscodeDurableWorkerMessageV1({
         jobId: job.jobId,
       }),
-      deliveryPolicy: input.deliveryPolicy,
+      deliveryPolicy: retry.qstashDelivery,
       dispatchIntent: {
         kind: 'RECOVERY_SELECTED',
         stateBindingSha256:
@@ -193,6 +251,143 @@ export async function recoverMediaProxyMasterTranscodeDurableJobsV1(
     skipped: candidates.length - eligible.length,
     results: Object.freeze(results),
   });
+}
+
+type OperationalPoliciesV1 = Readonly<{
+  retry: MediaProxyMasterTranscodeRetryPolicyV1;
+  heartbeat: MediaProxyMasterTranscodeHeartbeatPolicyV1;
+}>;
+
+function activeOperationalPolicies(
+  registry: Readonly<MediaProxyMasterTranscodeOperationalPolicyRegistryV1>,
+): OperationalPoliciesV1 {
+  const retry = assertRetryPolicy(
+    registry?.activeRetryPolicy,
+    'ACTIVE_RETRY_POLICY_INVALID',
+  );
+  const heartbeat = assertHeartbeatPolicy(
+    registry?.activeHeartbeatPolicy,
+    'ACTIVE_HEARTBEAT_POLICY_INVALID',
+  );
+  const resolvedRetry = resolveRetryPolicy(
+    registry,
+    registry?.activeRetryPolicyBinding,
+  );
+  const resolvedHeartbeat = resolveHeartbeatPolicy(
+    registry,
+    registry?.activeHeartbeatPolicyBinding,
+  );
+  if (resolvedRetry.policySha256 !== retry.policySha256
+    || resolvedHeartbeat.policySha256 !== heartbeat.policySha256) {
+    throw new MediaProxyMasterTranscodeDurableDispatchErrorV1(
+      'MEDIA_PROXY_MASTER_TRANSCODE_DISPATCH_ACTIVE_POLICY_MISMATCH',
+    );
+  }
+  return Object.freeze({ retry: resolvedRetry, heartbeat: resolvedHeartbeat });
+}
+
+function resolveRetryPolicy(
+  registry: Readonly<MediaProxyMasterTranscodeOperationalPolicyRegistryV1>,
+  binding: Readonly<{ ownerId: string; ownerVersion: string; policySha256: string }>,
+): MediaProxyMasterTranscodeRetryPolicyV1 {
+  if (!registry || typeof registry.resolveRetry !== 'function') {
+    throw new Error('OPERATIONAL_POLICY_REGISTRY_INVALID');
+  }
+  let resolved: unknown;
+  try {
+    resolved = registry.resolveRetry(binding as never);
+  } catch {
+    throw new Error('RETRY_POLICY_UNAVAILABLE');
+  }
+  const policy = assertRetryPolicy(resolved, 'RETRY_POLICY_INVALID');
+  if (!sameBinding(binding, policy)) throw new Error('RETRY_POLICY_BINDING_MISMATCH');
+  return policy;
+}
+
+function resolveHeartbeatPolicy(
+  registry: Readonly<MediaProxyMasterTranscodeOperationalPolicyRegistryV1>,
+  binding: Readonly<{ ownerId: string; ownerVersion: string; policySha256: string }>,
+): MediaProxyMasterTranscodeHeartbeatPolicyV1 {
+  if (!registry || typeof registry.resolveHeartbeat !== 'function') {
+    throw new Error('OPERATIONAL_POLICY_REGISTRY_INVALID');
+  }
+  let resolved: unknown;
+  try {
+    resolved = registry.resolveHeartbeat(binding as never);
+  } catch {
+    throw new Error('HEARTBEAT_POLICY_UNAVAILABLE');
+  }
+  const policy = assertHeartbeatPolicy(resolved, 'HEARTBEAT_POLICY_INVALID');
+  if (!sameBinding(binding, policy)) {
+    throw new Error('HEARTBEAT_POLICY_BINDING_MISMATCH');
+  }
+  return policy;
+}
+
+function assertRetryPolicy(value: unknown, code: string) {
+  try {
+    return assertMediaProxyMasterTranscodeRetryPolicyV1(value);
+  } catch {
+    throw new MediaProxyMasterTranscodeDurableDispatchErrorV1(
+      `MEDIA_PROXY_MASTER_TRANSCODE_DISPATCH_${code}`,
+    );
+  }
+}
+
+function assertHeartbeatPolicy(value: unknown, code: string) {
+  try {
+    return assertMediaProxyMasterTranscodeHeartbeatPolicyV1(value);
+  } catch {
+    throw new MediaProxyMasterTranscodeDurableDispatchErrorV1(
+      `MEDIA_PROXY_MASTER_TRANSCODE_DISPATCH_${code}`,
+    );
+  }
+}
+
+function assertRuntimePolicies(
+  value: MediaProxyMasterTranscodeDurableRuntimePolicyV1,
+  policies: OperationalPoliciesV1,
+): void {
+  let runtime: MediaProxyMasterTranscodeDurableRuntimePolicyV1;
+  try {
+    runtime = assertMediaProxyMasterTranscodeDurableRuntimePolicyV1(value);
+  } catch {
+    throw new MediaProxyMasterTranscodeDurableDispatchErrorV1(
+      'MEDIA_PROXY_MASTER_TRANSCODE_DISPATCH_RUNTIME_POLICY_INVALID',
+    );
+  }
+  if (!runtimePoliciesMatch(runtime, policies)) {
+    throw new MediaProxyMasterTranscodeDurableDispatchErrorV1(
+      'MEDIA_PROXY_MASTER_TRANSCODE_DISPATCH_OPERATIONAL_POLICY_BINDING_MISMATCH',
+    );
+  }
+}
+
+function runtimePoliciesMatch(
+  runtime: MediaProxyMasterTranscodeDurableRuntimePolicyV1,
+  policies: OperationalPoliciesV1,
+): boolean {
+  return sameBinding(runtime.retryPolicy, policies.retry)
+    && sameBinding(runtime.heartbeatPolicy, policies.heartbeat)
+    && runtime.lifecycle.maxAttempts === policies.retry.durableJob.maxAttempts
+    && runtime.lifecycle.retentionMs === policies.retry.durableJob.retentionMs;
+}
+
+function sameBinding(
+  binding: Readonly<{ ownerId: string; ownerVersion: string; policySha256: string }>,
+  policy: Readonly<{ ownerId: string; ownerVersion: string; policySha256: string }>,
+): boolean {
+  return binding?.ownerId === policy.ownerId
+    && binding?.ownerVersion === policy.ownerVersion
+    && binding?.policySha256 === policy.policySha256;
+}
+
+function policyUnavailable(
+  jobId: string,
+  reason: 'JOB_CONTRACT_INVALID' | 'RETRY_POLICY_UNAVAILABLE'
+    | 'HEARTBEAT_POLICY_UNAVAILABLE' | 'LIFECYCLE_POLICY_MISMATCH',
+) {
+  return Object.freeze({ state: 'policy_unavailable' as const, jobId, reason });
 }
 
 export function resolveMediaProxyMasterTranscodeDurableDispatchConfigurationV1(

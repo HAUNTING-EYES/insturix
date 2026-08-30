@@ -16,6 +16,12 @@ import {
   createMediaProxyMasterTranscodeDurableRuntimePolicyV1,
   createOrGetMediaProxyMasterTranscodeDurableJobV1,
 } from '@/lib/editron/services/media-proxy-master-transcode-durable-job-v1';
+import { createMediaProxyMasterTranscodeOperationalPolicyRegistryV1 }
+  from '@/lib/editron/services/media-proxy-master-transcode-operational-policy-registry-v1';
+import {
+  createMediaProxyMasterTranscodeHeartbeatPolicyV1,
+  createMediaProxyMasterTranscodeRetryPolicyV1,
+} from '@/lib/editron/services/media-proxy-master-transcode-operational-policy-v1';
 import { createMediaProxyMasterR2PrivatePublicationPolicyV1 }
   from '@/lib/editron/services/media-proxy-master-r2-private-publication-policy-v1';
 import {
@@ -35,11 +41,7 @@ const ENV: MediaProxyMasterTranscodeDurableDispatchEnvironmentV1 = {
   QSTASH_NEXT_SIGNING_KEY: 'test-next-signing-key',
   VERCEL_URL: 'editron-preview.example.test',
 };
-const DELIVERY_POLICY = Object.freeze({
-  retries: 2,
-  retryDelayMs: 30_000,
-  timeoutSeconds: 300,
-});
+const POLICY_REGISTRY = operationalPolicyRegistry();
 type PublishInputV1 = Parameters<
   MediaProxyMasterTranscodeQStashPublisherV1['publishJSON']
 >[0];
@@ -54,7 +56,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
       await expect(dispatchMediaProxyMasterTranscodeDurableJobV1({
         request: jobRequest(),
         jobStore: { createOrGet, recordDispatch: vi.fn() },
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         env: { ...ENV, QSTASH_NEXT_SIGNING_KEY: undefined },
         publisher: publisher('unused-message'),
       })).rejects.toThrow(
@@ -72,7 +74,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
       const first = await dispatchMediaProxyMasterTranscodeDurableJobV1({
         request: jobRequest(),
         jobStore: setup.store,
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         env: ENV,
         publisher: { publishJSON },
         now: START,
@@ -90,7 +92,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
       expect(Object.keys(published.body as object)).toEqual(['jobId']);
       expect(published.deduplicationId).toBe(first.jobId);
       expect(published).toMatchObject({
-        retries: 2, retryDelay: '30000', timeout: 300,
+        retries: 2, retryDelay: '10000', timeout: 300,
       });
       await expect(setup.store.getAuthorized({
         jobId: first.jobId,
@@ -109,7 +111,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
       await expect(dispatchMediaProxyMasterTranscodeDurableJobV1({
         request: jobRequest(),
         jobStore: setup.store,
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         env: ENV,
         publisher: { publishJSON },
         now: START,
@@ -127,7 +129,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
       await expect(dispatchMediaProxyMasterTranscodeDurableJobV1({
         request: jobRequest(),
         jobStore: unconfirmed.store,
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         env: ENV,
         publisher: { publishJSON: vi.fn(async () => ({})) },
         now: START,
@@ -144,7 +146,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
             throw new Error('mongo unavailable');
           }),
         },
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         env: ENV,
         publisher: publisher('message-proxy-maybe-delivered'),
         now: START,
@@ -186,7 +188,7 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
           recordDispatch: setup.store.recordDispatch.bind(setup.store),
         },
         staleBefore: new Date(START.getTime() + 60_000),
-        deliveryPolicy: DELIVERY_POLICY,
+        policyRegistry: POLICY_REGISTRY,
         now: new Date(START.getTime() + 180_000),
         env: ENV,
         publisher: { publishJSON },
@@ -202,6 +204,69 @@ describe('MediaProxyMasterTranscodeDurableDispatchV1', () => {
         .toEqual({ jobId: created.job.jobId });
       expect(publishJSON.mock.calls[0]![0].deduplicationId)
         .toMatch(/^[a-f0-9]{64}$/);
+    });
+
+  it('rejects active policy substitution before durable admission', async () => {
+    const createOrGet = vi.fn();
+    const foreignRegistry = operationalPolicyRegistry(2_000);
+    await expect(dispatchMediaProxyMasterTranscodeDurableJobV1({
+      request: jobRequest(),
+      jobStore: { createOrGet, recordDispatch: vi.fn() },
+      policyRegistry: foreignRegistry,
+      env: ENV,
+      publisher: publisher('unused-message'),
+    })).rejects.toThrow('OPERATIONAL_POLICY_BINDING_MISMATCH');
+    expect(createOrGet).not.toHaveBeenCalled();
+  });
+
+  it('recovers with retained policy timing and blocks an unknown old policy',
+    async () => {
+      const oldRegistry = operationalPolicyRegistry(1_000);
+      const newRegistry = operationalPolicyRegistry(2_000, oldRegistry);
+      const setup = jobStore();
+      const created = await createOrGetMediaProxyMasterTranscodeDurableJobV1({
+        jobStore: setup.store,
+        request: jobRequest(oldRegistry),
+        now: START,
+      });
+      const publishJSON = vi.fn<[PublishInputV1], PublishResultV1>(
+        async () => ({ messageId: 'message-retained-policy' }),
+      );
+      await expect(recoverMediaProxyMasterTranscodeDurableJobsV1({
+        jobStore: {
+          listRecoverable: vi.fn(async () => [created.job]),
+          recordDispatch: setup.store.recordDispatch.bind(setup.store),
+        },
+        staleBefore: new Date(START.getTime() + 1),
+        policyRegistry: newRegistry,
+        now: new Date(START.getTime() + 2),
+        env: ENV,
+        publisher: { publishJSON },
+      })).resolves.toMatchObject({ results: [{ state: 'dispatched' }] });
+      expect(publishJSON.mock.calls[0]![0]).toMatchObject({
+        retryDelay: '10000',
+      });
+
+      const unavailable = await recoverMediaProxyMasterTranscodeDurableJobsV1({
+        jobStore: {
+          listRecoverable: vi.fn(async () => [{
+            ...created.job,
+            dispatchMessageId: null,
+            dispatchCount: 0,
+          }]),
+          recordDispatch: vi.fn(),
+        },
+        staleBefore: new Date(START.getTime() + 1),
+        policyRegistry: operationalPolicyRegistry(2_000),
+        now: new Date(START.getTime() + 2),
+        env: ENV,
+        publisher: publisher('must-not-publish'),
+      });
+      expect(unavailable.results).toEqual([{
+        state: 'policy_unavailable',
+        jobId: created.job.jobId,
+        reason: 'RETRY_POLICY_UNAVAILABLE',
+      }]);
     });
 
   it('requires a strict jobId message and secure worker origin', () => {
@@ -240,7 +305,7 @@ function jobStore() {
   };
 }
 
-function jobRequest() {
+function jobRequest(registry = POLICY_REGISTRY) {
   const command = transcodeCommand();
   return {
     tenantId: 'tenant-proxy-dispatch',
@@ -254,10 +319,10 @@ function jobRequest() {
       browserRouteExposure: 'NO_BROWSER_ROUTE',
     }),
     runtimePolicy: createMediaProxyMasterTranscodeDurableRuntimePolicyV1({
-      lifecycle: { maxAttempts: 6, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+      lifecycle: registry.activeRetryPolicy.durableJob,
       executionBudgetPolicy: policyOwner('budget'),
-      retryPolicy: policyOwner('retry'),
-      heartbeatPolicy: policyOwner('heartbeat'),
+      retryPolicy: policyBinding(registry.activeRetryPolicy),
+      heartbeatPolicy: policyBinding(registry.activeHeartbeatPolicy),
       executionProfile: {
         workerImageDigest: hash('worker-image'),
         platform: 'linux-x64',
@@ -270,6 +335,54 @@ function jobRequest() {
       reservationId: 'reservation-proxy-dispatch',
       bindingSha256: hash('reservation-proxy-dispatch'),
     },
+  };
+}
+
+type OperationalPolicyRegistryFixtureV1 = ReturnType<
+  typeof createMediaProxyMasterTranscodeOperationalPolicyRegistryV1
+>;
+
+function operationalPolicyRegistry(
+  baseDelayMs = 1_000,
+  retained?: OperationalPolicyRegistryFixtureV1,
+) {
+  const retry = createMediaProxyMasterTranscodeRetryPolicyV1({
+    durableJob: { maxAttempts: 6, retentionMs: 7 * 24 * 60 * 60 * 1_000 },
+    qstashDelivery: {
+      retries: 2,
+      retryDelayMs: baseDelayMs * 10,
+      timeoutSeconds: 300,
+    },
+    workerRetry: {
+      baseDelayMs,
+      maximumDelayMs: 30_000,
+      backoffMultiplier: 2,
+      deterministicJitterPermille: 200,
+      retryableDiagnostics: [
+        'MEDIA_PROXY_MASTER_TRANSCODE_EXECUTOR_TOOL_UNAVAILABLE',
+      ],
+    },
+  });
+  const heartbeat = createMediaProxyMasterTranscodeHeartbeatPolicyV1({
+    heartbeatIntervalMs: baseDelayMs,
+  });
+  return createMediaProxyMasterTranscodeOperationalPolicyRegistryV1({
+    activeRetryPolicy: retry,
+    activeHeartbeatPolicy: heartbeat,
+    retainedRetryPolicies: retained ? [retained.activeRetryPolicy] : [],
+    retainedHeartbeatPolicies: retained ? [retained.activeHeartbeatPolicy] : [],
+  });
+}
+
+function policyBinding(policy: Readonly<{
+  ownerId: string;
+  ownerVersion: string;
+  policySha256: string;
+}>) {
+  return {
+    ownerId: policy.ownerId,
+    ownerVersion: policy.ownerVersion,
+    policySha256: policy.policySha256,
   };
 }
 
