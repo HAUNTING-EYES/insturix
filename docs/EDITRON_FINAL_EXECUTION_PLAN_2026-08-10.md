@@ -11018,6 +11018,40 @@ artifacts, rerender/deliver/rollback, recover hosted work, or garbage-collect
 unreachable content-addressed objects. Those are the next Queue item 4 owners;
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Qualified proxy/master active-mapping CAS Phase 3F-C8br (2026-08-31):**
+commit `dd17ff793` adds the sole `MEDIA_ASSETS` owner for activating the C8bq
+qualification. It does not rewrite the immutable V1 relation's historical
+`UNQUALIFIED/SOURCE_PTS_MAPPING_REQUIRED` declaration. Instead it stores a
+separate reload-validatable active record containing the complete qualification,
+relation and invalidation-plan hashes, activation time and predecessor active-
+state hash. First activation requires an absent record/hash pair. Idempotent
+redelivery of the same qualification is unchanged. A different qualification
+can rotate only from the exact current state hash, must have a strictly newer
+qualification instant and a strictly newer activation instant, and retains the
+predecessor hash. Rollback is not silently inferred from an older valid receipt.
+
+Before the final Mongo CAS, the owner revalidates the current non-proxy video
+asset, retained proxy source version, active master source version, immutable
+relation, full qualification and the exact source-owner invalidation plan.
+The database predicate independently binds user/asset, proxy/master source,
+content and storage hashes, relation hash, invalidation-plan hash, and either
+the absent initial state or exact predecessor activation/qualification hashes.
+Cross-relation evidence, changed sources, missing or altered invalidation
+intent, partial/tampered current state, stale expectation, qualification
+downgrade, reversed time and a lost final CAS all emit no active state.
+
+The focused suite passes 8/8. The complete local proxy/master family passes
+381/381 tests across 69 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`QUALIFIED_PROXY_MASTER_ACTIVE_MAPPING_CAS_LOCALLY_VERIFIED_PROJECT_RELINK_AND_INVALIDATION_OPEN`.
+The proof uses an injected in-memory asset store plus direct inspection of the
+production Mongo predicate; no live Atlas record was written. More importantly,
+activation alone changes no project coordinate, overlay, preview, analysis,
+render or delivery state. A ProjectService revision-CAS relink receipt, exact
+correspondence lookup for every affected source anchor/range, derivative
+invalidation/rerender and explicit rollback remain next. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
