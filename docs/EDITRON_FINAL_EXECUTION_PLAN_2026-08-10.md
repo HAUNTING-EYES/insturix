@@ -10055,6 +10055,32 @@ or Atlas. Those Queue item 4 requirements, no-audio proof, verified historical
 migration and source-version consumers remain open.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Durable decoded-audio job envelope Phase 3F-C8an (2026-08-30):** commit
+`25e3c38c6` adds the URL-free durable input and idempotent creation owner for
+the exact C8am product call. One job binds tenant/user/org ownership, the
+complete canonical audio-stream binding set, its aggregate hash, the explicit
+decode/resource policy, dedicated-private-storage policy, and a versioned
+durable lifecycle policy. Its sorted dependency set separately seals source,
+storage, qualification, technical observation, stream-set, resource,
+storage-policy and lifecycle-policy identities. The operation ID and
+idempotency key derive only from that full input hash; replaying the same
+contract returns the same generic durable job while another source version or
+resource policy receives a distinct identity. Zero observed streams are
+rejected for routing to the separate no-audio proof owner.
+
+The contract suite passes 6/6 against the real generic durable-job store;
+repository TypeScript and repository-wide quiet ESLint pass. It covers audio
+and video sources, nonzero/out-of-order observed stream indexes, unknown
+fields, owner drift, lifecycle-policy weakening, and a mixed-source attack in
+which every individual stream binding is valid and the attacker recomputes
+the aggregate hash. This result is
+`DURABLE_AUDIO_JOB_ENVELOPE_VERIFIED_WORKER_TRIGGER_LIVE_PROOF_OPEN`. The
+bound 20-attempt/seven-day lifecycle follows the existing durable-media
+ceiling but remains subject to production telemetry calibration; changing it
+requires a new policy identity. No worker has claimed the job, no trigger or
+signed route invokes it, and no restart/dead-letter or live Atlas/R2 evidence
+exists yet. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
