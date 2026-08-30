@@ -1,37 +1,37 @@
 import { hashDurableWorkflowJobJsonV1 }
   from './durable-workflow-job-v1';
 import {
-  assertMediaProxyMasterTranscodeDurableJobInputV1,
-  assertMediaProxyMasterTranscodeDurableJobV1,
-} from './media-proxy-master-transcode-durable-job-v1';
-import {
   resolveExactMediaProxyMasterTranscodeCurrentAssetV1,
-  type MediaProxyMasterTranscodeCurrentAssetStoreV1 as CurrentAssetStoreV1,
+  type MediaProxyMasterTranscodeCurrentAssetStoreV1,
 } from './media-proxy-master-transcode-current-asset-core-v1';
 import {
-  MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_ID_V1,
-  MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_VERSION_V1,
-  MediaProxyMasterTranscodeDurableWorkerPortErrorV1,
-  type MediaProxyMasterCurrentAssetOwnerV1,
-} from './media-proxy-master-transcode-durable-worker-v1';
+  MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_ID_V2,
+  MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_VERSION_V2,
+  MediaProxyMasterTranscodeDurableAttemptPortErrorV2,
+  type MediaProxyMasterCurrentAssetOwnerV2,
+} from './media-proxy-master-transcode-durable-attempt-v2';
+import {
+  assertMediaProxyMasterTranscodeDurableJobInputV2,
+  assertMediaProxyMasterTranscodeDurableJobV2,
+} from './media-proxy-master-transcode-durable-job-v2';
 import {
   createMediaProxyMasterCurrentTimeMapPortV1,
   type MediaProxyMasterCurrentTimeMapPortV1,
 } from './media-proxy-master-trusted-transcode-executor-v1';
 
-export type { MediaProxyMasterTranscodeCurrentAssetStoreV1 }
-  from './media-proxy-master-transcode-current-asset-core-v1';
-
 const SHA256 = /^[a-f0-9]{64}$/;
 
-/** Re-resolves the exact current MediaAsset and complete V3 map before FFmpeg. */
-export function createMediaProxyMasterTranscodeCurrentAssetOwnerV1(
+export type MediaProxyMasterTranscodeCurrentAssetStoreV2 =
+  MediaProxyMasterTranscodeCurrentAssetStoreV1;
+
+/** Re-resolves the exact current source and complete V3 map for a V2 job. */
+export function createMediaProxyMasterTranscodeCurrentAssetOwnerV2(
   input: Readonly<{
     runtimePolicyBindingSha256: string;
-    assetStore: Readonly<CurrentAssetStoreV1>;
+    assetStore: Readonly<MediaProxyMasterTranscodeCurrentAssetStoreV2>;
     currentTimeMapPort?: Readonly<MediaProxyMasterCurrentTimeMapPortV1>;
   }>,
-): Readonly<MediaProxyMasterCurrentAssetOwnerV1> {
+): Readonly<MediaProxyMasterCurrentAssetOwnerV2> {
   const runtimePolicyBindingSha256 = sha256(
     input.runtimePolicyBindingSha256,
     'RUNTIME_POLICY_BINDING',
@@ -39,19 +39,19 @@ export function createMediaProxyMasterTranscodeCurrentAssetOwnerV1(
   const currentTimeMapPort = input.currentTimeMapPort
     ?? createMediaProxyMasterCurrentTimeMapPortV1();
   return Object.freeze({
-    ownerId: MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_ID_V1,
-    ownerVersion: MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_VERSION_V1,
+    ownerId: MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_ID_V2,
+    ownerVersion: MEDIA_PROXY_MASTER_CURRENT_ASSET_OWNER_VERSION_V2,
     runtimePolicyBindingSha256,
     async resolve(
       { job, jobInput: jobInputValue }:
-      Parameters<MediaProxyMasterCurrentAssetOwnerV1['resolve']>[0],
+      Parameters<MediaProxyMasterCurrentAssetOwnerV2['resolve']>[0],
     ) {
       let jobInput: ReturnType<
-        typeof assertMediaProxyMasterTranscodeDurableJobInputV1
+        typeof assertMediaProxyMasterTranscodeDurableJobInputV2
       >;
       try {
-        const boundJobInput = assertMediaProxyMasterTranscodeDurableJobV1(job);
-        jobInput = assertMediaProxyMasterTranscodeDurableJobInputV1(
+        const boundJobInput = assertMediaProxyMasterTranscodeDurableJobV2(job);
+        jobInput = assertMediaProxyMasterTranscodeDurableJobInputV2(
           jobInputValue,
         );
         if (job.status !== 'running'
@@ -63,7 +63,7 @@ export function createMediaProxyMasterTranscodeCurrentAssetOwnerV1(
           throw currentAssetInvalid();
         }
       } catch (error) {
-        if (error instanceof MediaProxyMasterTranscodeDurableWorkerPortErrorV1) {
+        if (error instanceof MediaProxyMasterTranscodeDurableAttemptPortErrorV2) {
           throw error;
         }
         throw currentAssetInvalid();
@@ -78,22 +78,22 @@ export function createMediaProxyMasterTranscodeCurrentAssetOwnerV1(
           jobInput.command.masterSourceVersion.sourceVersionSha256,
         expectedTimeMap: jobInput.command.masterTimeMap,
         createLoadError: () =>
-          new MediaProxyMasterTranscodeDurableWorkerPortErrorV1(
-            'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_LOAD_FAILED',
+          new MediaProxyMasterTranscodeDurableAttemptPortErrorV2(
+            'CURRENT_ASSET_LOAD_FAILED',
             true,
           ),
         createInvalidError: currentAssetInvalid,
         isOwnerError: (error) =>
-          error instanceof MediaProxyMasterTranscodeDurableWorkerPortErrorV1,
+          error instanceof MediaProxyMasterTranscodeDurableAttemptPortErrorV2,
       });
     },
   });
 }
 
 function currentAssetInvalid():
-MediaProxyMasterTranscodeDurableWorkerPortErrorV1 {
-  return new MediaProxyMasterTranscodeDurableWorkerPortErrorV1(
-    'MEDIA_PROXY_MASTER_TRANSCODE_DURABLE_WORKER_CURRENT_ASSET_INVALID',
+MediaProxyMasterTranscodeDurableAttemptPortErrorV2 {
+  return new MediaProxyMasterTranscodeDurableAttemptPortErrorV2(
+    'CURRENT_ASSET_INVALID',
     false,
   );
 }
@@ -101,7 +101,7 @@ MediaProxyMasterTranscodeDurableWorkerPortErrorV1 {
 function sha256(value: unknown, label: string): string {
   if (typeof value !== 'string' || !SHA256.test(value)) {
     throw new Error(
-      `MEDIA_PROXY_MASTER_TRANSCODE_CURRENT_ASSET_OWNER_${label}_INVALID`,
+      `MEDIA_PROXY_MASTER_TRANSCODE_CURRENT_ASSET_OWNER_V2_${label}_INVALID`,
     );
   }
   return value;
