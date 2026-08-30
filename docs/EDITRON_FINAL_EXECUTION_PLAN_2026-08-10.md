@@ -10382,6 +10382,43 @@ It does not migrate historical complete/no-audio rows or prove live Atlas/R2,
 retention telemetry, unreachable-object GC, or all source-version-addressed
 readers. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Verified historical source-audio backfill chain Phase 3F-C8aw
+(2026-08-30):** commits `0b83607a9` through `59749a0ad` add the bounded
+successor migration path without treating legacy rows as trustworthy merely
+because they exist. The chain first re-proves terminal audio/no-audio evidence,
+then processes a keyset-bounded page, independently verifies each batch
+receipt, and commits one hash-chained migration-run record by compare-and-set.
+The production Mongo candidate source validates USER/ORG scope, binds a
+snapshot-time upper keyspace boundary, uses canonical index/collation and
+primary/majority reads, and returns projection-only pages. That upper boundary
+freezes which identity range the run may visit; it is not an exact manifest of
+membership at initialization time.
+
+The one-batch runtime initializes or resumes the durable ledger, advances a
+checkpoint only after a verified batch receipt, preserves the checkpoint on a
+retryable dependency failure, and terminally records deterministic candidate-
+page corruption. Every `RUN_NEXT_BATCH` message carries the exact expected
+record hash, so stale or duplicate delivery is classified `SUPERSEDED` before
+candidate reads. The strict versioned dispatcher and signed internal worker
+use canonical QStash deduplication identities, execute at most one batch per
+request, and publish the next exact-record continuation only after the current
+transition is confirmed. Missing token/signing/HTTPS configuration fails
+closed. The complete local/injected backfill family passes 65/65, with full
+repository TypeScript and repository-wide quiet ESLint passing.
+
+This result is
+`BOUNDED_AUDIO_BACKFILL_DURABLE_CHAIN_VERIFIED_HOSTED_RECOVERY_AND_LIVE_RUN_OPEN`.
+No historical fleet row was migrated, and no hosted Atlas/QStash delivery,
+restart recovery, dedicated-private-R2 access or cleanup was exercised. There
+is not yet a bounded owner that finds and republishes stranded `RUNNING`
+migration ledgers, nor an alert/receipt for runs that remain stranded. The
+keyspace ceiling also does not prove exact snapshot membership. Source-version
+consumer cutover, proxy/master relink and invalidation, rerender/rollback,
+retention telemetry and safe unreachable-byte GC remain open. The next Queue 4
+slice is bounded stale-run recovery followed by disposable hosted Atlas/QStash
+proof when its dedicated configuration exists; this does not change
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
