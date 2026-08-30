@@ -10348,6 +10348,23 @@ the successor evidence hash, legacy consumers have no dual-read cutover, and
 historical migration/live Atlas-R2/cleanup proof remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+Commit `8c85ecd59` closes the new-source no-audio persistence gap without
+creating unnecessary decode work. A technically measured video source with no
+audio streams now captures and retains canonical
+`NO_AUDIO_STREAMS_OBSERVED` evidence, replays the identical evidence as
+`UNCHANGED`, and schedules no durable audio job. Contradictory or invalid
+evidence returns a deterministic terminal rejection without reporting success;
+availability-owner outages and exhausted compare-and-set races remain
+retryable. Zero-stream audio essence is rejected rather than mislabeled as a
+silent video. The focused trigger/route proof passes 14/14 and the widened
+audio-product family passes 92/92, with full TypeScript and repository-wide
+quiet ESLint passing. This result is
+`CANONICAL_NO_AUDIO_PRODUCT_RETENTION_VERIFIED_RECEIPT_MIGRATION_OPEN`.
+The V1 product/worker receipt still exposes only the legacy evidence hash;
+historical complete rows, explicit dual-read consumer cutover, live Atlas/R2
+proof, retention telemetry and safe unreachable-object GC remain open. Queue
+item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
