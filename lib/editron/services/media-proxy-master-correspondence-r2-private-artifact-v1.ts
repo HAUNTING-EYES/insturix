@@ -22,11 +22,15 @@ import {
   type MediaProxyMasterCorrespondenceBatchSidecarV1,
 } from './media-proxy-master-correspondence-batch-v1';
 import {
+  assertMediaProxyMasterCorrespondenceIndexV1,
   createMediaProxyMasterCorrespondenceIndexReferenceV1,
   createMediaProxyMasterCorrespondenceIndexV1,
   MEDIA_PROXY_MASTER_CORRESPONDENCE_INDEX_ABSOLUTE_MAX_BYTES_V1,
   type MediaProxyMasterCorrespondenceIndexSerializationV1,
 } from './media-proxy-master-correspondence-index-v1';
+import type {
+  MediaProxyMasterCorrespondenceIncrementalPublisherV1,
+} from './media-proxy-master-correspondence-producer-v1';
 import type { MediaProxyMasterCorrespondenceIndexReferenceV1 } from './media-proxy-master-time-mapping-v1';
 import type {
   MediaSourcePtsCadenceR2CommandClientV1,
@@ -110,6 +114,101 @@ export function createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1(
         basis: prepared.basis,
         indexReference: prepared.indexReference,
         verificationPolicy: prepared.verificationPolicy,
+        reader,
+      });
+      if (verification.disposition === 'UNVERIFIABLE') {
+        throw new Error(
+          `MEDIA_PROXY_MASTER_CORRESPONDENCE_R2_ARTIFACT_UNVERIFIABLE:${verification.reason}`,
+        );
+      }
+      return verification;
+    },
+  });
+}
+
+/**
+ * Incremental counterpart for the streaming V3 correspondence producer. Each
+ * content-addressed batch is durable and exactly reread before the producer
+ * advances. The index is written only after its sidecars prove full coverage,
+ * then the complete stored set is independently reread by the artifact
+ * verifier. Unindexed batches are harmless immutable orphans.
+ */
+export function createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1(
+  input: Readonly<{
+    privateStorage: MediaSourcePtsCadenceR2PrivateStorageScopeV1;
+    client: MediaSourcePtsCadenceR2CommandClientV1;
+  }>,
+): MediaProxyMasterCorrespondenceIncrementalPublisherV1 {
+  const privateStorage = assertPrivateStorage(input.privateStorage);
+  if (!input.client || typeof input.client.send !== 'function') {
+    throw new Error('MEDIA_PROXY_MASTER_CORRESPONDENCE_R2_CLIENT_INVALID');
+  }
+  const storage = { client: input.client, bucketName: privateStorage.bucketName };
+  const reader: MediaProxyMasterCorrespondenceArtifactReaderV1 = {
+    read: (reference) => readExactObject({ ...storage, reference }),
+  };
+  return Object.freeze({
+    publishBatch: async ({ basis: rawBasis, serialization, sidecar: rawSidecar }) => {
+      const basis = assertMediaProxyMasterCorrespondenceBasisV1(rawBasis);
+      const sidecar = createMediaProxyMasterCorrespondenceBatchSidecarV1({
+        serialization,
+      });
+      if (canonicalizeEditronJsonV1(serialization.batch.basis)
+          !== canonicalizeEditronJsonV1(basis)
+        || canonicalizeEditronJsonV1(sidecar)
+          !== canonicalizeEditronJsonV1(rawSidecar)) {
+        throw new Error('MEDIA_PROXY_MASTER_CORRESPONDENCE_R2_BATCH_SCOPE_MISMATCH');
+      }
+      await writeAndRereadExactObject({
+        ...storage,
+        reference: sidecar,
+        canonicalJson: serialization.canonicalJson,
+        family: 'BATCH',
+        basisSha256: hashEditronCanonicalJsonV1(basis),
+      });
+    },
+    publishIndexAndVerify: async ({
+      basis: rawBasis,
+      indexSerialization,
+      indexReference: rawIndexReference,
+      verificationPolicy: rawVerificationPolicy,
+    }) => {
+      const basis = assertMediaProxyMasterCorrespondenceBasisV1(rawBasis);
+      const index = assertMediaProxyMasterCorrespondenceIndexV1(
+        indexSerialization.index,
+      );
+      const canonicalJson = canonicalizeEditronJsonV1(index);
+      const byteLength = Buffer.byteLength(canonicalJson, 'utf8');
+      const contentSha256 = digest(Buffer.from(canonicalJson, 'utf8'));
+      if (canonicalizeEditronJsonV1(index.basis)
+          !== canonicalizeEditronJsonV1(basis)
+        || indexSerialization.canonicalJson !== canonicalJson
+        || indexSerialization.byteLength !== byteLength
+        || indexSerialization.contentSha256 !== contentSha256) {
+        throw new Error('MEDIA_PROXY_MASTER_CORRESPONDENCE_R2_INDEX_SERIALIZATION_MISMATCH');
+      }
+      const indexReference = createMediaProxyMasterCorrespondenceIndexReferenceV1({
+        serialization: { index, canonicalJson, byteLength, contentSha256 },
+      });
+      if (canonicalizeEditronJsonV1(indexReference)
+        !== canonicalizeEditronJsonV1(rawIndexReference)) {
+        throw new Error('MEDIA_PROXY_MASTER_CORRESPONDENCE_R2_INDEX_REFERENCE_MISMATCH');
+      }
+      const verificationPolicy =
+        assertMediaProxyMasterCorrespondenceArtifactVerificationPolicyV1(
+          rawVerificationPolicy,
+        );
+      await writeAndRereadExactObject({
+        ...storage,
+        reference: indexReference,
+        canonicalJson,
+        family: 'INDEX',
+        basisSha256: hashEditronCanonicalJsonV1(basis),
+      });
+      const verification = await verifyMediaProxyMasterCorrespondenceArtifactsV1({
+        basis,
+        indexReference,
+        verificationPolicy,
         reader,
       });
       if (verification.disposition === 'UNVERIFIABLE') {

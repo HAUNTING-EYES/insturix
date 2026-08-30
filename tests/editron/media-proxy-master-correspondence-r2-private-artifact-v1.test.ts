@@ -10,6 +10,7 @@ import {
   createMediaProxyMasterCorrespondenceIndexV1,
 } from '@/lib/editron/services/media-proxy-master-correspondence-index-v1';
 import {
+  createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1,
   createMediaProxyMasterCorrespondenceR2PrivateArtifactStoreV1,
 } from '@/lib/editron/services/media-proxy-master-correspondence-r2-private-artifact-v1';
 
@@ -52,6 +53,59 @@ describe('MediaProxyMasterCorrespondenceR2PrivateArtifactV1', () => {
     });
     expect(memory.commands.filter((command) => command instanceof GetObjectCommand))
       .toHaveLength(12);
+  });
+
+  it('publishes streamed batches before the index and safely replays the exact set', async () => {
+    const fixture = artifacts();
+    const memory = memoryClient();
+    const publisher = createMediaProxyMasterCorrespondenceR2IncrementalPublisherV1({
+      privateStorage: privateStorage(),
+      client: memory.client,
+    });
+
+    for (const entry of fixture.batches) {
+      await publisher.publishBatch({
+        basis: fixture.basis,
+        serialization: entry.serialization,
+        sidecar: entry.sidecar,
+      });
+    }
+    const first = await publisher.publishIndexAndVerify({
+      basis: fixture.basis,
+      indexSerialization: fixture.indexSerialization,
+      indexReference: fixture.indexReference,
+      verificationPolicy: fixture.verificationPolicy,
+    });
+    for (const entry of fixture.batches) {
+      await publisher.publishBatch({
+        basis: fixture.basis,
+        serialization: entry.serialization,
+        sidecar: entry.sidecar,
+      });
+    }
+    const second = await publisher.publishIndexAndVerify({
+      basis: fixture.basis,
+      indexSerialization: fixture.indexSerialization,
+      indexReference: fixture.indexReference,
+      verificationPolicy: fixture.verificationPolicy,
+    });
+
+    expect(first).toMatchObject({
+      disposition: 'CORRESPONDENCE_ARTIFACT_SET_VERIFIED',
+      verifiedBatchCount: 2,
+      totalSpanCount: '4',
+    });
+    expect(second).toEqual(first);
+    expect(memory.commands.filter(
+      (command): command is PutObjectCommand => command instanceof PutObjectCommand,
+    ).map((command) => command.input.Key)).toEqual([
+      fixture.batches[0]!.sidecar.objectKey,
+      fixture.batches[1]!.sidecar.objectKey,
+      fixture.indexReference.objectKey,
+      fixture.batches[0]!.sidecar.objectKey,
+      fixture.batches[1]!.sidecar.objectKey,
+      fixture.indexReference.objectKey,
+    ]);
   });
 
   it('rejects forged batch or index evidence before object access', async () => {
