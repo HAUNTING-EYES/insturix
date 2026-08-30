@@ -99,7 +99,7 @@ export interface MediaProxyMasterR2PrivateMultipartTransportV1 {
     eTag: string;
     byteLength: number;
     contentSha256: string;
-  }>>;
+  }> | null>;
   abort(input: Readonly<{
     record: MediaProxyMasterR2MultipartRecordV1;
     uploadId: string;
@@ -369,8 +369,9 @@ export function createMediaProxyMasterR2PrivateMultipartTransportV1(input: Reado
           Bucket: storage.bucketName,
           Key: session.objectKey,
         }), request.abortSignal), 'GET_RESPONSE');
-      } catch {
+      } catch (error) {
         throwIfAborted(request.abortSignal);
+        if (isMissingObject(error)) return null;
         fail('GET_FAILED');
       }
       assertStoredHeaders(getResponse, record, session);
@@ -681,6 +682,18 @@ function isNoSuchUpload(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { name?: unknown; Code?: unknown; $metadata?: { httpStatusCode?: unknown } };
   return candidate.name === 'NoSuchUpload' || candidate.Code === 'NoSuchUpload'
+    || candidate.$metadata?.httpStatusCode === 404;
+}
+
+function isMissingObject(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    name?: unknown;
+    Code?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+  };
+  return candidate.name === 'NoSuchKey' || candidate.name === 'NotFound'
+    || candidate.Code === 'NoSuchKey' || candidate.Code === 'NotFound'
     || candidate.$metadata?.httpStatusCode === 404;
 }
 

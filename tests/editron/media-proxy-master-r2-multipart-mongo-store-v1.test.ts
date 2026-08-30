@@ -132,6 +132,31 @@ describe('media proxy/master durable R2 multipart Mongo store v1', () => {
     })).resolves.toMatchObject({ status: 'INITIATING' });
   });
 
+  it('extends an active lease without changing its owner, token, or fence', async () => {
+    const fixture = build();
+    let record = await fixture.store.createOrGet(createInput());
+    record = await fixture.store.renewLease(record.recordId, {
+      expectedSequence: record.sequence,
+      leaseTokenSha256: LEASE_1,
+      leaseExpiresAt: '2026-08-30T00:15:00.000Z',
+      now: '2026-08-30T00:05:00.000Z',
+    });
+
+    expect(record.lease).toEqual({
+      ownerId: 'worker-1',
+      tokenSha256: LEASE_1,
+      fence: 1,
+      expiresAt: '2026-08-30T00:15:00.000Z',
+    });
+    expect(record.sequence).toBe(1);
+    await expect(fixture.store.renewLease(record.recordId, {
+      expectedSequence: record.sequence,
+      leaseTokenSha256: LEASE_1,
+      leaseExpiresAt: '2026-08-30T00:14:59.999Z',
+      now: '2026-08-30T00:06:00.000Z',
+    })).rejects.toThrow('LEASE_RENEWAL_NOT_EXTENDED');
+  });
+
   it('rejects a corrupt stored envelope before returning inner state', async () => {
     const fixture = build();
     const record = await fixture.store.createOrGet(createInput());

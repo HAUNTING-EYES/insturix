@@ -16,6 +16,7 @@ import {
   publishMediaProxyMasterR2MultipartRecordV1,
   recordMediaProxyMasterR2MultipartCleanupFailureV1,
   recordMediaProxyMasterR2MultipartPartV1,
+  renewMediaProxyMasterR2MultipartLeaseV1,
   requestMediaProxyMasterR2MultipartAbortV1,
   resolveMediaProxyMasterR2MultipartCleanupV1,
   takeOverMediaProxyMasterR2MultipartRecordV1,
@@ -28,6 +29,9 @@ type CreateInput = Parameters<
 >[0];
 type TakeoverInput = Parameters<
   typeof takeOverMediaProxyMasterR2MultipartRecordV1
+>[1];
+type RenewLeaseInput = Parameters<
+  typeof renewMediaProxyMasterR2MultipartLeaseV1
 >[1];
 type BeginSessionInput = Parameters<
   typeof beginMediaProxyMasterR2MultipartSessionInitiationV1
@@ -93,6 +97,9 @@ export interface MediaProxyMasterR2MultipartStoreV1 {
     MediaProxyMasterR2MultipartRecordV1
   > | null>;
   takeOver(recordId: string, input: TakeoverInput): Promise<Readonly<
+    MediaProxyMasterR2MultipartRecordV1
+  >>;
+  renewLease(recordId: string, input: RenewLeaseInput): Promise<Readonly<
     MediaProxyMasterR2MultipartRecordV1
   >>;
   beginSession(recordId: string, input: BeginSessionInput): Promise<Readonly<
@@ -226,6 +233,10 @@ export function createMediaProxyMasterR2MultipartMongoStoreV1(
     takeOver: (id, request) => mutate(
       id,
       (record) => takeOverMediaProxyMasterR2MultipartRecordV1(record, request),
+    ),
+    renewLease: (id, request) => mutate(
+      id,
+      (record) => renewMediaProxyMasterR2MultipartLeaseV1(record, request),
     ),
     beginSession: (id, request) => mutate(
       id,

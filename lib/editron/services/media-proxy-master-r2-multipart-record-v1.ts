@@ -232,6 +232,27 @@ export function takeOverMediaProxyMasterR2MultipartRecordV1(
   return nextRecord(record, { lease }, now);
 }
 
+export function renewMediaProxyMasterR2MultipartLeaseV1(
+  value: Readonly<MediaProxyMasterR2MultipartRecordV1>,
+  input: Readonly<{
+    expectedSequence: number;
+    leaseTokenSha256: string;
+    leaseExpiresAt: string;
+    now: string;
+  }>,
+): Readonly<MediaProxyMasterR2MultipartRecordV1> {
+  const record = activeRecord(value, input, input.now);
+  if (record.status === 'PUBLISHED') fail('PUBLISHED_RECORD_IMMUTABLE');
+  const now = atOrAfter(input.now, record.updatedAt, 'LEASE_RENEWAL_NOW');
+  const expiresAt = instant(input.leaseExpiresAt, 'LEASE_RENEWAL_EXPIRES_AT');
+  if (Date.parse(expiresAt) <= Date.parse(record.lease.expiresAt)) {
+    fail('LEASE_RENEWAL_NOT_EXTENDED');
+  }
+  return nextRecord(record, {
+    lease: { ...record.lease, expiresAt },
+  }, now);
+}
+
 export function beginMediaProxyMasterR2MultipartSessionInitiationV1(
   value: Readonly<MediaProxyMasterR2MultipartRecordV1>,
   input: Readonly<{

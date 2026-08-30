@@ -118,6 +118,8 @@ describe('media proxy/master private R2 multipart transport v1', () => {
   it('completes the unique object and proves full GET bytes plus HEAD version', async () => {
     const fixture = await build();
     const { completing } = await fixture.uploadedRecord();
+    await expect(fixture.transport.verifyPublishedObject({ record: completing }))
+      .resolves.toBeNull();
     const completeETag = await fixture.transport.complete({ record: completing });
     const verified = await fixture.transport.verifyPublishedObject({
       record: completing,
@@ -351,7 +353,7 @@ function memoryR2() {
         }
         if (command instanceof GetObjectCommand) {
           const object = objects.get(String(command.input.Key));
-          if (!object) throw new Error('OBJECT_NOT_FOUND');
+          if (!object) throw noSuchKey();
           const bytes = state.corruptGet
             ? Buffer.from(object.bytes).map((value, index) => index === 0 ? value ^ 0xff : value)
             : object.bytes;
@@ -359,7 +361,7 @@ function memoryR2() {
         }
         if (command instanceof HeadObjectCommand) {
           const object = objects.get(String(command.input.Key));
-          if (!object) throw new Error('OBJECT_NOT_FOUND');
+          if (!object) throw noSuchKey();
           return storedResponse(
             object,
             undefined,
@@ -414,6 +416,13 @@ async function* chunked(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
 function noSuchUpload() {
   return Object.assign(new Error('missing'), {
     name: 'NoSuchUpload',
+    $metadata: { httpStatusCode: 404 },
+  });
+}
+
+function noSuchKey() {
+  return Object.assign(new Error('missing'), {
+    name: 'NoSuchKey',
     $metadata: { httpStatusCode: 404 },
   });
 }
