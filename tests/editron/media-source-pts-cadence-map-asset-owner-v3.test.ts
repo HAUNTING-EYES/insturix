@@ -33,6 +33,7 @@ import {
   mediaSourcePtsCadenceMapAssetCompareAndSetFilterV3,
   persistMediaSourcePtsCadenceMapAssetStateV3,
   readMediaSourcePtsCadenceMapAssetStateV3,
+  renewMediaSourcePtsCadenceMapAssetClaimV3,
   type MediaSourcePtsCadenceMapAssetStateInputV3,
   type MediaSourcePtsCadenceMapAssetStorePortsV3,
 } from '@/lib/editron/services/media-source-pts-cadence-map-asset-owner-v3';
@@ -291,6 +292,92 @@ describe('MediaSourcePtsCadenceMapAssetOwnerV3', () => {
       verificationReceipt: null,
       terminalReceipt: { disposition: 'UNVERIFIABLE' },
     });
+  });
+
+  it('renews only the active V3 claimant and persists the same attempt by CAS', async () => {
+    const fixture = artifactFixture();
+    const memory = assetMemory(fixture.asset);
+    const pending = fixture.pendingRecord();
+    const appliedPending = await persistMediaSourcePtsCadenceMapAssetStateV3({
+      assetId: 'asset-epoch-v3', userId: 'user-1',
+      expectedStateSha256: null, nextRecord: pending,
+    }, memory.ports);
+    if (appliedPending.disposition !== 'APPLIED') throw new Error('TEST_PENDING_NOT_APPLIED');
+
+    const claimed = claimMediaSourcePtsCadenceMapAssetRecordV3({
+      record: pending,
+      claimId: 'claim-renew',
+      now: new Date('2026-08-29T02:00:00.000Z'),
+      expiresAt: new Date('2026-08-29T02:10:00.000Z'),
+    });
+    const appliedClaim = await persistMediaSourcePtsCadenceMapAssetStateV3({
+      assetId: 'asset-epoch-v3', userId: 'user-1',
+      expectedStateSha256: appliedPending.state.sourcePtsCadenceMapStateSha256V3,
+      nextRecord: claimed,
+    }, memory.ports);
+    if (appliedClaim.disposition !== 'APPLIED') throw new Error('TEST_CLAIM_NOT_APPLIED');
+
+    const renewed = renewMediaSourcePtsCadenceMapAssetClaimV3({
+      record: claimed,
+      claimId: 'claim-renew',
+      now: new Date('2026-08-29T02:05:00.000Z'),
+      expiresAt: new Date('2026-08-29T02:20:00.000Z'),
+    });
+    expect(renewed).toMatchObject({
+      status: 'VERIFYING',
+      attemptCount: 1,
+      activeClaim: {
+        claimId: 'claim-renew',
+        claimedAt: '2026-08-29T02:05:00.000Z',
+        expiresAt: '2026-08-29T02:20:00.000Z',
+      },
+    });
+    await expect(persistMediaSourcePtsCadenceMapAssetStateV3({
+      assetId: 'asset-epoch-v3', userId: 'user-1',
+      expectedStateSha256: appliedClaim.state.sourcePtsCadenceMapStateSha256V3,
+      nextRecord: renewed,
+    }, memory.ports)).resolves.toMatchObject({ disposition: 'APPLIED' });
+
+    expect(renewMediaSourcePtsCadenceMapAssetClaimV3({
+      record: renewed,
+      claimId: 'claim-renew',
+      now: new Date('2026-08-29T02:06:00.000Z'),
+      expiresAt: new Date('2026-08-29T02:19:00.000Z'),
+    })).toStrictEqual(renewed);
+    expect(() => renewMediaSourcePtsCadenceMapAssetClaimV3({
+      record: renewed,
+      claimId: 'foreign-claim',
+      now: new Date('2026-08-29T02:06:00.000Z'),
+      expiresAt: new Date('2026-08-29T02:21:00.000Z'),
+    })).toThrow('MEDIA_SOURCE_PTS_CADENCE_MAP_V3_CLAIM_NOT_ACTIVE');
+    expect(() => renewMediaSourcePtsCadenceMapAssetClaimV3({
+      record: renewed,
+      claimId: 'claim-renew',
+      now: new Date('2026-08-29T02:20:00.000Z'),
+      expiresAt: new Date('2026-08-29T02:30:00.000Z'),
+    })).toThrow('MEDIA_SOURCE_PTS_CADENCE_MAP_V3_CLAIM_NOT_ACTIVE');
+    expect(() => renewMediaSourcePtsCadenceMapAssetClaimV3({
+      record: renewed,
+      claimId: 'claim-renew',
+      now: new Date('2026-08-29T02:06:00.000Z'),
+      expiresAt: new Date('2026-08-29T03:06:00.001Z'),
+    })).toThrow('MEDIA_SOURCE_PTS_CADENCE_MAP_V3_RENEW_WINDOW_INVALID');
+
+    await expect(persistMediaSourcePtsCadenceMapAssetStateV3({
+      assetId: 'asset-epoch-v3', userId: 'user-1',
+      expectedStateSha256: appliedClaim.state.sourcePtsCadenceMapStateSha256V3,
+      nextRecord: {
+        ...renewed,
+        activeClaim: {
+          claimId: 'forged-claim',
+          claimedAt: '2026-08-29T02:06:00.000Z',
+          expiresAt: '2026-08-29T02:21:00.000Z',
+        },
+      },
+    }, assetMemory({
+      ...fixture.asset,
+      ...appliedClaim.state,
+    }).ports)).resolves.toEqual({ disposition: 'REJECTED', reason: 'INVALID_TRANSITION' });
   });
 
   it('persists the lifecycle with source-bound CAS and rejects stale, skipped, or parallel states', async () => {

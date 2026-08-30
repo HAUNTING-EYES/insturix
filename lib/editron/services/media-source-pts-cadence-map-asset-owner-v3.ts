@@ -177,6 +177,43 @@ export function claimMediaSourcePtsCadenceMapAssetRecordV3(input: {
   });
 }
 
+/**
+ * Extends the current claimant's bounded verification lease without creating
+ * another attempt. `claimedAt` is the start of the current lease window, so a
+ * renewal can remain bounded by the same maximum even across a long scan.
+ */
+export function renewMediaSourcePtsCadenceMapAssetClaimV3(input: {
+  record: MediaSourcePtsCadenceMapAssetRecordV3;
+  claimId: string;
+  now: Date;
+  expiresAt: Date;
+}): MediaSourcePtsCadenceMapAssetRecordV3 {
+  const record = assertActiveClaim(input.record, input.claimId, input.now);
+  const claimedAt = isoDate(
+    input.now,
+    'MEDIA_SOURCE_PTS_CADENCE_MAP_V3_RENEWED_AT_INVALID',
+  );
+  const expiresAt = isoDate(
+    input.expiresAt,
+    'MEDIA_SOURCE_PTS_CADENCE_MAP_V3_RENEW_EXPIRES_AT_INVALID',
+  );
+  const leaseMs = Date.parse(expiresAt) - Date.parse(claimedAt);
+  if (leaseMs <= 0 || leaseMs > MEDIA_SOURCE_PTS_CADENCE_MAP_CLAIM_MAX_MS_V3) {
+    throw new Error('MEDIA_SOURCE_PTS_CADENCE_MAP_V3_RENEW_WINDOW_INVALID');
+  }
+  if (Date.parse(expiresAt) <= Date.parse(record.activeClaim!.expiresAt)) {
+    return record;
+  }
+  return assertMediaSourcePtsCadenceMapAssetRecordV3({
+    ...record,
+    activeClaim: {
+      claimId: record.activeClaim!.claimId,
+      claimedAt,
+      expiresAt,
+    },
+  });
+}
+
 export function completeMediaSourcePtsCadenceMapAssetRecordV3(input: {
   record: MediaSourcePtsCadenceMapAssetRecordV3;
   claimId: string;
@@ -666,8 +703,19 @@ function assertPersistedTransition(
   }
   if (current.status === 'VERIFYING') {
     if (next.status === 'VERIFYING') {
-      if (current.activeClaim === null || next.activeClaim === null
-        || next.attemptCount !== current.attemptCount + 1
+      if (current.activeClaim === null || next.activeClaim === null) {
+        throw new Error('VERIFYING_CLAIM_TRANSITION_INVALID');
+      }
+      if (next.attemptCount === current.attemptCount) {
+        if (next.activeClaim.claimId !== current.activeClaim.claimId
+          || Date.parse(next.activeClaim.claimedAt) < Date.parse(current.activeClaim.claimedAt)
+          || Date.parse(next.activeClaim.claimedAt) >= Date.parse(current.activeClaim.expiresAt)
+          || Date.parse(next.activeClaim.expiresAt) <= Date.parse(current.activeClaim.expiresAt)) {
+          throw new Error('RENEW_TRANSITION_INVALID');
+        }
+        return;
+      }
+      if (next.attemptCount !== current.attemptCount + 1
         || Date.parse(next.activeClaim.claimedAt) < Date.parse(current.activeClaim.expiresAt)) {
         throw new Error('RECLAIM_TRANSITION_INVALID');
       }
