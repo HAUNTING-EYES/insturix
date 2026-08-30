@@ -10033,6 +10033,28 @@ No-audio proof, verified historical migration and source-version consumers
 also remain open. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are
 unchanged.
 
+**Exact queued-source binding Phase 3F-C8am (2026-08-30):** commit
+`dd15c7c2c` hardens the C8ak/C8al side-effect boundary before introducing its
+durable job. Product materialization now requires the caller's complete
+canonical set of asserted audio-stream bindings. Each binding already seals
+the source version, storage version, measured qualification/technical
+observation, exact stream identity and timing. The product owner reconstructs
+that set from the freshly loaded active asset and rejects any mismatch before
+opening a source lease, decoding, writing private artifacts or attempting the
+active-asset CAS. Its terminal receipt now includes the canonical binding-set
+hash. This closes the source-replacement race that a worker-only precheck
+would have left between job validation and product execution.
+
+The product/runtime suites pass 11/11 focused tests; repository TypeScript and
+repository-wide quiet ESLint pass. The adversarial case retains the asset ID
+but changes its measured source binding and proves zero decode and zero active
+state mutation. This result is
+`PRODUCT_AUDIO_SOURCE_DRIFT_BLOCKED_DURABLE_JOB_CONTRACT_OPEN`. It does not
+create the durable job, worker, trigger or route and does not exercise live R2
+or Atlas. Those Queue item 4 requirements, no-audio proof, verified historical
+migration and source-version consumers remain open.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
