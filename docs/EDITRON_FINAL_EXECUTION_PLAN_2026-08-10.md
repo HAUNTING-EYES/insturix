@@ -9444,6 +9444,27 @@ provider's result-retention contract must be proven long enough for the retry
 window or the bounded terminal summary must first be durably stored in private
 storage. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 durable epoch-runtime Phase 3F-C8p (2026-08-30):** commit `bfc373a4d`
+composes the worker with the real generic durable store, V3 MEDIA_ASSETS
+load/CAS owner, fresh qualification-bound source URL owner, V3 Modal
+submit/poll transport, dedicated private PTS R2 adapters and the V3 publisher.
+Transport configuration, private storage construction and media-owner
+construction all succeed before a durable attempt can be claimed. The runtime
+passes the already-created private/state ports into the publisher, rather than
+silently constructing a second authority. A publisher success without its V3
+media terminal receipt deterministically dead-letters, and signed source URLs
+remain absent from durable state.
+
+The runtime suite passes 5/5 and its V1 runtime, V3 worker and publisher
+regressions pass 26/26; repository TypeScript, repository-wide quiet ESLint and
+diff checks pass. This result is
+`V3_PRODUCT_RUNTIME_COMPOSED_SIGNED_INGRESS_LIVE_RECOVERY_OPEN`. It is not a
+deployed workflow: this environment currently has none of the four dedicated
+PTS R2 variables or either V3 Modal endpoint variable configured. No generic
+or public storage credential is an acceptable substitute. A distinct signed
+ingress/dispatch/recovery path and live private R2/Atlas/Modal evidence remain
+required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
