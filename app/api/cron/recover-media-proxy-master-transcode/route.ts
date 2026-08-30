@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { runMediaProxyMasterTranscodeRecoveryV1 }
-  from '@/lib/editron/services/media-proxy-master-transcode-recovery-runtime-v1';
+import { runMediaProxyMasterTranscodeRecoveryV2 }
+  from '@/lib/editron/services/media-proxy-master-transcode-recovery-runtime-v2';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -22,7 +22,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const recovery = await runMediaProxyMasterTranscodeRecoveryV1();
+    const recovery = await runMediaProxyMasterTranscodeRecoveryV2();
     const deliveryDeferred = recovery.results.some(
       (result) => result.state !== 'dispatched',
     );
@@ -34,7 +34,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       : { status: 200 });
   } catch (error: unknown) {
     console.error(
-      '[MediaProxyMasterTranscodeRecoveryV1] sweep unavailable:',
+      '[MediaProxyMasterTranscodeRecoveryV2] sweep unavailable:',
       error instanceof Error ? error.name : 'unknown',
     );
     return NextResponse.json(

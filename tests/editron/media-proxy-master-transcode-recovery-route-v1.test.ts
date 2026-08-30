@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ recovery: vi.fn() }));
 vi.mock(
-  '@/lib/editron/services/media-proxy-master-transcode-recovery-runtime-v1',
-  () => ({ runMediaProxyMasterTranscodeRecoveryV1: mocks.recovery }),
+  '@/lib/editron/services/media-proxy-master-transcode-recovery-runtime-v2',
+  () => ({ runMediaProxyMasterTranscodeRecoveryV2: mocks.recovery }),
 );
 
 import { GET }
@@ -13,7 +13,7 @@ import { GET }
 
 const repoRoot = resolve(__dirname, '../..');
 
-describe('media proxy/master transcode recovery cron V1', () => {
+describe('media proxy/master transcode recovery cron V2', () => {
   beforeEach(() => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     mocks.recovery.mockReset();
@@ -46,7 +46,7 @@ describe('media proxy/master transcode recovery cron V1', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       success: true,
-      recovery: { scanned: 2, eligible: 1 },
+      recovery: { results: [{ jobId: 'proxy_recovery_1' }] },
     });
   });
 
