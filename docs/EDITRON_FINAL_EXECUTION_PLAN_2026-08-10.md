@@ -9004,6 +9004,38 @@ Queue item 3 remains in progress; the product runner must invoke this authority
 before claim and the live evidence remains Queue 8-9 work.
 `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Exact-render product runtime composition Phase 3F-C7azr (2026-08-30):**
+commit `498bdb8ee` adds the concrete request-time composition root for the
+exact-render preparation lifecycle. It performs the operation-scoped durable
+read and canonical full-envelope validation, resolves the immutable historical
+manifest, binds the deployed worker image, requires absolute FFmpeg/FFprobe
+executables, invokes the encoder owner's exact toolchain qualifier, constructs
+the manifest-governed private R2 runtime, invokes the Finance pre-claim owner,
+checks the current ProjectService revision and then composes the existing media
+asset reader, sole materializer, encoder, heartbeat adapter, budget worker and
+durable lifecycle worker. None of those mutable attempt owners is called until
+all pre-claim checks pass. Terminal replay deliberately resolves only its
+historical manifest and Finance settlement state, so a cancelled or completed
+job can reconcile idempotently after deployment rotation without reopening
+source/render infrastructure.
+
+The focused product-runtime suite passes 4/4, every
+`native-media-final-render` plus store/read suite passes 201/201, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial cases prove that
+worker-image drift, a relative executable path, toolchain drift, unavailable
+private storage, Finance failure and project-revision drift all reject before
+claim. This result is
+`EXACT_RENDER_PRODUCT_RUNTIME_COMPOSED_PRECLAIM_ORDER_VERIFIED_SIGNED_ROUTE_AND_LIVE_INFRA_OPEN`.
+
+This is injected composition proof, not a hosted-render or live-infrastructure
+claim. No configured Atlas manifest/Finance transaction, deployed image,
+installed absolute toolchain, private R2 object, live ProjectService/media
+asset, hosted worker, signed application-route export, Remotion consumption or
+rendered artifact was exercised. Queue item 3 remains in progress for the
+signed application route and concrete environment proof; the cross-system live
+render, redelivery, recovery and cost evidence remains Queue 8-9 work.
+`FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
