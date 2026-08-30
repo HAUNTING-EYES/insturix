@@ -9975,6 +9975,34 @@ It does not create the FFmpeg/private-R2 durable product caller, backfill
 historical rows or prove live storage. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Product decoded-audio composition owner Phase 3F-C8ak (2026-08-30):**
+commit `fbc7c16ea` adds the missing caller-level composition seam over the
+existing owners. It loads and binds the exact source/qualification, validates
+every independently observed audio stream, resumes only missing streams in
+canonical index order, invokes the existing lossless FFmpeg/private-artifact
+materializer, persists through the existing append-only asset CAS and C8ai
+evidence decorator, rereads the immutable source-version root, and returns a
+canonical hashed receipt. A fully active set is reused only when matching
+historical evidence exists. A complete legacy active set without that root is
+reported as `HISTORICAL_EVIDENCE_REQUIRED`; it is not silently backfilled.
+Private-store outages and active-state races are typed retryable failures,
+while invalid bindings, extra streams and evidence conflicts stop
+deterministically. Zero observed streams remain blocked behind a separate
+no-audio proof owner rather than fabricating an artifact or selecting a
+default stream.
+
+The product/asset/evidence/FFmpeg cluster passes 17/17 focused tests;
+repository TypeScript and repository-wide quiet ESLint pass. The product-owner
+tests inject the materializer and in-memory state/evidence ports, while the
+adjacent FFmpeg suite separately exercises the real local adapter. This result
+is `PRODUCT_AUDIO_COMPOSITION_OWNER_VERIFIED_DURABLE_RUNTIME_AND_LIVE_PRIVATE_STORAGE_OPEN`.
+It is shared downstream plumbing, not a complete production control flow: no
+durable job, product trigger, worker route, qualification-bound source-lease
+factory, live private R2 object or live Atlas row currently invokes this owner.
+Restart/dead-letter policy, no-audio proof, historical backfill and
+source-version-addressed consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
