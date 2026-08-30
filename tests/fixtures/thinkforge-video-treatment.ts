@@ -2,6 +2,7 @@ import type {
   CreativeReferenceSet,
   VideoTreatment,
 } from '@/lib/thinkforge/schemas/video-treatment';
+import { createUnresolvedAudiovisualDecision } from '@/lib/thinkforge/schemas/resolved-audiovisual-decision';
 
 type FixtureVisualEvent = Omit<VideoTreatment['visualEvents'][number], 'visiblePerson'> & {
   visiblePerson?: VideoTreatment['visualEvents'][number]['visiblePerson'];
@@ -35,6 +36,7 @@ function treatment(input: {
   visualEvents: FixtureVisualEvent[];
   captureRequirements?: VideoTreatment['captureRequirements'];
   audiovisualIntent?: VideoTreatment['audiovisualIntent'];
+  resolvedAudiovisualDecision?: VideoTreatment['resolvedAudiovisualDecision'];
   decisionTrace?: Partial<VideoTreatment['decisionTrace']>;
   referenceSynthesis?: string[];
 }): VideoTreatment {
@@ -59,6 +61,8 @@ function treatment(input: {
       visiblePerson: 'unspecified',
       physicalCapture: 'unspecified',
     },
+    resolvedAudiovisualDecision:
+      input.resolvedAudiovisualDecision ?? createUnresolvedAudiovisualDecision(),
     visualEvents: input.visualEvents.map((event) => ({
       ...event,
       visiblePerson: event.visiblePerson ?? 'unspecified',

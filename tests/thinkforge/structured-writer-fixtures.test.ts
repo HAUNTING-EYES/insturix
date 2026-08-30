@@ -16,14 +16,14 @@ function semanticScriptPrompt(visualEventIds: readonly string[]): string {
   }).prompt;
 }
 
-function semanticTreatmentPrompt(): string {
+function semanticTreatmentPrompt(sourceRefs: readonly string[] = ['brief_user']): string {
   return buildIsolatedPromptParts({
     systemInstruction: 'Create one whole-video semantic treatment.',
     data: {
       task: 'Create one whole-video semantic treatment before script prose is written.',
       audiovisualIntent: createUnspecifiedAudiovisualIntent(),
       allowedTraceEvidence: {
-        sourceRefs: ['brief_user'],
+        sourceRefs,
         creativeReferenceIds: [],
         creativeReferenceEvidenceIds: [],
         graphConstraintIds: [],
@@ -81,7 +81,14 @@ describe('ThinkForge browser structured-writer fixtures', () => {
     ));
 
     expect(treatment?.result.captureRequirements).toEqual([]);
-    expect(treatment?.result.visualEvents.every((event) => event.visiblePerson === 'unspecified')).toBe(true);
+    expect(treatment?.result.resolvedAudiovisualDecision).toMatchObject({
+      audibleSpeech: { presence: 'sparse', sources: ['voice-over'] },
+      onCameraSpeech: { presence: 'absent' },
+      visiblePeople: { presence: 'absent' },
+      physicalCapture: { need: 'absent' },
+      materials: { graphics: 'required' },
+    });
+    expect(treatment?.result.visualEvents.every((event) => event.visiblePerson === 'forbidden')).toBe(true);
     expect(eventIds).toHaveLength(6);
     expect(selectedEventIds).toEqual(eventIds);
   });
@@ -96,5 +103,17 @@ describe('ThinkForge browser structured-writer fixtures', () => {
       prompt: semanticScriptPrompt([]),
       systemInstruction: 'trusted script writer instruction',
     })).toThrow('requires one or more approved video treatment visual events');
+  });
+
+  it('fails explicitly when the treatment fixture has no authorised evidence', () => {
+    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'auto');
+    vi.stubEnv('THINKFORGE_E2E_MODE', '1');
+    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'fixturev3');
+
+    expect(() => resolveThinkForgeE2EStructuredFixture({
+      schema: VideoTreatmentModelOutputSchema,
+      prompt: semanticTreatmentPrompt([]),
+      systemInstruction: '<video_treatment_planner_contract version="1">',
+    })).toThrow('requires authorised source evidence');
   });
 });

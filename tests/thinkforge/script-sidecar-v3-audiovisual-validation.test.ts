@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findScriptSidecarV3AudiovisualEventIssues,
+  findVideoTreatmentScriptReadinessIssues,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3-audiovisual-validation';
 import {
   parseScriptSidecarV3,
@@ -8,6 +9,67 @@ import {
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
 import type { VideoTreatment } from '@/lib/thinkforge/schemas/video-treatment';
 import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
+
+const decisionEvidence = {
+  rationale: 'The approved test treatment explicitly resolves this audiovisual dimension.',
+  evidenceIds: ['src_brief'],
+};
+
+function resolvedPresenterTreatment(): VideoTreatment {
+  return {
+    ...mixedPresenterCutawayTreatment,
+    resolvedAudiovisualDecision: {
+      version: 1,
+      origin: 'model',
+      audibleSpeech: {
+        presence: 'present',
+        sources: ['synchronous-dialogue'],
+        ...decisionEvidence,
+      },
+      onCameraSpeech: { presence: 'present', ...decisionEvidence },
+      visiblePeople: { presence: 'present', ...decisionEvidence },
+      physicalCapture: { need: 'required', ...decisionEvidence },
+      materials: {
+        graphics: 'preferred',
+        generatedImagery: 'absent',
+        suppliedFootage: 'absent',
+        screenMaterial: 'absent',
+        sourceMaterial: 'absent',
+        ...decisionEvidence,
+      },
+      unresolvedQuestions: [],
+    },
+  };
+}
+
+function resolvedSilentTreatment(): VideoTreatment {
+  return {
+    ...mixedPresenterCutawayTreatment,
+    captureRequirements: [],
+    visualEvents: mixedPresenterCutawayTreatment.visualEvents.map((event) => ({
+      ...event,
+      visiblePerson: 'forbidden',
+      captureRequirementIds: [],
+    })),
+    resolvedAudiovisualDecision: {
+      version: 1,
+      origin: 'model',
+      audibleSpeech: { presence: 'absent', sources: [], ...decisionEvidence },
+      onCameraSpeech: { presence: 'absent', ...decisionEvidence },
+      visiblePeople: { presence: 'absent', ...decisionEvidence },
+      physicalCapture: { need: 'absent', ...decisionEvidence },
+      materials: {
+        graphics: 'required',
+        generatedImagery: 'absent',
+        suppliedFootage: 'absent',
+        screenMaterial: 'absent',
+        sourceMaterial: 'absent',
+        ...decisionEvidence,
+      },
+      unresolvedQuestions: [],
+    },
+  };
+}
 
 function buildSidecar(input: {
   treatment?: VideoTreatment;
@@ -83,12 +145,60 @@ function buildSidecar(input: {
 
 describe('Script Sidecar V3 audiovisual event validation', () => {
   it('accepts on-camera speech bound to a local person-compatible treatment event', () => {
-    const sidecar = buildSidecar({ openingEventIds: ['event_host_claim'] });
+    const treatment = resolvedPresenterTreatment();
+    const sidecar = buildSidecar({ treatment, openingEventIds: ['event_host_claim'] });
 
     expect(findScriptSidecarV3AudiovisualEventIssues({
       sidecar,
-      treatment: mixedPresenterCutawayTreatment,
+      treatment,
     })).toEqual([]);
+  });
+
+  it('accepts a resolved silent treatment only when the sidecar stays silent and person-free', () => {
+    const treatment = resolvedSilentTreatment();
+    const sidecar = buildSidecar({
+      treatment,
+      openingEventIds: ['event_host_claim'],
+      includeOnCameraLine: false,
+      charactersPresent: [],
+    });
+
+    expect(findScriptSidecarV3AudiovisualEventIssues({ sidecar, treatment })).toEqual([]);
+  });
+
+  it('rejects speech and visible cast added to a resolved silent treatment', () => {
+    const treatment = resolvedSilentTreatment();
+    const sidecar = buildSidecar({ treatment, openingEventIds: ['event_host_claim'] });
+    const issues = findScriptSidecarV3AudiovisualEventIssues({ sidecar, treatment });
+
+    expect(issues).toContain('audiovisual_speech_forbidden:1');
+    expect(issues).toContain('audiovisual_on_camera_speech_forbidden:1');
+    expect(issues).toContain('audiovisual_visible_person_forbidden:1');
+    expect(issues).toContain('audiovisual_speech_source_forbidden:synchronous-dialogue:1');
+  });
+
+  it('fails readiness for an unresolved decision without rejecting supported diegetic speech', () => {
+    const unresolved: VideoTreatment = {
+      ...resolvedPresenterTreatment(),
+      resolvedAudiovisualDecision: {
+        ...resolvedPresenterTreatment().resolvedAudiovisualDecision,
+        audibleSpeech: {
+          presence: 'present',
+          sources: ['diegetic-speech'],
+          ...decisionEvidence,
+        },
+        onCameraSpeech: { presence: 'absent', ...decisionEvidence },
+        materials: {
+          ...resolvedPresenterTreatment().resolvedAudiovisualDecision.materials,
+          graphics: 'unresolved',
+        },
+        unresolvedQuestions: ['Should graphics be created for this treatment?'],
+      },
+    };
+
+    expect(findVideoTreatmentScriptReadinessIssues(unresolved)).toEqual([
+      'audiovisual_decision_unresolved:graphics',
+    ]);
   });
 
   it('rejects on-camera speech with no local treatment event', () => {

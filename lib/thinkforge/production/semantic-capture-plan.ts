@@ -28,6 +28,10 @@ import {
   parseProductionCapabilityProfile,
   type ProductionCapabilityProfile,
 } from './production-capability-profile';
+import {
+  createUnresolvedAudiovisualDecision,
+  ResolvedAudiovisualDecisionSchema,
+} from '../schemas/resolved-audiovisual-decision';
 
 export const TREATMENT_CAPTURE_PROJECTION_VERSION = 1 as const;
 
@@ -120,7 +124,9 @@ const VoiceRecordingGuideSchema = z.object({
     languageCodes: z.array(NonEmptyTextSchema).default([]),
     deliveries: z.array(NonEmptyTextSchema).min(1),
     onCameraLineCount: z.number().int().nonnegative(),
+    synchronousDialogueLineCount: z.number().int().nonnegative().default(0),
     voiceoverLineCount: z.number().int().nonnegative(),
+    diegeticSpeechLineCount: z.number().int().nonnegative().default(0),
   }).strict()).default([]),
 }).strict();
 
@@ -129,6 +135,9 @@ const TreatmentCapturePlanObjectSchema = z.object({
   kind: z.literal('treatment-capture-plan'),
   status: CaptureProjectionStatusSchema,
   treatment: VideoTreatmentSidecarBindingSchema,
+  resolvedAudiovisualDecision: ResolvedAudiovisualDecisionSchema.default(
+    createUnresolvedAudiovisualDecision,
+  ),
   voiceRecording: VoiceRecordingGuideSchema,
   physicalCaptureRequirements: z.array(TreatmentCaptureRequirementProjectionSchema).default([]),
   nonPhysicalAcquisitionRequirements: z.array(TreatmentCaptureRequirementProjectionSchema).default([]),
@@ -157,6 +166,37 @@ export const TreatmentCapturePlanSchema = TreatmentCapturePlanObjectSchema.super
       code: z.ZodIssueCode.custom,
       path: ['calibrationQuestions'],
       message: 'A capture brief cannot be ready while calibration questions remain.',
+    });
+  }
+  const decision = plan.resolvedAudiovisualDecision;
+  if (decision.origin !== 'model') return;
+
+  const spokenLineCount = plan.voiceRecording.speakers.reduce((total, speaker) => (
+    total
+    + speaker.synchronousDialogueLineCount
+    + speaker.voiceoverLineCount
+    + speaker.diegeticSpeechLineCount
+  ), 0);
+  const speechIsPresent = ['sparse', 'present', 'mixed'].includes(decision.audibleSpeech.presence);
+  if (!speechIsPresent && spokenLineCount > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['voiceRecording'],
+      message: 'The resolved treatment forbids spoken audio, but the capture plan contains spoken lines.',
+    });
+  }
+  if (speechIsPresent && spokenLineCount === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['voiceRecording'],
+      message: 'The resolved treatment requires spoken audio, but the capture plan contains no spoken lines.',
+    });
+  }
+  if (decision.physicalCapture.need === 'absent' && plan.physicalCaptureRequirements.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['physicalCaptureRequirements'],
+      message: 'The resolved treatment forbids physical capture, but the plan contains physical capture requirements.',
     });
   }
 });
@@ -391,7 +431,9 @@ function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceReco
     languageCodes: string[];
     deliveries: string[];
     onCameraLineCount: number;
+    synchronousDialogueLineCount: number;
     voiceoverLineCount: number;
+    diegeticSpeechLineCount: number;
   }>();
 
   sidecar.acts.forEach((act) => act.narrativeScenes.forEach((scene) => scene.beats.forEach((beat) => {
@@ -405,12 +447,16 @@ function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceReco
         languageCodes: [],
         deliveries: [],
         onCameraLineCount: 0,
+        synchronousDialogueLineCount: 0,
         voiceoverLineCount: 0,
+        diegeticSpeechLineCount: 0,
       };
       if (line.languageCode) current.languageCodes.push(line.languageCode);
       current.deliveries.push(line.delivery);
       if (line.onCamera) current.onCameraLineCount += 1;
+      if (line.delivery === 'sync-dialogue') current.synchronousDialogueLineCount += 1;
       if (line.delivery === 'voiceover') current.voiceoverLineCount += 1;
+      if (line.delivery === 'diegetic-speech') current.diegeticSpeechLineCount += 1;
       speakers.set(character.id, current);
     });
   })));
@@ -465,7 +511,10 @@ function allowedUnspecifiedAcquisitionKinds(
     'screen-recording',
     'source-asset',
   ];
-  return treatment.audiovisualIntent.physicalCapture === 'forbidden'
+  const physicalCaptureForbidden = treatment.resolvedAudiovisualDecision.origin === 'model'
+    ? treatment.resolvedAudiovisualDecision.physicalCapture.need === 'absent'
+    : treatment.audiovisualIntent.physicalCapture === 'forbidden';
+  return physicalCaptureForbidden
     ? kinds.filter((kind) => kind !== 'physical-camera')
     : kinds;
 }
@@ -571,6 +620,7 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
     kind: 'treatment-capture-plan',
     status,
     treatment: sidecar.treatment,
+    resolvedAudiovisualDecision: treatment.resolvedAudiovisualDecision,
     voiceRecording: voiceRecordingGuide(sidecar),
     physicalCaptureRequirements,
     nonPhysicalAcquisitionRequirements,

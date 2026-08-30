@@ -20,6 +20,7 @@ export type ScriptNarrationMode =
   | 'counterpoint'
   | 'minimal'
   | 'none'
+  | 'open'
   | 'standard_voiceover';
 
 export type ScriptEvidenceNarrativeMode =
@@ -144,6 +145,11 @@ const NARRATION_RATE_GUIDANCE: Readonly<Record<ScriptNarrationMode, NarrationRat
     minimumModeDensity: 0,
     target: 0,
     comfortableMaximum: 0,
+  },
+  open: {
+    minimumModeDensity: 0,
+    target: 0,
+    comfortableMaximum: 170,
   },
   standard_voiceover: {
     minimumModeDensity: 120,
@@ -277,9 +283,15 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
     : 'standard_voiceover';
   const narrationMode = audiovisualIntent.audibleSpeech === 'forbidden'
     ? 'none'
-    : graphNarrationMode;
+    : audiovisualIntent.audibleSpeech === 'required'
+      ? graphNarrationMode
+      : input.audiovisualIntent
+        ? 'open'
+        : graphNarrationMode;
   const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
-  const narrationDirective = narrationMode === 'none' ? undefined : directive(selectedNarration);
+  const narrationDirective = narrationMode === 'none' || narrationMode === 'open'
+    ? undefined
+    : directive(selectedNarration);
   const recommendedStructures = selectStructureTechniques(signals, targetDurationSeconds);
   const evidenceNarrative = resolveEvidenceNarrativePlan(
     input.sourceLedger,
@@ -323,10 +335,12 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
     },
     evidenceNarrative,
     visualVerbal: {
-      onScreenTextRole: narrationMode === 'minimal' || narrationMode === 'none'
+      onScreenTextRole: narrationMode === 'minimal' || narrationMode === 'none' || narrationMode === 'open'
         ? 'may_replace_narration'
         : 'selective_complement',
-      defaultUsage: narrationMode === 'minimal' || narrationMode === 'none' ? 'selective' : 'omit',
+      defaultUsage: narrationMode === 'minimal' || narrationMode === 'none' || narrationMode === 'open'
+        ? 'selective'
+        : 'omit',
       duplicationPolicy: 'forbidden',
       factualTextPolicy: 'source_only',
       doctrineSourceLines: [[729, 741], [4051, 4060]],

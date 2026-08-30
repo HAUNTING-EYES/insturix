@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ZodError } from 'zod';
 
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
@@ -35,19 +36,19 @@ import {
   type VideoTreatmentKnowledgeDependencies,
 } from './treatment-knowledge';
 
-const VIDEO_TREATMENT_MODEL = 'gemini-2.5-flash';
+const VIDEO_TREATMENT_MODEL = 'gemini-3.6-flash';
 const VIDEO_TREATMENT_TEMPERATURE = 0.35;
-// Gemini 2.5 counts hidden reasoning against maxOutputTokens. Treatment planning
-// therefore reserves capacity for bounded semantic JSON and reasoning together.
+// Output capacity remains explicit even though Gemini 3 models use thinking levels
+// instead of exposing a token budget for its internal reasoning.
 const VIDEO_TREATMENT_MAX_TOKENS = 20_480;
 const VIDEO_TREATMENT_THINKING_BUDGET_TOKENS = 4_096;
 const VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS = 2_048;
 // Trusted treatment policy is part of the cache contract. Never replay output
 // authored under an older semantic-evidence policy after that policy changes.
-const VIDEO_TREATMENT_CACHE_VERSION = 4;
+const VIDEO_TREATMENT_CACHE_VERSION = 5;
 const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
 const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
-const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v4';
+const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v5';
 
 const TREATMENT_CONTEXT_DECISION_EVIDENCE = {
   authoringRequest: 'context_authoring_request',
@@ -118,6 +119,7 @@ export type VideoTreatmentPlannerGenerator = (input: {
   temperature: number;
   maxTokens: number;
   thinkingBudgetTokens: number;
+  thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
 }) => Promise<{
   result: VideoTreatmentModelOutput;
@@ -165,6 +167,7 @@ export class VideoTreatmentPlannerError extends Error {
       | 'editorial_plan_invalid'
       | 'prompt_boundary_truncated'
       | 'provenance_invalid'
+      | 'treatment_contract_invalid'
       | 'response_truncated',
     message: string,
   ) {
@@ -261,6 +264,7 @@ export async function planVideoTreatment(
     temperature: VIDEO_TREATMENT_TEMPERATURE,
     maxTokens: VIDEO_TREATMENT_MAX_TOKENS,
     thinkingBudgetTokens: VIDEO_TREATMENT_THINKING_BUDGET_TOKENS,
+    thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
   } satisfies Parameters<VideoTreatmentPlannerGenerator>[0];
   let recoveryAttempted = false;
@@ -275,6 +279,7 @@ export async function planVideoTreatment(
         ...generationInput,
         prompt: buildTreatmentLengthRecoveryPrompt(promptParts.prompt),
         thinkingBudgetTokens: VIDEO_TREATMENT_LENGTH_RECOVERY_THINKING_BUDGET_TOKENS,
+        thinkingLevel: 'low',
       });
     } catch (recoveryError) {
       if (!isLengthLimitedStructuredOutput(recoveryError)) throw recoveryError;
@@ -285,15 +290,28 @@ export async function planVideoTreatment(
     }
   }
   const latencyMs = Math.max(0, Date.now() - startedAt);
-  const treatment = materializeVideoTreatment({
-    modelOutput: generation.result,
-    inputFingerprint,
-    treatmentId,
-    input,
-    editorialPlan,
-    knowledge,
-    provenancePolicy,
-  });
+  let treatment: VideoTreatment;
+  try {
+    treatment = materializeVideoTreatment({
+      modelOutput: generation.result,
+      inputFingerprint,
+      treatmentId,
+      input,
+      editorialPlan,
+      knowledge,
+      provenancePolicy,
+    });
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    const issues = error.issues
+      .slice(0, 8)
+      .map((issue) => `${issue.path.join('.')}:${issue.message}`)
+      .join(', ');
+    throw new VideoTreatmentPlannerError(
+      'treatment_contract_invalid',
+      `Video treatment contradicted the approved audiovisual contract: ${issues}`,
+    );
+  }
   assertTreatmentProvenance(treatment, input.authoringContext, provenancePolicy);
 
   const cacheWrite = await cache.write({
@@ -474,6 +492,9 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - A visual event may coexist with spoken audio and another visual event inside one narrative moment. Do not flatten mixed media into a single asset recommendation.
 - Obey tf_untrusted_data.editorialPlan.execution.plan.audiovisualIntent as four independent hard constraints. It is not a video-type label. "required" must be represented, "forbidden" must be absent, and "unspecified" leaves the creative decision open.
 - audibleSpeech covers every spoken line, including voice-over and synchronous dialogue. onCameraSpeech covers only visible synchronous speech. visiblePerson covers speaking and silent people. physicalCapture covers newly filming physical subjects; it does not include screen recording, supplied assets, stock, animation, graphics, or generated imagery.
+- Fill resolvedAudiovisualDecision with the actual whole-treatment choice for speech, speech source, on-camera speech, visible people, physical capture, graphics, generated imagery, supplied footage, screen material, and source material. This is the treatment's semantic decision, not a copy of audiovisualIntent.
+- For an "unspecified" intake field, choose the option supported by the user brief, approved references, Brand Vault boundaries, narrative need, and production constraints. Use "unresolved" only when a real missing decision prevents a responsible choice, and surface the exact question. Never prefer voice-over merely because speech was unspecified.
+- Cite at least one allowed decision evidence ID for every resolvedAudiovisualDecision section. A category label, guessed format, or unsupported convention is not evidence.
 - Set every visualEvents[].visiblePerson independently. Under a global visiblePerson prohibition every event must say "forbidden"; under a requirement at least one event must say "required". Do not hide people inside free-text visualThesis while marking the structured field otherwise.
 - Genre, style, channel, campaign, and format labels are non-authoritative metadata. Never use a category label alone to decide speech, people, capture, or acquisition form.
 - Resolve unconstrained audiovisual choices from semantic evidence: explicit user constraints, approved source and reference evidence, Brand Vault boundaries, and the narrative or audience need. Cite the material evidence in decisionTrace; a label is not sufficient evidence.
@@ -501,7 +522,7 @@ function isLengthLimitedStructuredOutput(error: unknown): boolean {
 }
 
 function buildTreatmentLengthRecoveryPrompt(prompt: string): string {
-  return `${prompt}\n\n<video_treatment_length_recovery>\nA prior provider response ended before its JSON closed. Return the complete schema now. Preserve every material audiovisual decision, but use one concise sentence per text field, do not paraphrase the input, and include only distinct hierarchy, boundary, reference, continuity, and trace entries. Do not omit visualEvents, captureRequirements, or decisionTrace.\n</video_treatment_length_recovery>`;
+  return `${prompt}\n\n<video_treatment_length_recovery>\nA prior provider response ended before its JSON closed. Return the complete schema now. Preserve every material audiovisual decision, but use one concise sentence per text field, do not paraphrase the input, and include only distinct hierarchy, boundary, reference, continuity, and trace entries. Do not omit resolvedAudiovisualDecision, visualEvents, captureRequirements, or decisionTrace.\n</video_treatment_length_recovery>`;
 }
 
 function assertNoCriticalPromptTruncation(truncatedFields: readonly string[]): void {
@@ -548,7 +569,11 @@ function materializeVideoTreatment(input: {
       }
     : undefined;
   const audiovisualIntent = input.editorialPlan.execution.plan.audiovisualIntent;
-  const audioVoiceStrategy = audiovisualIntent.audibleSpeech === 'forbidden'
+  const resolvedAudiovisualDecision = canonicalizeResolvedAudiovisualDecision(
+    input.modelOutput.resolvedAudiovisualDecision,
+    input.provenancePolicy,
+  );
+  const audioVoiceStrategy = resolvedAudiovisualDecision.audibleSpeech.presence === 'absent'
     ? 'No intelligible speech. Use only non-verbal audio that serves the approved treatment.'
     : input.modelOutput.audioVoiceStrategy;
 
@@ -558,6 +583,10 @@ function materializeVideoTreatment(input: {
     ...input.modelOutput,
     audioVoiceStrategy,
     audiovisualIntent,
+    resolvedAudiovisualDecision: {
+      ...resolvedAudiovisualDecision,
+      origin: 'model',
+    },
     decisionTrace: {
       ...modelDecisionTrace,
       inputFingerprint: input.inputFingerprint,
@@ -670,6 +699,37 @@ function canonicalizeDecisionEvidenceIds(
   });
 }
 
+function canonicalizeResolvedAudiovisualDecision(
+  decision: VideoTreatmentModelOutput['resolvedAudiovisualDecision'],
+  policy: TreatmentTraceEvidencePolicy,
+): VideoTreatmentModelOutput['resolvedAudiovisualDecision'] {
+  const canonicalize = (evidenceIds: readonly string[]) =>
+    canonicalizeDecisionEvidenceIds(evidenceIds, policy);
+  return {
+    ...decision,
+    audibleSpeech: {
+      ...decision.audibleSpeech,
+      evidenceIds: canonicalize(decision.audibleSpeech.evidenceIds),
+    },
+    onCameraSpeech: {
+      ...decision.onCameraSpeech,
+      evidenceIds: canonicalize(decision.onCameraSpeech.evidenceIds),
+    },
+    visiblePeople: {
+      ...decision.visiblePeople,
+      evidenceIds: canonicalize(decision.visiblePeople.evidenceIds),
+    },
+    physicalCapture: {
+      ...decision.physicalCapture,
+      evidenceIds: canonicalize(decision.physicalCapture.evidenceIds),
+    },
+    materials: {
+      ...decision.materials,
+      evidenceIds: canonicalize(decision.materials.evidenceIds),
+    },
+  };
+}
+
 function assertTreatmentProvenance(
   treatment: VideoTreatment,
   authoringContext: ThinkForgeResolvedAuthoringContext,
@@ -689,6 +749,12 @@ function assertTreatmentProvenance(
   treatment.decisionTrace.decisions.forEach((decision) => {
     check(decision.evidenceIds, policy.allowedDecisionEvidenceIds, `decision_evidence:${decision.id}`);
   });
+  const resolved = treatment.resolvedAudiovisualDecision;
+  check(resolved.audibleSpeech.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_audible_speech');
+  check(resolved.onCameraSpeech.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_on_camera_speech');
+  check(resolved.visiblePeople.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_visible_people');
+  check(resolved.physicalCapture.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_physical_capture');
+  check(resolved.materials.evidenceIds, policy.allowedDecisionEvidenceIds, 'resolved_materials');
   treatment.visualEvents.forEach((event) => check(event.sourceRefs, policy.allowedSourceRefs, `visual_event_source:${event.id}`));
   treatment.captureRequirements.forEach((requirement) => check(
     requirement.sourceRefs,

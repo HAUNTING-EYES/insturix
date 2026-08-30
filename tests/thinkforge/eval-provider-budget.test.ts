@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   authorizeThinkForgeEvalProviderDispatch,
+  estimateThinkForgeEvalProviderCost,
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalBudgetExceededError,
   ThinkForgeEvalProviderBudget,
@@ -94,6 +95,20 @@ describe('ThinkForge eval provider budget', () => {
       });
     })).rejects.toThrow('price_unknown:openrouter/vendor/unpriced-model');
     expect(budget.snapshot().providerRequests).toBe(0);
+  });
+
+  it('prices Gemini 3.6 Flash before a paid eval is dispatched', () => {
+    expect(estimateThinkForgeEvalProviderCost({
+      provider: 'gemini',
+      model: 'models/gemini-3.6-flash',
+      usage: {
+        promptTokens: 1_000_000,
+        completionTokens: 1_000_000,
+      },
+    })).toEqual({
+      estimatedCostUsd: 4.5,
+      note: 'builtin:google_gemini_3_6_flash_standard_2026_08_30',
+    });
   });
 
   it('preflights cache and writer requests without consuming the runtime budget', () => {

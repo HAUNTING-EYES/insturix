@@ -5,7 +5,9 @@ import {
 } from '../../lib/thinkforge/agents/post-writer-agent';
 import {
   ScriptWriterResultSchema,
+  ScriptWriterV2ResultSchema,
   type ScriptWriterResult,
+  type ScriptWriterV2Result,
 } from '../../lib/thinkforge/agents/script-writer-agent';
 import {
   ThinkForgeAuthoringRequestSchema,
@@ -94,8 +96,8 @@ function validPost(): PostWriterResult {
   });
 }
 
-function validScript(): ScriptWriterResult {
-  return ScriptWriterResultSchema.parse({
+function validScript(): ScriptWriterV2Result {
+  return ScriptWriterV2ResultSchema.parse({
     content: [
       '# Act 1: Evidence',
       '## Scene 1: The archive',

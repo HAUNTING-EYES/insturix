@@ -49,6 +49,7 @@ export interface AVScriptViewProps {
 }
 
 const MONO_LABEL = "font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#7A776E]";
+type HeardDelivery = AVScriptPresentation["acts"][number]["scenes"][number]["beats"][number]["heard"][number]["delivery"];
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -94,7 +95,11 @@ function isHeardLine(value: unknown): boolean {
   return Boolean(
     record
     && typeof record.speaker === "string"
-    && (record.delivery === "sync-dialogue" || record.delivery === "voiceover")
+    && (
+      record.delivery === "sync-dialogue"
+      || record.delivery === "voiceover"
+      || record.delivery === "diegetic-speech"
+    )
     && typeof record.text === "string"
     && typeof record.onCamera === "boolean",
   );
@@ -228,6 +233,15 @@ function captureKindLabel(kind: string): string {
     unspecified: "Acquisition choice needed",
   };
   return labels[kind] ?? humanize(kind);
+}
+
+function heardDeliveryLabel(delivery: HeardDelivery): string {
+  const labels: Record<HeardDelivery, string> = {
+    "sync-dialogue": "spoken on camera",
+    voiceover: "voice-over",
+    "diegetic-speech": "heard within the scene",
+  };
+  return labels[delivery];
 }
 
 function ListSection({ title, items }: { title: string; items: string[] }) {
@@ -416,7 +430,7 @@ function AVPresentationBody({ presentation, onEditProse }: { presentation: AVScr
                                 <div className="mt-2 space-y-2">
                                   {beat.heard.map((line, lineIndex) => (
                                     <div key={`${lineIndex}:${line.text}`} className="border-l-2 border-[#D4A652] pl-3 text-[12px] leading-relaxed text-[#B5B2A8]">
-                                      <p className="font-medium text-[#ECE9E1]">{line.speaker} <span className="font-normal text-[#7A776E]">· {line.delivery === "sync-dialogue" ? "spoken on camera" : "voice-over"}</span></p>
+                                      <p className="font-medium text-[#ECE9E1]">{line.speaker} <span className="font-normal text-[#7A776E]">· {heardDeliveryLabel(line.delivery)}</span></p>
                                       <p className="mt-0.5">{line.text}</p>
                                     </div>
                                   ))}

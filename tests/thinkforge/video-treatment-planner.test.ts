@@ -8,6 +8,7 @@ import {
 } from '@/lib/thinkforge/agents/editorial-plan';
 import type { ThinkForgeResolvedAuthoringContext } from '@/lib/thinkforge/context/resolved-authoring-context';
 import type { SourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import type { ThinkForgeAudiovisualIntent } from '@/lib/thinkforge/schemas/audiovisual-intent';
 import {
   createThinkForgeAuthoringRequest,
   type ThinkForgeAuthoringRequest,
@@ -30,6 +31,7 @@ import {
 } from '@/lib/thinkforge/video-treatment/treatment-planner';
 import {
   abstractExplainerTreatment,
+  mixedPresenterCutawayTreatment,
   referenceLedCreativeReferenceSet,
   referenceLedTreatment,
 } from '@/tests/fixtures/thinkforge-video-treatment';
@@ -176,10 +178,56 @@ function makeInput(overrides: Partial<PlanVideoTreatmentInput> = {}): PlanVideoT
 
 function modelOutputFrom(treatment: VideoTreatment): VideoTreatmentModelOutput {
   const copy = structuredClone(treatment);
+  const hasVisiblePerson = copy.visualEvents.some((event) => event.visiblePerson === 'required');
+  const needsPhysicalCapture = copy.captureRequirements.some(
+    (requirement) => requirement.captureKind === 'physical-camera',
+  );
+  const evidenceIds = ['src_brief'];
+  const resolvedAudiovisualDecision: VideoTreatmentModelOutput['resolvedAudiovisualDecision'] = {
+    version: 1,
+    audibleSpeech: {
+      presence: 'present',
+      sources: [hasVisiblePerson ? 'synchronous-dialogue' : 'voice-over'],
+      rationale: 'The fixture treatment uses concise speech to carry its approved argument.',
+      evidenceIds,
+    },
+    onCameraSpeech: {
+      presence: hasVisiblePerson ? 'present' : 'absent',
+      rationale: hasVisiblePerson
+        ? 'The fixture includes a visible synchronous speaker.'
+        : 'The fixture does not require visible synchronous speech.',
+      evidenceIds,
+    },
+    visiblePeople: {
+      presence: hasVisiblePerson ? 'present' : 'absent',
+      rationale: hasVisiblePerson
+        ? 'A visible person is an explicit semantic layer in the fixture.'
+        : 'The fixture completes its audience job without showing a person.',
+      evidenceIds,
+    },
+    physicalCapture: {
+      need: needsPhysicalCapture ? 'required' : 'absent',
+      rationale: needsPhysicalCapture
+        ? 'The fixture includes an explicit physical-camera requirement.'
+        : 'The fixture contains no physical-camera requirement.',
+      evidenceIds,
+    },
+    materials: {
+      graphics: 'preferred',
+      generatedImagery: 'absent',
+      suppliedFootage: 'absent',
+      screenMaterial: 'absent',
+      sourceMaterial: 'absent',
+      rationale: 'Semantic graphics support the fixture without prescribing final form.',
+      evidenceIds,
+    },
+    unresolvedQuestions: [],
+  };
   const {
     version: _version,
     treatmentId: _treatmentId,
     audiovisualIntent: _audiovisualIntent,
+    resolvedAudiovisualDecision: _resolvedAudiovisualDecision,
     decisionTrace,
     ...rest
   } = copy;
@@ -193,11 +241,67 @@ function modelOutputFrom(treatment: VideoTreatment): VideoTreatmentModelOutput {
   } = decisionTrace;
   return VideoTreatmentModelOutputSchema.parse({
     ...rest,
+    resolvedAudiovisualDecision,
+    visualEvents: rest.visualEvents.map((event) => ({
+      ...event,
+      visiblePerson: hasVisiblePerson ? event.visiblePerson : 'forbidden',
+    })),
     decisionTrace: {
       ...modelTrace,
       appliedConstraintIds: [],
     },
   });
+}
+
+function withAudiovisualIntent(
+  input: PlanVideoTreatmentInput,
+  audiovisualIntent: ThinkForgeAudiovisualIntent,
+): PlanVideoTreatmentInput {
+  const editorialPlan = structuredClone(input.editorialPlan);
+  if (editorialPlan.writerKind !== 'script') throw new Error('Expected a script editorial plan fixture.');
+  editorialPlan.execution.plan.audiovisualIntent = audiovisualIntent;
+  return { ...input, editorialPlan };
+}
+
+function silentModelOutput(): VideoTreatmentModelOutput {
+  const output = modelOutputFrom(abstractExplainerTreatment);
+  const evidenceIds = ['context_user_brief'];
+  output.resolvedAudiovisualDecision = {
+    version: 1,
+    audibleSpeech: {
+      presence: 'absent',
+      sources: [],
+      rationale: 'The approved concept communicates through image and non-verbal sound.',
+      evidenceIds,
+    },
+    onCameraSpeech: {
+      presence: 'absent',
+      rationale: 'No visible synchronous speaker is needed.',
+      evidenceIds,
+    },
+    visiblePeople: {
+      presence: 'absent',
+      rationale: 'The visual argument does not depend on a person.',
+      evidenceIds,
+    },
+    physicalCapture: {
+      need: 'absent',
+      rationale: 'No newly filmed physical evidence is required.',
+      evidenceIds,
+    },
+    materials: {
+      graphics: 'required',
+      generatedImagery: 'absent',
+      suppliedFootage: 'absent',
+      screenMaterial: 'absent',
+      sourceMaterial: 'absent',
+      rationale: 'Semantic graphics carry the approved audience job.',
+      evidenceIds,
+    },
+    unresolvedQuestions: [],
+  };
+  output.audioVoiceStrategy = 'Use non-verbal sound only; no intelligible speech.';
+  return VideoTreatmentModelOutputSchema.parse(output);
 }
 
 function memoryCache(): VideoTreatmentPlanningCache {
@@ -299,6 +403,12 @@ describe('video treatment planner', () => {
     if (!capturedRequest) throw new Error('Expected video treatment generator to receive a request.');
     const request = capturedRequest;
     expect(result.treatment.captureRequirements).toEqual([]);
+    expect(result.treatment.resolvedAudiovisualDecision).toMatchObject({
+      audibleSpeech: { presence: 'present', sources: ['voice-over'] },
+      visiblePeople: { presence: 'absent' },
+      physicalCapture: { need: 'absent' },
+      materials: { graphics: 'preferred' },
+    });
     expect(JSON.stringify(result.treatment)).not.toContain('assetRecommendation');
     expect(JSON.stringify(result.treatment)).not.toContain('keyframes');
     expect(request.prompt).toContain('<tf_untrusted_data');
@@ -318,6 +428,78 @@ describe('video treatment planner', () => {
     expect(request.cacheSystemInstruction).toContain('semantic evidence');
     expect(request.cacheSystemInstruction).toContain('non-authoritative metadata');
     expect(request.thinkingBudgetTokens).toBeGreaterThan(0);
+    expect(request.cacheSystemInstruction).toContain('resolvedAudiovisualDecision');
+  });
+
+  it('preserves a silent treatment when speech was left open', async () => {
+    const result = await planVideoTreatment(makeInput(), {
+      cache: memoryCache(),
+      generate: async () => ({
+        result: silentModelOutput(),
+        cacheStatus: 'inline',
+        modelName: 'gemini-test',
+      }),
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    });
+
+    expect(result.treatment.audiovisualIntent.audibleSpeech).toBe('unspecified');
+    expect(result.treatment.resolvedAudiovisualDecision.audibleSpeech).toEqual(expect.objectContaining({
+      presence: 'absent',
+      sources: [],
+      evidenceIds: ['context_user_brief'],
+    }));
+    expect(result.treatment.audioVoiceStrategy).toBe(
+      'No intelligible speech. Use only non-verbal audio that serves the approved treatment.',
+    );
+  });
+
+  it('fails closed when a treatment removes speech that the user required', async () => {
+    const input = withAudiovisualIntent(makeInput(), {
+      version: 1,
+      audibleSpeech: 'required',
+      onCameraSpeech: 'unspecified',
+      visiblePerson: 'unspecified',
+      physicalCapture: 'unspecified',
+    });
+
+    await expect(planVideoTreatment(input, {
+      cache: memoryCache(),
+      generate: async () => ({
+        result: silentModelOutput(),
+        cacheStatus: 'inline',
+        modelName: 'gemini-test',
+      }),
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    })).rejects.toMatchObject({
+      code: 'treatment_contract_invalid',
+      message: expect.stringContaining('Audible speech is required'),
+    } satisfies Partial<VideoTreatmentPlannerError>);
+  });
+
+  it('fails closed when a treatment adds people that the user forbade', async () => {
+    const input = withAudiovisualIntent(makeInput(), {
+      version: 1,
+      audibleSpeech: 'unspecified',
+      onCameraSpeech: 'forbidden',
+      visiblePerson: 'forbidden',
+      physicalCapture: 'unspecified',
+    });
+
+    await expect(planVideoTreatment(input, {
+      cache: memoryCache(),
+      generate: async () => ({
+        result: modelOutputFrom(mixedPresenterCutawayTreatment),
+        cacheStatus: 'inline',
+        modelName: 'gemini-test',
+      }),
+      recordReceipt: async () => undefined,
+      knowledge: { loadEditronGraph: graphFixture },
+    })).rejects.toMatchObject({
+      code: 'treatment_contract_invalid',
+      message: expect.stringContaining('visible person'),
+    } satisfies Partial<VideoTreatmentPlannerError>);
   });
 
   it.each([

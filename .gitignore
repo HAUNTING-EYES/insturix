@@ -102,6 +102,7 @@ docs/agents/
 # Local scratch / generated artifacts — never shipped, were leaking into `git status`
 /outputs/
 /tmp/
+/.next-build-tmp/
 /.codex-digest/
 /tmp_*.txt
 *.local-bak

@@ -4,6 +4,12 @@ import {
   createUnspecifiedAudiovisualIntent,
   ThinkForgeAudiovisualIntentSchema,
 } from './audiovisual-intent';
+import {
+  collectAudiovisualIntentResolutionIssues,
+  createUnresolvedAudiovisualDecision,
+  ResolvedAudiovisualDecisionModelOutputSchema,
+  ResolvedAudiovisualDecisionSchema,
+} from './resolved-audiovisual-decision';
 
 export const VIDEO_TREATMENT_VERSION = 1 as const;
 export const CREATIVE_REFERENCE_SET_VERSION = 1 as const;
@@ -302,6 +308,11 @@ const VideoTreatmentObjectSchema = z.object({
   audiovisualIntent: ThinkForgeAudiovisualIntentSchema.default(
     createUnspecifiedAudiovisualIntent(),
   ),
+  // Historical V1 records remain readable, but unresolved decisions cannot be
+  // mistaken for a production-ready treatment by downstream consumers.
+  resolvedAudiovisualDecision: ResolvedAudiovisualDecisionSchema.default(
+    createUnresolvedAudiovisualDecision(),
+  ),
   visualEvents: z.array(VisualEventSchema).min(1),
   captureRequirements: z.array(CaptureRequirementSchema).default([]),
   decisionTrace: VideoTreatmentDecisionTraceSchema,
@@ -326,15 +337,40 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
   const visiblePersonEvents = treatment.visualEvents.filter(
     (event) => event.visiblePerson === 'required',
   );
+  const resolvedDecision = treatment.resolvedAudiovisualDecision;
 
-  if (treatment.audiovisualIntent.physicalCapture === 'forbidden' && physicalRequirements.length > 0) {
+  if (resolvedDecision.origin === 'model') {
+    collectAudiovisualIntentResolutionIssues(
+      treatment.audiovisualIntent,
+      resolvedDecision,
+    ).forEach((issue) => addIssue(
+      ctx,
+      ['resolvedAudiovisualDecision', ...issue.path],
+      issue.message,
+    ));
+  }
+
+  const physicalCaptureAbsent = resolvedDecision.origin === 'model'
+    ? resolvedDecision.physicalCapture.need === 'absent'
+    : treatment.audiovisualIntent.physicalCapture === 'forbidden';
+  const physicalCaptureRequired = resolvedDecision.origin === 'model'
+    ? resolvedDecision.physicalCapture.need === 'required'
+    : treatment.audiovisualIntent.physicalCapture === 'required';
+  const visiblePeopleAbsent = resolvedDecision.origin === 'model'
+    ? resolvedDecision.visiblePeople.presence === 'absent'
+    : treatment.audiovisualIntent.visiblePerson === 'forbidden';
+  const visiblePeopleRequired = resolvedDecision.origin === 'model'
+    ? resolvedDecision.visiblePeople.presence === 'present'
+    : treatment.audiovisualIntent.visiblePerson === 'required';
+
+  if (physicalCaptureAbsent && physicalRequirements.length > 0) {
     addIssue(
       ctx,
       ['captureRequirements'],
-      'Physical capture is forbidden by the resolved audiovisual intent.',
+      'Physical capture is forbidden or resolved as absent, but a physical-camera requirement was declared.',
     );
   }
-  if (treatment.audiovisualIntent.physicalCapture === 'required' && physicalRequirements.length === 0) {
+  if (physicalCaptureRequired && physicalRequirements.length === 0) {
     addIssue(
       ctx,
       ['captureRequirements'],
@@ -342,7 +378,7 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
     );
   }
   if (
-    treatment.audiovisualIntent.visiblePerson === 'forbidden'
+    visiblePeopleAbsent
     && physicalRequirements.some((requirement) => requirement.requiredCapabilities.includes('performer'))
   ) {
     addIssue(
@@ -352,20 +388,20 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
     );
   }
   if (
-    treatment.audiovisualIntent.visiblePerson === 'forbidden'
+    visiblePeopleAbsent
     && treatment.visualEvents.some((event) => event.visiblePerson !== 'forbidden')
   ) {
     addIssue(
       ctx,
       ['visualEvents'],
-      'Every visual event must explicitly forbid visible people when the resolved intent forbids them.',
+      'Every visual event must explicitly forbid visible people when visible people are forbidden or resolved as absent.',
     );
   }
-  if (treatment.audiovisualIntent.visiblePerson === 'required' && visiblePersonEvents.length === 0) {
+  if (visiblePeopleRequired && visiblePersonEvents.length === 0) {
     addIssue(
       ctx,
       ['visualEvents'],
-      'At least one visual event must require a visible person when the resolved intent requires one.',
+      'At least one visual event must require a visible person when visible presence is required or resolved as present.',
     );
   }
 
@@ -419,6 +455,7 @@ export const VideoTreatmentModelOutputSchema = VideoTreatmentObjectSchema
     version: true,
     treatmentId: true,
     audiovisualIntent: true,
+    resolvedAudiovisualDecision: true,
     decisionTrace: true,
   })
   .extend({
@@ -432,6 +469,7 @@ export const VideoTreatmentModelOutputSchema = VideoTreatmentObjectSchema
     continuityStrategy: ModelTreatmentDetailSchema,
     audioVoiceStrategy: ModelTreatmentDetailSchema,
     userConstraints: boundedModelTextList(16),
+    resolvedAudiovisualDecision: ResolvedAudiovisualDecisionModelOutputSchema,
     visualEvents: z.array(ModelVisualEventSchema).min(1).max(48),
     captureRequirements: z.array(ModelCaptureRequirementSchema).max(24).default([]),
     decisionTrace: BoundedVideoTreatmentModelDecisionTraceSchema,

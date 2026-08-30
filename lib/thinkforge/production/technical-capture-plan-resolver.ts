@@ -18,7 +18,7 @@ import {
 } from '@/lib/thinkforge/schemas/technical-capture-plan';
 import { generateStructuredWithWritingContextCache } from '@/lib/thinkforge/services/gemini-writing-context-cache';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.6-flash';
 const MAX_TOKENS = 20_480;
 const TECHNICAL_CAPTURE_KNOWLEDGE_VERSION = 1;
 const TECHNIQUE_CATEGORIES = new Set(['camera-movement', 'shot-type', 'sound', 'sound-theory']);
@@ -41,6 +41,7 @@ export type TechnicalCapturePlanGenerator = (input: {
   temperature: number;
   maxTokens: number;
   thinkingBudgetTokens: number;
+  thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
 }) => Promise<{
   result: TechnicalCapturePlanModelOutput;
@@ -137,6 +138,7 @@ export async function resolveTechnicalCapturePlan(
     temperature: 0.2,
     maxTokens: MAX_TOKENS,
     thinkingBudgetTokens: 3_072,
+    thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
   } satisfies Parameters<TechnicalCapturePlanGenerator>[0];
   const generate = dependencies.generate ?? generateTechnicalCapturePlan;
@@ -153,6 +155,7 @@ export async function resolveTechnicalCapturePlan(
         ...generationInput,
         prompt: `${promptParts.prompt}\n<length_recovery>Return the complete schema concisely. Preserve every coverage intent, real resource ID, required calibration category, and unresolved question.</length_recovery>`,
         thinkingBudgetTokens: 1_024,
+        thinkingLevel: 'low',
       });
     } catch (recoveryError) {
       if (!isLengthLimitedStructuredOutput(recoveryError)) throw recoveryError;

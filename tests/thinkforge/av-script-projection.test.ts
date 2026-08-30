@@ -4,10 +4,12 @@ import {
   AVScriptProjectionError,
   buildAVScriptPresentation,
 } from '@/lib/thinkforge/presentation/av-script-projection';
+import { parseAVScriptPresentationResponse } from '@/components/dashboard/ThinkForge/AVScriptView';
 import {
   materializeScriptSidecarV3,
   ScriptWriterSidecarV3ModelSchema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
+import type { VideoTreatment } from '@/lib/thinkforge/schemas/video-treatment';
 import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 function sidecar() {
@@ -47,6 +49,89 @@ function sidecar() {
               { treatmentEventId: 'event_host_claim' },
               { treatmentEventId: 'event_process_cutaway' },
             ],
+            sourceRefs: ['src_brief'],
+          }],
+        }],
+      }],
+      sourceRefs: ['src_brief'],
+    }),
+  });
+}
+
+const decisionEvidence = {
+  rationale: 'The approved treatment resolves the speech source and production presence explicitly.',
+  evidenceIds: ['src_brief'],
+};
+
+function diegeticTreatment(): VideoTreatment {
+  return {
+    ...mixedPresenterCutawayTreatment,
+    captureRequirements: [],
+    visualEvents: mixedPresenterCutawayTreatment.visualEvents.map((event) => ({
+      ...event,
+      visiblePerson: 'forbidden' as const,
+      captureRequirementIds: [],
+    })),
+    resolvedAudiovisualDecision: {
+      version: 1,
+      origin: 'model',
+      audibleSpeech: {
+        presence: 'present',
+        sources: ['diegetic-speech'],
+        ...decisionEvidence,
+      },
+      onCameraSpeech: { presence: 'absent', ...decisionEvidence },
+      visiblePeople: { presence: 'absent', ...decisionEvidence },
+      physicalCapture: { need: 'absent', ...decisionEvidence },
+      materials: {
+        graphics: 'preferred',
+        generatedImagery: 'absent',
+        suppliedFootage: 'absent',
+        screenMaterial: 'preferred',
+        sourceMaterial: 'absent',
+        ...decisionEvidence,
+      },
+      unresolvedQuestions: [],
+    },
+  };
+}
+
+function diegeticSidecar(treatment: VideoTreatment) {
+  return materializeScriptSidecarV3({
+    treatment,
+    identityPolicy: { mode: 'ordinary' },
+    modelSidecar: ScriptWriterSidecarV3ModelSchema.parse({
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'model_system_voice', name: 'System voice', role: 'narrator' }],
+      acts: [{
+        id: 'model_act',
+        title: 'Workflow proof',
+        narrativePurpose: 'Let the represented system confirm the workflow result.',
+        narrativeScenes: [{
+          id: 'model_scene',
+          title: 'Confirmation',
+          narrativePurpose: 'Pair the visible process with speech originating inside the represented scene.',
+          durationIntentSeconds: 12,
+          charactersPresent: [],
+          sourceRefs: ['src_brief'],
+          beats: [{
+            id: 'model_beat',
+            kind: 'mixed',
+            narrativePurpose: 'Show the proof while the in-scene system voice confirms it.',
+            durationIntentSeconds: 12,
+            lines: [{
+              id: 'model_line',
+              text: 'The approved workflow is complete.',
+              speakerId: 'model_system_voice',
+              languageCode: 'en',
+              onCamera: false,
+              delivery: 'diegetic-speech',
+              sourceRefs: ['src_brief'],
+            }],
+            treatmentVisualEvents: treatment.visualEvents.map((event) => ({
+              treatmentEventId: event.id,
+            })),
             sourceRefs: ['src_brief'],
           }],
         }],
@@ -99,5 +184,28 @@ describe('AV script presentation projection', () => {
       sidecar: changed,
       treatment: mixedPresenterCutawayTreatment,
     })).toThrow(AVScriptProjectionError);
+  });
+
+  it('preserves diegetic speech through server projection and browser contract parsing', () => {
+    const treatment = diegeticTreatment();
+    const presentation = buildAVScriptPresentation({
+      title: 'Workflow confirmation',
+      documentVersion: 8,
+      sidecar: diegeticSidecar(treatment),
+      treatment,
+    });
+
+    expect(presentation.acts[0]?.scenes[0]?.beats[0]?.heard).toEqual([{
+      speaker: 'System voice',
+      delivery: 'diegetic-speech',
+      text: 'The approved workflow is complete.',
+      onCamera: false,
+    }]);
+    expect(parseAVScriptPresentationResponse(presentation)).toMatchObject({
+      status: 'available',
+      presentation: {
+        acts: [{ scenes: [{ beats: [{ heard: [{ delivery: 'diegetic-speech' }] }] }] }],
+      },
+    });
   });
 });

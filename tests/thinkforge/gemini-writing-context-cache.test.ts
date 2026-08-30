@@ -851,6 +851,39 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
       .toMatchObject({ thinkingBudgetTokens: 8_192 });
   });
 
+  it('uses the Gemini 3 request contract without deprecated sampling controls', async () => {
+    await generateStructuredWithWritingContextCache({
+      modelName: 'gemini-3.6-flash',
+      prompt: 'Plan the audiovisual treatment.',
+      schema: z.object({ output: z.string() }),
+      temperature: 0.7,
+      maxTokens: 20_480,
+      thinkingBudgetTokens: 8_192,
+      thinkingLevel: 'medium',
+    });
+
+    const request = sdkMocks.generateObject.mock.calls.at(-1)?.[0];
+    expect(request).toMatchObject({
+      maxOutputTokens: 20_480,
+      providerOptions: {
+        google: {
+          cachedContent: 'cachedContents/thinkforge-test',
+          thinkingConfig: { thinkingLevel: 'medium' },
+        },
+      },
+    });
+    expect(request).not.toHaveProperty('temperature');
+    expect(request).not.toHaveProperty('topP');
+    expect(request).not.toHaveProperty('topK');
+    expect(request?.providerOptions?.google?.thinkingConfig).not.toHaveProperty('thinkingBudget');
+    expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]).toMatchObject({
+      model: 'gemini-3.6-flash',
+      metadata: {
+        thinkingLevel: 'medium',
+      },
+    });
+  });
+
   it('preserves a bounded thinking budget when cached context is unavailable', async () => {
     sdkMocks.createCache.mockRejectedValueOnce(
       new Error('TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for cached content: limit=0'),

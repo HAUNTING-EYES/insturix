@@ -18,7 +18,7 @@ import {
   type PhysicalCaptureKnowledgeDependencies,
 } from './physical-capture-knowledge';
 
-const PHYSICAL_CAPTURE_DESIGN_MODEL = 'gemini-2.5-flash';
+const PHYSICAL_CAPTURE_DESIGN_MODEL = 'gemini-3.6-flash';
 const PHYSICAL_CAPTURE_DESIGN_TEMPERATURE = 0.25;
 const PHYSICAL_CAPTURE_DESIGN_MAX_TOKENS = 20_480;
 const PHYSICAL_CAPTURE_DESIGN_THINKING_TOKENS = 3_072;
@@ -33,6 +33,7 @@ export type PhysicalCaptureDesignGenerator = (input: {
   temperature: number;
   maxTokens: number;
   thinkingBudgetTokens: number;
+  thinkingLevel: 'low' | 'medium' | 'high';
   abortSignal?: AbortSignal;
 }) => Promise<{
   result: PhysicalCaptureDesignModelOutput;
@@ -137,6 +138,7 @@ export async function planPhysicalCaptureDesign(
     temperature: PHYSICAL_CAPTURE_DESIGN_TEMPERATURE,
     maxTokens: PHYSICAL_CAPTURE_DESIGN_MAX_TOKENS,
     thinkingBudgetTokens: PHYSICAL_CAPTURE_DESIGN_THINKING_TOKENS,
+    thinkingLevel: 'medium',
     abortSignal: input.abortSignal,
   } satisfies Parameters<PhysicalCaptureDesignGenerator>[0];
   const generate = dependencies.generate ?? generatePhysicalCaptureDesign;
@@ -153,6 +155,7 @@ export async function planPhysicalCaptureDesign(
         ...generationInput,
         prompt: `${promptParts.prompt}\n\n<length_recovery>Return the complete schema using one concise sentence per field. Preserve every physical requirement, linked event, provenance reference, continuity constraint, and unresolved question. Do not omit coverage to save space.</length_recovery>`,
         thinkingBudgetTokens: PHYSICAL_CAPTURE_DESIGN_RECOVERY_THINKING_TOKENS,
+        thinkingLevel: 'low',
       });
     } catch (recoveryError) {
       if (!isLengthLimitedStructuredOutput(recoveryError)) throw recoveryError;
