@@ -7,10 +7,9 @@ import type { MediaSourceAudioPrivateArtifactStreamWriterV1 }
   from './media-source-audio-private-artifact-port-v1';
 import {
   materializeMediaSourceAudioProductV1,
+  type MediaSourceAudioProductMaterializationInputV1,
   type MediaSourceAudioProductMaterializationReceiptV1,
 } from './media-source-audio-product-materializer-v1';
-import type { MediaSourceAudioSampleEpochResourcePolicyV1 }
-  from './media-source-audio-sample-epoch-map-v1';
 import {
   createMediaSourcePtsCadenceR2RuntimePortsV1,
   type MediaSourcePtsCadenceR2RuntimeEnvironmentV1,
@@ -56,12 +55,7 @@ export type MediaSourceAudioProductRuntimeDependenciesV1 = Readonly<{
 
 /** Composes the product materializer over the dedicated server-only owners. */
 export async function runMediaSourceAudioProductRuntimeV1(
-  input: Readonly<{
-    assetId: string;
-    userId: string;
-    resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
-    publishedAt: Date;
-  }>,
+  input: MediaSourceAudioProductMaterializationInputV1,
   dependencies: MediaSourceAudioProductRuntimeDependenciesV1 = {},
 ): Promise<MediaSourceAudioProductRuntimeResultV1> {
   const environment = dependencies.environment ?? process.env;

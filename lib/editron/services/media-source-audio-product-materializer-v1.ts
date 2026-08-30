@@ -14,8 +14,10 @@ import type { MediaSourceAudioPrivateArtifactStreamWriterV1 }
   from './media-source-audio-private-artifact-port-v1';
 import {
   assertMediaSourceAudioSampleEpochResourcePolicyV1,
+  assertMediaSourceAudioStreamBindingV1,
   createMediaSourceAudioStreamBindingV1,
   type MediaSourceAudioSampleEpochResourcePolicyV1,
+  type MediaSourceAudioStreamBindingV1,
 } from './media-source-audio-sample-epoch-map-v1';
 import { materializeMediaSourceAudioPrivateArtifactFfmpegV1 }
   from './media-source-audio-sample-epoch-ffmpeg-v1';
@@ -48,6 +50,7 @@ export type MediaSourceAudioProductMaterializationReceiptV1 = Readonly<{
   assetId: string;
   userId: string;
   sourceVersionSha256: string;
+  audioStreamBindingsSha256: string;
   observedAudioStreamIndexes: readonly number[];
   materializedAudioStreamIndexes: readonly number[];
   audioArtifactStateSha256: string;
@@ -62,6 +65,7 @@ export type MediaSourceAudioProductMaterializationFailureReasonV1 =
   | 'ASSET_LOAD_FAILED'
   | 'ASSET_NOT_FOUND'
   | 'SOURCE_BINDING_INVALID'
+  | 'EXPECTED_SOURCE_MISMATCH'
   | 'AUDIO_STREAM_OBSERVATION_INVALID'
   | 'AUDIO_STREAM_COUNT_EXCEEDED'
   | 'NO_AUDIO_PROOF_REQUIRED'
@@ -82,6 +86,14 @@ export type MediaSourceAudioProductMaterializationFailureReasonV1 =
 type MaterializeAudioStreamV1 =
   typeof materializeMediaSourceAudioPrivateArtifactFfmpegV1;
 
+export type MediaSourceAudioProductMaterializationInputV1 = Readonly<{
+  assetId: string;
+  userId: string;
+  expectedAudioStreamBindings: readonly MediaSourceAudioStreamBindingV1[];
+  resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
+  publishedAt: Date;
+}>;
+
 export type MediaSourceAudioProductMaterializationPortsV1 = Readonly<{
   assetStorePorts: MediaSourceAudioArtifactAssetStorePortsV1;
   evidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1;
@@ -98,12 +110,7 @@ export type MediaSourceAudioProductMaterializationPortsV1 = Readonly<{
  * retry budget, user-facing selection or no-audio policy.
  */
 export async function materializeMediaSourceAudioProductV1(
-  input: Readonly<{
-    assetId: string;
-    userId: string;
-    resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
-    publishedAt: Date;
-  }>,
+  input: MediaSourceAudioProductMaterializationInputV1,
   ports: MediaSourceAudioProductMaterializationPortsV1,
 ): Promise<MediaSourceAudioProductMaterializationReceiptV1> {
   const normalized = normalizeInput(input);
@@ -120,6 +127,7 @@ export async function materializeMediaSourceAudioProductV1(
   let sourceVersion: ReturnType<typeof assertMediaSourceVersionV1>;
   let qualification: MediaSourceQualificationRecordV1;
   let observed: readonly number[];
+  let bindings: readonly MediaSourceAudioStreamBindingV1[];
   try {
     sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
     if (asset.assetId !== normalized.assetId
@@ -136,12 +144,16 @@ export async function materializeMediaSourceAudioProductV1(
     if (indexes.length > MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1) {
       throw failure('AUDIO_STREAM_COUNT_EXCEEDED', false);
     }
-    for (const audioStreamIndex of indexes) {
+    bindings = indexes.map((audioStreamIndex) => (
       createMediaSourceAudioStreamBindingV1({
         sourceVersion,
         qualification,
         audioStreamIndex,
-      });
+      })
+    ));
+    if (hashEditronCanonicalJsonV1(bindings)
+      !== hashEditronCanonicalJsonV1(normalized.expectedAudioStreamBindings)) {
+      throw failure('EXPECTED_SOURCE_MISMATCH', false);
     }
     observed = indexes;
   } catch (error) {
@@ -253,6 +265,7 @@ export async function materializeMediaSourceAudioProductV1(
     assetId: normalized.assetId,
     userId: normalized.userId,
     sourceVersionSha256: sourceVersion.sourceVersionSha256,
+    audioStreamBindingsSha256: hashEditronCanonicalJsonV1(bindings),
     observedAudioStreamIndexes: observed,
     materializedAudioStreamIndexes: materialized,
     audioArtifactStateSha256: state.sourceAudioArtifactsStateSha256V1,
@@ -317,18 +330,32 @@ const RETRYABLE_MATERIALIZATION_CODES = new Set([
   'MEDIA_SOURCE_AUDIO_R2_WRITE_FAILED',
 ]);
 
-function normalizeInput(input: Readonly<{
-  assetId: string;
-  userId: string;
-  resourcePolicy: MediaSourceAudioSampleEpochResourcePolicyV1;
-  publishedAt: Date;
-}>) {
+function normalizeInput(input: MediaSourceAudioProductMaterializationInputV1) {
   try {
     const publishedAt = new Date(input.publishedAt.getTime());
     if (Number.isNaN(publishedAt.getTime())) throw new Error('DATE_INVALID');
+    if (!Array.isArray(input.expectedAudioStreamBindings)
+      || input.expectedAudioStreamBindings.length
+        > MEDIA_SOURCE_AUDIO_ARTIFACT_ASSET_MAX_STREAMS_V1) {
+      throw new Error('EXPECTED_AUDIO_STREAM_BINDINGS_INVALID');
+    }
+    const expectedAudioStreamBindings = input.expectedAudioStreamBindings
+      .map((binding) => assertMediaSourceAudioStreamBindingV1(binding))
+      .sort((left, right) => left.audioStreamIndex - right.audioStreamIndex);
+    const assetId = identifier(input.assetId);
+    const streamIndexes = expectedAudioStreamBindings.map(
+      ({ audioStreamIndex }) => audioStreamIndex,
+    );
+    if (new Set(streamIndexes).size !== streamIndexes.length
+      || expectedAudioStreamBindings.some(({ assetId: boundAssetId }) => (
+        boundAssetId !== assetId
+      ))) {
+      throw new Error('EXPECTED_AUDIO_STREAM_BINDINGS_INVALID');
+    }
     return {
-      assetId: identifier(input.assetId),
+      assetId,
       userId: identifier(input.userId),
+      expectedAudioStreamBindings,
       resourcePolicy: assertMediaSourceAudioSampleEpochResourcePolicyV1(
         input.resourcePolicy,
       ),

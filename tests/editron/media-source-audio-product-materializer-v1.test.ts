@@ -59,6 +59,7 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
       disposition: 'COMPLETED',
       observedAudioStreamIndexes: [4, 9],
       materializedAudioStreamIndexes: [4, 9],
+      audioStreamBindingsSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       audioArtifactStateSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       sourceVersionEvidenceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       receiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -159,6 +160,29 @@ describe('MediaSourceAudioProductMaterializerV1', () => {
     expect(active.replace).not.toHaveBeenCalled();
   });
 
+  it('blocks a changed source qualification before decode or active-state mutation', async () => {
+    const fixture = sourceFixture('binding-drift', [4]);
+    const active = activeStore({
+      ...fixture.asset,
+      sourceQualificationV1: {
+        ...fixture.qualification,
+        sourceBindingSha256: digest(Buffer.from('changed-binding')),
+      },
+    });
+    const materializeStream = materializer(fixture);
+
+    const error = await materializeMediaSourceAudioProductV1(
+      productInput(fixture),
+      productPorts(active.ports, evidenceStore().ports, materializeStream),
+    ).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      reason: 'EXPECTED_SOURCE_MISMATCH', retryable: false,
+    });
+    expect(materializeStream).not.toHaveBeenCalled();
+    expect(active.replace).not.toHaveBeenCalled();
+  });
+
   it('classifies a private-store outage as retryable without changing active state', async () => {
     const fixture = sourceFixture('outage', [4]);
     const active = activeStore(fixture.asset);
@@ -184,6 +208,13 @@ function productInput(fixture: ReturnType<typeof sourceFixture>) {
   return {
     assetId: fixture.sourceVersion.assetId,
     userId: 'user-product-audio',
+    expectedAudioStreamBindings: fixture.audioStreamIndexes.map(
+      (audioStreamIndex) => createMediaSourceAudioStreamBindingV1({
+        sourceVersion: fixture.sourceVersion,
+        qualification: fixture.qualification,
+        audioStreamIndex,
+      }),
+    ),
     resourcePolicy: resourcePolicy(),
     publishedAt: new Date('2026-08-30T13:00:00.000Z'),
   };
@@ -382,7 +413,7 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
     sourceVersionV1: sourceVersion,
     sourceQualificationV1: qualification,
   };
-  return { asset, qualification, sourceVersion };
+  return { asset, audioStreamIndexes, qualification, sourceVersion };
 }
 
 function resourcePolicy(): MediaSourceAudioSampleEpochResourcePolicyV1 {

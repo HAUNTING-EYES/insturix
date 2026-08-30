@@ -12,6 +12,7 @@ import type { MediaSourceVersionEvidenceStorePortsV1 }
 const input = {
   assetId: 'asset-runtime-audio',
   userId: 'user-runtime-audio',
+  expectedAudioStreamBindings: [],
   resourcePolicy: {
     policyVersion: 'runtime-audio-test-v1',
     maxSourceBytes: 1_000,
@@ -104,6 +105,7 @@ function receipt(): MediaSourceAudioProductMaterializationReceiptV1 {
     assetId: input.assetId,
     userId: input.userId,
     sourceVersionSha256: '1'.repeat(64),
+    audioStreamBindingsSha256: '5'.repeat(64),
     observedAudioStreamIndexes: [0],
     materializedAudioStreamIndexes: [0],
     audioArtifactStateSha256: '2'.repeat(64),
