@@ -10247,6 +10247,30 @@ GC, persistent no-audio proof, verified historical migration and downstream
 source-version consumers remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Durable audio recovery cron Phase 3F-C8au (2026-08-30):** commit
+`aa021683c` composes the existing exact-family C8as recovery selector with the
+generic durable store, the C8at delivery policy and a strict-secret cron route.
+Each sweep waits two durable lease windows, requests at most ten candidates and
+redelivers only jobs whose owner, operation kind and input schema identify the
+source-audio family. The existing selector binds recovery deduplication to the
+current durable state; this phase adds no job creator, media materializer or
+second source authority.
+
+The route returns success only when every selected publish is confirmed. An
+unconfirmed publish or delivered message whose receipt was not recorded keeps
+the full sanitized recovery receipt and returns 503 with a five-minute retry
+hint. Missing or incorrect cron authentication fails closed, runtime errors do
+not expose provider/database details, and `vercel.json` registers the route on
+the same five-minute cadence as V3 recovery. The focused audio cron/selector
+suite passes 14/14; the widened audio-plus-V3 recovery suite passes 42/42; full
+TypeScript and repository-wide quiet ESLint pass. This result is
+`DURABLE_AUDIO_RECOVERY_CRON_CONFIGURED_LIVE_REDELIVERY_PROOF_OPEN`.
+Deployment registration is not hosted invocation evidence: live cron auth,
+QStash acceptance, restart/redelivery through a disposable stale job, terminal
+materialization, dedicated-R2/Atlas cleanup, unreachable-byte GC, persistent
+no-audio proof and verified historical migration remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
