@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { hashEditronCanonicalJsonV1 }
   from '@/lib/editron/services/canonical-json-v1';
 import {
+  captureMediaSourceAudioAvailabilityEvidenceV1,
+  type MediaSourceAudioAvailabilityEvidenceStorePortsV1,
+  type MediaSourceAudioAvailabilityEvidenceV1,
+} from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
+import {
   createMediaSourceAudioArtifactAssetRecordV1,
   createMediaSourceAudioArtifactAssetStateV1,
   persistMediaSourceAudioArtifactAssetStateV1,
@@ -27,10 +32,13 @@ import {
   serializeMediaSourceAudioSampleEpochMapV1,
 } from '@/lib/editron/services/media-source-audio-sample-epoch-map-v1';
 import {
-  createMediaSourceAudioVersionEvidenceStorePortsV1,
+  createMediaSourceAudioAvailabilityBoundStorePortsV1,
   MediaSourceAudioVersionEvidenceErrorV1,
 } from '@/lib/editron/services/media-source-audio-version-evidence-store-v1';
-import type { MediaSourceQualificationRecordV1 }
+import {
+  createMediaSourceQualificationV1,
+  type MediaSourceQualificationRecordV1,
+}
   from '@/lib/editron/services/media-source-qualification-v1';
 import { createMediaSourceStorageVersionV1 }
   from '@/lib/editron/services/media-source-storage-version-v1';
@@ -47,13 +55,16 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
     const fixture = sourceFixture('multi', [1, 2]);
     const order: string[] = [];
     const active = activeStore(fixture.asset, order);
+    const availability = availabilityStore(null, 0, order);
     const evidence = evidenceStore(null, 0, order);
-    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
       assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
       evidenceStorePorts: evidence.ports,
     });
     const first = await persistArtifact(fixture, ports, null, 2, 20);
     expect(first.disposition).toBe('APPLIED');
+    expect(availability.compareAndSet).not.toHaveBeenCalled();
     expect(evidence.compareAndSet).not.toHaveBeenCalled();
     expect(order).toEqual(['asset']);
 
@@ -67,7 +78,9 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
       10,
     );
     expect(complete.disposition).toBe('APPLIED');
-    expect(order).toEqual(['evidence', 'asset']);
+    expect(order).toEqual(['availability', 'evidence', 'asset']);
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
     expect(evidence.current()?.sourceAudioArtifactsV1?.records.map(
       ({ audioStreamIndex }) => audioStreamIndex,
     )).toEqual([1, 2]);
@@ -77,16 +90,22 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
     const fixture = sourceFixture('single', [3]);
     const order: string[] = [];
     const active = activeStore(fixture.asset, order);
+    const availability = availabilityStore(null, 0, order);
     const evidence = evidenceStore(null, 0, order);
-    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
       assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
       evidenceStorePorts: evidence.ports,
     });
 
     await expect(persistArtifact(fixture, ports, null, 3, 30))
       .resolves.toMatchObject({ disposition: 'APPLIED' });
-    expect(order).toEqual(['evidence', 'asset']);
+    expect(order).toEqual(['availability', 'evidence', 'asset']);
     expect(evidence.current()).toMatchObject({
+      sourceAudioArtifactsV1: { records: [{ audioStreamIndex: 3 }] },
+    });
+    expect(availability.current()?.availability).toMatchObject({
+      disposition: 'DECODED_ARTIFACT_SET',
       sourceAudioArtifactsV1: { records: [{ audioStreamIndex: 3 }] },
     });
   });
@@ -98,9 +117,11 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
       sourcePtsCadenceMapV3: { status: 'PENDING' },
       sourcePtsCadenceMapStateSha256V3: digest(Buffer.from('pending-v3')),
     });
+    const availability = availabilityStore();
     const evidence = evidenceStore();
-    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
       assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
       evidenceStorePorts: evidence.ports,
     });
 
@@ -115,6 +136,8 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
       sourcePtsCadenceMapV3: { status: 'PENDING' },
       sourceAudioArtifactsV1: { records: [{ audioStreamIndex: 3 }] },
     });
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
   });
 
   it('blocks the terminal active write for conflicting historical audio evidence', async () => {
@@ -128,8 +151,10 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
       ...conflictingState,
     });
     const active = activeStore(fixture.asset);
-    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+    const availability = availabilityStore();
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
       assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
       evidenceStorePorts: evidenceStore(conflicting).ports,
     });
 
@@ -139,15 +164,43 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
     expect(error).toMatchObject({
       reason: 'SOURCE_VERSION_EVIDENCE_CONFLICT', retryable: false,
     });
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
+    expect(active.replace).not.toHaveBeenCalled();
+  });
+
+  it('blocks decoded activation when canonical evidence already proves no audio', async () => {
+    const fixture = sourceFixture('availability-conflict', [1]);
+    const noAudio = sourceFixture('availability-conflict', []);
+    const canonicalNoAudio = captureMediaSourceAudioAvailabilityEvidenceV1(
+      noAudio.asset,
+    );
+    const active = activeStore(fixture.asset);
+    const evidence = evidenceStore();
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
+      assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts:
+        availabilityStore(canonicalNoAudio).ports,
+      evidenceStorePorts: evidence.ports,
+    });
+
+    const error = await persistArtifact(fixture, ports, null, 1, 10)
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({
+      reason: 'SOURCE_AUDIO_AVAILABILITY_CONFLICT', retryable: false,
+    });
+    expect(evidence.compareAndSet).not.toHaveBeenCalled();
     expect(active.replace).not.toHaveBeenCalled();
   });
 
   it('exhausts bounded evidence races without mutating the active terminal set', async () => {
     const fixture = sourceFixture('race', [1]);
     const active = activeStore(fixture.asset);
+    const availability = availabilityStore();
     const evidence = evidenceStore(null, 2);
-    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
       assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
       evidenceStorePorts: evidence.ports,
     });
 
@@ -157,6 +210,29 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
       reason: 'SOURCE_VERSION_EVIDENCE_RACE_EXHAUSTED', retryable: true,
     });
     expect(evidence.compareAndSet).toHaveBeenCalledTimes(2);
+    expect(availability.current()?.availability.disposition)
+      .toBe('DECODED_ARTIFACT_SET');
+    expect(active.replace).not.toHaveBeenCalled();
+  });
+
+  it('exhausts canonical availability races before legacy or active writes', async () => {
+    const fixture = sourceFixture('availability-race', [1]);
+    const active = activeStore(fixture.asset);
+    const availability = availabilityStore(null, 2);
+    const evidence = evidenceStore();
+    const ports = createMediaSourceAudioAvailabilityBoundStorePortsV1({
+      assetStorePorts: active.ports,
+      availabilityEvidenceStorePorts: availability.ports,
+      evidenceStorePorts: evidence.ports,
+    });
+
+    const error = await persistArtifact(fixture, ports, null, 1, 10)
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({
+      reason: 'SOURCE_AUDIO_AVAILABILITY_RACE_EXHAUSTED', retryable: true,
+    });
+    expect(availability.compareAndSet).toHaveBeenCalledTimes(2);
+    expect(evidence.compareAndSet).not.toHaveBeenCalled();
     expect(active.replace).not.toHaveBeenCalled();
   });
 });
@@ -221,6 +297,39 @@ function evidenceStore(
   });
   return {
     ports: { load, compareAndSet } satisfies MediaSourceVersionEvidenceStorePortsV1,
+    compareAndSet,
+    current: () => current,
+  };
+}
+
+function availabilityStore(
+  initial: MediaSourceAudioAvailabilityEvidenceV1 | null = null,
+  forcedRaces = 0,
+  order: string[] = [],
+) {
+  let current = initial;
+  let races = forcedRaces;
+  const load = vi.fn(async () => current);
+  const compareAndSet = vi.fn(async ({
+    expectedEvidenceSha256,
+    next,
+  }: Parameters<
+    MediaSourceAudioAvailabilityEvidenceStorePortsV1['compareAndSet']
+  >[0]) => {
+    if (races > 0) {
+      races -= 1;
+      return false;
+    }
+    if ((current?.evidenceSha256 ?? null) !== expectedEvidenceSha256) return false;
+    current = next;
+    order.push('availability');
+    return true;
+  });
+  return {
+    ports: {
+      load,
+      compareAndSet,
+    } satisfies MediaSourceAudioAvailabilityEvidenceStorePortsV1,
     compareAndSet,
     current: () => current,
   };
@@ -315,14 +424,41 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
     contentSha256: digest(Buffer.from(`source-${tag}`)),
     storageVersion,
   });
+  const created = createMediaSourceQualificationV1({
+    asset: {
+      assetId: sourceVersion.assetId,
+      source: 'user-upload',
+      r2Key: storageVersion.locator.objectKey,
+    },
+    now: new Date('2026-08-30T00:00:00.000Z'),
+  });
+  if (created.disposition !== 'CREATED') throw new Error('TEST_FIXTURE_INVALID');
   const observationMaterial = {
     schemaVersion: 1 as const,
     kind: 'EDITRON_MEDIA_SOURCE_PROBE_V1' as const,
     probeVersion: 'ffprobe-8.1',
     formatName: 'mov',
-    durationMilliseconds: 1,
+    durationMilliseconds: 10_000,
     startTimeMilliseconds: 0,
-    videoStreams: [],
+    videoStreams: [{
+      streamIndex: 0,
+      codec: 'h264',
+      codedWidth: 1920,
+      codedHeight: 1080,
+      pixelFormat: 'yuv420p',
+      sourceTimebase: { numerator: '1', denominator: '90000' },
+      sourceStartPts: '0',
+      sourceDurationTicks: '900000',
+      averageFrameRate: { numerator: '30', denominator: '1' },
+      realFrameRate: { numerator: '30', denominator: '1' },
+      frameCount: '300',
+      colorSpace: 'bt709',
+      colorTransfer: 'bt709',
+      colorPrimaries: 'bt709',
+      colorRange: 'tv',
+      timecode: null,
+      reelId: null,
+    }],
     audioStreams: audioStreamIndexes.map((streamIndex) => ({
       streamIndex,
       codec: 'pcm_s16le',
@@ -335,15 +471,9 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
     })),
   };
   const qualification: MediaSourceQualificationRecordV1 = {
-    schemaVersion: 1,
-    kind: 'EDITRON_MEDIA_SOURCE_QUALIFICATION_V1',
+    ...created.record,
     status: 'MEASURED_TECHNICAL',
-    assetId: sourceVersion.assetId,
-    locator: storageVersion.locator,
-    sourceBindingSha256: digest(Buffer.from(`binding-${tag}`)),
-    requestId: `request-${tag}`,
     attemptCount: 1,
-    requestedAt: '2026-08-30T00:00:00.000Z',
     startedAt: '2026-08-30T00:00:01.000Z',
     completedAt: '2026-08-30T00:00:02.000Z',
     storageVersion,
@@ -351,7 +481,6 @@ function sourceFixture(tag: string, audioStreamIndexes: readonly number[]) {
       ...observationMaterial,
       observationSha256: hashEditronCanonicalJsonV1(observationMaterial),
     },
-    diagnostic: null,
   };
   const asset: MediaSourceAudioArtifactAssetStateInputV1 = {
     assetId: sourceVersion.assetId,
