@@ -9381,6 +9381,31 @@ dedicated private R2 or live Atlas, reclaim unreachable artifacts, or prove
 long-running renewal. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
 unchanged.
 
+**Qualified full-source coverage closure Phase 3F-C8m (2026-08-30):** audit
+of the new durable binding exposed a missing independent check in the V3
+publisher. The scan-result schema proved that its first and last summaries
+matched its own declared range, but the publisher did not compare that range
+with the selected stream's qualified source start and end. A structurally
+valid result could therefore have omitted a source tail and still entered
+artifact publication.
+
+Commit `eff99f0d1` makes the sole V3 publisher recompute expected coverage from
+the current source version, qualification, selected stream, exact V3 mapper
+and bound coverage-policy identity. The caller-supplied coverage must match
+those independently derived bytes and the request map binding. A complete
+result must then match both exact signed presentation boundaries. Malformed or
+foreign coverage is `REJECTED`; an internally valid but incomplete result is
+`UNVERIFIABLE` before staging reads, epoch-index writes, asset loads or CAS.
+There is no partial-map or approximate fallback.
+
+The publisher/finalizer suite passes 12/12, including a valid result ending 40
+source ticks before the qualified tail with asserted zero storage/state work;
+repository TypeScript, repository-wide quiet ESLint and diff checks pass. This
+result is `V3_QUALIFIED_SOURCE_COVERAGE_ENFORCED_DURABLE_WORKER_OPEN`. It does
+not add durable execution, signed ingress, deployment, live storage, external
+boundary semantics, recovery or GC. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
