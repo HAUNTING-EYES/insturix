@@ -23,6 +23,8 @@ import {
   publishMediaSourcePtsCadenceScanV3,
   type MediaSourcePtsCadenceScanPublicationResultV3,
 } from '@/lib/editron/services/media-source-pts-cadence-scan-publisher-v3';
+import { MediaSourcePtsCadenceVersionEvidenceErrorV3 }
+  from '@/lib/editron/services/media-source-pts-cadence-version-evidence-state-owner-v3';
 import {
   MEDIA_SOURCE_PTS_CADENCE_SCAN_RESULT_KIND_V1,
 } from '@/lib/editron/services/media-source-pts-cadence-scan-result-v1';
@@ -40,6 +42,8 @@ import { createMediaSourceStorageVersionV1 }
   from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 }
   from '@/lib/editron/services/media-source-version-v1';
+import type { MediaSourceVersionEvidenceStorePortsV1 }
+  from '@/lib/editron/services/media-source-version-evidence-owner-v1';
 import { StatefulMongoCollection } from './helpers/stateful-mongo-collection';
 
 const START = new Date('2026-08-30T10:00:00.000Z');
@@ -54,6 +58,7 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
   it('preflights every external owner before claiming a durable attempt', async () => {
     const privateFactory = vi.fn(() => privateRuntime());
     const assetFactory = vi.fn(async () => assetStore(sourceFixture()));
+    const evidenceFactory = vi.fn(() => evidenceStore());
 
     expect(await runMediaSourcePtsCadenceDurableEpochRuntimeV3(
       { jobId: 'job-not-claimed', workerId: 'worker-v3' },
@@ -62,6 +67,7 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
         transportConfigured: () => false,
         createPrivateRuntime: privateFactory,
         createAssetStorePorts: assetFactory,
+        createSourceVersionEvidenceStorePorts: evidenceFactory,
       },
     )).toEqual({
       kind: 'runtime_unavailable',
@@ -69,6 +75,7 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
     });
     expect(privateFactory).not.toHaveBeenCalled();
     expect(assetFactory).not.toHaveBeenCalled();
+    expect(evidenceFactory).not.toHaveBeenCalled();
 
     expect(await runMediaSourcePtsCadenceDurableEpochRuntimeV3(
       { jobId: 'job-not-claimed', workerId: 'worker-v3' },
@@ -79,12 +86,14 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
           throw new Error('missing dedicated private storage');
         },
         createAssetStorePorts: assetFactory,
+        createSourceVersionEvidenceStorePorts: evidenceFactory,
       },
     )).toEqual({
       kind: 'runtime_unavailable',
       reason: 'PRIVATE_STORAGE_NOT_CONFIGURED',
     });
     expect(assetFactory).not.toHaveBeenCalled();
+    expect(evidenceFactory).not.toHaveBeenCalled();
 
     expect(await runMediaSourcePtsCadenceDurableEpochRuntimeV3(
       { jobId: 'job-not-claimed', workerId: 'worker-v3' },
@@ -95,10 +104,28 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
         createAssetStorePorts: async () => {
           throw new Error('media asset owner unavailable');
         },
+        createSourceVersionEvidenceStorePorts: evidenceFactory,
       },
     )).toEqual({
       kind: 'runtime_unavailable',
       reason: 'MEDIA_ASSET_OWNER_UNAVAILABLE',
+    });
+    expect(evidenceFactory).not.toHaveBeenCalled();
+
+    expect(await runMediaSourcePtsCadenceDurableEpochRuntimeV3(
+      { jobId: 'job-not-claimed', workerId: 'worker-v3' },
+      {
+        environment: ENVIRONMENT,
+        transportConfigured: () => true,
+        createPrivateRuntime: privateFactory,
+        createAssetStorePorts: assetFactory,
+        createSourceVersionEvidenceStorePorts: () => {
+          throw new Error('source-version evidence owner unavailable');
+        },
+      },
+    )).toEqual({
+      kind: 'runtime_unavailable',
+      reason: 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE',
     });
   });
 
@@ -215,6 +242,51 @@ describe('media source PTS cadence durable epoch runtime V3', () => {
       jobId: fixture.created.job.jobId,
       errorCode:
         'MEDIA_SOURCE_PTS_EPOCH_WORKER_PUBLISHER_TERMINAL_RECEIPT_MISSING',
+    });
+  });
+
+  it('retries evidence storage failure and dead-letters an evidence conflict', async () => {
+    const retryFixture = await jobFixture();
+    const retrySubmissions: MediaSourcePtsCadenceEpochScanSubmissionV3[] = [];
+    const retry = await runMediaSourcePtsCadenceDurableEpochRuntimeV3({
+      jobId: retryFixture.created.job.jobId,
+      workerId: 'worker-v3',
+    }, runtimeDependencies(
+      retryFixture,
+      retrySubmissions,
+      async () => {
+        throw new MediaSourcePtsCadenceVersionEvidenceErrorV3(
+          'SOURCE_VERSION_EVIDENCE_STORE_LOAD_FAILED',
+          true,
+        );
+      },
+    ));
+    expect(retry).toMatchObject({
+      kind: 'retry_wait',
+      errorCode:
+        'MEDIA_SOURCE_PTS_EPOCH_WORKER_PUBLISHER_SOURCE_VERSION_EVIDENCE_STORE_LOAD_FAILED',
+    });
+
+    const conflictFixture = await jobFixture();
+    const conflictSubmissions: MediaSourcePtsCadenceEpochScanSubmissionV3[] = [];
+    const conflict = await runMediaSourcePtsCadenceDurableEpochRuntimeV3({
+      jobId: conflictFixture.created.job.jobId,
+      workerId: 'worker-v3',
+    }, runtimeDependencies(
+      conflictFixture,
+      conflictSubmissions,
+      async () => {
+        throw new MediaSourcePtsCadenceVersionEvidenceErrorV3(
+          'SOURCE_VERSION_EVIDENCE_CONFLICT',
+          false,
+        );
+      },
+    ));
+    expect(conflict).toEqual({
+      kind: 'dead_letter',
+      jobId: conflictFixture.created.job.jobId,
+      errorCode:
+        'MEDIA_SOURCE_PTS_EPOCH_WORKER_PUBLISHER_SOURCE_VERSION_EVIDENCE_CONFLICT',
     });
   });
 
@@ -336,6 +408,13 @@ function assetStore(
       sourceQualificationV1: source.qualification,
     })),
     replace: vi.fn(async () => true),
+  };
+}
+
+function evidenceStore(): MediaSourceVersionEvidenceStorePortsV1 {
+  return {
+    load: vi.fn(async () => null),
+    compareAndSet: vi.fn(async () => true),
   };
 }
 

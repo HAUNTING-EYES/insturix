@@ -26,10 +26,18 @@ import {
   publishMediaSourcePtsCadenceScanV3,
   type MediaSourcePtsCadenceScanPublicationResultV3,
 } from './media-source-pts-cadence-scan-publisher-v3';
+import {
+  createMediaSourcePtsCadenceVersionEvidenceStateOwnerV3,
+  MediaSourcePtsCadenceVersionEvidenceErrorV3,
+} from './media-source-pts-cadence-version-evidence-state-owner-v3';
 import type { MediaSourceQualificationRecordV1 }
   from './media-source-qualification-v1';
 import { resolveVerifiedMediaSourceUrlV1 }
   from './media-source-qualification-runtime-v1';
+import { createMediaSourceVersionEvidenceMongoStorePortsV1 }
+  from './media-source-version-evidence-mongo-store-v1';
+import type { MediaSourceVersionEvidenceStorePortsV1 }
+  from './media-source-version-evidence-owner-v1';
 import { assertMediaSourceVersionV1 } from './media-source-version-v1';
 
 export type MediaSourcePtsCadenceDurableEpochRuntimeEnvironmentV3 =
@@ -42,7 +50,8 @@ export type MediaSourcePtsCadenceDurableEpochRuntimeResultV3 =
       reason:
         | 'SCAN_TRANSPORT_NOT_CONFIGURED'
         | 'PRIVATE_STORAGE_NOT_CONFIGURED'
-        | 'MEDIA_ASSET_OWNER_UNAVAILABLE';
+        | 'MEDIA_ASSET_OWNER_UNAVAILABLE'
+        | 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE';
     }>;
 
 type PrivateRuntimeV3 = ReturnType<
@@ -63,6 +72,8 @@ export type MediaSourcePtsCadenceDurableEpochRuntimeDependenciesV3 = Readonly<{
   ) => PrivateRuntimeV3;
   createAssetStorePorts?: () =>
     Promise<MediaSourcePtsCadenceMapAssetStorePortsV3>;
+  createSourceVersionEvidenceStorePorts?: () =>
+    MediaSourceVersionEvidenceStorePortsV1;
   resolveVerifiedSourceUrl?: typeof resolveVerifiedMediaSourceUrlV1;
   submitScan?: MediaSourcePtsCadenceDurableEpochWorkerPortsV3['submitScan'];
   pollScan?: MediaSourcePtsCadenceDurableEpochWorkerPortsV3['pollScan'];
@@ -113,8 +124,22 @@ export async function runMediaSourcePtsCadenceDurableEpochRuntimeV3(
     };
   }
 
+  let sourceVersionEvidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1;
+  try {
+    sourceVersionEvidenceStorePorts = (
+      dependencies.createSourceVersionEvidenceStorePorts
+      ?? createMediaSourceVersionEvidenceMongoStorePortsV1
+    )();
+  } catch {
+    return {
+      kind: 'runtime_unavailable',
+      reason: 'SOURCE_VERSION_EVIDENCE_OWNER_UNAVAILABLE',
+    };
+  }
+
   const workerPorts = createMediaSourcePtsCadenceDurableEpochRuntimeWorkerPortsV3({
     assetStorePorts,
+    sourceVersionEvidenceStorePorts,
     privateRuntime,
     resolveVerifiedSourceUrl: dependencies.resolveVerifiedSourceUrl
       ?? resolveVerifiedMediaSourceUrlV1,
@@ -152,6 +177,7 @@ export async function runMediaSourcePtsCadenceDurableEpochRuntimeV3(
 export function createMediaSourcePtsCadenceDurableEpochRuntimeWorkerPortsV3(
   input: Readonly<{
     assetStorePorts: MediaSourcePtsCadenceMapAssetStorePortsV3;
+    sourceVersionEvidenceStorePorts: MediaSourceVersionEvidenceStorePortsV1;
     privateRuntime: PrivateRuntimeV3;
     resolveVerifiedSourceUrl: typeof resolveVerifiedMediaSourceUrlV1;
     submitScan: MediaSourcePtsCadenceDurableEpochWorkerPortsV3['submitScan'];
@@ -195,14 +221,10 @@ export function createMediaSourcePtsCadenceDurableEpochRuntimeWorkerPortsV3(
           reason: 'CLAIM_EXPIRY_INVALID',
         };
       }
-      return adaptPublisherResult(await input.publishScan({
-        ...publicationInput,
-        stagingReader: input.privateRuntime.stagingReader,
-        descriptorPort: input.privateRuntime.descriptorPort,
-        artifactPort: input.privateRuntime.artifactPort,
-        epochIndexWriter: input.privateRuntime.epochIndexWriter,
-        epochArtifactReader: input.privateRuntime.epochArtifactReader,
-        boundarySemanticVerifier: input.boundarySemanticVerifier,
+      const stateOwner = createMediaSourcePtsCadenceVersionEvidenceStateOwnerV3({
+        sourceVersion: publicationInput.sourceVersion,
+        qualification: publicationInput.qualification,
+        evidenceStorePorts: input.sourceVersionEvidenceStorePorts,
         stateOwner: {
           load: input.assetStorePorts.load,
           persist: (persistInput) =>
@@ -211,7 +233,26 @@ export function createMediaSourcePtsCadenceDurableEpochRuntimeWorkerPortsV3(
               input.assetStorePorts,
             ),
         },
-      }));
+      });
+      try {
+        return adaptPublisherResult(await input.publishScan({
+          ...publicationInput,
+          stagingReader: input.privateRuntime.stagingReader,
+          descriptorPort: input.privateRuntime.descriptorPort,
+          artifactPort: input.privateRuntime.artifactPort,
+          epochIndexWriter: input.privateRuntime.epochIndexWriter,
+          epochArtifactReader: input.privateRuntime.epochArtifactReader,
+          boundarySemanticVerifier: input.boundarySemanticVerifier,
+          stateOwner,
+        }));
+      } catch (error) {
+        if (!(error instanceof MediaSourcePtsCadenceVersionEvidenceErrorV3)) {
+          throw error;
+        }
+        return error.retryable
+          ? { disposition: 'RETRYABLE', reason: error.reason }
+          : { disposition: 'REJECTED', reason: error.reason };
+      }
     },
   };
 }
