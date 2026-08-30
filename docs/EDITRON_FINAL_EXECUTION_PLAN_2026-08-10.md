@@ -10162,6 +10162,29 @@ unreachable-object GC, no-audio proof, verified legacy migration and
 source-version consumers remain open. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
+**Durable audio runtime composition Phase 3F-C8ar (2026-08-30):** commit
+`b554d6307` adds the server-only composition boundary above C8aq. Before any
+durable claim it constructs the dedicated private-media storage runtime, the
+scoped MEDIA_ASSETS Mongo owner and the immutable source-version-evidence
+owner. Missing configuration or an unavailable factory therefore returns an
+explicit `runtime_unavailable` result without consuming an attempt. The
+runtime then gives C8aq one current-source loader and invokes the existing C8al
+product runtime with those exact preflighted owner instances; it does not
+duplicate download, decode, artifact, CAS or evidence logic.
+
+A transient MEDIA_ASSETS read failure after claim is now a typed retryable
+worker-port failure instead of being misreported as a stale/missing source or
+unknown permanent execution failure. Structurally invalid current source state
+remains deterministic and non-retryable. The runtime suite passes 3/3, and the
+expanded source-audio chain passes 33/33 including the real FFmpeg/FFprobe
+adapter; repository TypeScript and repository-wide quiet ESLint pass. This
+result is
+`DURABLE_AUDIO_RUNTIME_VERIFIED_ROUTE_TRIGGER_LIVE_STORAGE_GC_AND_MIGRATION_OPEN`.
+No signed route, QStash dispatch, product trigger, restart recovery, live
+dedicated-R2/Atlas proof, unreachable-object GC, no-audio proof or verified
+historical migration is supplied by this phase. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
