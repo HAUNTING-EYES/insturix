@@ -10099,16 +10099,18 @@ an adversarial product call that aborts immediately after producing a valid
 private artifact performs no lifecycle callback, evidence write or active
 asset replacement. Immutable content-addressed bytes created before a later
 abort may be unreachable and therefore still require the planned safe GC
-lifecycle. The active CAS remains the linearized commit point: if cancellation
-has not been observed by the pre-CAS lease check and that CAS commits, the
-commit wins and the worker must settle from its verified receipt rather than
-claiming a false cancellation.
+lifecycle. The active CAS remains the linearized product commit point. The
+generic durable store separately owns terminal settlement and refuses PASS
+completion after a cancellation request. Therefore, if cancellation races
+after a valid product receipt exists, the job must settle `CANCELLED` with that
+PASS product receipt attached as proof. It must not claim either that no
+product commit occurred or that the cancelled job completed normally.
 
 This result is
 `AUDIO_ABORT_AND_PRE_CAS_LIFECYCLE_BOUNDARY_VERIFIED_DURABLE_WORKER_OPEN`.
-The focused suite does not timing-stress a real OS subprocess abort in flight,
-and no durable worker, trigger, signed route, restart/dead-letter lifecycle or
-live Atlas/R2 object has used this boundary yet. Queue item 4 and
+The focused suite does not timing-stress a real OS subprocess abort in flight.
+At that phase no durable worker, trigger, signed route, restart/dead-letter
+lifecycle or live Atlas/R2 object had used this boundary. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
 **Product audio receipt verification Phase 3F-C8ap (2026-08-30):** commit
@@ -10127,6 +10129,38 @@ prevents the later worker from trusting a typed or provider-returned object by
 shape alone. It does not claim/heartbeat/complete the C8an job and does not
 prove cancellation races, restart, dead-letter, dispatch or live storage.
 Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
+
+**Durable audio worker Phase 3F-C8aq (2026-08-30):** commit `3451f5d4e`
+implements the sole worker for the C8an source-audio job envelope over the real
+generic durable-job store. It claims and continuously heartbeats one lease,
+strictly reloads the canonical job input, resolves the current source through
+the MEDIA_ASSETS owner, reconstructs the complete source/policy-bound job
+contract, and refuses stale source, dependency or operation identity before
+materialization. It invokes the C8ak product runtime with the persisted stream
+bindings, resource policy, job creation time, abort signal and exact pre-CAS
+lease callback; it then independently re-proves the C8ap receipt before
+terminal settlement.
+
+Temporary private-runtime absence parks the same job in bounded `retry_wait`;
+deterministic contract or receipt-scope drift dead-letters it. Cancellation
+during materialization aborts the product path and records no product proof.
+If cancellation is requested after a valid product receipt exists but before
+terminal PASS completion, the generic store's cancellation state wins and the
+worker emits a `CANCELLED` receipt carrying the immutable PASS product receipt
+hash. This is truthful cancellation after a product commit, not false success
+and not a claim of zero side effects.
+
+The worker suite passes 6/6, and the source-bound audio chain passes 30/30
+across the durable envelope, worker, runtime composition, product owner and
+real FFmpeg/FFprobe adapter; repository TypeScript and repository-wide quiet
+ESLint pass. This result is
+`DURABLE_AUDIO_WORKER_VERIFIED_TRIGGER_ROUTE_LIVE_STORAGE_GC_AND_MIGRATION_OPEN`.
+No signed route or trigger dispatches this worker, no restart recovery, live
+dead-letter redrive or live dedicated-R2/Atlas/subprocess-abort proof has been
+captured, and safe
+unreachable-object GC, no-audio proof, verified legacy migration and
+source-version consumers remain open. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` are unchanged.
 
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
