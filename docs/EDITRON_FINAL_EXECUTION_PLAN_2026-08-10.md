@@ -10862,6 +10862,50 @@ ProjectService relink/invalidation, visual rerender/delivery/rollback,
 retention/reachability GC and human review also remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**V2 proxy-transcode product composition and schema-fenced dispatch Phase
+3F-C8bn (2026-08-31):** commits `f61956931`, `5f0eb73db`, `bd06779b5`,
+`cdc750ed7`, `cafe3c875`, `a49fbe1f5`, `14c3ba7da`, `b17dacccb` and
+`0d12fc6ca` close C8bm's remaining local V2 composition and producer-boundary
+gaps without claiming a deployed transcode. The concrete preparation owner
+delegates exact master leasing, shell-free FFmpeg/FFprobe execution and output
+verification to the existing trusted executor, then durably retains the
+prepared bytes through the existing private artifact store. The concrete
+attempt owner composes that preparation with the existing current-asset,
+publication and V2 budget owners.
+
+One deployment-owned V2 product runtime now resolves the exact persisted V2
+job, historical operational and Finance policies, current asset, configured
+worker image/toolchain, absolute FFmpeg/FFprobe executables, private prepared-
+artifact storage, single-PUT and multipart transports, and the V2 leased
+worker. The existing signed worker route probes the persisted job schema and
+selects V2 before V1; a V2-scoped job that fails V2 composition or execution
+never falls through to V1. V2 dispatch publishes only `{jobId}`, while the
+existing authenticated recovery route now invokes both schema-specific
+recovery owners and preserves separate per-schema evidence.
+
+Admission derives the complete V2 publication and prepared-artifact policy
+from the deployment's validated private single-PUT R2 scope. It then requires
+an exact Finance authorization over tenant/user/org, immutable master source,
+V3 timing, command, runtime and both storage policies; reserves through the V2
+ledger; persists the V2 durable job; and delegates signed delivery. Scope,
+bucket or active-policy substitution stops before reservation or dispatch.
+Missing signed-delivery configuration leaves an explicit recoverable queued
+job rather than reporting success. Exact replay reserves one record, reuses
+one job and does not republish a confirmed delivery.
+
+The complete local proxy/master family passes 350/350 tests across 65 files,
+with repository TypeScript and repository-wide quiet ESLint clean. This result
+is
+`V2_PROXY_TRANSCODE_PRODUCT_COMPOSITION_AND_SCHEMA_FENCED_DELIVERY_LOCALLY_VERIFIED_LIVE_EXECUTION_AND_RELATION_CHAIN_OPEN`.
+No product-facing caller currently submits this admission contract, and no
+live FFmpeg/R2/Atlas/QStash V2 episode, provider outage, hosted recovery or
+large physical multipart object was exercised. Local validation and provider-
+request costs still require successor attempt telemetry and a frozen Finance
+rate policy. Proxy V3/audio roots, correspondence/audio qualification, active-
+relation CAS, ProjectService relink/invalidation, visual rerender/delivery/
+rollback, retention/reachability GC and qualified human evidence remain open.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
