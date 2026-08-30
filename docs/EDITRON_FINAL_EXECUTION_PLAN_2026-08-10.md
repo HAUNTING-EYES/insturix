@@ -10517,6 +10517,60 @@ also still requires dedicated-private PTS storage, production V3 scanning,
 proxy/master qualification, relink/invalidation, rerender and rollback. Stage
 2.5 therefore remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Historical V3 evidence-root backfill Phase 3F-C8az (2026-08-30):** commits
+`f6434e124` through `af8d99e51` add the bounded source-version evidence
+reproof, candidate selector, batch receipt, immutable run record, Mongo ledger,
+run owner, runtime, signed dispatch and fair durable recovery chain for V3 PTS
+roots that completed before the evidence-first writer existed. Selection and
+publication remain source-version/state/hash bound; durable intent precedes
+delivery, and stale claims, malformed receipts, provider-unconfirmed delivery,
+lost compare-and-set races and exhausted retry attempts cannot become success.
+The current 17-file family passes 128/128 with repository TypeScript and quiet
+lint passing. This is local/injected contract and recovery proof, not a fleet
+migration or hosted Vercel/QStash/Atlas/private-R2 exercise. No historical row
+is promoted merely because it is old or complete. Exact deployment policy,
+hosted redelivery/alerting, live private-object reread, reachability cleanup and
+verified fleet completion remain required.
+
+**Streaming proxy/master correspondence production Phase 3F-C8ba
+(2026-08-30):** commits `531d1b98a`, `3d3ec243a` and `beeace838` add the trusted
+server-side correspondence producer, incremental private-R2 publisher and
+dedicated-private-runtime composition. The producer reads independently
+verified V3 presentation windows pagewise and emits the exact union of proxy
+and master frame boundaries, so unequal rates, VFR cadence and timestamp-reset
+epochs are represented without nominal-FPS conversion or floating-point
+rounding. Batches are written and reread before the immutable index becomes
+visible; interrupted publication cannot expose a complete mapping, replay is
+accepted only for identical bytes, and receipt/source/time-map/resource drift
+fails explicitly. The current proxy/master family passes 52/52 with repository
+TypeScript and quiet lint passing.
+
+This still does not qualify a relation. The current V1 correspondence format
+requires continuous presented coverage and deliberately rejects canonical
+`NO_PRESENTATION` gaps. No dedicated private bucket was configured or exercised
+live, and audio lineage, mapping CAS, ProjectService relink, invalidation,
+rerender and rollback remain open.
+
+**Trusted proxy-transcode evidence contract Phase 3F-C8bb (2026-08-30):**
+commit `5f1626474` defines the first versioned canonical-master proxy policy,
+shell-free FFmpeg argument owner and immutable completion/lineage receipt. The
+command maps only explicitly selected streams, preserves demux timestamps with
+`-copyts`, `-start_at_zero`, passthrough frame timing and demux encoder
+timebase, does not force `-r`/legacy `-vsync` or terminate at `-shortest`, and
+binds exact source version, V3 map, worker/runtime, process, local master bytes,
+deterministic R2 output identity and sequential output streams. Ten adversarial
+tests cover command/path/stream/source/storage/provider/owner/asset/evidence and
+nested-receipt tampering; the complete proxy/master family remains 52/52 and
+the repository TypeScript and quiet-lint gates pass.
+
+This is a command and evidence boundary, not an executed transcode. No worker
+has yet leased the master, run FFmpeg/FFprobe, uploaded and reread the proxy,
+issued its storage/content identity, produced proxy V3/audio roots, composed
+independent correspondence/audio verification, or CAS-qualified the active
+relation. Those owners, durable restart/cancellation, live private storage and
+the downstream relink/invalidation/rerender/rollback chain remain Queue item 4.
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
