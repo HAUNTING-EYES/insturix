@@ -10983,6 +10983,41 @@ proxy/master relink and invalidation, visual rerender/delivery/rollback, live
 private-runtime proof and reachability GC remain open. Queue item 4 and Stage
 2.5 therefore remain `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Proxy/master causal mapping qualification Phase 3F-C8bq (2026-08-31):**
+commit `7d7e503e8` closes the immediately preceding local composition gap with a
+read-only production qualification owner. It independently reload-validates
+the immutable relation, trusted transcode, V3 correspondence derivation,
+mapping-segment materialization and decoded-audio-lineage receipts; rejects
+cross-source or cross-relation substitution; enforces transcode -> audio
+verification -> qualification chronology; and binds all five evidence hashes,
+the qualifier policy/version, exact worker-image digest and qualification time
+into a nested execution receipt. The resulting existing V1 mapping embeds that
+execution-receipt hash, exact V3 time-map references, frame-correspondence
+index, source/epoch-safe segments, trusted transcode lineage and verified audio
+mapping. True no-audio media remains an explicit verified disposition rather
+than an omitted check.
+
+The owner also cross-checks the proxy output probe against the materialized
+picture timeline: immutable proxy source/storage identity, video-stream index,
+complete frame count, first PTS, exact source timebase and exact rational
+duration must agree. It never derives duration from nominal FPS. A valid V3 map
+whose measured 899,700 ticks disagree with the sealed 900,000-tick proxy probe,
+swapped receipts, impossible verification chronology, malformed upstream
+hashes and nested execution/mapping/wrapper tampering all fail before a mapping
+receipt is issued.
+
+The focused suite passes 8/8. The complete local proxy/master family passes
+373/373 tests across 68 files, with repository TypeScript and repository-wide
+quiet ESLint clean. This result is
+`EXACT_V3_PROXY_MASTER_MAPPING_LOCALLY_QUALIFIED_ACTIVE_RELATION_AND_RELINK_OPEN`.
+The proof still uses deterministic in-memory V3 picture windows and audio
+artifacts; it does not show a live V2 worker proxy reread from private R2. The
+qualifier does not persist or activate the relation, compare-and-set the current
+project revision, relink ProjectService, invalidate dependent analysis/render
+artifacts, rerender/deliver/rollback, recover hosted work, or garbage-collect
+unreachable content-addressed objects. Those are the next Queue item 4 owners;
+Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
