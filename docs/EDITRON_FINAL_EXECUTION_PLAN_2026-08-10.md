@@ -9517,6 +9517,29 @@ scheduled product caller and live outage proof. Explicit multi-stream essence
 selection also remains product work. Queue item 4 and
 `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 scheduled recovery Phase 3F-C8s (2026-08-30):** commit `1e70752ef`
+adds the missing authenticated product caller for the existing V3 stale-job
+recovery selector. A strict `CRON_SECRET` route is registered in `vercel.json`
+every five minutes. Each sweep is capped at ten jobs and uses a ten-minute
+stale cutoff, exactly twice the generic durable job's five-minute lease. It
+reuses the V3-only owner/kind/schema selector, state-bound recovery
+deduplication and the same product delivery policy; it never admits V1 cadence
+jobs or executes media work inside the cron.
+
+Missing/wrong cron authentication fails before store access. A mixed or
+unconfirmed publication returns sanitized retryable HTTP while preserving the
+per-job recovery results; an unavailable runtime also returns a bounded 503
+without exposing the underlying exception. The recovery route/runtime plus V3
+selector suites pass 15/15; repository TypeScript, repository-wide quiet
+ESLint and diff checks pass. This result is
+`V3_SCHEDULED_RECOVERY_CONFIGURED_LOCALLY_LIVE_CRON_PROOF_OPEN`.
+
+The route and schedule are committed configuration, not evidence that Vercel
+invoked them or that hosted QStash redelivered a job. Live Atlas lease expiry,
+outage/recovery, private PTS R2/Modal execution, alerting and reachability GC
+remain required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain
+unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
