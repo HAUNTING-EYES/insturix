@@ -388,9 +388,9 @@ function memoryCollection() {
     update: { $setOnInsert: MongoRecord },
   ) => {
     const key = String(filter._id);
-    if (documents.has(key)) return { matchedCount: 1, upsertedCount: 0 };
+    if (documents.has(key)) return { upsertedCount: 0 };
     documents.set(key, update.$setOnInsert);
-    return { matchedCount: 0, upsertedCount: 1 };
+    return { upsertedCount: 1 };
   });
   const replaceOne = vi.fn(async (
     filter: MongoRecord,

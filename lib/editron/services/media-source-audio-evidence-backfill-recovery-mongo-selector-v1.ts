@@ -89,7 +89,7 @@ export interface MediaSourceAudioEvidenceBackfillRecoveryMongoCollectionV1 {
     filter: Readonly<MongoRecord>,
     update: MongoInsert,
     options: Readonly<{ session: unknown; upsert: true }>,
-  ): Promise<Readonly<{ matchedCount: number; upsertedCount: number }>>;
+  ): Promise<Readonly<{ upsertedCount: number }>>;
   replaceOne(
     filter: Readonly<MongoRecord>,
     replacement: Readonly<MongoRecord>,
@@ -689,7 +689,6 @@ function wrapCollection(
         { session: options.session as ClientSession, upsert: true },
       );
       return {
-        matchedCount: result.matchedCount,
         upsertedCount: result.upsertedCount,
       };
     },
