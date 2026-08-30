@@ -9465,6 +9465,28 @@ or public storage credential is an acceptable substitute. A distinct signed
 ingress/dispatch/recovery path and live private R2/Atlas/Modal evidence remain
 required. Queue item 4 and `FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
 
+**V3 signed dispatch/ingress Phase 3F-C8q (2026-08-30):** commit
+`c5dbc9753` adds a V3-only QStash producer/recovery selector, route ID, strict
+job-ID-only signed handler and lazy Node app route at
+`/api/internal/workers/media-source-pts-cadence-v3`. Initial dispatch uses the
+V3 operation identity as its deduplication ID; recovery binds deduplication to
+the exact selected durable snapshot. The recovery selector admits only the V3
+owner/kind/schema and excludes the V1 cadence lane. Incomplete signing/public-
+origin configuration blocks before job creation, extra payload fields never
+reach the runtime, and retry/defer/lease-loss responses remain redeliverable.
+
+The V3 lane suite passes 8/8 and the shared QStash, V1 dispatch, V3 runtime and
+worker regressions pass 30/30; repository TypeScript, repository-wide quiet
+ESLint and diff checks pass. This result is
+`V3_SIGNED_DISPATCH_ROUTE_VERIFIED_PRODUCT_TRIGGER_LIVE_DELIVERY_OPEN`. Source
+inventory finds no product/media-intake caller of the V3 dispatch producer;
+only its module and tests call it. This process also has no QStash token,
+signing keys or public-origin variable configured. Therefore no hosted
+publication, authenticated delivery, redelivery or recovery is claimed. Bind
+one existing media lifecycle decision owner to this producer without adding a
+second qualification authority, then prove the deployed path. Queue item 4 and
+`FROZEN_MODIFY_DECISION_ISSUED` remain unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
