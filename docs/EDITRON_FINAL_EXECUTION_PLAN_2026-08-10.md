@@ -8959,6 +8959,28 @@ in progress: the next bounded phase composes those existing owners and must
 invoke this qualifier before claim. `FROZEN_MODIFY_DECISION_ISSUED` is
 unchanged.
 
+**Exact-render durable-envelope authority Phase 3F-C7azp (2026-08-30):**
+commit `e1e70323a` moves complete durable-job validation from a private worker
+helper to the canonical preparation-job contract. It verifies the payload and
+reconstructed operation identity together with durable version, operation
+owner/kind, idempotency identity, null parents, schema and binding, tenant/user/
+organization/project scope, budget reservation and dependency set. The
+lifecycle worker now consumes that same assertion and preserves its existing
+contract-invalid versus binding-mismatch terminal diagnostics.
+
+The focused job/worker suites pass 26/26, every
+`native-media-final-render` plus store/read suite passes 195/195, and repository
+TypeScript plus repository-wide quiet ESLint pass. Adversarial tests distinguish
+a malformed payload from a structurally valid envelope rebound to a foreign
+operation. This result is
+`EXACT_RENDER_DURABLE_ENVELOPE_SINGLE_JOB_OWNER_VERIFIED_PRODUCT_RUNNER_OPEN`.
+
+This is authority consolidation, not product composition. No live job or
+infrastructure owner was resolved and no claim was made. Queue item 3 remains
+in progress; the product runner may now preflight the exact durable envelope
+without copying worker safety logic, then must resolve and qualify every bound
+deployment owner before claim. `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
