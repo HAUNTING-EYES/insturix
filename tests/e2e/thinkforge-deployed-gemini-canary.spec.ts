@@ -207,7 +207,7 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
     };
     const created = await browserJson<SessionPayload>(page, '/api/services/thinkforge/session', 'POST', {
       projectMeta: {
-        brandId: tenant.personalBrand.brandId,
+        brandId: tenant.organizationBrand.brandId,
         sessionName,
         idea: 'A visible review lane',
         purpose: 'Explain one synthetic operating habit without external claims.',
@@ -231,7 +231,7 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       new URL(response.url()).pathname === '/api/services/thinkforge/chat'
       && response.request().method() === 'POST'
     ));
-    await input.fill('Create a 45-second non-factual video script for the synthetic brand Canary Studio. Explain this supplied operating pattern only: one shared review lane keeps the current artifact, decision owner, and next unresolved choice visible. Use calm, practical language. Treat this as a narrated motion-graphics explainer with no physical filming, no source footage, no customer facts, and no invented metrics.');
+    await input.fill(`Create a 45-second non-factual video script for the selected synthetic brand ${tenant.organizationBrand.name}. Explain this supplied operating pattern only: one shared review lane keeps the current artifact, decision owner, and next unresolved choice visible. Use calm, practical language. Treat this as a narrated motion-graphics explainer with no physical filming, no source footage, no customer facts, and no invented metrics.`);
     await input.press('Enter');
     const response = await responsePromise;
     expect(response.status()).toBe(200);
@@ -282,7 +282,7 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       scriptId: update.scriptId,
       blocks: blocks.blocks,
       plainText: script?.content,
-      brandId: tenant.personalBrand.brandId,
+      brandId: tenant.organizationBrand.brandId,
     });
     expect(handoff.success).toBe(true);
     expect(handoff.sceneCount).toBeGreaterThan(0);
@@ -300,11 +300,12 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
       scriptId: update.scriptId,
       documentVersion: update.version,
       outputKind: 'video_script',
-      authoringContext: { brandId: tenant.personalBrand.brandId },
+      authoringContext: { brandId: tenant.organizationBrand.brandId },
       writer: { provider: 'gemini' },
       traceIntegrity: { valid: true },
       generationReceipt: { valid: true },
     });
+    expect(verification.document?.authoringContext?.profileFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(verification.document?.writer?.model).toEqual(expect.any(String));
     const costEvents = verification.cost?.events ?? [];
     expect(costEvents.length).toBeGreaterThan(0);
