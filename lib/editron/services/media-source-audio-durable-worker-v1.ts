@@ -69,6 +69,20 @@ class WorkerFailureV1 extends Error {
   }
 }
 
+export type MediaSourceAudioDurableWorkerPortFailureCodeV1 =
+  | 'MEDIA_SOURCE_AUDIO_WORKER_CURRENT_SOURCE_LOAD_FAILED'
+  | 'MEDIA_SOURCE_AUDIO_WORKER_CURRENT_SOURCE_INVALID';
+
+export class MediaSourceAudioDurableWorkerPortErrorV1 extends Error {
+  constructor(
+    public readonly code: MediaSourceAudioDurableWorkerPortFailureCodeV1,
+    public readonly retryable: boolean,
+  ) {
+    super(code);
+    this.name = 'MediaSourceAudioDurableWorkerPortErrorV1';
+  }
+}
+
 class CancellationRequestedV1 extends Error {}
 
 export async function runMediaSourceAudioDurableWorkerV1(input: Readonly<{
@@ -438,6 +452,9 @@ async function settleFailure(input: Readonly<{
 
 function normalizeFailure(error: unknown): WorkerFailureV1 {
   if (error instanceof WorkerFailureV1) return error;
+  if (error instanceof MediaSourceAudioDurableWorkerPortErrorV1) {
+    return new WorkerFailureV1(error.code, error.retryable);
+  }
   if (error instanceof MediaSourceAudioProductMaterializationErrorV1) {
     return new WorkerFailureV1(
       `MEDIA_SOURCE_AUDIO_WORKER_PRODUCT_${error.reason}`,
