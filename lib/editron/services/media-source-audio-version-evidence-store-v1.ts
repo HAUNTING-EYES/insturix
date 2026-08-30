@@ -102,7 +102,15 @@ function terminalAudioEvidenceCandidate(input: Readonly<{
       || recorded.some((streamIndex, index) => streamIndex !== observed[index])) {
       return null;
     }
-    return captureMediaSourceVersionEvidenceV1(view);
+    return captureMediaSourceVersionEvidenceV1({
+      assetId: view.assetId,
+      type: view.type,
+      sourceVersionV1: view.sourceVersionV1,
+      sourceQualificationV1: view.sourceQualificationV1,
+      sourceAudioArtifactsV1: state.sourceAudioArtifactsV1,
+      sourceAudioArtifactsStateSha256V1:
+        state.sourceAudioArtifactsStateSha256V1,
+    });
   } catch {
     throw failure('SOURCE_VERSION_AUDIO_TERMINAL_SET_INVALID', false);
   }

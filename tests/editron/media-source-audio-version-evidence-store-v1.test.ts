@@ -91,6 +91,32 @@ describe('MediaSourceAudioVersionEvidenceStoreV1', () => {
     });
   });
 
+  it('retains terminal audio independently of an active nonterminal V3 slot', async () => {
+    const fixture = sourceFixture('independent', [3]);
+    const active = activeStore({
+      ...fixture.asset,
+      sourcePtsCadenceMapV3: { status: 'PENDING' },
+      sourcePtsCadenceMapStateSha256V3: digest(Buffer.from('pending-v3')),
+    });
+    const evidence = evidenceStore();
+    const ports = createMediaSourceAudioVersionEvidenceStorePortsV1({
+      assetStorePorts: active.ports,
+      evidenceStorePorts: evidence.ports,
+    });
+
+    await expect(persistArtifact(fixture, ports, null, 3, 30))
+      .resolves.toMatchObject({ disposition: 'APPLIED' });
+    expect(evidence.current()).toMatchObject({
+      sourcePtsCadenceMapV3: null,
+      sourcePtsCadenceMapStateSha256V3: null,
+      sourceAudioArtifactsV1: { records: [{ audioStreamIndex: 3 }] },
+    });
+    expect(active.current()).toMatchObject({
+      sourcePtsCadenceMapV3: { status: 'PENDING' },
+      sourceAudioArtifactsV1: { records: [{ audioStreamIndex: 3 }] },
+    });
+  });
+
   it('blocks the terminal active write for conflicting historical audio evidence', async () => {
     const fixture = sourceFixture('conflict', [1]);
     const conflictingState = createMediaSourceAudioArtifactAssetStateV1({
