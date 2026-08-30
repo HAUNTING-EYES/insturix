@@ -32,6 +32,11 @@ import { nanoid } from 'nanoid';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
+import {
+  R2_MAX_OBJECT_BYTES,
+  R2_MAX_PART_BYTES as R2_MULTIPART_MAX_PART_BYTES,
+} from './r2-upload-limits';
+
 // ─── Configuration ────────────────────────────────────────────────
 
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
@@ -41,9 +46,7 @@ const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
 const CDN_WORKER_URL = normalizeCdnWorkerUrl(process.env.CDN_WORKER_URL);
 const R2_FILE_SINGLE_PUT_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const R2_MULTIPART_MIN_PART_BYTES = 64 * 1024 * 1024;
-const R2_MULTIPART_MAX_PART_BYTES = 5 * 1024 ** 3;
 const R2_MULTIPART_MAX_PARTS = 10_000;
-const R2_MAX_OBJECT_BYTES = 5 * 1024 ** 4;
 
 function normalizeCdnWorkerUrl(value: string | undefined): string | undefined {
   const normalized = value
