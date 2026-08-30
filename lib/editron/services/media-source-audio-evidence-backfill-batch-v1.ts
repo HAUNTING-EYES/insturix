@@ -51,6 +51,11 @@ export type MediaSourceAudioEvidenceBackfillBatchReceiptV1 = Readonly<{
   batchReceiptSha256: string;
 }>;
 
+type MediaSourceAudioEvidenceBackfillBatchReceiptMaterialV1 = Omit<
+  MediaSourceAudioEvidenceBackfillBatchReceiptV1,
+  'batchReceiptSha256'
+>;
+
 export type MediaSourceAudioEvidenceBackfillBatchResultV1 = Readonly<
   | {
       disposition: 'BATCH_COMPLETE' | 'RUN_COMPLETE' | 'RETRY_REQUIRED';
@@ -165,6 +170,39 @@ export async function runMediaSourceAudioEvidenceBackfillBatchV1(
   return frozen({ disposition, receipt });
 }
 
+export function assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(
+  value: unknown,
+): MediaSourceAudioEvidenceBackfillBatchReceiptV1 {
+  const receipt = objectRecord(value, 'RECEIPT_INVALID');
+  exactKeys(receipt, [...BATCH_RECEIPT_MATERIAL_KEYS_V1, 'batchReceiptSha256']);
+  const { batchReceiptSha256: hashValue, ...materialValue } = receipt;
+  const material = normalizeReceiptMaterial(materialValue);
+  const batchReceiptSha256 = sha256(hashValue, 'RECEIPT_HASH_INVALID');
+  if (hashEditronCanonicalJsonV1(material) !== batchReceiptSha256) {
+    failReceipt('RECEIPT_HASH_MISMATCH');
+  }
+  return frozen({ ...material, batchReceiptSha256 });
+}
+
+const BATCH_RECEIPT_MATERIAL_KEYS_V1 = Object.freeze([
+  'backfilledCount',
+  'completedAt',
+  'disposition',
+  'inputCursor',
+  'items',
+  'kind',
+  'loadedCandidateCount',
+  'migrationRunId',
+  'nextCursor',
+  'notApplicableCount',
+  'policyVersion',
+  'processedItemCount',
+  'requestedLimit',
+  'schemaVersion',
+  'upperBoundCursor',
+  'unverifiableCount',
+] as const);
+
 function createReceipt(input: Readonly<{
   migrationRunId: string;
   policyVersion: string;
@@ -201,10 +239,244 @@ function createReceipt(input: Readonly<{
     nextCursor: input.nextCursor,
     completedAt: input.completedAt,
   };
-  return frozen({
+  return assertMediaSourceAudioEvidenceBackfillBatchReceiptV1({
     ...material,
     batchReceiptSha256: hashEditronCanonicalJsonV1(material),
   });
+}
+
+function normalizeReceiptMaterial(
+  value: unknown,
+): MediaSourceAudioEvidenceBackfillBatchReceiptMaterialV1 {
+  const record = objectRecord(value, 'RECEIPT_MATERIAL_INVALID');
+  exactKeys(record, BATCH_RECEIPT_MATERIAL_KEYS_V1);
+  if (record.schemaVersion !== 1
+    || record.kind !== MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_KIND_V1
+    || (record.disposition !== 'BATCH_COMPLETE'
+      && record.disposition !== 'RUN_COMPLETE'
+      && record.disposition !== 'RETRY_REQUIRED')) {
+    failReceipt('RECEIPT_IDENTITY_INVALID');
+  }
+  const disposition = record.disposition as
+    MediaSourceAudioEvidenceBackfillBatchReceiptV1['disposition'];
+  const inputCursor = nullableCursor(record.inputCursor);
+  const upperBoundCursor = nullableCursor(record.upperBoundCursor);
+  const nextCursor = nullableCursor(record.nextCursor);
+  const requestedLimit = integer(record.requestedLimit);
+  const loadedCandidateCount = integer(record.loadedCandidateCount);
+  const processedItemCount = integer(record.processedItemCount);
+  const backfilledCount = integer(record.backfilledCount);
+  const notApplicableCount = integer(record.notApplicableCount);
+  const unverifiableCount = integer(record.unverifiableCount);
+  if (!Array.isArray(record.items)) failReceipt('RECEIPT_ITEMS_INVALID');
+  const items = Object.freeze(record.items.map(normalizeReceiptItem));
+  const material = frozen({
+    schemaVersion: 1 as const,
+    kind: MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_KIND_V1,
+    migrationRunId: identifier(record.migrationRunId),
+    policyVersion: identifier(record.policyVersion),
+    inputCursor,
+    upperBoundCursor,
+    disposition,
+    requestedLimit,
+    loadedCandidateCount,
+    processedItemCount,
+    backfilledCount,
+    notApplicableCount,
+    unverifiableCount,
+    items,
+    nextCursor,
+    completedAt: timestamp(record.completedAt),
+  });
+  assertReceiptSemantics(material);
+  return material;
+}
+
+function normalizeReceiptItem(
+  value: unknown,
+): MediaSourceAudioEvidenceBackfillBatchItemV1 {
+  const record = objectRecord(value, 'RECEIPT_ITEM_INVALID');
+  exactKeys(record, ['assetId', 'result', 'userId']);
+  return frozen({
+    assetId: identifier(record.assetId),
+    userId: identifier(record.userId),
+    result: normalizeBackfillResult(record.result),
+  });
+}
+
+function normalizeBackfillResult(
+  value: unknown,
+): MediaSourceAudioEvidenceBackfillResultV1 {
+  const record = objectRecord(value, 'RECEIPT_ITEM_RESULT_INVALID');
+  if (record.disposition === 'BACKFILLED') {
+    exactKeys(record, [
+      'audioDisposition',
+      'availabilityEvidenceSha256',
+      'availabilityWriteDisposition',
+      'disposition',
+      'legacyEvidenceSha256',
+      'legacyWriteDisposition',
+      'sourceVersionSha256',
+    ]);
+    if ((record.audioDisposition !== 'NO_AUDIO_STREAMS_OBSERVED'
+      && record.audioDisposition !== 'DECODED_ARTIFACT_SET')
+      || (record.availabilityWriteDisposition !== 'APPLIED'
+        && record.availabilityWriteDisposition !== 'UNCHANGED')) {
+      failReceipt('RECEIPT_ITEM_RESULT_INVALID');
+    }
+    const noAudio = record.audioDisposition === 'NO_AUDIO_STREAMS_OBSERVED';
+    if ((noAudio && (record.legacyWriteDisposition !== 'NOT_REQUIRED'
+      || record.legacyEvidenceSha256 !== null))
+      || (!noAudio && record.legacyWriteDisposition !== 'APPLIED'
+        && record.legacyWriteDisposition !== 'UNCHANGED')) {
+      failReceipt('RECEIPT_ITEM_RESULT_INVALID');
+    }
+    return frozen({
+      disposition: 'BACKFILLED' as const,
+      sourceVersionSha256: sha256(
+        record.sourceVersionSha256,
+        'RECEIPT_ITEM_RESULT_INVALID',
+      ),
+      audioDisposition: record.audioDisposition,
+      availabilityWriteDisposition: record.availabilityWriteDisposition,
+      availabilityEvidenceSha256: sha256(
+        record.availabilityEvidenceSha256,
+        'RECEIPT_ITEM_RESULT_INVALID',
+      ),
+      legacyWriteDisposition: record.legacyWriteDisposition as Extract<
+        MediaSourceAudioEvidenceBackfillResultV1,
+        { disposition: 'BACKFILLED' }
+      >['legacyWriteDisposition'],
+      legacyEvidenceSha256: noAudio
+        ? null
+        : sha256(record.legacyEvidenceSha256, 'RECEIPT_ITEM_RESULT_INVALID'),
+    });
+  }
+  if (record.disposition === 'NOT_APPLICABLE') {
+    exactKeys(record, ['disposition', 'reason']);
+    if (record.reason !== 'IMAGE_SOURCE'
+      && record.reason !== 'AUDIO_TERMINAL_STATE_ABSENT') {
+      failReceipt('RECEIPT_ITEM_RESULT_INVALID');
+    }
+    return frozen({
+      disposition: 'NOT_APPLICABLE' as const,
+      reason: record.reason as Extract<
+        MediaSourceAudioEvidenceBackfillResultV1,
+        { disposition: 'NOT_APPLICABLE' }
+      >['reason'],
+    });
+  }
+  if (record.disposition === 'UNVERIFIABLE') {
+    exactKeys(record, ['disposition', 'reason', 'retryable']);
+    const reasons = [
+      'SOURCE_STATE_INVALID',
+      'CANONICAL_CANDIDATE_INVALID',
+      'CANONICAL_CURRENT_STATE_INVALID',
+      'CANONICAL_CONFLICT',
+      'CANONICAL_RACE_EXHAUSTED',
+      'CANONICAL_STORE_LOAD_FAILED',
+      'CANONICAL_STORE_CAS_FAILED',
+      'LEGACY_CANDIDATE_INVALID',
+      'LEGACY_CURRENT_STATE_INVALID',
+      'LEGACY_CONFLICT',
+      'LEGACY_RACE_EXHAUSTED',
+      'LEGACY_STORE_LOAD_FAILED',
+      'LEGACY_STORE_CAS_FAILED',
+    ] as const;
+    const retryableReasons = [
+      'CANONICAL_RACE_EXHAUSTED',
+      'CANONICAL_STORE_LOAD_FAILED',
+      'CANONICAL_STORE_CAS_FAILED',
+      'LEGACY_RACE_EXHAUSTED',
+      'LEGACY_STORE_LOAD_FAILED',
+      'LEGACY_STORE_CAS_FAILED',
+    ] as const;
+    if (typeof record.reason !== 'string'
+      || !reasons.includes(record.reason as typeof reasons[number])
+      || typeof record.retryable !== 'boolean'
+      || record.retryable !== retryableReasons.includes(
+        record.reason as typeof retryableReasons[number],
+      )) {
+      failReceipt('RECEIPT_ITEM_RESULT_INVALID');
+    }
+    return frozen({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: record.reason as typeof reasons[number],
+      retryable: record.retryable,
+    });
+  }
+  failReceipt('RECEIPT_ITEM_RESULT_INVALID');
+}
+
+function assertReceiptSemantics(
+  receipt: MediaSourceAudioEvidenceBackfillBatchReceiptMaterialV1,
+): void {
+  if (receipt.requestedLimit < 1
+    || receipt.requestedLimit
+      > MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_MAX_ASSETS_V1
+    || receipt.loadedCandidateCount > receipt.requestedLimit + 1
+    || receipt.processedItemCount !== receipt.items.length
+    || receipt.loadedCandidateCount < receipt.processedItemCount
+    || (receipt.upperBoundCursor === null
+      && (receipt.inputCursor !== null || receipt.items.length > 0))) {
+    failReceipt('RECEIPT_COUNTS_INVALID');
+  }
+  let previous = receipt.inputCursor;
+  for (const item of receipt.items) {
+    const cursor = frozen({ assetId: item.assetId, userId: item.userId });
+    if ((previous !== null && compareCursor(cursor, previous) <= 0)
+      || (receipt.upperBoundCursor !== null
+        && compareCursor(cursor, receipt.upperBoundCursor) > 0)) {
+      failReceipt('RECEIPT_CURSOR_INVALID');
+    }
+    previous = cursor;
+  }
+  const counts = receipt.items.reduce((current, item) => ({
+    backfilled: current.backfilled
+      + Number(item.result.disposition === 'BACKFILLED'),
+    notApplicable: current.notApplicable
+      + Number(item.result.disposition === 'NOT_APPLICABLE'),
+    unverifiable: current.unverifiable
+      + Number(item.result.disposition === 'UNVERIFIABLE'),
+  }), { backfilled: 0, notApplicable: 0, unverifiable: 0 });
+  if (receipt.backfilledCount !== counts.backfilled
+    || receipt.notApplicableCount !== counts.notApplicable
+    || receipt.unverifiableCount !== counts.unverifiable) {
+    failReceipt('RECEIPT_COUNTS_INVALID');
+  }
+  const lastItem = receipt.items.at(-1);
+  const lastCursor = lastItem
+    ? frozen({ assetId: lastItem.assetId, userId: lastItem.userId })
+    : receipt.inputCursor;
+  const retryableIndexes = receipt.items.flatMap((item, index) => (
+    item.result.disposition === 'UNVERIFIABLE' && item.result.retryable
+      ? [index]
+      : []
+  ));
+  if (receipt.disposition === 'BATCH_COMPLETE') {
+    if (receipt.loadedCandidateCount !== receipt.requestedLimit + 1
+      || receipt.items.length !== receipt.requestedLimit
+      || retryableIndexes.length > 0
+      || !sameCursor(receipt.nextCursor, lastCursor)) {
+      failReceipt('RECEIPT_DISPOSITION_INVALID');
+    }
+    return;
+  }
+  if (receipt.disposition === 'RUN_COMPLETE') {
+    if (receipt.loadedCandidateCount > receipt.requestedLimit
+      || receipt.items.length !== receipt.loadedCandidateCount
+      || retryableIndexes.length > 0
+      || !sameCursor(receipt.nextCursor, lastCursor)) {
+      failReceipt('RECEIPT_DISPOSITION_INVALID');
+    }
+    return;
+  }
+  if (receipt.items.length === 0
+    || retryableIndexes.length !== 1
+    || retryableIndexes[0] !== receipt.items.length - 1
+    || !sameCursor(receipt.nextCursor, receipt.inputCursor)) {
+    failReceipt('RECEIPT_DISPOSITION_INVALID');
+  }
 }
 
 function validatePage(
@@ -314,6 +586,73 @@ function assertPorts(ports: MediaSourceAudioEvidenceBackfillBatchPortsV1): void 
     || typeof ports.legacyEvidenceStorePorts.compareAndSet !== 'function') {
     throw new Error('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_BATCH_PORTS_INVALID');
   }
+}
+
+function nullableCursor(
+  value: unknown,
+): MediaSourceAudioEvidenceBackfillCursorV1 | null {
+  if (value === null) return null;
+  const record = objectRecord(value, 'RECEIPT_CURSOR_INVALID');
+  exactKeys(record, ['assetId', 'userId']);
+  return normalizeCursor({
+    assetId: record.assetId,
+    userId: record.userId,
+  });
+}
+
+function sameCursor(
+  left: MediaSourceAudioEvidenceBackfillCursorV1 | null,
+  right: MediaSourceAudioEvidenceBackfillCursorV1 | null,
+): boolean {
+  return left === null || right === null
+    ? left === right
+    : compareCursor(left, right) === 0;
+}
+
+function integer(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    failReceipt('RECEIPT_COUNT_INVALID');
+  }
+  return Number(value);
+}
+
+function timestamp(value: unknown): string {
+  if (typeof value !== 'string') failReceipt('RECEIPT_TIMESTAMP_INVALID');
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== value) {
+    failReceipt('RECEIPT_TIMESTAMP_INVALID');
+  }
+  return value;
+}
+
+function sha256(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    failReceipt(code);
+  }
+  return value;
+}
+
+function objectRecord(value: unknown, code: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    failReceipt(code);
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(
+  record: Record<string, unknown>,
+  expected: readonly string[],
+): void {
+  const actual = Object.keys(record).sort();
+  const sortedExpected = [...expected].sort();
+  if (actual.length !== sortedExpected.length
+    || actual.some((key, index) => key !== sortedExpected[index])) {
+    failReceipt('RECEIPT_FIELDS_INVALID');
+  }
+}
+
+function failReceipt(code: string): never {
+  throw new Error('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_' + code);
 }
 
 function identifier(value: unknown): string {

@@ -7,6 +7,7 @@ import type { MediaSourceAudioArtifactAssetStateInputV1 }
 import type { MediaSourceAudioAvailabilityEvidenceStorePortsV1 }
   from '@/lib/editron/services/media-source-audio-availability-evidence-v1';
 import {
+  assertMediaSourceAudioEvidenceBackfillBatchReceiptV1,
   runMediaSourceAudioEvidenceBackfillBatchV1,
   type MediaSourceAudioEvidenceBackfillCandidateV1,
 } from '@/lib/editron/services/media-source-audio-evidence-backfill-batch-v1';
@@ -46,6 +47,73 @@ describe('MediaSourceAudioEvidenceBackfillBatchV1', () => {
     if (!('receipt' in result)) throw new Error('TEST_RECEIPT_MISSING');
     const { batchReceiptSha256, ...material } = result.receipt;
     expect(batchReceiptSha256).toBe(hashEditronCanonicalJsonV1(material));
+  });
+
+  it('rejects forged or semantically impossible batch receipts', async () => {
+    const result = await runMediaSourceAudioEvidenceBackfillBatchV1(
+      batchInput(2),
+      ports({
+        loadCandidates: vi.fn(async () => [
+          candidate('asset-a'), candidate('asset-b'), candidate('asset-c'),
+        ]),
+        backfillCandidate: vi.fn(async () => success('receipt-case')),
+      }),
+    );
+    if (!('receipt' in result)) throw new Error('TEST_RECEIPT_MISSING');
+    const receipt = result.receipt;
+    expect(assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(receipt))
+      .toEqual(receipt);
+
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1({
+      ...receipt,
+      unexpected: true,
+    })).toThrow('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_FIELDS_INVALID');
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1({
+      ...receipt,
+      batchReceiptSha256: '0'.repeat(64),
+    })).toThrow('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_HASH_MISMATCH');
+
+    const { batchReceiptSha256: _hash, ...material } = receipt;
+    const forgedCounts = { ...material, backfilledCount: 0 };
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(
+      withReceiptHash(forgedCounts),
+    )).toThrow('MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_COUNTS_INVALID');
+
+    const forgedCursor = {
+      ...material,
+      nextCursor: { assetId: 'asset-z', userId: 'user-z' },
+    };
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(
+      withReceiptHash(forgedCursor),
+    )).toThrow(
+      'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_DISPOSITION_INVALID',
+    );
+
+    const forgedRetry = {
+      ...material,
+      disposition: 'RETRY_REQUIRED',
+      nextCursor: material.inputCursor,
+    };
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(
+      withReceiptHash(forgedRetry),
+    )).toThrow(
+      'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_DISPOSITION_INVALID',
+    );
+
+    const forgedItems = material.items.map((item, index) => (
+      index === 0 && item.result.disposition === 'BACKFILLED'
+        ? {
+            ...item,
+            result: { ...item.result, legacyWriteDisposition: 'APPLIED' },
+          }
+        : item
+    ));
+    const forgedResult = { ...material, items: forgedItems };
+    expect(() => assertMediaSourceAudioEvidenceBackfillBatchReceiptV1(
+      withReceiptHash(forgedResult),
+    )).toThrow(
+      'MEDIA_SOURCE_AUDIO_EVIDENCE_BACKFILL_RECEIPT_ITEM_RESULT_INVALID',
+    );
   });
 
   it('marks a short or empty page as run complete', async () => {
@@ -229,5 +297,12 @@ function evidencePorts(): MediaSourceAudioAvailabilityEvidenceStorePortsV1
   return {
     load: vi.fn(async () => null),
     compareAndSet: vi.fn(async () => false),
+  };
+}
+
+function withReceiptHash(material: Record<string, unknown>) {
+  return {
+    ...material,
+    batchReceiptSha256: hashEditronCanonicalJsonV1(material),
   };
 }
