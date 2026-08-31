@@ -2,6 +2,8 @@
 
 import { ShieldCheck } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { SOURCE_MEDIA_RIGHTS_ATTESTATION_TEXT_V1 }
+  from '@/lib/editron/services/native-video-audio-rights';
 
 interface SourceMediaRightsControlProps {
   checked: boolean;
@@ -28,7 +30,7 @@ export function SourceMediaRightsControl({
           Rights confirmed
         </span>
         <span className="mt-1 block text-[11px] leading-4 text-[#7A776E]">
-          I own this media or have permission to use it in exported videos, including any embedded audio.
+          {SOURCE_MEDIA_RIGHTS_ATTESTATION_TEXT_V1}
         </span>
       </span>
     </label>
