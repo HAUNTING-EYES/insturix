@@ -11387,6 +11387,28 @@ duration/rate correction, synchronous legacy consumers, browser QA and
 semantic-retrieval accuracy remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Verified V3 fixed-frame consumer admission Phase 3F-C8cb (2026-08-31):**
+code commit `433d4580b` extends the existing source-time-transform owner with a
+public V3 rate-compatibility classifier. It first validates the complete
+hash-bound verified epoch binding, then reuses the same exact `BigInt` rational
+equality as the V1 consumer gate. Exact same-rate integer CFR is admitted;
+VFR, a decimal/non-integer project rate and a different exact CFR cadence return
+`VFR_INDEX_REQUIRED`, `PROJECT_RATIONAL_TIMEBASE_REQUIRED` or
+`SOURCE_PROJECT_RATE_MISMATCH`. Focused old/new transform proof passes 13/13;
+repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`VERIFIED_V3_FIXED_FRAME_RATE_ADMISSION_LOCALLY_VERIFIED_CONFORM_NOT_IMPLIED`.
+It is a read-only capability decision for legacy fixed-frame consumers, not
+mixed-rate or VFR conformance. Those sources must use the already-defined
+timestamp/epoch consumer path; no nearest-frame, frame-blend, optical-flow or
+interpret-rate fallback is invented here. The creative knowledge graph's
+`intent:authority.frame_timing_accuracy` remains non-overridable, so downstream
+motion, pacing and cut mappings cannot bypass this gate. The project five-track
+route still needs to consume this decision, current ProjectService revision,
+source pin, full overlay mapping and exact cache identity. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
