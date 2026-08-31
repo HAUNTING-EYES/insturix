@@ -15,9 +15,6 @@
 // Transcription
 export {
   getTranscription,
-  hasTranscription,
-  getWordsInRange,
-  clearTranscription,
 } from './transcription-service';
 
 // Audio Analysis
