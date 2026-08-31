@@ -15,13 +15,13 @@ import {
   type NativeMediaTimestampPreviewClassificationLeaseV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
 
-import type { NativeMediaTimestampAnalysisReceiptV1 }
-  from './native-media-timestamp-analysis-consumer-v1';
 import {
   assertNativeMediaTimestampAnalysisMaterializationV1,
   type NativeMediaTimestampAnalysisMaterializationV1,
 } from './native-media-timestamp-analysis-materialization-v1';
 import { analysisSameRevision } from './native-media-timestamp-analysis-validation-v1';
+import { mapVerifiedNativeMediaTimestampAnalysisVisionV1 }
+  from './native-media-timestamp-analysis-vision-v1';
 import { assertProjectVideoSourceVersionPinV1 } from './project-video-source-version-pin-v1';
 import type { ProjectRevisionV1 } from './project-service';
 
@@ -627,48 +627,27 @@ function exactTimestampVideoResult(
       transformSha256: materialization.transformSha256,
       materializationSha256: materialization.materializationSha256,
     },
-    vision: mapExactTimestampVision(materialization.analysisReceipt, job.target),
+    vision: mapExactTimestampVision(materialization, job.target),
   };
 }
 
 function mapExactTimestampVision(
-  receipt: NativeMediaTimestampAnalysisReceiptV1,
+  materialization: NativeMediaTimestampAnalysisMaterializationV1,
   target: ChatDeepAnalysisCoordinateContract,
 ) {
-  const sceneChanges: number[] = [];
-  const deadVisualRanges: Array<[number, number]> = [];
-  const gestures: string[] = [];
-  const onScreenText: string[] = [];
-  let summary: string | null = null;
-  let theme: string | null = null;
-  for (const candidate of receipt.observations) {
-    const observation = objectRecord(candidate, 'CHAT_DEEP_ANALYSIS_EXACT_OBSERVATION_INVALID');
-    const signal = cleanString(observation.signal);
-    const detail = cleanString(observation.detail);
-    if (!signal || !detail) throw new Error('CHAT_DEEP_ANALYSIS_EXACT_OBSERVATION_INVALID');
-    if (observation.kind === 'POINT') {
-      const frame = exactTimelineFrame(observation.timelineFrame, target, false);
-      if (signal === 'SCENE_CHANGE') sceneChanges.push(frame);
-    } else if (observation.kind === 'RANGE') {
-      const startFrame = exactTimelineFrame(observation.timelineStartFrame, target, false);
-      const endFrame = exactTimelineFrame(observation.timelineEndExclusiveFrame, target, true);
-      if (endFrame <= startFrame) {
-        throw new Error('CHAT_DEEP_ANALYSIS_EXACT_OBSERVATION_RANGE_INVALID');
-      }
-      if (signal === 'DEAD_VISUAL_RANGE') deadVisualRanges.push([startFrame, endFrame]);
-    } else if (observation.kind === 'GLOBAL') {
-      if (observation.coordinateDisposition !== 'NO_RANGE_COORDINATE') {
-        throw new Error('CHAT_DEEP_ANALYSIS_EXACT_OBSERVATION_INVALID');
-      }
-      if (signal === 'GESTURE_UNLOCATED') gestures.push(detail);
-      if (signal === 'ON_SCREEN_TEXT_UNLOCATED') onScreenText.push(detail);
-      if (signal === 'SUMMARY') summary = detail;
-      if (signal === 'THEME') theme = detail;
-    } else {
-      throw new Error('CHAT_DEEP_ANALYSIS_EXACT_OBSERVATION_INVALID');
-    }
-  }
-  return { sceneChanges, deadVisualRanges, gestures, onScreenText, summary, theme };
+  const vision = mapVerifiedNativeMediaTimestampAnalysisVisionV1(materialization);
+  return {
+    sceneChanges: vision.sceneChanges.map((frame) =>
+      exactTimelineFrame(frame, target, false)),
+    deadVisualRanges: vision.deadVisualRanges.map(([start, end]) => [
+      exactTimelineFrame(start, target, false),
+      exactTimelineFrame(end, target, true),
+    ]),
+    gestures: vision.gestures,
+    onScreenText: vision.onScreenText,
+    summary: vision.summary,
+    theme: vision.theme,
+  };
 }
 
 function exactTimelineFrame(
