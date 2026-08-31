@@ -11,6 +11,8 @@ import { getDatabase, COLLECTIONS } from '../../db/mongodb';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 import type { AssetTranscriptionTimingEvidenceV2 } from '../asset-transcription-source-cache-v2';
 import type { MediaAsset } from '../asset-resolver';
+import type { SourceTranscriptionProviderIdV1 }
+  from '../source-transcription-egress-authorization-v1';
 import type { 
   TranscriptionData, 
   TranscriptionWord, 
@@ -48,6 +50,7 @@ type TranscriptionGenerationOptionsV2 = Readonly<{
   userId?: string;
   exactMediaUrl?: string;
   allowSyntheticNarration?: boolean;
+  allowedProviderIds?: readonly SourceTranscriptionProviderIdV1[];
 }>;
 
 export function hasUsableWordTimings(transcription: unknown): transcription is TranscriptionData {
@@ -196,6 +199,7 @@ export async function transcribeLeasedMediaSourceWithProviderV2(input: Readonly<
   sourceUrl: string;
   requestedLanguage?: string | null;
   precision: 'TEXT_ALLOWED' | 'MEASURED_WORD_REQUIRED';
+  approvedProviderIds: readonly SourceTranscriptionProviderIdV1[];
 }>): Promise<GeneratedTranscriptionV2> {
   if (input.asset.type !== 'video' && input.asset.type !== 'audio') {
     throw new Error('ASSET_TRANSCRIPTION_PROVIDER_MEDIA_KIND_INVALID');
@@ -205,11 +209,13 @@ export async function transcribeLeasedMediaSourceWithProviderV2(input: Readonly<
   if (requestedLanguage && requestedLanguage.length > 64) {
     throw new Error('ASSET_TRANSCRIPTION_PROVIDER_LANGUAGE_INVALID');
   }
+  const approvedProviderIds = approvedProviderSet(input.approvedProviderIds);
   return generateTranscription(input.asset, requestedLanguage, {
     preferWordLevel: input.precision === 'MEASURED_WORD_REQUIRED',
     userId: input.userId,
     exactMediaUrl: sourceUrl,
     allowSyntheticNarration: false,
+    allowedProviderIds: approvedProviderIds,
   });
 }
 
@@ -249,7 +255,7 @@ async function generateTranscription(
   // Wizper only returns segment-level -> 10-30s drift on long videos.
   if (options?.preferWordLevel) {
     const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
-    if (xaiKey) {
+    if (providerAllowed(options, 'xai') && xaiKey) {
       let grokProviderAttempted = false;
       let grokRequestCount = 0;
       let grokResponseStatus: number | undefined;
@@ -433,102 +439,87 @@ async function generateTranscription(
     // --- Strategy 2: Whisper Large V3 on fal.ai -------------------
     // Wizper exposes segment boundaries here. The per-word values below are
     // proportional estimates and must never authorize frame-addressed edits.
-    let falProviderAttempted = false;
-    const falStartedAt = Date.now();
-    try {
-      const { fal } = await import('@fal-ai/client');
-      const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
-      if (falKey) fal.config({ credentials: falKey });
-      falProviderAttempted = true;
-      const whisperResult = await Promise.race([
-        fal.subscribe('fal-ai/wizper', {
-          input: {
-            audio_url: mediaUrl,
-            task: 'transcribe',
-            language: (language || undefined) as any,
-            chunk_level: 'segment',
-          },
-          logs: false,
-        }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper/fal timeout (90s)')), 90_000)),
-      ]);
-      const data = whisperResult.data as any;
-      if (data?.chunks && data.chunks.length > 0) {
-        // Wizper returns segment-level chunks. Split each segment into word-level
-        // timestamps by distributing the segment duration proportionally by word length.
-        const words: TranscriptionWord[] = [];
-        for (const chunk of data.chunks) {
-          const segText = (chunk.text || '').trim();
-          const segStart = (chunk.timestamp?.[0] || 0) * 1000;
-          const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
-          const segWords = segText.split(/\s+/).filter(Boolean);
-          if (segWords.length === 0) continue;
+    if (providerAllowed(options, 'fal-ai')) {
+      let falProviderAttempted = false;
+      const falStartedAt = Date.now();
+      try {
+        const { fal } = await import('@fal-ai/client');
+        const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
+        if (falKey) fal.config({ credentials: falKey });
+        falProviderAttempted = true;
+        const whisperResult = await Promise.race([
+          fal.subscribe('fal-ai/wizper', {
+            input: {
+              audio_url: mediaUrl,
+              task: 'transcribe',
+              language: (language || undefined) as any,
+              chunk_level: 'segment',
+            },
+            logs: false,
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Whisper/fal timeout (90s)')), 90_000)),
+        ]);
+        const data = whisperResult.data as any;
+        if (data?.chunks && data.chunks.length > 0) {
+          // Wizper returns segment-level chunks. Split each segment into word-level
+          // timestamps by distributing the segment duration proportionally by word length.
+          const words: TranscriptionWord[] = [];
+          for (const chunk of data.chunks) {
+            const segText = (chunk.text || '').trim();
+            const segStart = (chunk.timestamp?.[0] || 0) * 1000;
+            const segEnd = (chunk.timestamp?.[1] || 0) * 1000;
+            const segWords = segText.split(/\s+/).filter(Boolean);
+            if (segWords.length === 0) continue;
 
-          const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
-          let cursor = segStart;
-          for (const w of segWords) {
-            const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
-            words.push({
-              word: w,
-              startMs: Math.round(cursor),
-              endMs: Math.round(cursor + wordDuration),
-              confidence: 0.9,
-            });
-            cursor += wordDuration;
+            const totalChars = segWords.reduce((sum: number, w: string) => sum + w.length, 0);
+            let cursor = segStart;
+            for (const w of segWords) {
+              const wordDuration = ((w.length / totalChars) * (segEnd - segStart));
+              words.push({
+                word: w,
+                startMs: Math.round(cursor),
+                endMs: Math.round(cursor + wordDuration),
+                confidence: 0.9,
+              });
+              cursor += wordDuration;
+            }
           }
-        }
 
-        const mediaSeconds = data.chunks.reduce(
-          (max: number, chunk: any) => Math.max(max, Number(chunk.timestamp?.[1] || 0)),
-          0,
-        ) || undefined;
-        await recordEditronTranscriptionProviderCost(asset, {
-          status: 'success',
-          userId: options?.userId,
-          provider: 'fal-ai',
-          model: 'fal-ai/wizper',
-          strategy: 'fal_wizper',
-          requestCount: 1,
-          mediaSeconds,
-          functionMs: Date.now() - falStartedAt,
-          wordCount: words.length,
-          segmentCount: data.chunks.length,
-          language,
-          preferWordLevel: options?.preferWordLevel,
-        });
-        return {
-          transcription: {
-            words,
-            transcript: data.text || words.map((w: any) => w.word).join(' '),
-            language: data.inferred_languages?.[0] || language || 'en',
-            confidence: 0.9,
-            generatedAt: new Date(),
-          },
-          timingEvidence: {
-            timingBasis: 'SEGMENT_ESTIMATED',
-            providerId: 'fal-ai',
-            modelId: 'fal-ai-wizper',
+          const mediaSeconds = data.chunks.reduce(
+            (max: number, chunk: any) => Math.max(max, Number(chunk.timestamp?.[1] || 0)),
+            0,
+          ) || undefined;
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'success',
+            userId: options?.userId,
+            provider: 'fal-ai',
+            model: 'fal-ai/wizper',
             strategy: 'fal_wizper',
-            providerContractVersion: 'fal-wizper-segment-v1',
-          },
-        };
-      }
-      await recordEditronTranscriptionProviderCost(asset, {
-        status: 'failed',
-        userId: options?.userId,
-        provider: 'fal-ai',
-        model: 'fal-ai/wizper',
-        strategy: 'fal_wizper',
-        requestCount: 1,
-        functionMs: Date.now() - falStartedAt,
-        segmentCount: 0,
-        language,
-        preferWordLevel: options?.preferWordLevel,
-        error: new Error('Fal Wizper returned 0 chunks'),
-      });
-      console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
-    } catch (whisperErr: any) {
-      if (falProviderAttempted) {
+            requestCount: 1,
+            mediaSeconds,
+            functionMs: Date.now() - falStartedAt,
+            wordCount: words.length,
+            segmentCount: data.chunks.length,
+            language,
+            preferWordLevel: options?.preferWordLevel,
+          });
+          return {
+            transcription: {
+              words,
+              transcript: data.text || words.map((w: any) => w.word).join(' '),
+              language: data.inferred_languages?.[0] || language || 'en',
+              confidence: 0.9,
+              generatedAt: new Date(),
+            },
+            timingEvidence: {
+              timingBasis: 'SEGMENT_ESTIMATED',
+              providerId: 'fal-ai',
+              modelId: 'fal-ai-wizper',
+              strategy: 'fal_wizper',
+              providerContractVersion: 'fal-wizper-segment-v1',
+            },
+          };
+        }
         await recordEditronTranscriptionProviderCost(asset, {
           status: 'failed',
           userId: options?.userId,
@@ -539,37 +530,59 @@ async function generateTranscription(
           functionMs: Date.now() - falStartedAt,
           language,
           preferWordLevel: options?.preferWordLevel,
-          error: whisperErr,
+          segmentCount: 0,
+          error: new Error('Fal Wizper returned 0 chunks'),
         });
+        console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
+      } catch (whisperErr: any) {
+        if (falProviderAttempted) {
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'failed',
+            userId: options?.userId,
+            provider: 'fal-ai',
+            model: 'fal-ai/wizper',
+            strategy: 'fal_wizper',
+            requestCount: 1,
+            functionMs: Date.now() - falStartedAt,
+            language,
+            preferWordLevel: options?.preferWordLevel,
+            error: whisperErr,
+          });
+        }
+        console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
       }
-      console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
     }
     // --- Strategy 3: Gemini transcription (estimated fallback) ---
     // Prompt-produced timestamp numbers are not measured word alignment.
-    try {
-      const result = await transcribeWithGemini(mediaUrl, asset, language, {
-        userId: options?.userId,
-        preferWordLevel: options?.preferWordLevel,
-      });
-      if (result.words.length > 0) {
-        return {
-          transcription: result,
-          timingEvidence: {
-            timingBasis: 'SEGMENT_ESTIMATED',
-            providerId: 'google-gemini',
-            modelId: 'editron-analysis-model',
-            strategy: 'gemini_transcription',
-            providerContractVersion: 'gemini-prompt-estimated-v1',
-          },
-        };
+    if (providerAllowed(options, 'google-gemini')) {
+      try {
+        const result = await transcribeWithGemini(mediaUrl, asset, language, {
+          userId: options?.userId,
+          preferWordLevel: options?.preferWordLevel,
+        });
+        if (result.words.length > 0) {
+          return {
+            transcription: result,
+            timingEvidence: {
+              timingBasis: 'SEGMENT_ESTIMATED',
+              providerId: 'google-gemini',
+              modelId: 'editron-analysis-model',
+              strategy: 'gemini_transcription',
+              providerContractVersion: 'gemini-prompt-estimated-v1',
+            },
+          };
+        }
+        console.warn(`[Transcription] Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
+      } catch (geminiErr: any) {
+        console.warn(`[Transcription] Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
       }
-      console.warn(`[Transcription] Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
-    } catch (geminiErr: any) {
-      console.warn(`[Transcription] Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
     }
   }
 
   // --- Strategy 4: Deepgram Nova-2 (final fallback) --------------
+  if (!providerAllowed(options, 'deepgram')) {
+    throw new Error('ASSET_TRANSCRIPTION_APPROVED_PROVIDERS_EXHAUSTED');
+  }
   try {
     const { transcribeMedia } = await import('../deepgram-service');
     const result = await transcribeMedia(mediaUrl, {
@@ -634,6 +647,28 @@ function exactProviderMediaUrl(value: unknown): string {
     throw new Error('ASSET_TRANSCRIPTION_PROVIDER_SOURCE_URL_INVALID');
   }
   return candidate;
+}
+
+function approvedProviderSet(
+  value: readonly SourceTranscriptionProviderIdV1[],
+): readonly SourceTranscriptionProviderIdV1[] {
+  const allowed: readonly SourceTranscriptionProviderIdV1[] = [
+    'xai', 'deepgram', 'fal-ai', 'google-gemini',
+  ];
+  if (!Array.isArray(value) || value.length < 1 || value.length > allowed.length
+    || value.some((providerId) => !allowed.includes(providerId))
+    || new Set(value).size !== value.length) {
+    throw new Error('ASSET_TRANSCRIPTION_APPROVED_PROVIDER_SET_INVALID');
+  }
+  return Object.freeze([...value]);
+}
+
+function providerAllowed(
+  options: TranscriptionGenerationOptionsV2 | undefined,
+  providerId: SourceTranscriptionProviderIdV1,
+): boolean {
+  return options?.allowedProviderIds === undefined
+    || options.allowedProviderIds.includes(providerId);
 }
 
 /**

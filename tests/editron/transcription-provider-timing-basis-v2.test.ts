@@ -127,21 +127,11 @@ describe('transcription provider timing basis V2', () => {
     });
 
     const result = await transcribeLeasedMediaSourceWithProviderV2({
-      asset: {
-        assetId: 'asset-1',
-        userId: 'user-1',
-        type: 'audio',
-        filename: 'asset-1.wav',
-        source: 'user-upload',
-        gcsPath: 'stale/object.wav',
-        cachedUrl: 'https://stale-cdn.example.com/asset-1.wav',
-        urlExpiresAt: new Date('2026-09-01T00:00:00.000Z'),
-        size: 1_024,
-        uploadedAt: new Date('2026-08-31T00:00:00.000Z'),
-      },
+      asset: leasedAsset(),
       userId: 'user-1',
       sourceUrl: 'https://lease.example.com/exact-source.wav?signature=bound',
       precision: 'MEASURED_WORD_REQUIRED',
+      approvedProviderIds: ['deepgram'],
     });
 
     expect(result.timingEvidence.timingBasis).toBe('MEASURED_WORD');
@@ -153,4 +143,41 @@ describe('transcription provider timing basis V2', () => {
     expect(mocks.getR2PresignedReadUrl).not.toHaveBeenCalled();
     expect(mocks.refreshSignedUrl).not.toHaveBeenCalled();
   });
+
+  it('never dispatches outside the approved provider set', async () => {
+    const input = {
+      asset: leasedAsset(),
+      userId: 'user-1',
+      sourceUrl: 'https://lease.example.com/exact-source.wav?signature=bound',
+      precision: 'MEASURED_WORD_REQUIRED' as const,
+    };
+
+    await expect(transcribeLeasedMediaSourceWithProviderV2({
+      ...input,
+      approvedProviderIds: ['xai'],
+    })).rejects.toThrow('ASSET_TRANSCRIPTION_APPROVED_PROVIDERS_EXHAUSTED');
+    await expect(transcribeLeasedMediaSourceWithProviderV2({
+      ...input,
+      approvedProviderIds: ['deepgram', 'deepgram'],
+    })).rejects.toThrow('ASSET_TRANSCRIPTION_APPROVED_PROVIDER_SET_INVALID');
+
+    expect(mocks.transcribeMedia).not.toHaveBeenCalled();
+    expect(mocks.falSubscribe).not.toHaveBeenCalled();
+    expect(mocks.getAnalysisModel).not.toHaveBeenCalled();
+  });
 });
+
+function leasedAsset() {
+  return {
+    assetId: 'asset-1',
+    userId: 'user-1',
+    type: 'audio' as const,
+    filename: 'asset-1.wav',
+    source: 'user-upload' as const,
+    gcsPath: 'stale/object.wav',
+    cachedUrl: 'https://stale-cdn.example.com/asset-1.wav',
+    urlExpiresAt: new Date('2026-09-01T00:00:00.000Z'),
+    size: 1_024,
+    uploadedAt: new Date('2026-08-31T00:00:00.000Z'),
+  };
+}
