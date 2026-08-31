@@ -11685,6 +11685,45 @@ source-version transcription can be called production-ready. No synthetic or
 implicit grant may be created for legacy media. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Attestation-backed source-rights migration and five-track issuance Phase
+3F-C8cj (2026-08-31):** commits `318d45f27` and `903b97ca8` add the bounded
+production path that the preceding checkpoint left open. One canonical terms
+constant now owns the upload UI wording and stored native-video source claim.
+The one-way migration owner first reads the durable rights ledger, reuses a
+current grant, and refuses malformed or revoked state. Only when the ledger is
+missing may it convert a canonical server-timestamped user-upload attestation,
+and then only for the exact ProjectService-selected immutable source version,
+matching project/source owner and tenant or organization scope. Future-dated,
+wrong-source, wrong-owner, absent and malformed attestations block. The
+migration cannot infer `LICENSED_FOR_PROJECT`, create third-party licence
+evidence or revive a revoked grant. Issue persistence uses the existing Atlas
+compare-and-set ledger transition and reauthorizes the committed head before
+returning a receipt.
+
+The real five-track production owner now supplies the read/write ledger port
+and invokes this migration during `FULL` analysis before source-cache reads,
+provider work or timestamp visual materialization. The authority receipt is
+bound to the current ProjectService revision and exact selected proxy/master
+version. `CACHE_ONLY` remains read-only: it may authorize an existing durable
+grant but never migrates or writes one. The selected-source audio owner still
+independently reauthorizes immediately before private audio/PCM work. The
+composed upload-attestation, migration, ledger, authorization, five-track,
+selected-audio and API-route battery passes 85/85; repository TypeScript,
+targeted quiet ESLint, repository-wide quiet ESLint and `git diff --check`
+pass.
+
+This result is
+`ATTESTATION_BACKED_SOURCE_MEDIA_RIGHTS_PRODUCTION_PATH_LOCALLY_ENFORCED_LIVE_ATLAS_AND_PRIMARY_BINDING_ISSUANCE_OPEN`.
+No live Atlas issue/read/revoke, customer project, provider, private media
+object or mutation was exercised. This just-in-time `FULL` migration is the
+safe compatibility path for already-attested uploads; new project/source-
+binding writers must still issue the same durable grant without waiting for
+analysis, explicitly licensed media still needs principal-authorized licence
+evidence, and live Atlas CAS/revocation proof remains required. Source-version
+transcription is next in the local queue, but cannot be called production-ready
+until those live and primary-issuance gaps close. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
