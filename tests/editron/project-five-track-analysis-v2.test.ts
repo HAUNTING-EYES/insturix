@@ -189,6 +189,12 @@ describe('project five-track analysis v2', () => {
           timelineFrameQueries: ['30'],
           expectedVisualTransformSha256: materialization.transformSha256,
         },
+        rightsScope: {
+          tenantId: fixture.userId,
+          userId: fixture.userId,
+          orgId: null,
+          projectOwnerId: fixture.userId,
+        },
       }),
     );
     expect(materializeTimestampAnalysis.mock.invocationCallOrder[0])
@@ -197,6 +203,44 @@ describe('project five-track analysis v2', () => {
       );
     expect(result.overlays[0]?.projectCoordinateAnalysis?.audioEvidence)
       .toMatchObject({ reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' });
+  });
+
+  it('blocks before visual or provider analysis when current source rights fail', async () => {
+    const fixture = await sourceFixture('rights-blocked', ['3000', '1500']);
+    const project = projectFixture(fixture, 2);
+    const readAnalysis = vi.fn(async (): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (): Promise<AssetAnalysis> =>
+      completedAnalysis(fixture.assetId, fixture.userId, 100));
+    const materializeTimestampAnalysis = vi.fn();
+    const authorizeCurrentSourceRights = vi.fn(async () => ({
+      disposition: 'BLOCKED' as const,
+      diagnosticCode: 'SOURCE_MEDIA_RIGHTS_REVOKED',
+    }));
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'FULL',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        materializeTimestampAnalysis,
+        undefined,
+        authorizeCurrentSourceRights as never,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'UNAVAILABLE',
+      analysisBlockReason:
+        'SELECTED_SOURCE_RIGHTS_SOURCE_MEDIA_RIGHTS_REVOKED',
+      sourceMediaRightsAuthorizationReceiptSha256: null,
+    });
+    expect(materializeTimestampAnalysis).not.toHaveBeenCalled();
+    expect(readAnalysis).not.toHaveBeenCalled();
+    expect(runAnalysis).not.toHaveBeenCalled();
   });
 
   it('does not materialize timestamp analysis in cache-only mode', async () => {
@@ -345,8 +389,17 @@ function ports(
   resolveSelectedSourceAudioEvidence?: NonNullable<
     ProjectFiveTrackAnalysisPortsV2['resolveSelectedSourceAudioEvidence']
   >,
+  authorizeCurrentSourceRights?: NonNullable<
+    ProjectFiveTrackAnalysisPortsV2['authorizeCurrentSourceRights']
+  >,
 ): ProjectFiveTrackAnalysisPortsV2 {
   const readArtifactSet = vi.fn();
+  const authorizeRights = authorizeCurrentSourceRights ?? vi.fn(async () => ({
+    disposition: 'AUTHORIZED' as const,
+    receipt: {
+      receiptSha256: 'e'.repeat(64),
+    },
+  } as never));
   return {
     loadAssets: vi.fn(async (_assetIds: readonly string[]) => [asset]),
     loadSourceVersionEvidence: vi.fn(async () => null),
@@ -357,6 +410,9 @@ function ports(
       ? { resolveSelectedSourceAudioEvidence }
       : {}),
     audioArtifactReader: { readArtifactSet },
+    rightsReader: { read: vi.fn() },
+    authorizeCurrentSourceRights: authorizeRights,
+    rightsNow: () => new Date('2026-08-31T12:00:00.000Z'),
     nowMs: () => 0,
   };
 }

@@ -48,6 +48,12 @@ import {
   createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
   type VideoSourceTimestampConformV3,
 } from './video-source-time-transform-v1';
+import {
+  authorizeCurrentSourceMediaRightsV1,
+  type SourceMediaRightsAuthorizationReceiptV1,
+} from './source-media-rights-authorization-v1';
+import type { SourceMediaRightsLedgerReaderV1 }
+  from './source-media-rights-ledger-v1';
 
 const PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_KIND_V1 =
   'EDITRON_PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_V1' as const;
@@ -109,6 +115,8 @@ type ProjectSelectedSourceAudioEvidencePortsV1 = Readonly<{
   pcmReader?: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
   createTimestampConform?:
     typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
+  rightsReader: Readonly<SourceMediaRightsLedgerReaderV1>;
+  rightsNow?: () => Date;
 }>;
 
 export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
@@ -134,9 +142,14 @@ export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
       audioSampleEpochMapSha256: string;
       decodedPcmSha256: string;
       decodedSampleFrameCount: string;
+      sourceMediaRightsStateSha256V1: string;
+      sourceMediaRightsRecordSha256: string;
+      sourceMediaRightsAuthorizationReceiptSha256: string;
       pcmWindowProofSha256: string | null;
       evidenceSha256: string;
       audioEvidence: NativeMediaExactAudioEvidenceV1;
+      sourceMediaRightsAuthorization:
+        SourceMediaRightsAuthorizationReceiptV1;
       pcmWindowProof: NativeMediaTimestampAudioPcmWindowProofV1 | null;
     }
   | {
@@ -149,6 +162,7 @@ export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
         | 'SOURCE_VERSION_EVIDENCE_REQUIRED'
         | 'SOURCE_VERSION_EVIDENCE_INVALID'
         | 'SELECTED_SOURCE_EVIDENCE_MISMATCH'
+        | 'SOURCE_MEDIA_RIGHTS_BLOCKED'
         | 'PCM_WINDOW_PORT_REQUIRED'
         | 'PCM_WINDOW_CONFORM_FAILED'
         | 'PCM_WINDOW_CONFORM_UNVERIFIABLE'
@@ -174,6 +188,12 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
   assetId: string;
   selectedSource: SelectedSourceV1;
   sourceVersionCandidates: readonly unknown[];
+  rightsScope: Readonly<{
+    tenantId: string;
+    userId: string;
+    orgId: string | null;
+    projectOwnerId: string | null;
+  }>;
   pcmWindow?: ProjectSelectedSourceAudioPcmWindowInputV1;
   ports: ProjectSelectedSourceAudioEvidencePortsV1;
 }>): Promise<ProjectSelectedSourceAudioEvidenceResultV1> {
@@ -234,6 +254,18 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
       && evidence.evidenceSha256
         !== scope.expectedSourceVersionEvidenceSha256)) {
     return unverifiable('SELECTED_SOURCE_EVIDENCE_MISMATCH', null);
+  }
+
+  const rights = await authorizeCurrentSourceMediaRightsV1({
+    ...scope.rightsScope,
+    projectId: scope.projectId,
+    sourceVersion: source,
+  }, {
+    rightsReader: input.ports.rightsReader,
+    ...(input.ports.rightsNow ? { now: input.ports.rightsNow } : {}),
+  });
+  if (rights.disposition === 'BLOCKED') {
+    return unverifiable('SOURCE_MEDIA_RIGHTS_BLOCKED', rights.diagnosticCode);
   }
 
   const sourceAsset = mediaSourceVersionEvidenceAssetViewV1(evidence);
@@ -375,12 +407,19 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
     decodedPcmSha256: selected.evidence.pcm.decodedPcmSha256,
     decodedSampleFrameCount:
       selected.evidence.pcm.decodedSampleFrameCount,
+    sourceMediaRightsStateSha256V1:
+      rights.receipt.sourceMediaRightsStateSha256V1,
+    sourceMediaRightsRecordSha256:
+      rights.receipt.sourceMediaRightsRecordSha256,
+    sourceMediaRightsAuthorizationReceiptSha256:
+      rights.receipt.receiptSha256,
     pcmWindowProofSha256: pcmWindowProof?.proofSha256 ?? null,
   };
   return deepFreezeEditronJsonV1({
     ...material,
     evidenceSha256: hashEditronCanonicalJsonV1(material),
     audioEvidence: selected,
+    sourceMediaRightsAuthorization: rights.receipt,
     pcmWindowProof,
   });
 }
@@ -455,8 +494,31 @@ function normalizeScope(input: Parameters<
       selected.binding.bindingSha256,
       'PROJECT_SELECTED_SOURCE_AUDIO_SOURCE_INVALID',
     ),
+    rightsScope: normalizeRightsScope(input.rightsScope),
     pcmWindow,
   };
+}
+
+function normalizeRightsScope(
+  value: Parameters<typeof resolveProjectSelectedSourceAudioEvidenceV1>[0][
+    'rightsScope'
+  ],
+) {
+  if (!value || typeof value !== 'object') {
+    throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_RIGHTS_SCOPE_INVALID');
+  }
+  return Object.freeze({
+    tenantId: analysisText(
+      value.tenantId, 256,
+      'PROJECT_SELECTED_SOURCE_AUDIO_RIGHTS_SCOPE_INVALID',
+    ),
+    userId: analysisText(
+      value.userId, 256,
+      'PROJECT_SELECTED_SOURCE_AUDIO_RIGHTS_SCOPE_INVALID',
+    ),
+    orgId: nullableAnalysisText(value.orgId),
+    projectOwnerId: nullableAnalysisText(value.projectOwnerId),
+  });
 }
 
 function normalizePcmWindow(
@@ -575,9 +637,20 @@ function audioMappingMatchesSelected(
 
 function assertPorts(ports: ProjectSelectedSourceAudioEvidencePortsV1): void {
   if (!ports || typeof ports.loadSourceVersionEvidence !== 'function'
-    || typeof ports.audioArtifactReader?.readArtifactSet !== 'function') {
+    || typeof ports.audioArtifactReader?.readArtifactSet !== 'function'
+    || typeof ports.rightsReader?.read !== 'function'
+    || (ports.rightsNow !== undefined
+      && typeof ports.rightsNow !== 'function')) {
     throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PORT_INVALID');
   }
+}
+
+function nullableAnalysisText(value: unknown): string | null {
+  return value === null
+    ? null
+    : analysisText(
+        value, 256, 'PROJECT_SELECTED_SOURCE_AUDIO_RIGHTS_SCOPE_INVALID',
+      );
 }
 
 function nullableSha256(value: unknown, code: string): string | null {

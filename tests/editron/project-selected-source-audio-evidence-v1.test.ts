@@ -19,6 +19,8 @@ import { TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1 }
   from './helpers/native-media-timestamp-analysis-materialization-fixture';
 import { buildMediaProxyMasterAudioLineageFixtureV1 }
   from './helpers/media-proxy-master-audio-lineage-fixture';
+import { issueSourceMediaRightsV1 }
+  from '@/lib/editron/services/source-media-rights-owner-v1';
 
 const VISUAL_TRANSFORM_SHA256 = 'a'.repeat(64);
 
@@ -49,6 +51,8 @@ describe('project selected source audio evidence V1', () => {
             .sourceAudioArtifactsStateSha256V1
           : 'unexpected',
       decodedSampleFrameCount: '480000',
+      sourceMediaRightsAuthorizationReceiptSha256:
+        expect.stringMatching(/^[a-f0-9]{64}$/),
       pcmWindowProofSha256: null,
     });
     expect(result).toHaveProperty('evidenceSha256');
@@ -223,6 +227,23 @@ describe('project selected source audio evidence V1', () => {
     });
   });
 
+  it('blocks missing current rights before reading private audio artifacts', async () => {
+    const fixture = buildFixture('project-audio-rights-missing');
+    const readArtifactSet = vi.fn();
+
+    const result = await run(fixture, {
+      reader: { readArtifactSet },
+      rightsReader: { read: vi.fn(async () => null) },
+    });
+
+    expect(result).toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SOURCE_MEDIA_RIGHTS_BLOCKED',
+      diagnostic: 'SOURCE_MEDIA_RIGHTS_EVIDENCE_MISSING',
+    });
+    expect(readArtifactSet).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid project revision scope before storage work', async () => {
     const fixture = buildFixture('project-audio-invalid-revision');
     const loadSourceVersionEvidence = vi.fn(async () => fixture.evidence);
@@ -270,6 +291,7 @@ function run(
     storedObjectReader?: unknown;
     pcmReader?: unknown;
     createTimestampConform?: unknown;
+    rightsReader?: { read(scope: never): Promise<unknown | null> };
   }> = {},
 ) {
   return resolveProjectSelectedSourceAudioEvidenceV1({
@@ -298,6 +320,7 @@ function run(
       },
     } as never,
     sourceVersionCandidates: overrides.candidates ?? [fixture.source],
+    rightsScope: rightsScope(fixture),
     ...(overrides.pcmWindow === undefined
       ? {}
       : { pcmWindow: overrides.pcmWindow as never }),
@@ -305,6 +328,10 @@ function run(
       loadSourceVersionEvidence: overrides.loadSourceVersionEvidence
         ?? vi.fn(async () => fixture.evidence),
       audioArtifactReader: (overrides.reader ?? fixture.reader) as never,
+      rightsReader: (overrides.rightsReader ?? {
+        read: vi.fn(async () => issueRights(fixture)),
+      }) as never,
+      rightsNow: () => new Date('2026-08-31T12:00:00.000Z'),
       ...(overrides.storedObjectReader === undefined
         ? {}
         : { storedObjectReader: overrides.storedObjectReader as never }),
@@ -316,6 +343,47 @@ function run(
         : { createTimestampConform: overrides.createTimestampConform as never }),
     },
   });
+}
+
+function rightsScope(fixture: ReturnType<typeof buildFixture>) {
+  const owner = fixture.source.owner;
+  const projectOwnerId = owner.kind === 'USER' ? owner.userId : 'org-admin';
+  return {
+    tenantId: owner.kind === 'USER' ? owner.userId : owner.orgId,
+    userId: projectOwnerId,
+    orgId: owner.kind === 'ORG' ? owner.orgId : null,
+    projectOwnerId,
+  } as const;
+}
+
+async function issueRights(fixture: ReturnType<typeof buildFixture>) {
+  const scope = rightsScope(fixture);
+  const result = await issueSourceMediaRightsV1({
+    tenantId: scope.tenantId,
+    attestedByUserId: scope.userId,
+    orgId: scope.orgId,
+    projectId: 'project-audio',
+    disposition: fixture.source.owner.kind === 'USER'
+      ? 'OWNED_BY_USER'
+      : 'OWNED_BY_ORG',
+    sourceVersion: fixture.source,
+    termsVersion: 'rights-terms-v1',
+    termsContentSha256: 'c'.repeat(64),
+    license: null,
+    attestedAt: new Date('2026-08-31T11:00:00.000Z'),
+    principalAuthority: {
+      ownerId: 'PROJECT_ACCESS_AUTHORITY',
+      ownerVersion: '1',
+      authorize: vi.fn(async () => ({
+        disposition: 'AUTHORIZED' as const,
+        receiptSha256: 'd'.repeat(64),
+      })),
+    },
+  });
+  if (result.disposition !== 'ISSUED') {
+    throw new Error(`TEST_RIGHTS_ISSUE_FAILED:${result.diagnosticCode}`);
+  }
+  return result.state;
 }
 
 function pcmWindow() {

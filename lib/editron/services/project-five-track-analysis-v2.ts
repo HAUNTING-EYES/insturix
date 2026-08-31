@@ -42,6 +42,16 @@ import {
   classifyVerifiedVideoSourceEpochRateCompatibilityV3,
   createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
 } from './video-source-time-transform-v1';
+import {
+  authorizeCurrentSourceMediaRightsV1,
+  type SourceMediaRightsAuthorizationReceiptV1,
+} from './source-media-rights-authorization-v1';
+import type { SourceMediaRightsLedgerReaderV1 }
+  from './source-media-rights-ledger-v1';
+import {
+  assertMediaSourceVersionV1,
+  type MediaSourceVersionV1,
+} from './media-source-version-v1';
 
 const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
   'EDITRON_PROJECT_FIVE_TRACK_ANALYSIS_V2' as const;
@@ -64,6 +74,8 @@ type ProjectFiveTrackAnalysisBlockReasonV2 =
   | `SELECTED_SOURCE_TIME_${SelectedSourceTimeBlockReasonV1}`
   | 'SELECTED_SOURCE_URL_UNAVAILABLE'
   | 'SOURCE_FRAME_COUNT_INVALID'
+  | 'SELECTED_SOURCE_RIGHTS_SOURCE_REQUIRED'
+  | `SELECTED_SOURCE_RIGHTS_${string}`
   | 'TIMESTAMP_ANALYSIS_PROJECT_REVISION_REQUIRED'
   | 'TIMESTAMP_ANALYSIS_PORT_REQUIRED'
   | 'TIMESTAMP_ANALYSIS_CACHE_MISS'
@@ -103,6 +115,7 @@ type ProjectFiveTrackOverlayResultV2 = Readonly<{
     | 'PROJECT_COORDINATE_ANALYZED'
     | 'UNAVAILABLE';
   analysisBlockReason: ProjectFiveTrackAnalysisBlockReasonV2 | null;
+  sourceMediaRightsAuthorizationReceiptSha256: string | null;
   timelineAdmission: Readonly<
     | { disposition: 'ADMITTED'; timelineOffsetFrames: number }
     | {
@@ -137,6 +150,7 @@ type SourceBoundPreparedOverlayV2 = Readonly<{
   options: FullAnalysisOptions & Readonly<{
     sourceBindingV2: AssetAnalysisSourceBindingV2;
   }>;
+  sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
 }>;
 
 type TimestampPreparedOverlayV2 = Readonly<{
@@ -147,6 +161,7 @@ type TimestampPreparedOverlayV2 = Readonly<{
     Readonly<{ disposition: 'RESOLVED' }>
   >;
   sourceVersionCandidates: readonly unknown[];
+  sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
 }>;
 
 type PreparedOverlayV2 =
@@ -178,6 +193,10 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
     typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
   resolveSelectedSourceAudioEvidence?:
     typeof resolveProjectSelectedSourceAudioEvidenceV1;
+  rightsReader: Readonly<SourceMediaRightsLedgerReaderV1>;
+  authorizeCurrentSourceRights?:
+    typeof authorizeCurrentSourceMediaRightsV1;
+  rightsNow?: () => Date;
   nowMs(): number;
 }>;
 
@@ -216,6 +235,9 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       overlay,
       assets,
       loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
+      rightsReader: ports.rightsReader,
+      authorizeCurrentSourceRights: ports.authorizeCurrentSourceRights,
+      rightsNow: ports.rightsNow,
     });
     if ('reason' in result) blocked.set(overlay.id, result.reason);
     else prepared.set(overlay.id, result);
@@ -327,6 +349,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
         assetId: candidate.selectedSource.binding.assetId,
         selectedSource: candidate.selectedSource,
         sourceVersionCandidates: candidate.sourceVersionCandidates,
+        rightsScope: projectRightsScope(input.project, input.userId),
         pcmWindow: projectTimestampPcmWindow(
           candidate,
           result,
@@ -338,6 +361,8 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
           storedObjectReader: ports.timestampPcmStoredObjectReader,
           pcmReader: ports.timestampPcmReader,
           createTimestampConform: ports.timestampPcmCreateConform,
+          rightsReader: ports.rightsReader,
+          ...(ports.rightsNow ? { rightsNow: ports.rightsNow } : {}),
         },
       });
       timestampAnalyses.set(candidate.overlay.id, Object.freeze({
@@ -388,6 +413,8 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
         ? 'PROJECT_COORDINATE_ANALYZED' as const
         : sourceAnalysis?.disposition ?? 'UNAVAILABLE',
       analysisBlockReason,
+      sourceMediaRightsAuthorizationReceiptSha256:
+        candidate?.sourceMediaRightsAuthorization.receiptSha256 ?? null,
       timelineAdmission,
     });
   });
@@ -413,6 +440,10 @@ async function prepareOverlay(input: Readonly<{
   assets: ReadonlyMap<string, AnalysisAssetV2>;
   loadSourceVersionEvidence:
     ProjectFiveTrackAnalysisPortsV2['loadSourceVersionEvidence'];
+  rightsReader: ProjectFiveTrackAnalysisPortsV2['rightsReader'];
+  authorizeCurrentSourceRights:
+    ProjectFiveTrackAnalysisPortsV2['authorizeCurrentSourceRights'];
+  rightsNow: ProjectFiveTrackAnalysisPortsV2['rightsNow'];
 }>): Promise<
   PreparedOverlayV2
   | Readonly<{ reason: ProjectFiveTrackAnalysisBlockReasonV2 }>
@@ -436,6 +467,32 @@ async function prepareOverlay(input: Readonly<{
   if (selected.disposition === 'UNVERIFIABLE') {
     return { reason: `SELECTED_SOURCE_TIME_${selected.reason}` };
   }
+  const sourceVersionCandidates = Object.freeze([
+    asset.sourceVersionV1,
+    asset.proxySourceVersionV1,
+  ]);
+  const sourceVersion = exactSelectedSourceVersion(
+    selected,
+    sourceVersionCandidates,
+  );
+  if (sourceVersion === null) {
+    return { reason: 'SELECTED_SOURCE_RIGHTS_SOURCE_REQUIRED' };
+  }
+  const authorizeRights = input.authorizeCurrentSourceRights
+    ?? authorizeCurrentSourceMediaRightsV1;
+  const sourceMediaRights = await authorizeRights({
+    ...projectRightsScope(input.project, input.userId),
+    projectId: input.project.projectId,
+    sourceVersion,
+  }, {
+    rightsReader: input.rightsReader,
+    ...(input.rightsNow ? { now: input.rightsNow } : {}),
+  });
+  if (sourceMediaRights.disposition === 'BLOCKED') {
+    return {
+      reason: `SELECTED_SOURCE_RIGHTS_${sourceMediaRights.diagnosticCode}`,
+    };
+  }
   const timing = selected.binding;
   const compatibility = classifyVerifiedVideoSourceEpochRateCompatibilityV3(
     timing,
@@ -446,10 +503,8 @@ async function prepareOverlay(input: Readonly<{
       kind: 'PROJECT_TIMESTAMP' as const,
       overlay: input.overlay,
       selectedSource: selected,
-      sourceVersionCandidates: Object.freeze([
-        asset.sourceVersionV1,
-        asset.proxySourceVersionV1,
-      ]),
+      sourceVersionCandidates,
+      sourceMediaRightsAuthorization: sourceMediaRights.receipt,
     });
   }
   const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
@@ -478,6 +533,45 @@ async function prepareOverlay(input: Readonly<{
     totalSourceFrameCount,
     sourceBinding,
     options: Object.freeze({ ...baseOptions, sourceBindingV2: sourceBinding }),
+    sourceMediaRightsAuthorization: sourceMediaRights.receipt,
+  });
+}
+
+function exactSelectedSourceVersion(
+  selected: Extract<
+    ProjectSelectedVideoSourceTimeBindingResultV1,
+    Readonly<{ disposition: 'RESOLVED' }>
+  >,
+  candidates: readonly unknown[],
+): Readonly<MediaSourceVersionV1> | null {
+  const matches: MediaSourceVersionV1[] = [];
+  for (const candidate of candidates) {
+    try {
+      const source = assertMediaSourceVersionV1(candidate);
+      if (source.assetId === selected.binding.assetId
+        && source.sourceVersionSha256
+          === selected.binding.sourceVersionSha256
+        && source.storageVersion.storageVersionSha256
+          === selected.binding.storageVersionSha256) {
+        matches.push(source);
+      }
+    } catch {
+      // A malformed unrelated candidate cannot authorize the selected source.
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function projectRightsScope(project: Project, userId: string) {
+  const projectOwnerId = project.userId.trim();
+  const orgId = typeof project.orgId === 'string' && project.orgId.trim()
+    ? project.orgId.trim()
+    : null;
+  return Object.freeze({
+    tenantId: orgId ?? projectOwnerId,
+    userId,
+    orgId,
+    projectOwnerId,
   });
 }
 
@@ -576,6 +670,11 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       'createMediaSourcePtsCadenceR2RuntimePortsV1'
     ]
   >> | null = null;
+  let rightsStorePromise: ReturnType<
+    typeof import('./source-media-rights-ledger-v1')[
+      'createSourceMediaRightsLedgerMongoPortsV1'
+    ]
+  > | null = null;
   const mediaRuntime = () => {
     mediaRuntimePromise ??= import(
       './media-source-pts-cadence-r2-runtime-v1'
@@ -622,6 +721,16 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
         return (await mediaRuntime()).audioArtifact.readPcmSampleRange(range);
       },
     },
+    rightsReader: {
+      async read(scope) {
+        const rightsStore = rightsStorePromise ??= import(
+          './source-media-rights-ledger-v1'
+        ).then(({ createSourceMediaRightsLedgerMongoPortsV1 }) =>
+          createSourceMediaRightsLedgerMongoPortsV1());
+        return (await rightsStore).read(scope);
+      },
+    },
+    rightsNow: () => new Date(),
     nowMs: () => Date.now(),
   };
 }
