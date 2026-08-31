@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compactEditorStateForSave,
+  isValidEditorTimelineMarkers,
   mergeServerOwnedOverlayDataForSave,
   serializeEditorStateForSave,
 } from "@/lib/editron/shared/project-save-payload";
@@ -2038,6 +2039,234 @@ describe("Editron project save payload compaction", () => {
         { expectedRevision: revision },
       ),
     ).rejects.toBeInstanceOf(ProjectMutationWriteError);
+  });
+
+  it("persists named timeline markers through manual save and returns them on GET", async () => {
+    const updatedAt = "2026-08-26T01:00:00.000Z";
+    const markers = [
+      { id: "intro", frame: 0, label: "Intro" },
+      { id: "cta", frame: 90, label: "Call to action" },
+    ];
+    const currentProject = {
+      projectId: "proj_1",
+      userId: "user_1",
+      name: "Marker fixture",
+      overlays: [],
+      aspectRatio: "16:9",
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 180,
+      visibility: "private",
+      createdAt: new Date(updatedAt),
+      updatedAt: new Date(updatedAt),
+      projectRevision: 0,
+    };
+    persistenceMocks.auth.mockResolvedValue({ userId: "user_1" });
+    persistenceMocks.findOne.mockResolvedValue(currentProject);
+    persistenceMocks.updateOne.mockResolvedValue({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+
+    const { POST } = await import(
+      "@/app/api/services/editron/projects/[projectId]/save/route",
+    );
+    const response = await POST(
+      new NextRequest(
+        "http://localhost/api/services/editron/projects/proj_1/save",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            expectedRevision: {
+              schemaVersion: 1,
+              value: 0,
+              compatibilityUpdatedAt: updatedAt,
+            },
+            overlays: [],
+            aspectRatio: "16:9",
+            playerDimensions: { width: 1920, height: 1080 },
+            fps: 30,
+            durationInFrames: 180,
+            markers,
+          }),
+        },
+      ),
+      { params: Promise.resolve({ projectId: "proj_1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(persistenceMocks.updateOne.mock.calls[0]?.[1]).toMatchObject({
+      $set: expect.objectContaining({ markers }),
+    });
+    expect(
+      JSON.parse(
+        serializeEditorStateForSave({ overlays: [], markers } as any),
+      ).markers,
+    ).toEqual(markers);
+
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      ...currentProject,
+      markers,
+    });
+    const { GET } = await import(
+      "@/app/api/services/editron/projects/[projectId]/route",
+    );
+    const reloadResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/services/editron/projects/proj_1",
+      ),
+      { params: Promise.resolve({ projectId: "proj_1" }) },
+    );
+
+    expect(reloadResponse.status).toBe(200);
+    await expect(reloadResponse.json()).resolves.toMatchObject({
+      success: true,
+      project: { markers },
+    });
+  });
+
+  it("accepts named timeline markers through the strict autosave schema", async () => {
+    const updatedAt = "2026-08-26T02:00:00.000Z";
+    const markers = [{ id: "beat_1", frame: 12, label: "First beat" }];
+    persistenceMocks.auth.mockResolvedValue({ userId: "user_1" });
+    persistenceMocks.findOne.mockResolvedValue({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 4,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+
+    const { POST } = await import(
+      "@/app/api/services/editron/projects/[projectId]/autosave/route",
+    );
+    const response = await POST(
+      new NextRequest(
+        "http://localhost/api/services/editron/projects/proj_1/autosave",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            expectedRevision: {
+              schemaVersion: 1,
+              value: 4,
+              compatibilityUpdatedAt: updatedAt,
+            },
+            overlays: [],
+            aspectRatio: "16:9",
+            playerDimensions: { width: 1920, height: 1080 },
+            fps: 30,
+            durationInFrames: 120,
+            markers,
+          }),
+        },
+      ),
+      { params: Promise.resolve({ projectId: "proj_1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(persistenceMocks.updateOne.mock.calls[0]?.[1]).toMatchObject({
+      $set: { markers },
+    });
+  });
+
+  it("rejects malformed markers in both routes and before direct service writes", async () => {
+    const invalidMarkers = [{ id: "late_frame", frame: 120, label: "Late" }];
+    expect(isValidEditorTimelineMarkers(invalidMarkers)).toBe(true);
+    expect(isValidEditorTimelineMarkers(invalidMarkers, 120)).toBe(false);
+    expect(
+      isValidEditorTimelineMarkers([
+        { id: "duplicate", frame: 0, label: "First" },
+        { id: " duplicate ", frame: 1, label: "Second" },
+      ]),
+    ).toBe(false);
+    persistenceMocks.auth.mockResolvedValue({ userId: "user_1" });
+    const requestBody = {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 0,
+        compatibilityUpdatedAt: "2026-08-26T03:00:00.000Z",
+      },
+      overlays: [],
+      aspectRatio: "16:9",
+      playerDimensions: { width: 1920, height: 1080 },
+      durationInFrames: 120,
+      markers: invalidMarkers,
+    };
+
+    const { POST: save } = await import(
+      "@/app/api/services/editron/projects/[projectId]/save/route",
+    );
+    const saveResponse = await save(
+      new NextRequest(
+        "http://localhost/api/services/editron/projects/proj_1/save",
+        { method: "POST", body: JSON.stringify(requestBody) },
+      ),
+      { params: Promise.resolve({ projectId: "proj_1" }) },
+    );
+    expect(saveResponse.status).toBe(400);
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+
+    const { POST: autosave } = await import(
+      "@/app/api/services/editron/projects/[projectId]/autosave/route",
+    );
+    const autosaveResponse = await autosave(
+      new NextRequest(
+        "http://localhost/api/services/editron/projects/proj_1/autosave",
+        { method: "POST", body: JSON.stringify(requestBody) },
+      ),
+      { params: Promise.resolve({ projectId: "proj_1" }) },
+    );
+    expect(autosaveResponse.status).toBe(400);
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+    await expect(
+      projectService.saveProject("user_1", "proj_1", {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        durationInFrames: 120,
+        markers: [
+          { id: "valid", frame: 0, label: "First" },
+          { id: "late", frame: 120, label: "Second" },
+        ],
+      }),
+    ).rejects.toThrow("Invalid editor timeline markers");
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("binds direct-service marker ranges to the stored duration when duration is omitted", async () => {
+    persistenceMocks.findOne.mockResolvedValue({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      durationInFrames: 120,
+      updatedAt: new Date("2026-08-26T04:00:00.000Z"),
+      projectRevision: 0,
+    });
+
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+    await expect(
+      projectService.saveProject("user_1", "proj_1", {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        markers: [{ id: "late", frame: 120, label: "Out of range" }],
+      }),
+    ).rejects.toThrow("Invalid editor timeline markers");
+    expect(persistenceMocks.findOne).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 });
 

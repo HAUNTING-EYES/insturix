@@ -23,7 +23,9 @@ import {
 } from "../engine/overlay-atomic-receipts";
 import { nanoid } from "nanoid";
 import {
+  assertEditorTimelineMarkers,
   mergeServerOwnedOverlayDataForSave,
+  type EditorTimelineMarker,
   type OverlaySaveAuthority,
 } from "@/lib/editron/shared/project-save-payload";
 import { orgMemberService } from "@/lib/services/orgMemberService";
@@ -136,6 +138,8 @@ export interface EditorState {
   };
   fps?: number;
   durationInFrames?: number;
+  /** User-authored named timeline markers; omitted means preserve legacy data. */
+  markers?: EditorTimelineMarker[];
 }
 
 /**
@@ -1195,6 +1199,8 @@ export interface Project {
   };
   fps: number;
   durationInFrames: number;
+  /** User-authored named timeline markers persisted with editor state. */
+  markers?: EditorTimelineMarker[];
   thumbnail?: string;
   /** Script pasted at intake (Script door). Never silently dropped; the
       in-editor AI / Mode-1 generation is its consumer. */
@@ -4269,6 +4275,12 @@ export class ProjectService {
     directorLeaseId?: string;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
+    // Validate before any resolver or database work so route casts cannot
+    // bypass the durable marker contract.
+    assertEditorTimelineMarkers(
+      input.state.markers,
+      input.state.durationInFrames,
+    );
     assertGenericProjectUpdateFields(input.projectUpdates ?? {}, []);
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
     const dimensions = validDimensions(input.state.playerDimensions)
@@ -4281,6 +4293,14 @@ export class ProjectService {
     })) as Project | null;
 
     if (!currentProject) throw new ProjectNotFoundOrForbiddenError();
+
+    // A direct caller may omit duration while supplying markers. Bind those
+    // markers to the durable project duration before any write so the route
+    // layer is never the sole range authority.
+    assertEditorTimelineMarkers(
+      input.state.markers,
+      input.state.durationInFrames ?? currentProject.durationInFrames,
+    );
 
     const currentRevision = projectRevisionFor(currentProject);
     const expectedRevision = input.expectedRevision ?? currentRevision;
@@ -4336,6 +4356,9 @@ export class ProjectService {
         playerDimensions: dimensions,
         fps: input.state.fps || 30,
         durationInFrames: input.state.durationInFrames || 0,
+        ...(input.state.markers !== undefined
+          ? { markers: input.state.markers }
+          : {}),
         ...(input.mode === "autosave" ? { lastAutosaveAt: committedAt } : {}),
         updatedAt: committedAt,
       },

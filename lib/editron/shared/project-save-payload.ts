@@ -1,7 +1,91 @@
-import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import type {
+  NamedMarker,
+  Overlay,
+} from '@/components/editron/editor/version-7.0.0/types';
+
+/**
+ * The durable named-marker contract shared by the browser and ProjectService.
+ * Keep this validator dependency-free: this module is also imported by the
+ * client autosave hook.
+ */
+export type EditorTimelineMarker = NamedMarker;
+
+export const EDITOR_TIMELINE_MARKER_LIMITS = {
+  maxMarkers: 2_048,
+  maxIdLength: 128,
+  maxLabelLength: 512,
+} as const;
+
+export function isValidEditorTimelineMarkers(
+  value: unknown,
+  durationInFrames?: unknown,
+): value is EditorTimelineMarker[] | undefined {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > EDITOR_TIMELINE_MARKER_LIMITS.maxMarkers) {
+    return false;
+  }
+
+  const ids = new Set<string>();
+  const markerFrames: number[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const marker = value[index];
+    if (!isRecord(marker)) return false;
+
+    const keys = Object.keys(marker);
+    if (
+      keys.length !== 3
+      || !keys.includes('id')
+      || !keys.includes('frame')
+      || !keys.includes('label')
+    ) {
+      return false;
+    }
+
+    const { id, frame, label } = marker;
+    if (
+      typeof id !== 'string'
+      || id.trim().length === 0
+      || id.trim() !== id
+      || id.length > EDITOR_TIMELINE_MARKER_LIMITS.maxIdLength
+      || ids.has(id)
+      || typeof frame !== 'number'
+      || !Number.isSafeInteger(frame)
+      || frame < 0
+      || typeof label !== 'string'
+      || label.trim().length === 0
+      || label.length > EDITOR_TIMELINE_MARKER_LIMITS.maxLabelLength
+    ) {
+      return false;
+    }
+    ids.add(id);
+    markerFrames.push(frame);
+  }
+
+  if (durationInFrames === undefined) return true;
+  if (
+    typeof durationInFrames !== 'number'
+    || !Number.isFinite(durationInFrames)
+    || durationInFrames < 0
+  ) {
+    return false;
+  }
+  return markerFrames.every((frame) => frame < durationInFrames);
+}
+
+export function assertEditorTimelineMarkers(
+  value: unknown,
+  durationInFrames?: unknown,
+): asserts value is EditorTimelineMarker[] | undefined {
+  if (!isValidEditorTimelineMarkers(value, durationInFrames)) {
+    throw new Error(
+      'Invalid editor timeline markers: expected unique canonical IDs, bounded nonempty labels, safe nonnegative integer frames within duration.',
+    );
+  }
+}
 
 type EditorSaveStateLike = {
   overlays?: Overlay[];
+  markers?: EditorTimelineMarker[];
   [key: string]: unknown;
 };
 

@@ -14,6 +14,10 @@ import {
   createEditronUserOverrideLearningEvent,
   type EditronUserOverrideKind,
 } from "@/lib/editron/services/editron-brand-learning-events";
+import {
+  isValidEditorTimelineMarkers,
+  type EditorTimelineMarker,
+} from "@/lib/editron/shared/project-save-payload";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 
@@ -37,8 +41,26 @@ const SaveProjectSchema = z
     }),
     fps: z.number().positive().optional(),
     durationInFrames: z.number().nonnegative().optional(),
+    markers: z
+      .custom<EditorTimelineMarker[]>(
+        (value) => isValidEditorTimelineMarkers(value),
+        { message: "Invalid editor timeline markers" },
+      )
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((state, context) => {
+    if (
+      isValidEditorTimelineMarkers(state.markers)
+      && !isValidEditorTimelineMarkers(state.markers, state.durationInFrames)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["markers"],
+        message: "Marker frame must be before durationInFrames",
+      });
+    }
+  });
 
 export async function POST(
   request: NextRequest,
