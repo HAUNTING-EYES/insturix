@@ -65,18 +65,6 @@ interface FlatWriterEditBaseArgs {
   abortSignal?: AbortSignal;
   beforeCommit?: () => Promise<void>;
   expectedVersion?: number;
-  /** @deprecated Ignored. Persisted document state is loaded by exact identity. */
-  existingScript?: {
-    title?: string;
-    content?: string;
-    blocks?: unknown[];
-    documentType?: string;
-    metadata?: Record<string, unknown>;
-  } | null | undefined;
-  /** @deprecated Ignored. Persisted document content is authoritative. */
-  existingContent?: string;
-  /** @deprecated Ignored. The persisted version is the commit baseline. */
-  baseVersion?: number;
 }
 
 export type FlatWriterEditArgs = FlatWriterEditBaseArgs & (

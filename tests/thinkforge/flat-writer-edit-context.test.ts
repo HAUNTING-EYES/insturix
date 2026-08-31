@@ -319,10 +319,7 @@ describe('flat writer edit authoring context', () => {
       orgId: 'org_1',
       sessionId: 'session_1',
       scriptId: 'post_1',
-      existingScript: stored,
-      existingContent: stored.content,
       instruction: 'Make the CTA more direct.',
-      baseVersion: 1,
     });
 
     expect(mocks.resolveAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
@@ -447,10 +444,7 @@ describe('flat writer edit authoring context', () => {
       orgId: 'org_1',
       sessionId: 'session_1',
       scriptId: 'script_1',
-      existingScript: stored,
-      existingContent: stored.content,
       instruction: 'Make the opening more concrete.',
-      baseVersion: 3,
     });
 
     expect(mocks.planVideoTreatment).toHaveBeenCalledWith(expect.objectContaining({
@@ -683,10 +677,7 @@ describe('flat writer edit authoring context', () => {
       userId: 'user_1',
       sessionId: 'missing',
       scriptId: 'missing_document',
-      existingScript: null,
-      existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',
-      baseVersion: 0,
     })).rejects.toThrow(/not found or not authorized/i);
 
     mocks.getSession.mockResolvedValueOnce({
@@ -710,10 +701,7 @@ describe('flat writer edit authoring context', () => {
       userId: 'user_1',
       sessionId: 'session_1',
       scriptId: 'post_1',
-      existingScript: null,
-      existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',
-      baseVersion: 0,
     })).rejects.toThrow('brand_profile_unavailable');
 
     expect(mocks.postRun).not.toHaveBeenCalled();
