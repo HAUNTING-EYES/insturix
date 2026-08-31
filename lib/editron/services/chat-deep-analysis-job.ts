@@ -23,9 +23,10 @@ import {
 import { analysisSameRevision } from './native-media-timestamp-analysis-validation-v1';
 import { NATIVE_MEDIA_TIMESTAMP_ANALYSIS_SAMPLE_PLAN_KIND_V1 } from './native-media-timestamp-analysis-sample-plan-v1';
 import { NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1 } from './native-media-timestamp-preview-materializer-v1';
+import { assertProjectVideoSourceVersionPinV1 } from './project-video-source-version-pin-v1';
 import type { ProjectRevisionV1 } from './project-service';
 
-export const CHAT_DEEP_ANALYSIS_JOB_VERSION = 'editron-chat-deep-analysis-job-v1' as const;
+export const CHAT_DEEP_ANALYSIS_JOB_VERSION = 'editron-chat-deep-analysis-job-v2' as const;
 export const CHAT_DEEP_ANALYSIS_MAX_ATTEMPTS = 2;
 
 const MAX_ANALYSIS_SECONDS = 120;
@@ -45,6 +46,19 @@ export type ChatDeepAnalysisJobStatus =
   | 'dispatch_failed'
   | 'failed'
   | 'stale';
+
+export type ChatDeepAnalysisSourceSelection = Readonly<
+  | {
+      kind: 'PINNED_PROJECT_VIDEO_SOURCE';
+      sourceRole: 'PROXY' | 'MASTER';
+      sourceVersionSha256: string;
+      storageVersionSha256: string;
+      pinSha256: string;
+    }
+  | {
+      kind: 'DIRECT_ASSET_SOURCE_UNVERSIONED';
+    }
+>;
 
 export interface ResolveChatDeepAnalysisRequest {
   projectId: string;
@@ -68,6 +82,7 @@ export interface ChatDeepAnalysisCoordinateContract {
   fps: number;
   timeline: AnalysisFrameRange;
   source: AnalysisFrameRange;
+  sourceSelection: ChatDeepAnalysisSourceSelection;
 }
 
 export interface ChatDeepAnalysisJob {
@@ -236,6 +251,16 @@ export async function queueChatDeepAnalysisJob(
   if (!job || job.projectId !== input.projectId) {
     return { status: 'failed', jobId: input.jobId, reason: 'analysis-job-not-found-or-not-owned' };
   }
+  if (!isCurrentJobVersion(job)) {
+    await deps.store.markFailed(
+      job._id,
+      job.userId,
+      'failed',
+      'analysis-job-version-unsupported',
+      deps.now(),
+    );
+    return { status: 'failed', jobId: job._id, reason: 'analysis-job-version-unsupported' };
+  }
   if (job.status === 'completed') return { status: 'completed', jobId: job._id };
   if (job.status === 'queued' || job.status === 'dispatching' || job.status === 'running') {
     return { status: 'already-queued', jobId: job._id, messageId: job.dispatchMessageId ?? undefined };
@@ -272,6 +297,16 @@ export async function runChatDeepAnalysisJob(
   if (job.projectId !== input.projectId) {
     await deps.store.markFailed(job._id, job.userId, 'failed', 'worker-project-scope-mismatch', deps.now());
     return { status: 'failed', jobId: job._id, reason: 'worker-project-scope-mismatch' };
+  }
+  if (!isCurrentJobVersion(job)) {
+    await deps.store.markFailed(
+      job._id,
+      job.userId,
+      'failed',
+      'analysis-job-version-unsupported',
+      deps.now(),
+    );
+    return { status: 'failed', jobId: job._id, reason: 'analysis-job-version-unsupported' };
   }
   const project = await deps.loadProject(job.userId, job.projectId);
   const revision = project ? deps.buildProjectRevision(project) : null;
@@ -318,13 +353,17 @@ export async function executeChatDeepAnalysisProvider(
   overrides: Partial<ChatDeepAnalysisProviderDependencies> = {},
 ): Promise<Record<string, unknown>> {
   const target = job.target;
+  const deps = resolveProviderDependencies(overrides);
+  const snapshot = await deps.loadProjectForMutation(job.userId, job.projectId);
   if (job.modality === 'audio') {
+    const currentTarget = validateCurrentAnalysisTarget(job, snapshot.project, 'audio');
     const { analyzeClipAudioService } = await import('@/lib/editron/services/media');
     const result = await analyzeClipAudioService({
       projectId: job.projectId,
       userId: job.userId,
       source: 'asset',
       assetId: target.assetId,
+      assetUrl: currentTarget.assetUrl,
       startFrame: target.source.startFrame,
       endFrame: target.source.endFrame,
       timelineStartFrame: target.timeline.startFrame,
@@ -333,6 +372,13 @@ export async function executeChatDeepAnalysisProvider(
     return {
       modality: 'audio',
       target,
+      evidenceAuthority: 'SOURCE_SELECTED_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
+      sourceSelection: currentTarget.sourceSelection,
+      coordinateEvidence: {
+        authority: 'SOURCE_SELECTED_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
+        projectRevision: snapshot.revision,
+        mutationAuthority: false,
+      },
       summary: result.summary,
       silenceGapsFrames: result.silenceGapsFrames,
       fillers: result.fillers,
@@ -340,9 +386,7 @@ export async function executeChatDeepAnalysisProvider(
     };
   }
 
-  const deps = resolveProviderDependencies(overrides);
-  const snapshot = await deps.loadProjectForMutation(job.userId, job.projectId);
-  const currentTarget = validateCurrentVideoAnalysisTarget(job, snapshot.project);
+  const currentTarget = validateCurrentAnalysisTarget(job, snapshot.project, 'video');
   const timestampResult = await deps.materializeTimestampAnalysis({
     userId: job.userId,
     projectId: job.projectId,
@@ -376,12 +420,13 @@ export async function executeChatDeepAnalysisProvider(
     job,
     snapshot.revision,
   );
-  return executeLegacyVideoAnalysis(job, classificationLease);
+  return executeLegacyVideoAnalysis(job, classificationLease, currentTarget);
 }
 
 async function executeLegacyVideoAnalysis(
   job: ChatDeepAnalysisJob,
   classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1,
+  currentTarget: CurrentAnalysisTarget,
 ): Promise<Record<string, unknown>> {
   const target = job.target;
   const { sampleVideoClip, sendVideoToGemini } = await import('@/lib/editron/services/media/analysis-service');
@@ -390,6 +435,7 @@ async function executeLegacyVideoAnalysis(
     userId: job.userId,
     source: 'asset',
     assetId: target.assetId,
+    assetUrl: currentTarget.assetUrl,
     startFrame: target.source.startFrame,
     endFrame: target.source.endFrame,
     fps: target.fps,
@@ -417,6 +463,7 @@ async function executeLegacyVideoAnalysis(
   return {
     modality: 'video',
     target,
+    sourceSelection: currentTarget.sourceSelection,
     evidenceAuthority: 'LEGACY_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
     coordinateEvidence: {
       authority: 'LEGACY_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
@@ -452,10 +499,18 @@ function resolveProviderDependencies(
   };
 }
 
-function validateCurrentVideoAnalysisTarget(
+type CurrentAnalysisTarget = Readonly<{
+  assetUrl: string;
+  sourceSelection: ChatDeepAnalysisSourceSelection;
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+}>;
+
+function validateCurrentAnalysisTarget(
   job: ChatDeepAnalysisJob,
   project: AnalysisProject & Readonly<{ projectId?: string }>,
-) {
+  modality: ChatDeepAnalysisModality,
+): CurrentAnalysisTarget {
   const target = job.target;
   if (cleanString(project.projectId) !== job.projectId) {
     throw new Error('CHAT_DEEP_ANALYSIS_PROJECT_SCOPE_MISMATCH');
@@ -465,11 +520,15 @@ function validateCurrentVideoAnalysisTarget(
   const overlay = (project.overlays ?? []).find(
     (candidate) => String(candidate.id ?? '') === target.overlayId,
   );
-  if (!overlay || overlay.type?.toLowerCase() !== 'video') {
-    throw new Error('CHAT_DEEP_ANALYSIS_VIDEO_OVERLAY_CHANGED');
+  const overlayType = overlay?.type?.toLowerCase();
+  const typeMatches = modality === 'video'
+    ? overlayType === 'video'
+    : ['audio', 'sound', 'video'].includes(overlayType ?? '');
+  if (!overlay || !typeMatches) {
+    throw new Error(`CHAT_DEEP_ANALYSIS_${modality.toUpperCase()}_OVERLAY_CHANGED`);
   }
   if (cleanString(overlay.assetId) !== target.assetId) {
-    throw new Error('CHAT_DEEP_ANALYSIS_VIDEO_ASSET_CHANGED');
+    throw new Error(`CHAT_DEEP_ANALYSIS_${modality.toUpperCase()}_ASSET_CHANGED`);
   }
   const overlayFrom = nonNegativeSafeInteger(overlay.from, 'current overlay start frame');
   const overlayDuration = positiveSafeInteger(
@@ -489,7 +548,7 @@ function validateCurrentVideoAnalysisTarget(
     || timelineStart < overlayFrom
     || timelineEnd > overlayEnd
     || timelineEnd <= timelineStart) {
-    throw new Error('CHAT_DEEP_ANALYSIS_VIDEO_RANGE_CHANGED');
+    throw new Error(`CHAT_DEEP_ANALYSIS_${modality.toUpperCase()}_RANGE_CHANGED`);
   }
   const sourceStart = resolveSourceStartFrame(overlay) + timelineStart - overlayFrom;
   const sourceEnd = sourceStart + timelineEnd - timelineStart;
@@ -498,7 +557,19 @@ function validateCurrentVideoAnalysisTarget(
     || sourceEnd !== target.source.endFrame) {
     throw new Error('CHAT_DEEP_ANALYSIS_SOURCE_RANGE_CHANGED');
   }
+  const sourceSelection = sourceSelectionForOverlay(
+    overlay,
+    job.projectId,
+    target.assetId,
+  );
+  if (!sameSourceSelection(sourceSelection, target.sourceSelection)) {
+    throw new Error('CHAT_DEEP_ANALYSIS_SOURCE_SELECTION_CHANGED');
+  }
+  const assetUrl = cleanString(overlay.src) ?? cleanString(overlay.content);
+  if (!assetUrl) throw new Error('CHAT_DEEP_ANALYSIS_SOURCE_URL_UNAVAILABLE');
   return Object.freeze({
+    assetUrl,
+    sourceSelection,
     windowLocalStartFrame: timelineStart - overlayFrom,
     windowDurationInFrames: timelineEnd - timelineStart,
   });
@@ -922,6 +993,11 @@ function buildCoordinateContract(
   });
   const assetId = cleanString(overlay.assetId);
   if (!assetId) throw new Error(`Overlay ${String(overlay.id)} has no durable assetId for deep analysis.`);
+  const sourceSelection = sourceSelectionForOverlay(
+    overlay,
+    request.projectId,
+    assetId,
+  );
   return {
     overlayId: String(overlay.id ?? ''),
     overlayType: String(overlay.type ?? ''),
@@ -930,7 +1006,55 @@ function buildCoordinateContract(
     fps,
     timeline: window.timeline,
     source: window.source,
+    sourceSelection,
   };
+}
+
+function sourceSelectionForOverlay(
+  overlay: AnalysisOverlayCoordinates,
+  projectId: string,
+  assetId: string,
+): ChatDeepAnalysisSourceSelection {
+  if (overlay.sourceVersionPinV1 == null) {
+    return Object.freeze({ kind: 'DIRECT_ASSET_SOURCE_UNVERSIONED' });
+  }
+  let pin;
+  try {
+    pin = assertProjectVideoSourceVersionPinV1(overlay.sourceVersionPinV1);
+  } catch {
+    throw new Error('CHAT_DEEP_ANALYSIS_SOURCE_PIN_INVALID');
+  }
+  if (pin.projectId !== projectId
+    || String(pin.overlayId) !== String(overlay.id ?? '')
+    || pin.assetId !== assetId) {
+    throw new Error('CHAT_DEEP_ANALYSIS_SOURCE_PIN_SCOPE_MISMATCH');
+  }
+  return Object.freeze({
+    kind: 'PINNED_PROJECT_VIDEO_SOURCE',
+    sourceRole: pin.sourceRole,
+    sourceVersionSha256: pin.sourceVersionSha256,
+    storageVersionSha256: pin.storageVersionSha256,
+    pinSha256: pin.pinSha256,
+  });
+}
+
+function sameSourceSelection(
+  left: ChatDeepAnalysisSourceSelection,
+  right: unknown,
+): boolean {
+  if (!right || typeof right !== 'object' || !('kind' in right)) return false;
+  const candidate = right as Partial<ChatDeepAnalysisSourceSelection>;
+  if (left.kind !== candidate.kind) return false;
+  if (left.kind === 'DIRECT_ASSET_SOURCE_UNVERSIONED') return true;
+  if (candidate.kind !== 'PINNED_PROJECT_VIDEO_SOURCE') return false;
+  return left.sourceRole === candidate.sourceRole
+    && left.sourceVersionSha256 === candidate.sourceVersionSha256
+    && left.storageVersionSha256 === candidate.storageVersionSha256
+    && left.pinSha256 === candidate.pinSha256;
+}
+
+function isCurrentJobVersion(job: ChatDeepAnalysisJob): boolean {
+  return (job as { version?: unknown }).version === CHAT_DEEP_ANALYSIS_JOB_VERSION;
 }
 
 function secondsRange(startSeconds: number | undefined, endSeconds: number | undefined, fps: number): AnalysisFrameRange {

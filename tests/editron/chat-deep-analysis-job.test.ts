@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import { createNativeMediaTimestampAnalysisSamplePlanV1 } from '@/lib/editron/services/native-media-timestamp-analysis-sample-plan-v1';
+import { createProjectVideoSourceVersionPinV1 } from '@/lib/editron/services/project-video-source-version-pin-v1';
 
 const providerMocks = vi.hoisted(() => ({
   analyzeClipAudioService: vi.fn(),
@@ -34,21 +35,57 @@ const MUTATION_REVISION = Object.freeze({
   value: 7,
   compatibilityUpdatedAt: '2026-07-18T12:00:00.000Z',
 });
+const SOURCE_PIN = createProjectVideoSourceVersionPinV1({
+  projectId: 'proj-analysis',
+  overlayId: 2,
+  assetId: 'asset-b',
+  sourceRole: 'PROXY',
+  sourceVersionSha256: '1'.repeat(64),
+  storageVersionSha256: '2'.repeat(64),
+  authority: {
+    kind: 'PROJECT_PROXY_SOURCE_BINDING',
+    bindingSha256: '3'.repeat(64),
+    proxyTimeMapReferenceSha256: '4'.repeat(64),
+  },
+  issuedAt: NOW,
+});
+const ALTERNATE_SOURCE_PIN = createProjectVideoSourceVersionPinV1({
+  projectId: 'proj-analysis',
+  overlayId: 2,
+  assetId: 'asset-b',
+  sourceRole: 'PROXY',
+  sourceVersionSha256: '9'.repeat(64),
+  storageVersionSha256: '8'.repeat(64),
+  authority: {
+    kind: 'PROJECT_PROXY_SOURCE_BINDING',
+    bindingSha256: '7'.repeat(64),
+    proxyTimeMapReferenceSha256: '6'.repeat(64),
+  },
+  issuedAt: NOW,
+});
 
 const PROJECT = {
   fps: 30,
   overlays: [
-    { id: 'clip-a', type: 'video', assetId: 'asset-a', name: 'Angle A.mp4', from: 0, durationInFrames: 300 },
     {
-      id: 'clip-b',
+      id: 'clip-a', type: 'video', assetId: 'asset-a', name: 'Angle A.mp4',
+      src: 'https://media.test/angle-a.mp4', from: 0, durationInFrames: 300,
+    },
+    {
+      id: 2,
       type: 'video',
       assetId: 'asset-b',
       name: 'Interview closeup.mp4',
+      src: 'https://media.test/interview-closeup.mp4',
       from: 300,
       durationInFrames: 300,
       videoStartTime: 120,
+      sourceVersionPinV1: SOURCE_PIN,
     },
-    { id: 'audio-a', type: 'sound', assetId: 'audio-a', name: 'Interview.wav', from: 0, durationInFrames: 600 },
+    {
+      id: 'audio-a', type: 'sound', assetId: 'audio-a', name: 'Interview.wav',
+      src: 'https://media.test/interview.wav', from: 0, durationInFrames: 600,
+    },
   ],
 };
 
@@ -151,7 +188,7 @@ async function resolvedJob(store = new MemoryStore()) {
     userId: 'user-analysis',
     modality: 'video',
     targetMode: 'overlay',
-    overlayId: 'clip-b',
+    overlayId: 2,
   }, resolutionDeps(store));
   return { store, result, jobId: result.jobs[0].jobId };
 }
@@ -274,7 +311,7 @@ describe('durable chat deep-analysis contracts', () => {
       userId: 'user-analysis',
       modality: 'video',
       targetMode: 'overlay',
-      overlayId: 'clip-b',
+      overlayId: 2,
     }, resolutionDeps());
 
     expect(result).toMatchObject({
@@ -284,7 +321,7 @@ describe('durable chat deep-analysis contracts', () => {
         created: true,
         status: 'resolved',
         target: {
-          overlayId: 'clip-b',
+          overlayId: '2',
           assetId: 'asset-b',
           timeline: { startFrame: 300, endFrame: 600 },
           source: { startFrame: 120, endFrame: 420 },
@@ -322,7 +359,7 @@ describe('durable chat deep-analysis contracts', () => {
     }, resolutionDeps());
 
     expect(result.jobs[0].target).toMatchObject({
-      overlayId: 'clip-b',
+      overlayId: '2',
       timeline: { startFrame: 360, endFrame: 420 },
       source: { startFrame: 180, endFrame: 240 },
     });
@@ -424,6 +461,31 @@ describe('durable chat deep-analysis contracts', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an obsolete persisted job version before provider use', async () => {
+    const { store, jobId } = await resolvedJob();
+    const obsolete = store.jobs.get(jobId)!;
+    obsolete.status = 'queued';
+    (obsolete as { version: string }).version = 'editron-chat-deep-analysis-job-v1';
+    const execute = vi.fn();
+
+    const result = await runChatDeepAnalysisJob({
+      jobId: obsolete._id,
+      projectId: obsolete.projectId,
+      userId: obsolete.userId,
+    }, { ...resolutionDeps(store), execute });
+
+    expect(result).toEqual({
+      status: 'failed',
+      jobId: obsolete._id,
+      reason: 'analysis-job-version-unsupported',
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(store.jobs.get(obsolete._id)).toMatchObject({
+      status: 'failed',
+      error: 'analysis-job-version-unsupported',
+    });
+  });
+
   it('retries one provider failure and then completes from the same immutable contract', async () => {
     const { store, jobId } = await resolvedJob();
     await queueChatDeepAnalysisJob({ jobId, projectId: 'proj-analysis', userId: 'user-analysis' }, {
@@ -466,6 +528,7 @@ describe('durable chat deep-analysis contracts', () => {
       userId: 'user-analysis',
       source: 'asset',
       assetId: 'asset-b',
+      assetUrl: 'https://media.test/interview-closeup.mp4',
       startFrame: 120,
       endFrame: 420,
       fps: 30,
@@ -475,12 +538,59 @@ describe('durable chat deep-analysis contracts', () => {
     expect(result).toMatchObject({
       modality: 'video',
       evidenceAuthority: 'LEGACY_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
+      sourceSelection: {
+        kind: 'PINNED_PROJECT_VIDEO_SOURCE',
+        sourceRole: 'PROXY',
+        sourceVersionSha256: SOURCE_PIN.sourceVersionSha256,
+        storageVersionSha256: SOURCE_PIN.storageVersionSha256,
+        pinSha256: SOURCE_PIN.pinSha256,
+      },
       coordinateEvidence: { mutationAuthority: false },
       vision: {
         sceneChanges: [330, 420],
         deadVisualRanges: [[360, 390]],
         summary: 'A product demonstration.',
       },
+    });
+  });
+
+  it('samples audio from the current project-resolved source URL', async () => {
+    const store = new MemoryStore();
+    const resolved = await resolveChatDeepAnalysisJobs({
+      projectId: 'proj-analysis',
+      userId: 'user-analysis',
+      modality: 'audio',
+      targetMode: 'overlay',
+      overlayId: 'audio-a',
+    }, resolutionDeps(store));
+    const job = store.jobs.get(resolved.jobs[0]!.jobId)!;
+    providerMocks.analyzeClipAudioService.mockResolvedValueOnce({
+      summary: { totalSilenceMs: 0, totalFillerWords: 0, potentialSavingsMs: 0 },
+      silenceGapsFrames: [],
+      fillers: [],
+      problematicFrames: [],
+    });
+
+    const result = await executeChatDeepAnalysisProvider(job, {
+      loadProjectForMutation: vi.fn(async () => mutationSnapshot()),
+    });
+
+    expect(providerMocks.analyzeClipAudioService).toHaveBeenCalledWith({
+      projectId: 'proj-analysis',
+      userId: 'user-analysis',
+      source: 'asset',
+      assetId: 'audio-a',
+      assetUrl: 'https://media.test/interview.wav',
+      startFrame: 0,
+      endFrame: 600,
+      timelineStartFrame: 0,
+      fps: 30,
+    });
+    expect(result).toMatchObject({
+      modality: 'audio',
+      evidenceAuthority: 'SOURCE_SELECTED_RATE_SAMPLED_NOT_MUTATION_AUTHORITY',
+      sourceSelection: { kind: 'DIRECT_ASSET_SOURCE_UNVERSIONED' },
+      coordinateEvidence: { mutationAuthority: false },
     });
   });
 
@@ -496,7 +606,7 @@ describe('durable chat deep-analysis contracts', () => {
 
     expect(materializeTimestampAnalysis).toHaveBeenCalledWith({
       userId: 'user-analysis', projectId: 'proj-analysis', sequenceId: 'main',
-      overlayId: 'clip-b', expectedProjectRevision: MUTATION_REVISION,
+      overlayId: '2', expectedProjectRevision: MUTATION_REVISION,
       windowLocalStartFrame: 0, windowDurationInFrames: 300,
       deliveryContract: 'ANALYSIS_RECEIPT_V1',
     });
@@ -565,6 +675,13 @@ describe('durable chat deep-analysis contracts', () => {
         code: 'CHAT_DEEP_ANALYSIS_SOURCE_RANGE_CHANGED',
         mutate: (snapshot: ReturnType<typeof mutationSnapshot>) => {
           snapshot.project.overlays[1]!.videoStartTime = 121;
+        },
+      },
+      {
+        code: 'CHAT_DEEP_ANALYSIS_SOURCE_SELECTION_CHANGED',
+        mutate: (snapshot: ReturnType<typeof mutationSnapshot>) => {
+          (snapshot.project.overlays[1] as { sourceVersionPinV1?: unknown })
+            .sourceVersionPinV1 = ALTERNATE_SOURCE_PIN;
         },
       },
     ];

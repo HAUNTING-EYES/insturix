@@ -7,6 +7,7 @@ export interface AnalysisOverlayCoordinates {
   name?: string;
   content?: unknown;
   src?: unknown;
+  sourceVersionPinV1?: unknown;
   from?: number;
   durationInFrames?: number;
   sourceStartFrame?: number;

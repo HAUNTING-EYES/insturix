@@ -548,6 +548,7 @@ export async function analyzeClipAudioService(params: {
   userId: string;
   source: "timeline" | "asset";
   assetId?: string;
+  assetUrl?: string;
   timelineStartFrame?: number;
   startFrame: number;
   endFrame: number;
@@ -571,6 +572,7 @@ export async function analyzeClipAudioService(params: {
     projectId: params.projectId,
     source: params.source,
     assetId: params.assetId,
+    assetUrl: params.assetUrl,
     startFrame: params.startFrame,
     endFrame: params.endFrame,
     fps: params.fps,
