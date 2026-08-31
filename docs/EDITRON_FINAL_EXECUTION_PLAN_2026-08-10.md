@@ -14637,3 +14637,73 @@ repository TypeScript check passed, repository ESLint passed with `--quiet`,
 and `git diff --check` passed. A transient TypeScript failure observed while an
 unrelated ThinkForge billing-state edit was incomplete cleared after that edit
 settled; no ThinkForge file was changed or staged by this Editron phase.
+
+## 2026-09-01 vertical-convergence Phase 3B checkpoint
+
+This checkpoint reissues CAP-2 current truth as V12 against committed source
+`8656a5688d09f4cb155d189743677c357bc44929`. V10 and V11 remain immutable. V12
+is an incremental, research-only current-source delta over V11: it re-hashes
+the V11 observation paths at the current commit and binds the five files of
+the pipeline-video prerequisite pilot. It is not a new universal owner census.
+
+### CAP-2 V12 current-source truth
+
+The artifact is
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v12.ts`
+with focused coverage in
+`tests/editron/cap2-current-truth-reissue-v12.test.ts`. V12 preserves the V11
+351-path, 11-observation, 636-identifier source surface while recomputing its
+current normalized source snapshot as
+`f0c5137c263b9f89d9d106a93af12835d6e13b6d6be54407a846090e732f4cf6`.
+The exact five-file pilot snapshot is
+`338fb07d5775aae0ace22ae0a8077df4b0a2fce13960d39b5e49402cff80f8ff`; the
+artifact manifest is
+`cc600656aaa78e3f28e684a7c8b2068c18dcc6c7583c44dae5d29ad08ae3421d`.
+These identities are recomputed from current code rather than copied from the
+stale V11 source hash. The V11 agency support-class freeze is hash-bound and
+unchanged; its implementation and certification status remain open.
+
+### Pipeline-video prerequisite pilot
+
+The committed pilot wires this verified path for one
+`AGENCY_100GB_4H_V1` journey:
+
+```text
+authenticated storyboard producer
+  -> exact ProjectService project/revision and target snapshot
+  -> typed/hash-bound prerequisite
+  -> unchanged signed-worker relay
+  -> ProjectService independent admission and mutation owner
+  -> project revision / exact overlay / delivery receipt when admitted
+```
+
+ProjectService independently re-derives project and revision, the complete
+preserved target fingerprint and exact range, Director lease and overlapping
+cut-lock state, source/replacement evidence, rights, generated predecessor
+receipt and current invalidation admission before any CAS. A wrong, stale,
+changed, locked, forged, missing, unsafe-replay or unmaterialized required
+invalidation fails closed without a success receipt. Because the current source
+has no durable current-target invalidation admission owner, project-linked
+regeneration is currently rejected before credits or provider dispatch with an
+`UNVERIFIABLE` disposition. Non-project generation is unaffected.
+
+This is one pilot, not universal Queue 5 enforcement, full agency
+`AGENCY_100GB_4H_V1` certification, a Stage 2.5 GO, a successor readiness
+receipt or Stage 3 authorization. The 24 focused pilot tests are lower-level
+evidence only; they do not prove the full agency media, creative-family,
+render, delivery, recovery, resource-envelope or human-review chain. Queue 5's
+remaining authoritative writers and the durable invalidation owner remain open.
+
+### Phase 3B verification and next dependency
+
+The baseline pilot suites passed 24/24 tests; the V12 reconciliation suite
+added two hash-chain/tamper tests, for 26/26 in the combined focused run. The
+full repository TypeScript check passed, repository ESLint passed with
+`--quiet`, and `git diff --check` passed. No model inference, historical
+cohort rerun or external provider spend occurred. The next bounded dependency
+is the already-audited five-file duration authority correction first (UI loaded
+duration, generic save preservation and visible QA), then the selected pinned
+proxy/master timestamp consumer slice. Durable invalidation ownership and the
+remaining Queue 5 writers remain mandatory subsequent blockers; no
+declaration-only CAP artifact authorizes downstream certification or production
+mutation.
