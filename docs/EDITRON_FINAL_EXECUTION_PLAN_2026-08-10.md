@@ -14420,3 +14420,89 @@ private deployment, full-envelope fixture or qualified reviewer may extend the
 calendar even when code is ready. Removing lower-level tests or calling a
 research demo production would shorten the date only by creating false
 completion and is not authorized.
+
+## 2026-09-01 vertical-convergence Phase 1 checkpoint
+
+This checkpoint reconciles the first implementation tranche of roadmap step 1
+against committed source and one live disposable browser journey. It does not
+replace the roadmap, close Stage 2.5 or authorize Stage 3.
+
+### Committed source
+
+The stable implementation snapshot is the following four atomic commits on
+`infrastructure-improvs-+Editron`:
+
+- `9d14e90b7` - authenticated project analysis binds the exact selected source
+  to source-bound transcription and the same-rate five-track analysis input.
+- `22c53a767` - manual save, autosave and ProjectService share a bounded named-
+  marker contract and persist supplied markers under the project revision CAS.
+- `0642b289a` - the timestamp-preview coordinator republishes recovery when a
+  required project revision arrives after an initial fail-closed update.
+- `8f55c50a1` - a disposable visible-user QA runner, Playwright journey and
+  evidence cockpit exercise the real editor and ProjectService path with all
+  external media/model provider keys disabled for the child processes.
+
+### What is now proved
+
+Fast run `fast-qa-20260831200346-4ff3eecaab9a` passed the declared Q0/Q1 text-
+timeline fixture through:
+
+```text
+authenticated project load
+-> exact-preview gate READY
+-> visible play/pause state transition
+-> visible timeline drag
+-> manual save and revision 2
+-> visible corrective drag
+-> manual save and revision 3
+-> undo/save and revision 4
+-> redo/save and revision 5
+-> page reload
+-> preserved redo state
+-> exact-preview gate READY after reload
+-> verified ProjectService deletion and fresh database absence check
+```
+
+The run recorded no browser failure and no provider request. The exact layer
+passed. Perceptual/rendered-frame and human layers remained explicitly
+`UNVERIFIABLE`; the text-only fixture did not prove decoded video, PCM, A/V
+synchronization, editorial quality or the agency resource envelope.
+
+The run also exposed and then verified two defects rather than hiding them:
+
+1. A valid revision reached the editor context, but the preview coordinator
+   retained its previously published `SESSION_PROJECT_REVISION_REQUIRED`
+   snapshot on a zero-video timeline. The coordinator now republishes the
+   valid recovery transition while preserving the original fail-closed state.
+2. The timeline item was below the 720-pixel browser viewport even though a
+   full-page screenshot made it appear visible. The QA gesture now scrolls the
+   real item into view before pointer input. The underlying editor-fit issue is
+   still open: this observed layout required a 48-pixel page scroll.
+
+Focused verification passed 75 tests across the marker, selected-source,
+five-track, fast-QA and preview-coordinator owners. `pnpm exec tsc --noEmit`,
+`pnpm exec eslint . --quiet` and `git diff --check` also passed.
+
+### Status limits and immediate continuation
+
+- Queue item 3 remains `ACTIVE_PARTIAL`, not complete. The authenticated route
+  now consumes exact selected-source transcription and feeds same-rate five-
+  track analysis. Mixed-rate/VFR transcription remains timestamp evidence
+  rather than approximate project-frame evidence. Explicit UI provider/policy
+  controls, project-coordinate downstream consumption and live private storage,
+  grant, provider and device proof remain open.
+- QA Q0/Q1 is proved only for the declared disposable text-timeline fixture.
+  The cockpit is the spine on which media, caption, graphics, audio, VFX,
+  delivery and long-form fixtures must be added. Q2 perceptual render/PCM, Q3
+  human review, Q4 resource/full-envelope and Q5 regression breadth remain
+  open.
+- Project duration authority remains inconsistent in the current editor. The
+  disposable project persisted `durationInFrames: 300`, while the mounted UI
+  derived a 210-frame composition from the last overlay end. This must be
+  reconciled before duration-sensitive QA can be called exact.
+- CAP-2 V11 remains the next read-only reconciliation task and must be generated
+  from this committed snapshot. The earlier provisional draft was not retained.
+- No model inference, paid cohort rerun or external provider spend occurred.
+- Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`; Stage 3 production model-
+  driven mutation remains `BLOCKED_NOT_AUTHORIZED` until Queue item 12 issues a
+  successor receipt supported by the remaining evidence.
