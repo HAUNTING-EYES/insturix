@@ -16,7 +16,12 @@ import { getAnalysis, type AssetAnalysis }
   from '@/lib/editron/services/five-track-analysis';
 import { analyzeProjectFiveTrackV2 }
   from '@/lib/editron/services/project-five-track-analysis-v2';
-import { projectService } from '@/lib/editron/services/project-service';
+import { analysisSameRevision }
+  from '@/lib/editron/services/native-media-timestamp-analysis-validation-v1';
+import {
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+} from '@/lib/editron/services/project-service';
 import { generateEditDecisionList }
   from '@/lib/editron/services/reactive-edit-engine';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
@@ -41,10 +46,11 @@ export async function POST(req: NextRequest) {
       : 'full';
 
     // Project access and exact per-overlay source selection precede cost.
-    const initialProject = await projectService.loadProject(userId, projectId);
-    if (!initialProject) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-    }
+    const initialSnapshot = await projectService.loadProjectForMutation(
+      userId,
+      projectId,
+    );
+    const initialProject = initialSnapshot.project;
 
     let fullRun = null;
     if (mode === 'full') {
@@ -62,26 +68,42 @@ export async function POST(req: NextRequest) {
         project: initialProject,
         userId,
         mode: 'FULL',
+        projectRevisionV1: initialSnapshot.revision,
       });
     }
 
     // Long provider calls may race editor writes. Only consume analyses rebound
     // to a freshly loaded ProjectService snapshot.
-    const currentProject = mode === 'full'
-      ? await projectService.loadProject(userId, projectId)
-      : initialProject;
-    if (!currentProject) {
-      return NextResponse.json(
-        { error: 'Project became unavailable during analysis' },
-        { status: 409 },
-      );
-    }
+    const currentSnapshot = mode === 'full'
+      ? await projectService.loadProjectForMutation(userId, projectId)
+      : initialSnapshot;
+    const currentProject = currentSnapshot.project;
     const evidence = await analyzeProjectFiveTrackV2({
       project: currentProject,
       userId,
       mode: 'CACHE_ONLY',
+      projectRevisionV1: currentSnapshot.revision,
     });
-    const admitted = evidence.overlays.flatMap((entry) => {
+    const freshFullCoordinateEvidence = fullRun
+      && analysisSameRevision(initialSnapshot.revision, currentSnapshot.revision)
+      ? new Map(fullRun.overlays.flatMap((entry) =>
+          entry.projectCoordinateAnalysis
+            ? [[entry.overlayId, entry] as const]
+            : []))
+      : new Map();
+    const effectiveOverlays = evidence.overlays.map((entry) => {
+      const fresh = freshFullCoordinateEvidence.get(entry.overlayId);
+      return fresh?.projectCoordinateAnalysis
+        ? {
+            ...entry,
+            projectCoordinateAnalysis: fresh.projectCoordinateAnalysis,
+            analysisDisposition: fresh.analysisDisposition,
+            analysisBlockReason: null,
+            timelineAdmission: fresh.timelineAdmission,
+          }
+        : entry;
+    });
+    const admitted = effectiveOverlays.flatMap((entry) => {
       if (!entry.analysis || entry.timelineAdmission.disposition !== 'ADMITTED') {
         return [];
       }
@@ -119,8 +141,11 @@ export async function POST(req: NextRequest) {
     const graphicDecisions = edl.decisions.filter(
       (decision) => decision.type === 'graphic',
     );
-    const available = evidence.overlays.filter((entry) => entry.analysis);
-    const analysisBlocks = evidence.overlays.flatMap((entry) =>
+    const available = effectiveOverlays.filter((entry) => entry.analysis);
+    const projectCoordinateAvailable = effectiveOverlays.filter(
+      (entry) => entry.projectCoordinateAnalysis,
+    );
+    const analysisBlocks = effectiveOverlays.flatMap((entry) =>
       entry.analysisBlockReason
         ? [{
             overlayId: entry.overlayId,
@@ -128,7 +153,7 @@ export async function POST(req: NextRequest) {
             reason: entry.analysisBlockReason,
           }]
         : []);
-    const timelineBlocks = evidence.overlays.flatMap((entry) =>
+    const timelineBlocks = effectiveOverlays.flatMap((entry) =>
       entry.timelineAdmission.disposition === 'BLOCKED'
         ? [{
             overlayId: entry.overlayId,
@@ -177,11 +202,34 @@ export async function POST(req: NextRequest) {
         speechSegments: entry.analysis?.speechSegments?.length ?? 0,
         musicSections: entry.analysis?.musicStructure?.sections?.length ?? 0,
       })),
+      projectCoordinateAnalysisSummaries: projectCoordinateAvailable.map(
+        (entry) => ({
+          overlayId: entry.overlayId,
+          assetId: entry.assetId,
+          evidenceAuthority: 'EXACT_V3_TIMESTAMP_BOUND',
+          sourceVersionSha256:
+            entry.projectCoordinateAnalysis?.sourceVersionSha256,
+          storageVersionSha256:
+            entry.projectCoordinateAnalysis?.storageVersionSha256,
+          sourcePtsCadenceMapStateSha256V3:
+            entry.projectCoordinateAnalysis
+              ?.sourcePtsCadenceMapStateSha256V3,
+          materializationSha256:
+            entry.projectCoordinateAnalysis
+              ?.materialization.materializationSha256,
+          vision: entry.projectCoordinateAnalysis?.vision,
+          mutationAuthority:
+            'REQUIRES_DEDICATED_PROJECT_COORDINATE_FIVE_TRACK_CONSUMER',
+        }),
+      ),
       analysisBlocks,
-      videoOverlayCount: evidence.overlays.length,
-      analyzedCount: available.length,
+      videoOverlayCount: effectiveOverlays.length,
+      analyzedCount: available.length + projectCoordinateAvailable.length,
     });
   } catch (error: unknown) {
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
     if (error instanceof ProjectTimelineInvalidError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
