@@ -115,7 +115,8 @@ describe('Editron project-scoped analysis route', () => {
     const response = await POST(request({ projectId: 'proj_1' }) as never);
 
     expect(response.status).toBe(200);
-    await expect(json(response)).resolves.toMatchObject({
+    const body = await json(response);
+    expect(body).toMatchObject({
       projectRevision: 8,
       assets: { analyzed: 1, cached: 0 },
     });
@@ -149,7 +150,8 @@ describe('Editron project-scoped analysis route', () => {
     const response = await POST(request({ projectId: 'proj_1' }) as never);
 
     expect(response.status).toBe(200);
-    await expect(json(response)).resolves.toMatchObject({
+    const body = await json(response);
+    expect(body).toMatchObject({
       analyzedCount: 1,
       analysisBlocks: [],
       timelineSuggestionAdmission: {
@@ -164,6 +166,15 @@ describe('Editron project-scoped analysis route', () => {
         overlayId: 1,
         evidenceAuthority: 'EXACT_V3_TIMESTAMP_BOUND',
         materializationSha256: '4'.repeat(64),
+        audioEvidence: {
+          disposition: 'EXACT_AUDIO_EVIDENCE_BOUND',
+          evidenceAuthority:
+            'EXACT_SOURCE_AUDIO_MANIFEST_AND_SAMPLE_MAP_BOUND',
+          playbackAuthority: 'NOT_PROVEN',
+          evidenceSha256: '5'.repeat(64),
+          decodedPcmSha256: 'b'.repeat(64),
+          decodedSampleFrameCount: '480000',
+        },
         mutationAuthority:
           'REQUIRES_DEDICATED_PROJECT_COORDINATE_FIVE_TRACK_CONSUMER',
         vision: { sceneChanges: ['30'] },
@@ -174,6 +185,7 @@ describe('Editron project-scoped analysis route', () => {
       10_000,
       expect.any(Object),
     );
+    expect(JSON.stringify(body)).not.toContain('private/object-key');
   });
 
   it('fails loudly before suggestion generation for corrupt project timing', async () => {
@@ -273,6 +285,22 @@ function timestampEvidence(projectRevision: number, analyzed: boolean) {
           onScreenText: [],
           summary: 'Interview',
           theme: null,
+        },
+        audioEvidence: {
+          disposition: 'EXACT_AUDIO_EVIDENCE_BOUND',
+          evidenceSha256: '5'.repeat(64),
+          sourceVersionEvidenceSha256: '6'.repeat(64),
+          sourceAudioArtifactStateSha256: '7'.repeat(64),
+          sourceAudioArtifactRecordSha256: '8'.repeat(64),
+          audioStreamBindingSha256: '9'.repeat(64),
+          audioSampleEpochMapSha256: 'a'.repeat(64),
+          decodedPcmSha256: 'b'.repeat(64),
+          decodedSampleFrameCount: '480000',
+          audioEvidence: {
+            record: {
+              manifestReference: { objectKey: 'private/object-key' },
+            },
+          },
         },
       }
     : null;

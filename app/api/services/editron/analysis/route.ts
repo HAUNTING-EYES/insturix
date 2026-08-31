@@ -16,6 +16,8 @@ import { getAnalysis, type AssetAnalysis }
   from '@/lib/editron/services/five-track-analysis';
 import { analyzeProjectFiveTrackV2 }
   from '@/lib/editron/services/project-five-track-analysis-v2';
+import type { ProjectSelectedSourceAudioEvidenceResultV1 }
+  from '@/lib/editron/services/project-selected-source-audio-evidence-v1';
 import { analysisSameRevision }
   from '@/lib/editron/services/native-media-timestamp-analysis-validation-v1';
 import {
@@ -218,6 +220,11 @@ export async function POST(req: NextRequest) {
             entry.projectCoordinateAnalysis
               ?.materialization.materializationSha256,
           vision: entry.projectCoordinateAnalysis?.vision,
+          audioEvidence: entry.projectCoordinateAnalysis
+            ? projectCoordinateAudioSummary(
+                entry.projectCoordinateAnalysis.audioEvidence,
+              )
+            : null,
           mutationAuthority:
             'REQUIRES_DEDICATED_PROJECT_COORDINATE_FIVE_TRACK_CONSUMER',
         }),
@@ -311,4 +318,34 @@ class ProjectTimelineInvalidError extends Error {
     super('PROJECT_TIMELINE_INVALID');
     this.name = 'ProjectTimelineInvalidError';
   }
+}
+
+function projectCoordinateAudioSummary(
+  value: ProjectSelectedSourceAudioEvidenceResultV1,
+) {
+  if (value.disposition === 'UNVERIFIABLE') {
+    return {
+      disposition: value.disposition,
+      evidenceAuthority: 'UNVERIFIABLE' as const,
+      playbackAuthority: 'NOT_PROVEN' as const,
+      reason: value.reason,
+      diagnostic: value.diagnostic,
+    };
+  }
+  return {
+    disposition: value.disposition,
+    evidenceAuthority:
+      'EXACT_SOURCE_AUDIO_MANIFEST_AND_SAMPLE_MAP_BOUND' as const,
+    playbackAuthority: 'NOT_PROVEN' as const,
+    evidenceSha256: value.evidenceSha256,
+    sourceVersionEvidenceSha256: value.sourceVersionEvidenceSha256,
+    sourceAudioArtifactStateSha256:
+      value.sourceAudioArtifactStateSha256,
+    sourceAudioArtifactRecordSha256:
+      value.sourceAudioArtifactRecordSha256,
+    audioStreamBindingSha256: value.audioStreamBindingSha256,
+    audioSampleEpochMapSha256: value.audioSampleEpochMapSha256,
+    decodedPcmSha256: value.decodedPcmSha256,
+    decodedSampleFrameCount: value.decodedSampleFrameCount,
+  };
 }
