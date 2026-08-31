@@ -14156,7 +14156,7 @@ runtime editing failure and it must not be hidden by weakening the assertion.
 Queue item 7 must issue a separately identified CAP-2 V11 reconciliation before
 any new "current source" or certification claim.
 
-### Founder market declaration and remaining release-order decision
+### Founder market and agency-first release-order decision
 
 The founder declared on 2026-08-31 that Insturix/Editron must ultimately be
 sellable to all three target groups: content agencies, filmmakers and
@@ -14172,22 +14172,30 @@ owners. Correctness, rights, mutation safety and truthful certification remain
 mandatory; the runway constraint does not authorize false success or unsafe
 shortcuts.
 
-The unresolved decision is release order, not destination. The founder must now
-declare the first supported project class and the capabilities required in its
-first robust milestone. That decision changes sequence only; it does not remove
-the rest of the Adobe-plus-LLM plan. Record:
+The release-order decision is now partially frozen. The first certification
+class is `AGENCY_100GB_4H_V1`: agency-centric production on the same global
+architecture, with at most 100 GB of total ingested source bytes and at most
+four hours of aggregate raw source duration. Admission stops at whichever
+ceiling is reached first. This is an initial supported-class envelope and not
+the product's ultimate scalability ceiling; the existing four-, five- and
+ten-hour long-form/film-post targets remain mandatory.
 
-- target work: short social/YouTube/agency, interview/podcast/documentary,
-  long-form film/TV, or a declared combination;
-- mandatory source cases: phone VFR, mixed cameras/rates, multi-hour media,
-  separate production audio, multicam, RAW/log/HDR, screen recordings and/or
-  still-heavy work;
-- mandatory edit families: core timeline/trims, captions, graphics/motion
-  design/compositing, audio, colour, masks/tracking/VFX and multicam;
-- mandatory workflow: solo, shared collaboration, client review/approval,
-  interchange with Premiere/Resolve/Avid and required delivery targets; and
-- required LLM authority: suggest-only, preview-and-approve, bounded autonomous
-  edits, or a staged combination.
+The class must cover a real multi-client/brand agency journey rather than a
+synthetic render demo: authenticated project creation/import; source identity,
+rights and mixed-timebase admission; proxy use where required; manual and LLM
+editing through the same owners; timeline, captions, graphics/motion design and
+audio operations; preview and bounded correction; save/reload and undo/redo;
+client-review state; complete A/V render; declared multi-output delivery;
+recovery; and one finalized QA evidence bundle with no false success. Exact
+codec, camera, final-duration, delivery-profile and advanced colour/VFX
+subclasses remain to be frozen from the CAP matrix rather than invented here.
+
+Long-form production is not deferred by the agency-first order. Queue items
+3-4 and 8-9 plus QA Q4 remain active because the four-hour raw-source envelope
+already requires streaming ingest, bounded analysis, proxy/master identity,
+memory discipline, resumable jobs and reliable delivery. Full filmmaker and
+production-house certification expands this same infrastructure and remains in
+Stages 6-8.
 
 The twelve-item queue is the successor-GO remediation created because the
 original Stage 2.5 experiment issued `MODIFY`; it is not the original experiment
@@ -14200,7 +14208,52 @@ the exact item 7-9 blocker subset for its successor receipt; the remaining rows
 retain their later-stage owners and are still mandatory for the full three-
 market destination.
 
-Until that release-order answer is frozen, preserve the queue order and
-continue only work already explicitly selected by the plan or necessary to
-correct a verified safety defect. Do not invent a narrower product class and do
-not declare broad Adobe/Resolve parity.
+Until the remaining codec/camera/delivery and advanced-family subclass choices
+are frozen from current CAP evidence, preserve the queue order and continue
+only work already explicitly selected by the plan or necessary to correct a
+verified safety defect. Do not invent a narrower product class and do not
+declare broad Adobe/Resolve parity.
+
+### Convergent cross-stage execution model
+
+The programme may parallelize across stages, but only by dependency rather than
+by starting unrelated stage backlogs:
+
+```text
+Lane A - media/time/proxy       (Queue 3-4; Stages 2 and 6)
+Lane B - mutation/route safety (Queue 5-6; Stages 1, 1.5, 2.5 and 3 prep)
+Lane C - agency edit verticals (Queue 7; Stages 4 and 7)
+Lane D - visible QA/review      (Q0-Q5; Stages 5 and 7)
+Lane E - render/delivery/scale  (Queue 8-9; Stages 6 and 7)
+                                  |
+                                  v
+             AGENCY_100GB_4H_V1 evidence bundle
+                                  |
+                                  v
+                qualified review + readiness receipt
+```
+
+Each lane must preserve its current sole owners, declare prerequisite receipts
+and converge on the same agency scenario. Work sharing a writer or mutable
+source of truth serializes. Stage 3 production mutation remains blocked until
+its required decision receipt even if Stage 4-7 preparatory implementations are
+underway.
+
+Scope discovery is admitted through four explicit buckets:
+
+| Bucket | Immediate action |
+|---|---|
+| `ACTIVE_CLASS_BLOCKER` | Implement and connect it to `AGENCY_100GB_4H_V1` |
+| `GLOBAL_SAFETY_INVARIANT` | Implement before the affected operation can run |
+| `DECLARED_LATER_CAP_ROW` | Keep mandatory in its owning stage; do not interrupt the active journey |
+| `UNRELATED` | Record outside the Editron programme or take no action |
+
+The next execution checkpoint is one vertical-convergence tranche, not another
+unbounded owner chain: establish QA Q0/Q1 around an existing real agency edit,
+finish the currently open exact selected-source/five-track consumer connection
+inside that journey, issue CAP-2 V11 current-source reconciliation, and expose
+their remaining media/mutation/render gaps in the same evidence bundle. Q0/Q1,
+the consumer connection and read-only V11 work may proceed as independent
+lanes; their first merge point is the visible agency journey. The full-envelope
+100 GB/four-hour run belongs to the release/nightly lane after the scaled fast
+fixture proves the same manifest and owner path.

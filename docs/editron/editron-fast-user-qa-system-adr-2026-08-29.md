@@ -296,6 +296,60 @@ The QA programme expands in certified verticals rather than one giant suite:
 RHC-01 through RHC-04 seed route and handoff regressions only. They do not
 replace this matrix or the CAP-1/CAP-2 certification programme.
 
+## First supported-class journey: `AGENCY_100GB_4H_V1`
+
+The first complete certification target is an agency project with both of
+these admission ceilings:
+
+- total ingested source bytes at or below 100 GB; and
+- aggregate raw source duration at or below four hours.
+
+The first ceiling reached limits admission. An over-limit, indeterminate or
+partially measured project must stop as `SAFE_STOP` or `UNVERIFIABLE` before
+partial project success is reported. These limits define the first supported
+class, not the architecture's eventual long-form ceiling.
+
+The scenario must exercise the real visible product path:
+
+```text
+sign in to an isolated agency tenant and select the client/brand
+-> create/import the project and measure every source
+-> establish rights, source versions, timebase/epoch and proxy policy
+-> open and play the baseline timeline
+-> perform one manual edit and one LLM preview-and-approve edit
+-> use timeline, caption, graphics/motion-design and audio owners
+-> play every affected boundary and perform one bounded correction
+-> save, reload, undo and redo
+-> create client-review/version state
+-> render complete audio and video for declared delivery profiles
+-> deliver, reread and verify the outputs
+-> recover one intentionally interrupted durable step
+-> finalize one exact/perceptual/human-layer evidence bundle
+```
+
+The certification fixture must include rights-cleared representative agency
+media, mixed rational CFR and phone-style VFR, separate 48 kHz production
+audio, still/graphic assets, pinned brand fonts and more than one deliverable
+profile. Source, project, browser, worker and render memory; storage bytes;
+analysis/render wall time; retries; local/cloud cost; and any separately
+authorized provider cost are measured. No fixture result may infer the full
+100 GB/four-hour pass from a smaller source set.
+
+Two tiers share one scenario manifest and owner path:
+
+1. The fast/PR tier uses a small deterministic source set to validate visible
+   editing, correction, undo/reload, safe stops and evidence collection within
+   minutes. It proves behavior, not resource-ceiling capacity.
+2. The release/nightly tier uses a rights-cleared full-envelope resource fixture
+   and must prove streaming/bounded processing, proxy/master use, complete A/V
+   delivery and interrupted recovery. Only this tier can certify the 100
+   GB/four-hour class.
+
+Long-form QA Q4 remains active in parallel. The agency class proves four hours
+of raw-source handling; it does not replace the separate requirement to render,
+deliver and recover representative long-form final timelines for filmmakers
+and production houses.
+
 ## Status semantics
 
 - `PASS`: every required assertion in that proof layer passed.
