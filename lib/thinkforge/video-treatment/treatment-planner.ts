@@ -129,6 +129,13 @@ export type VideoTreatmentPlannerGenerator = (input: {
   modelName: string;
 }>;
 
+export interface VideoTreatmentEditContext {
+  currentContent: string;
+  instruction: string;
+  selection?: string;
+  existingTreatment?: VideoTreatment;
+}
+
 export interface PlanVideoTreatmentInput {
   userPrompt: string;
   authoringRequest: ThinkForgeAuthoringRequest;
@@ -141,6 +148,7 @@ export interface PlanVideoTreatmentInput {
   orgId?: string | null;
   sessionId?: string;
   projectId?: string;
+  editContext?: VideoTreatmentEditContext;
   abortSignal?: AbortSignal;
 }
 
@@ -396,6 +404,7 @@ export function buildVideoTreatmentInputFingerprint(input: {
           warnings: input.input.contentSignalProfile.warnings,
         }
       : null,
+    editContext: input.input.editContext ?? null,
     knowledge: {
       adapterVersion: input.knowledge.adapterVersion,
       writingKnowledge: input.knowledge.writingKnowledge,
@@ -435,7 +444,9 @@ function buildTreatmentPromptParts(input: {
   return buildIsolatedPromptParts({
     systemInstruction: buildTreatmentSystemInstruction(input.knowledge),
     data: {
-      task: 'Create one whole-video semantic treatment before script prose is written.',
+      task: input.input.editContext
+        ? 'Revise the whole-video semantic treatment for an existing script edit.'
+        : 'Create one whole-video semantic treatment before script prose is written.',
       authoringDestination: input.input.authoringRequest,
       productionBrief: input.input.productionBrief,
       editorialPlan: input.editorialPlan,
@@ -451,6 +462,14 @@ function buildTreatmentPromptParts(input: {
         : null,
       sourceLedger: input.sourceLedger,
       creativeReferences: input.input.authoringContext.creativeReferenceContext,
+      editContext: input.input.editContext
+        ? {
+            currentContent: input.input.editContext.currentContent,
+            instruction: input.input.editContext.instruction,
+            selection: input.input.editContext.selection ?? null,
+            existingTreatment: input.input.editContext.existingTreatment ?? null,
+          }
+        : null,
       treatmentIdentity: {
         treatmentId: `treatment_${input.inputFingerprint.slice(0, 24)}`,
         inputFingerprint: input.inputFingerprint,
@@ -474,6 +493,7 @@ function buildTreatmentPromptParts(input: {
       editorialPlan: 28_000,
       productionBrief: 16_000,
       contentSignalProfile: 24_000,
+      editContext: 96_000,
     },
   });
 }
@@ -514,6 +534,7 @@ const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contr
 - "allowedTraceEvidence" is the server-owned allowlist for trace IDs. Every "decisionTrace.decisions[].evidenceIds" entry must come from "decisionEvidenceIds". Use the supplied "context_*" IDs for server inputs; never use payload field names such as "editorial_plan" or "brandContext". In "decisionTrace.appliedConstraintIds", cite only IDs from "graphConstraintIds" or "writingConstraintIds", and only when they materially informed the treatment. Otherwise return an empty list.
 - Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
 - Keep the treatment decision-dense and complete: state each top-level strategy once, keep lists to distinct material decisions, and never restate Brand Vault, source-ledger, or reference input verbatim. Visual events represent meaningful audiovisual/narrative turns, never every line, shot, or edit.
+- When editContext is present, revise the existing whole-video treatment against the current saved script and requested change. Preserve unaffected semantic decisions, continuity, and audience intent; change every decision materially affected by the edit. Current authoring constraints and evidence outrank the previous treatment. Return a complete replacement treatment, never a patch, and never rewrite the script prose.
 </video_treatment_planner_contract>`;
 
 function isLengthLimitedStructuredOutput(error: unknown): boolean {
@@ -534,7 +555,7 @@ function buildTreatmentLengthRecoveryPrompt(prompt: string): string {
 }
 
 function assertNoCriticalPromptTruncation(truncatedFields: readonly string[]): void {
-  const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile))/.test(path));
+  const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile|editContext))/.test(path));
   if (critical.length === 0) return;
   throw new VideoTreatmentPlannerError(
     'prompt_boundary_truncated',

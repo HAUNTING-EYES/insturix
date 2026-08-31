@@ -33,6 +33,7 @@ import {
   ThinkForgeDocumentContractSchema,
   type ThinkForgeWriterKind,
 } from '../schemas/document-contract';
+import { parseVideoTreatment } from '../schemas/video-treatment';
 import {
   assertNoCriticalContentProfileViolations,
   buildThinkForgeSignalTrace,
@@ -51,6 +52,10 @@ import {
 import { applyCommand } from './command-service';
 import * as db from './db';
 import { retryOnceOnOverload } from './retry-on-overload';
+import {
+  planVideoTreatment,
+  type VideoTreatmentPlanResult,
+} from '../video-treatment/treatment-planner';
 
 export interface FlatWriterEditArgs {
   userId: string;
@@ -211,6 +216,31 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     ],
     sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
   });
+  const existingTreatment = isScript && previousWriterOutput.videoTreatment !== undefined
+    ? parseVideoTreatment(previousWriterOutput.videoTreatment)
+    : undefined;
+  const videoTreatmentPlan = isScript
+    ? await planVideoTreatment({
+        userPrompt: instruction,
+        authoringRequest,
+        editorialPlan,
+        productionBrief,
+        authoringContext,
+        contentSignalProfile,
+        sourceLedger,
+        userId,
+        orgId: canonicalOrgId,
+        sessionId: canonicalSessionId,
+        projectId: canonicalSessionId,
+        editContext: {
+          currentContent: existingContent,
+          instruction,
+          ...(selection ? { selection } : {}),
+          ...(existingTreatment ? { existingTreatment } : {}),
+        },
+        abortSignal,
+      })
+    : null;
 
   const baseInput = {
     context: {
@@ -229,6 +259,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     sourceLedger,
     editorialPlan,
     editContext: { existingContent, instruction, selection },
+    ...(videoTreatmentPlan ? { videoTreatment: videoTreatmentPlan.treatment } : {}),
   };
 
   type FlatWriterStructuredOutput =
@@ -304,7 +335,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   });
   const writerOutput = {
     ...(isScript
-      ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
+      ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger, videoTreatmentPlan)
       : postWriterMetadata(result as unknown as PostWriterResult, sourceLedger)),
     profileCompliance,
     generationTrace,
@@ -360,13 +391,32 @@ function postWriterMetadata(
 function scriptWriterMetadata(
   result: ScriptWriterResult,
   sourceLedger: ReturnType<typeof buildContinuedThinkForgeSourceLedger>,
+  videoTreatmentPlan: VideoTreatmentPlanResult | null,
 ): Record<string, unknown> {
+  if (!videoTreatmentPlan) {
+    throw new Error('Script edit completed without a video treatment plan');
+  }
   return {
     writerType: 'script',
     contentAnalysis: result.contentAnalysis,
     visualPrompts: result.visualMetadata,
     scriptSidecar: result.sidecar,
     sidecarVersion: result.sidecar.sidecarVersion,
+    videoTreatment: videoTreatmentPlan.treatment,
+    videoTreatmentPlanning: {
+      version: 1,
+      inputFingerprint: videoTreatmentPlan.inputFingerprint,
+      treatmentId: videoTreatmentPlan.treatment.treatmentId,
+      source: videoTreatmentPlan.source,
+      cacheStatus: videoTreatmentPlan.cacheStatus,
+      modelName: videoTreatmentPlan.modelName,
+      latencyMs: videoTreatmentPlan.latencyMs,
+      writingKnowledgeVersion: videoTreatmentPlan.knowledge.writingKnowledge.version,
+      editronCreativeGraphVersion: videoTreatmentPlan.knowledge.editronGraph.version,
+      ...(videoTreatmentPlan.writingContextCacheStatus
+        ? { writingContextCacheStatus: videoTreatmentPlan.writingContextCacheStatus }
+        : {}),
+    },
     sourceLedger,
     writerMetadata: result.metadata,
   };

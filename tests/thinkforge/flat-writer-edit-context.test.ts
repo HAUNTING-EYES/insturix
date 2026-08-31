@@ -6,6 +6,10 @@ import {
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
+import {
+  abstractExplainerTreatment,
+  mixedPresenterCutawayTreatment,
+} from '@/tests/fixtures/thinkforge-video-treatment';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
@@ -20,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   getWritingKnowledgeIdentity: vi.fn(),
   getWritingKnowledgeVersion: vi.fn(),
   postRun: vi.fn(),
+  planVideoTreatment: vi.fn(),
   resolveAuthoringContext: vi.fn(),
   resolveProductionBrief: vi.fn(),
   resolveSignalProfile: vi.fn(),
@@ -51,6 +56,10 @@ vi.mock('@/lib/thinkforge/data/writing-graph-query', async (importOriginal) => (
 
 vi.mock('@/lib/thinkforge/brief/resolve-production-brief', () => ({
   resolveThinkForgeProductionBrief: mocks.resolveProductionBrief,
+}));
+
+vi.mock('@/lib/thinkforge/video-treatment/treatment-planner', () => ({
+  planVideoTreatment: mocks.planVideoTreatment,
 }));
 
 vi.mock('@/lib/thinkforge/provenance/source-ledger-continuity', () => ({
@@ -261,6 +270,19 @@ describe('flat writer edit authoring context', () => {
     mocks.buildSignalTrace.mockReturnValue({ version: 1, selectedIntent: { outputFormat: 'social_post' } });
     mocks.resolveProductionBrief.mockReturnValue(productionBrief);
     mocks.buildSourceLedger.mockReturnValue(sourceLedger);
+    mocks.planVideoTreatment.mockResolvedValue({
+      treatment: abstractExplainerTreatment,
+      inputFingerprint: abstractExplainerTreatment.decisionTrace.inputFingerprint,
+      source: 'generated',
+      cacheStatus: 'miss',
+      modelName: 'gemini-test',
+      latencyMs: 120,
+      writingContextCacheStatus: 'hit',
+      knowledge: {
+        writingKnowledge: { version: 'writing-v4' },
+        editronGraph: { version: 'editron-v3' },
+      },
+    });
     mocks.applyCommand.mockResolvedValue({ ok: true, script: { version: 2 } });
   });
 
@@ -349,6 +371,7 @@ describe('flat writer edit authoring context', () => {
       authoringRequest: postAuthoringRequest,
     }));
     expect(mocks.scriptRun).not.toHaveBeenCalled();
+    expect(mocks.planVideoTreatment).not.toHaveBeenCalled();
     expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({
         documentType: 'social_post',
@@ -399,7 +422,12 @@ describe('flat writer edit authoring context', () => {
       version: 3,
       documentType: 'video_script',
       contentContract: scriptAuthoringRequest.contentContract,
-      metadata: {},
+      metadata: {
+        writerOutput: {
+          sourceLedger,
+          videoTreatment: mixedPresenterCutawayTreatment,
+        },
+      },
     };
     mocks.getSession.mockResolvedValueOnce({
       _id: 'session_1',
@@ -425,11 +453,23 @@ describe('flat writer edit authoring context', () => {
       baseVersion: 3,
     });
 
+    expect(mocks.planVideoTreatment).toHaveBeenCalledWith(expect.objectContaining({
+      userPrompt: 'Make the opening more concrete.',
+      authoringRequest: scriptAuthoringRequest,
+      productionBrief,
+      sourceLedger,
+      editContext: {
+        currentContent: stored.content,
+        instruction: 'Make the opening more concrete.',
+        existingTreatment: mixedPresenterCutawayTreatment,
+      },
+    }));
     expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       authoringRequest: scriptAuthoringRequest,
       productionBrief,
       sourceLedger,
+      videoTreatment: abstractExplainerTreatment,
       editorialPlan: expect.objectContaining({
         version: 2,
         writerKind: 'script',
@@ -454,6 +494,19 @@ describe('flat writer edit authoring context', () => {
           writerOutput: expect.objectContaining({
             writerType: 'script',
             sourceLedger,
+            videoTreatment: abstractExplainerTreatment,
+            videoTreatmentPlanning: {
+              version: 1,
+              inputFingerprint: abstractExplainerTreatment.decisionTrace.inputFingerprint,
+              treatmentId: abstractExplainerTreatment.treatmentId,
+              source: 'generated',
+              cacheStatus: 'miss',
+              modelName: 'gemini-test',
+              latencyMs: 120,
+              writingKnowledgeVersion: 'writing-v4',
+              editronCreativeGraphVersion: 'editron-v3',
+              writingContextCacheStatus: 'hit',
+            },
             generationTrace: expect.objectContaining({
               operation: { kind: 'edit', id: 'edit:session_1:script_1:v4' },
               document: expect.objectContaining({ expectedVersion: 4, writerType: 'script' }),
