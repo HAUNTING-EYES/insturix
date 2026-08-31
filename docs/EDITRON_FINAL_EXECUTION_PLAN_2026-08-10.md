@@ -14308,7 +14308,10 @@ product-scope reduction.
    retains mutation authority.
 5. **Close the agency capability verticals.** Execute the `AGENCY_100GB_4H_V1`
    portion of Queue item 7 through the real product: core timeline, captions,
-   graphics/generated composition, audio, brand/multi-client state, correction,
+   graphics/generated composition, audio, brand/multi-client state, canonical
+   masks/mattes/rotoscoping/keying/tracking, plates/EXR/VFX pulls,
+   non-destructive relighting, online conform/reconform/change lists, mastering,
+   the declared agency IMF delivery class, archive/restore, correction,
    save/reload, undo/redo and client review. Each family must pass its complete
    caller-to-render-to-proof chain; isolated component coverage is not closure.
 6. **Prove long-form, delivery and recovery on that same journey.** Complete the
@@ -14318,6 +14321,9 @@ product-scope reduction.
    recovery, full-object verification, performance, memory and complete local/
    cloud/optional-provider accounting. The release proof uses a real fixture at
    the declared 100 GB/four-hour envelope; a small fixture cannot certify it.
+   Delivery evidence includes master-source conform, version change reporting,
+   VFX turnover, IMF package verification and a destructive test of archive
+   restoration into a fresh isolated runtime.
 7. **Finish acceptance evidence.** Complete Queue item 1's reviewer operations
    and corrected packet, then Queue item 10's qualified blind reviews and fresh
    measured RHC-04 correction session. Human execution occurs here, after the
@@ -14361,13 +14367,17 @@ not their shared architecture and not the twelve-item queue:
   including the retained five- and ten-hour film-post targets, occurs after the
   first agency class. Streaming, sharding, bounded memory, resumable work and
   long-form A/V proof up to the agency envelope are not deferred.
-- Film-specific workflows not required by the frozen agency fixture are
-  sequenced later: camera-card/reel/audio-roll and dailies workflows, script
-  sync and high-end multicam subclasses; full RAW/log/managed-colour/HDR/scopes
-  certification; advanced roto/keying/tracking/plates/EXR/VFX-pull workflows;
-  ADR/restoration/buses/automation/stems/surround/Atmos handoff; and picture
-  lock, conform/reconform, change lists, IMF mastering, archive and restoration
-  certification.
+- Film-specific workflows still sequenced later are camera-card/reel/audio-roll
+  and dailies workflows, script sync and high-end multicam subclasses; full
+  RAW/log/managed-colour/HDR/scopes certification; and ADR/restoration/buses/
+  automation/stems/surround/Atmos handoff.
+- The founder explicitly moved these formerly later rows into the agency class:
+  rotoscoping, keying, tracking, plates, EXR and VFX pulls; picture-lock/version
+  identity required by online conform, reconform and change lists; mastering;
+  a declared agency IMF delivery class; archive and restoration testing; and
+  non-destructive temporally consistent relighting. They are no longer deferred
+  to Stage 8. CAP-2 V11 must freeze production-grade agency-supported
+  subclasses and proofs without pretending they cover every film-post variant.
 - CAP-1/CAP-2 rows outside the frozen agency capability/source/delivery matrix
   retain their Stage 4-6/8 owners and remain mandatory. CAP-2 V11 must name the
   exact row boundary; no agent may call an unclassified row deferred by guess.
@@ -14379,6 +14389,34 @@ The following are explicitly **not deferred** by agency-first: Queue items 1-10
 and 12; QA Q0-Q4; universal mutation safety; ordinary mixed-CFR/VFR and epoch
 consumption; private PTS and proxy/master online conform; the production route
 broker; agency timeline/caption/graphics/audio operations; rights-cleared
-multi-hour retrieval; complete visual and audio render; client review;
-delivery, recovery and cost accounting; Stage 3's readiness gate; and the
-eventual full Stages 4-8 programme.
+multi-hour retrieval; agency VFX preparation and relighting; conform/reconform,
+change lists, mastering, agency IMF, archive/restore; complete visual and audio
+render; client review; delivery, recovery and cost accounting; Stage 3's
+readiness gate; and the eventual full Stages 4-8 programme.
+
+The governing implementation and proof contract for this expansion is
+[the agency VFX, finishing and relighting ADR](./editron/editron-agency-vfx-finishing-relight-adr-2026-08-31.md).
+
+#### Agency completion forecast after the scope expansion
+
+This is a planning forecast, not a completion promise or evidence receipt. At
+current source truth, relighting has no product owner, moving mattes/tracking
+are explicit capability gaps, and professional reconform/IMF/archive restore
+are absent even though proxy/master foundations are substantial. Assuming the
+scope remains fixed, required cloud/storage/GPU environments are available,
+rights-cleared fixtures arrive when needed, and independent lanes actually run
+concurrently, the current critical-path forecast is:
+
+| Milestone | Forecast from 2026-08-31 | Calendar range |
+|---|---:|---|
+| Current reconciliation, QA spine and pre-Stage-3 media/mutation foundations | 4-7 weeks | late September to mid-October 2026 |
+| Integrated agency editing candidate including route broker and core verticals | 9-14 weeks cumulative | early November to early December 2026 |
+| Technical agency candidate including the newly added VFX, relight, conform, IMF and archive owners | 14-20 weeks cumulative | early December 2026 to mid-January 2027 |
+| Full `AGENCY_100GB_4H_V1` release evidence, human acceptance and readiness receipt | 18-26 weeks cumulative | early January to early March 2027 |
+
+CAP-2 V11 is the first forecast recalibration point because it must freeze the
+exact supported codec, camera, VFX, colour and delivery subclasses. A missing
+private deployment, full-envelope fixture or qualified reviewer may extend the
+calendar even when code is ready. Removing lower-level tests or calling a
+research demo production would shorten the date only by creating false
+completion and is not authorized.

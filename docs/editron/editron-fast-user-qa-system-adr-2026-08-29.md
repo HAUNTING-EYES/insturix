@@ -286,12 +286,17 @@ The QA programme expands in certified verticals rather than one giant suite:
    preservation gates and route-neutral evidence.
 5. Media time: same-rate, mixed rational CFR, VFR, negative PTS, gaps,
    overlaps, resets, wraps, edit lists and corrupt/unmapped safe stops.
-6. VFX/tracking/colour: selected-subject tracking, all-frame clearance,
-   relighting/colour transforms, low-confidence stop and render round-trip.
+6. VFX/tracking/colour: editable masks/mattes, rotoscoping, keying,
+   selected-subject tracking, all-frame clearance, plates/EXR/VFX pulls,
+   non-destructive relighting/colour transforms, low-confidence stop and render
+   round-trip.
 7. Long form: rights-cleared multi-hour retrieval, visual/audio playback,
    compaction/resume, memory, hosted recovery and final delivery.
 8. Collaboration/review: project isolation, comments, versions, approvals,
    guest review and concurrent stale-write rejection.
+9. Finishing: picture-lock/version identity, proxy-to-master conform,
+   reconform/change list, mastering, declared agency IMF package, archive and
+   verified restoration into a fresh isolated runtime.
 
 RHC-01 through RHC-04 seed route and handoff regressions only. They do not
 replace this matrix or the CAP-1/CAP-2 certification programme.
@@ -318,19 +323,25 @@ sign in to an isolated agency tenant and select the client/brand
 -> open and play the baseline timeline
 -> perform one manual edit and one LLM preview-and-approve edit
 -> use timeline, caption, graphics/motion-design and audio owners
+-> use one editable VFX preparation path and one non-destructive relight path
 -> play every affected boundary and perform one bounded correction
 -> save, reload, undo and redo
 -> create client-review/version state
+-> conform from proxy to the verified master and issue a change list
 -> render complete audio and video for declared delivery profiles
--> deliver, reread and verify the outputs
+-> master, deliver, reread and verify ordinary plus declared IMF outputs
 -> recover one intentionally interrupted durable step
+-> archive the project and restore it into a fresh isolated runtime
 -> finalize one exact/perceptual/human-layer evidence bundle
 ```
 
 The certification fixture must include rights-cleared representative agency
 media, mixed rational CFR and phone-style VFR, separate 48 kHz production
 audio, still/graphic assets, pinned brand fonts and more than one deliverable
-profile. Source, project, browser, worker and render memory; storage bytes;
+profile. It also includes moving hair/edge detail, a keyable shot, a tracked
+subject, a deliberately difficult lighting shot, plate/EXR turnover material,
+proxy/master source pairs and at least one version change after picture-lock
+identity. Source, project, browser, worker and render memory; storage bytes;
 analysis/render wall time; retries; local/cloud cost; and any separately
 authorized provider cost are measured. No fixture result may infer the full
 100 GB/four-hour pass from a smaller source set.
@@ -342,8 +353,15 @@ Two tiers share one scenario manifest and owner path:
    minutes. It proves behavior, not resource-ceiling capacity.
 2. The release/nightly tier uses a rights-cleared full-envelope resource fixture
    and must prove streaming/bounded processing, proxy/master use, complete A/V
-   delivery and interrupted recovery. Only this tier can certify the 100
-   GB/four-hour class.
+   delivery, VFX/relight proxy-master invariance, conform/reconform and change
+   reporting, IMF package verification, archive restoration and interrupted
+   recovery. Only this tier can certify the 100 GB/four-hour class.
+
+Relighting is never validated as a destructive ingest rewrite. The QA manifest
+must prove immutable source bytes, range-scoped editable parameters, temporal
+consistency, skin-tone/highlight/shadow preservation, proxy/master equivalence,
+bounded cost, undo/reload and an explicit safe stop when lost highlight/shadow
+information or uncertain geometry cannot be recovered truthfully.
 
 Long-form QA Q4 remains active in parallel. The agency class proves four hours
 of raw-source handling; it does not replace the separate requirement to render,
