@@ -23,10 +23,10 @@ import type {
 } from './native-media-timestamp-r2-preview-surface-v1';
 import type { VideoSourceTimestampConformV3 } from './video-source-time-transform-v1';
 
-export const NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_POLICY_VERSION_V1 =
+const NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_POLICY_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_V1' as const;
 
-export type NativeMediaTimestampPreviewAudioMaterializerPolicyV1 = Readonly<{
+type NativeMediaTimestampPreviewAudioMaterializerPolicyV1 = Readonly<{
   policyVersion: typeof NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_POLICY_VERSION_V1;
   maxWindowFrames: number;
   maxMappingSegments: number;
@@ -47,7 +47,7 @@ NativeMediaTimestampPreviewAudioMaterializerPolicyV1 = Object.freeze({
 
 type AudioMappingV3 = NonNullable<VideoSourceTimestampConformV3['audioMapping']>;
 
-export type NativeMediaTimestampPreviewAudioMaterializerResultV1 = Readonly<
+type NativeMediaTimestampPreviewAudioMaterializerResultV1 = Readonly<
   | {
       disposition: 'AUDIO_WINDOW_MATERIALIZED';
       window: NativeMediaTimestampPreviewAudioWindowV1;
