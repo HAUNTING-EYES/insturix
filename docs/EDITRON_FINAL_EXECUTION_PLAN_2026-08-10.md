@@ -14257,3 +14257,125 @@ the consumer connection and read-only V11 work may proceed as independent
 lanes; their first merge point is the visible agency journey. The full-envelope
 100 GB/four-hour run belongs to the release/nightly lane after the scaled fast
 fixture proves the same manifest and owner path.
+
+### Canonical active programme roadmap - 2026-08-31
+
+This section is the sole authority for programme order after the founder's
+agency-first clarification. It supersedes earlier prose that says only "next"
+or describes one bounded implementation tranche as though it were the whole
+roadmap. It does not replace the numbered stages, the twelve-item successor
+queue, CAP-1/CAP-2, or the frozen Stage 2.5 evidence.
+
+The predecessor task transcript at
+`C:\Users\admin\.codex\sessions\2026\08\09\rollout-2026-08-09T13-46-08-019fe597-f478-71a1-9e15-e44ff8230c0a.jsonl`
+was processed sequentially to EOF on 2026-08-31: 215,121 JSONL records and
+1,233,175,410 bytes, with zero JSON parse failures. Only redacted decision
+labels and line/byte checkpoints were emitted; no credential or raw secret was
+copied. The transcript confirms the durable intent already represented by this
+plan: Adobe-class NLE plus LLM, long-form on the same architecture, no preset
+profiles, all authorized technical queue work pursued, and human-only evidence
+left until its packet is technically ready. The newer agency-first decision is
+therefore an execution and certification order layered on that intent, not a
+product-scope reduction.
+
+#### One dependency-ordered roadmap
+
+1. **Reconcile current truth and establish the visible QA spine.** Issue CAP-2
+   V11 without rewriting V10, then implement QA Q0/Q1 around one real visible
+   agency edit. This provides the current owner inventory and evidence bundle
+   into which every following slice must connect.
+2. **Finish Stage 1 and Stage 1.5 safety required by the active journey.** Close
+   Queue item 5's universal mutation envelope across authoritative writers:
+   evidence, project/source revision, ranges, locks, rights, predecessors,
+   invalidations, receipts, truthful proof state, conflicts, safe rebase,
+   undo/replay and reload. No direct writer may bypass ProjectService.
+3. **Finish the Stage 2 media chain.** Complete Queue items 3 then 4 through
+   authenticated product consumers: timestamp-driven ingest, preview,
+   transcription/analysis and final render; ordinary mixed-CFR/VFR/epoch
+   conform; private PTS; per-project proxy pins; exact proxy/master relink;
+   invalidation, rerender, rollback, delivery and recovery. A small fixture
+   proves behavior first; the same owners then run the full resource fixture.
+   Steps 2 and 3 are independent pre-Stage-3 lanes and may proceed concurrently;
+   within the media lane Queue item 3 precedes Queue item 4, and neither lane may
+   remain open when the successor readiness receipt is issued.
+4. **Build the production route decision boundary without enabling production
+   model mutation.** Complete Queue item 6 against the real media and mutation
+   owners. The broker qualifies and ranks native, generated and hybrid
+   candidates; family resolvers retain final-form ownership and ProjectService
+   retains mutation authority.
+5. **Close the agency capability verticals.** Execute the `AGENCY_100GB_4H_V1`
+   portion of Queue item 7 through the real product: core timeline, captions,
+   graphics/generated composition, audio, brand/multi-client state, correction,
+   save/reload, undo/redo and client review. Each family must pass its complete
+   caller-to-render-to-proof chain; isolated component coverage is not closure.
+6. **Prove long-form, delivery and recovery on that same journey.** Complete the
+   active agency portions of Queue items 8 and 9 using rights-cleared media:
+   labelled retrieval accuracy, complete A/V playback and render, compaction/
+   resume, proxy/master visual relink, multi-output delivery, interruption/
+   recovery, full-object verification, performance, memory and complete local/
+   cloud/optional-provider accounting. The release proof uses a real fixture at
+   the declared 100 GB/four-hour envelope; a small fixture cannot certify it.
+7. **Finish acceptance evidence.** Complete Queue item 1's reviewer operations
+   and corrected packet, then Queue item 10's qualified blind reviews and fresh
+   measured RHC-04 correction session. Human execution occurs here, after the
+   technical candidates and review packet are correct; no human result is
+   fabricated or inferred from telemetry.
+8. **Decide whether new model evidence is necessary.** Queue item 11 remains
+   conditional. Run it only when the preceding product/runtime evidence leaves
+   model competence decision-critical, under a new identity, clarity gates,
+   zero-spend preflight, separate exact authorization and cap. Never rerun the
+   historical cohort.
+9. **Issue Queue item 12's successor readiness receipt.** Freeze a new `GO`,
+   `MODIFY` or `NO-GO` for the declared pre-Stage-3 class. Until it permits
+   production mutation, Stage 3 remains `BLOCKED_NOT_AUTHORIZED`.
+10. **If permitted, implement Stage 3.** Build the production LLM control plane,
+    typed plan/proposal loop, evidence and constraint materialization, action
+    guard, model routing, budgets, isolation, review/repair and audit over the
+    already certified ProjectService/media/family owners.
+11. **Complete Stages 4-6 rather than treating their foundations as done.**
+    Certify every remaining creative family, the mature editor/review/delivery
+    experience, and professional NLE/long-form foundations through the same
+    caller, state, render, proof, undo, rights, conflict and recovery contract.
+12. **Run Stage 7, then Stage 8 certification.** First freeze the real agency
+    accepted-run receipt for `AGENCY_100GB_4H_V1`. Then extend and certify the
+    production-house/film-post classes. Editron is complete against the declared
+    vision only when the retained CAP rows and both certification stages close;
+    agency certification alone is not programme completion.
+
+Steps 1-6 may use the convergent independent lanes above, but dependency gates
+still control promotion and shared writers serialize. The phrase "current
+next" refers only to the first unfinished dependency in this roadmap; it may
+not create a thirteenth queue or replace the remaining steps.
+
+#### Exactly what agency-first sequences later
+
+Agency-first defers only **certification and agency-unneeded capability rows**,
+not their shared architecture and not the twelve-item queue:
+
+- Stage 8's production-house/film-post accepted-run certification occurs after
+  Stage 7 agency certification.
+- Capacity certification beyond the initial 100 GB/four-hour raw-source class,
+  including the retained five- and ten-hour film-post targets, occurs after the
+  first agency class. Streaming, sharding, bounded memory, resumable work and
+  long-form A/V proof up to the agency envelope are not deferred.
+- Film-specific workflows not required by the frozen agency fixture are
+  sequenced later: camera-card/reel/audio-roll and dailies workflows, script
+  sync and high-end multicam subclasses; full RAW/log/managed-colour/HDR/scopes
+  certification; advanced roto/keying/tracking/plates/EXR/VFX-pull workflows;
+  ADR/restoration/buses/automation/stems/surround/Atmos handoff; and picture
+  lock, conform/reconform, change lists, IMF mastering, archive and restoration
+  certification.
+- CAP-1/CAP-2 rows outside the frozen agency capability/source/delivery matrix
+  retain their Stage 4-6/8 owners and remain mandatory. CAP-2 V11 must name the
+  exact row boundary; no agent may call an unclassified row deferred by guess.
+- Queue item 11 is deferred unless it becomes decision-critical and separately
+  authorized. Qualified human execution is scheduled at roadmap step 7, not
+  discarded.
+
+The following are explicitly **not deferred** by agency-first: Queue items 1-10
+and 12; QA Q0-Q4; universal mutation safety; ordinary mixed-CFR/VFR and epoch
+consumption; private PTS and proxy/master online conform; the production route
+broker; agency timeline/caption/graphics/audio operations; rights-cleared
+multi-hour retrieval; complete visual and audio render; client review;
+delivery, recovery and cost accounting; Stage 3's readiness gate; and the
+eventual full Stages 4-8 programme.
