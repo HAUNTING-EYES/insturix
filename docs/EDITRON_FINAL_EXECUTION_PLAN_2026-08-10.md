@@ -14032,3 +14032,149 @@ accurate within their dated sections.
 **VERDICT:** CEO + ENGINEERING CLEARED K/OE-0 ONLY. OE-1 requires the frozen reviewed K/OE-0 artifact; OE-2 requires OE-1. No production runtime integration is cleared.
 
 NO UNRESOLVED DECISIONS
+
+## 2026-08-31 founder-scope and current-source reconciliation
+
+This section supersedes the immediately preceding historical statement that
+there are no unresolved decisions. It does not rewrite any frozen receipt,
+audit, cohort result or dated checkpoint.
+
+### Product destination is unchanged
+
+The destination remains an Adobe-class, web-native NLE with an LLM control
+plane. Nothing in the twelve-item successor-GO queue, CAP-1, CAP-2 or Stages
+3-8 is deleted, waived or reclassified as unnecessary by this reconciliation.
+"Needed later" means sequencing only; it never means implemented or removed.
+
+The current planning defect is different: the successor-GO queue accumulated
+work that the governing stage model also assigns to Stages 4-8. In particular,
+full CAP-1/CAP-2 closure, professional collaboration/interchange, complete
+long-form production proof and broad delivery certification are necessary for
+the final product, but the plan has not yet declared which bounded subset is a
+pre-Stage-3 prerequisite and which subset is certified in its owning later
+stage. Treating every final-parity row as a pre-Stage-3 blocker would put the
+work of Stages 4-8 before Stage 3 while still describing those stages as future
+work. Treating the rows as optional would contradict the product destination.
+Neither interpretation is authorized. The founder must choose the first
+supported project class and its required capability families; all remaining
+rows stay in the plan and retain their later-stage owners.
+
+No agent may add a new capability family to the immediate queue merely because
+it is useful or because Adobe/Resolve supports it. A new immediate blocker must
+be one of: an existing plan requirement, a correctness/security defect in an
+already selected project class, or an explicit founder priority. Otherwise it
+is recorded against its existing CAP/stage row and scheduled through the
+founder-priority decision below.
+
+### Stage 2.5 naming and status
+
+Two bodies of work have been called "Stage 2.5" and must now be kept separate:
+
+1. The original external-planner experiment is complete. Its immutable result
+   is `FROZEN_MODIFY_DECISION_ISSUED`; it did not produce `GO`.
+2. The active work is the successor-GO remediation programme created after
+   that decision. It has materially advanced media/time/proxy/right/evidence
+   foundations, but it has not issued a successor readiness receipt.
+
+Stage 3 model-driven production mutation remains blocked and unauthorized. A
+local proof, a passing focused test, or completion of one queue sub-owner does
+not change that status.
+
+### Current twelve-item successor-GO queue
+
+The twelve-item queue remains intact. Items 1-10 and 12 are required under the
+full Adobe-plus-LLM destination; item 11 remains explicitly conditional and
+must not run unless its recorded necessity and separate authority gates pass.
+The status below is current at source commit
+`5f12fbed14fa337e2863b295f536850bd1267174`; it is not a claim that later work
+may be discarded.
+
+| # | Queue item | Current status | Verified present | Still required |
+|---:|---|---|---|---|
+| 1 | Audit, reviewer workflow and qualification | `PARTIAL` | Frozen parity audit, review guide and separately labelled programme-owner feedback | Deterministic reviewer qualification/blinding policy, corrected V2 packet and qualified submissions |
+| 2 | Canonical lossless time/rate/epoch foundation | `FOUNDATION_COMPLETE` | Rational/integer time, V3 PTS/epoch contracts and compatibility foundations | Product-wide consumer cutover is deliberately owned by items 3-4, not implied by the foundation |
+| 3 | Timestamp-aware ingest/preview/conform/analysis/final render | `ACTIVE_PARTIAL` | Durable V3 timing owners, exact selected-source visual analysis, exact PCM windows, source rights gates and source-bound transcription composition | Authenticated five-track transcription consumption, browser/device playback, ordinary mixed-rate/VFR product workflow, remaining EDL/retime/audio consumers and live proof |
+| 4 | Private PTS plus proxy/master online conform | `ACTIVE_PARTIAL` | Private-object contracts, scanner/finalizer, correspondence, qualification, active CAS, per-project source pins, exact ProjectService relink and selected preview/render/analysis consumers in local proof | Deployed private R2/Atlas proof, all writers and legacy migration, full invalidation/rerender/rollback/delivery/recovery and customer-class proof |
+| 5 | Universal mutation prerequisite envelope | `INVENTORY_COMPLETE_IMPLEMENTATION_OPEN` | Read-only owner inventory, specialized CAS/lock/right/evidence mechanisms and a five-file pilot contract | Eliminate or mediate the nineteen direct project-collection mutation files, implement the pilot, then enforce the envelope in every authoritative writer |
+| 6 | Production native/generated/hybrid route broker | `RESEARCH_ONLY` | Route-neutral requirements, candidate eligibility/ranking contracts and bounded native/generated/hybrid canaries | One product decision owner, registered real executors, ProjectService compilation and end-to-end correction/rollback/delivery proof without duplicating family form owners |
+| 7 | CAP-1/CAP-2 capability-family closure | `OPEN` | CAP-1 has 52 partial and 8 research-only rows; CAP-2 has 37 declared candidates and substantial owner groundwork | 58 missing CAP-1 rows, zero currently certified CAP-1/CAP-2 rows, fresh CAP-2 V11 reconciliation, and bounded family certification through the stages that own those families |
+| 8 | Rights-cleared real long-form evidence | `OPEN` | Exact five-minute audio proof and substantial long-form/time/recovery primitives | Rights-cleared multi-hour creative material, labelled retrieval accuracy, complete A/V playback/render, compaction/resume and long-running recovery |
+| 9 | Delivery, recovery and complete accounting | `OPEN` | Render/job/storage/finalization components and bounded recovery evidence | Complete moving-picture delivery, proxy/master visual relink, interrupted hosted recovery, full-object verification and local/cloud/optional-provider cost attribution |
+| 10 | Qualified human acceptance | `OPEN` | RHC technical artifacts and programme-owner non-blind feedback | Corrected RHC-02/RHC-03, RHC-04 pairing board, V2 packet, qualified blind reviews and measured hands-on RHC-04 correction |
+| 11 | Corrected successor model evaluation | `CONDITIONAL_DEFERRED` | Ambiguity root cause and corrected zero-inference harness gate | Run only if model evidence remains decision-critical, with a new identity, clarity controls, explicit cap and separate authorization; never rerun the historical cohort |
+| 12 | Successor readiness receipt | `BLOCKED` | Immutable `MODIFY` receipt and receipt finalizer infrastructure | A newly frozen `GO`, `MODIFY` or `NO-GO` receipt after the declared supported-project blockers close |
+
+The fast user-QA system is cross-cutting rather than a thirteenth queue item.
+Its ADR is `FAST_USER_QA_DESIGN_ACCEPTED_IMPLEMENTATION_OPEN`: Q0/Q1 still need
+the one-command isolated fixture, visible edit/playback/correction/undo/reload
+journey, exact before/after diff, trace, cleanup and read-only cockpit. Later
+Q2-Q5 evidence follows the certified media, render, long-form and human-review
+verticals.
+
+### Current stage ledger
+
+| Stage | Current status | What that means now |
+|---:|---|---|
+| 0 | `FROZEN_FOUNDATION_CURRENT_RECONCILIATION_OPEN` | Historical census/feasibility artifacts exist, but the current tree has drifted beyond CAP-2 V10 and needs V11 before it can again be called current truth |
+| 1 | `PARTIAL` | Command, revision, receipt and proof mechanisms exist; caller semantics and false-success prevention are not universal |
+| 1.5 | `PARTIAL` | ProjectService CAS, bounded conflict/rebase and cut-lock proofs exist; complete track/sequence/professional editing semantics are not certified |
+| 2 | `PARTIAL_ACTIVE` | Strong media identity, durable jobs, timestamp, proxy/master, rights and evidence owners exist; several are local-only or not yet authoritative in the user path |
+| 2.5 original experiment | `COMPLETE_WITH_FROZEN_MODIFY` | The experiment ended honestly without GO |
+| Successor-GO remediation | `ACTIVE` | Queue items 1-10 are incomplete; item 11 is conditional and item 12 is blocked |
+| 3 | `BLOCKED_NOT_AUTHORIZED` | No production model-driven mutation promotion |
+| 4 | `PARTIAL_FOUNDATIONS_NOT_CERTIFIED` | Captions, transitions, graphics/generated composition, audio and effects have components, not certified end-to-end verticals |
+| 5 | `LARGELY_OPEN` | The mature editor/review/delivery UX and fast user-QA experience are not complete |
+| 6 | `PARTIAL_FOUNDATIONS_MAJOR_GAPS` | NLE/long-form foundations exist; professional tracks/trims, multicam, colour, VFX, audio, interchange and long-form delivery remain materially incomplete |
+| 7 | `NOT_STARTED_AS_CERTIFICATION_STAGE` | No agency project class has a frozen accepted-run certification receipt |
+| 8 | `NOT_STARTED_AS_CERTIFICATION_STAGE` | No production-house/film-post project class has a frozen accepted-run certification receipt |
+
+### What Editron can handle at this commit
+
+The labels below distinguish a visible/product path from a bounded engineering
+proof. "Available" does not mean CAP-certified.
+
+| Level | Current capability truth |
+|---|---|
+| Existing product paths, not production-certified | Create/open/save projects; upload and place ordinary video/image/audio assets; basic overlay/timeline editing; text, captions, transitions, transforms, keyframes, speed and volume controls; project analysis/auto-edit/chat/director/render job paths for their existing supported fixtures |
+| Strong bounded/local proof, not yet a general user promise | Lossless V3 timestamp/epoch representation; qualified exact-frame selected-source analysis; per-project proxy/master pins and exact relink; bounded PCM verification; source-rights authorization/migration; source-bound transcription orchestration; selected conflict/lock/rebase behavior; generated-composition lifecycle pieces; native/generated/hybrid RHC rendering mechanics; exact five-minute audio continuity |
+| Partial or unsafe to advertise generally | Ordinary mixed-CFR/VFR consumption; discontinuity handling through every UI/render consumer; universal mutation prerequisites; production route arbitration; complete proxy/master invalidation and rollback; full visual long-form playback/render; semantic retrieval accuracy; hosted recovery and complete accounting |
+| Materially missing or uncertified | Professional source/record and trim modes, complete track/routing model, multicam, masks/mattes/keying/roto/tracking/stabilization, managed colour/HDR/scopes, professional mixing/restoration/loudness/stems, professional interchange/conform, mature collaboration/review/approval, secure delivery classes, agency and film-post certification |
+
+The apparent disparity between many implemented components and zero certified
+CAP rows is therefore real but not contradictory. Certification requires the
+same owner semantics through caller, save/reload, render, proof, undo/replay,
+rights, conflicts and the declared project class. A partial row may contain
+substantial code while still failing that complete chain.
+
+### Current-source audit defect: CAP-2 V11 is required
+
+CAP-2 V10 remains an immutable historical source audit and must not be edited.
+At this commit, the focused CAP battery reports 19 passing tests and one
+failure: `CAP-2 v10 current source coverage drift`. This is expected evidence
+that 552 later commits and the current owner tree have outgrown V10; it is not a
+runtime editing failure and it must not be hidden by weakening the assertion.
+Queue item 7 must issue a separately identified CAP-2 V11 reconciliation before
+any new "current source" or certification claim.
+
+### Founder priority decision required before further scope expansion
+
+The founder must now declare the first supported project class and the
+capabilities required in its first robust milestone. The decision changes
+sequence only; it does not remove the rest of the Adobe-plus-LLM plan. Record:
+
+- target work: short social/YouTube/agency, interview/podcast/documentary,
+  long-form film/TV, or a declared combination;
+- mandatory source cases: phone VFR, mixed cameras/rates, multi-hour media,
+  separate production audio, multicam, RAW/log/HDR, screen recordings and/or
+  still-heavy work;
+- mandatory edit families: core timeline/trims, captions, graphics/motion
+  design/compositing, audio, colour, masks/tracking/VFX and multicam;
+- mandatory workflow: solo, shared collaboration, client review/approval,
+  interchange with Premiere/Resolve/Avid and required delivery targets; and
+- required LLM authority: suggest-only, preview-and-approve, bounded autonomous
+  edits, or a staged combination.
+
+Until that answer is frozen, preserve the queue order and continue only work
+already explicitly selected by the plan or necessary to correct a verified
+safety defect. Do not invent a narrower product class and do not declare broad
+Adobe/Resolve parity.

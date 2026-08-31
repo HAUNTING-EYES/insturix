@@ -477,3 +477,57 @@ A successor `GO` packet must show, at minimum:
 Until those exist, the truthful product position is “selected bounded editing
 and route feasibility with strong safe stops,” not “full professional NLE
 parity.”
+
+## Current-source addendum — 2026-08-31
+
+This addendum does not rewrite the 2026-08-28 audit. Its CAP counts and evidence
+remain frozen to their recorded source identities. The live branch has advanced
+by 552 commits from the expected handover commit through
+`5f12fbed14fa337e2863b295f536850bd1267174`; the audited Editron scope spans 591
+current changed paths in that interval. Substantial new code does not
+retroactively certify a frozen row.
+
+The strongest material advances are now:
+
+- canonical V3 rational time, PTS, measured-duration and discontinuity-epoch
+  contracts plus durable scanners/readers;
+- exact selected-source timestamp analysis and bounded decoded-PCM window
+  verification;
+- qualified proxy/master correspondence, active-state CAS, per-project source
+  pins, exact ProjectService relink and selected pin-aware consumers;
+- current-source rights authorization and attestation-backed migration; and
+- source-bound transcription cache/egress/lease/orchestration plus a
+  project-selected composition owner.
+
+Those are meaningful production foundations, not Adobe/Resolve parity. At the
+current product boundary, authenticated five-track analysis still does not
+consume the new project-selected transcription owner; browser/device playback,
+ordinary mixed-rate/VFR workflows, live private-store proof, complete
+proxy/master invalidation/rollback, universal mutation admission, a product
+native/generated/hybrid broker, full long-form A/V, semantic accuracy,
+delivery/recovery/accounting and qualified human review remain open.
+
+CAP-1 therefore remains the frozen 118-row baseline: 52 partial, 8
+research-only, 58 missing and zero certified. CAP-2 V10 likewise remains an
+immutable historical audit, but it can no longer be described as current
+source. The focused current test battery passes 19 checks and fails one loudly
+with `CAP-2 v10 current source coverage drift`. A separately identified V11
+reconciliation is required; weakening the assertion or editing V10 would
+falsify the audit.
+
+The phrase “zero certified” must not be read as “zero capability.” A feature is
+certified only after its real caller, sole owner, state/revision model,
+save/reload, preview/render, proof, undo/replay, rights, conflict behavior and
+declared project class all close. Many current rows contain substantial code
+while lacking that complete chain.
+
+The twelve-item remediation queue remains intact. Items 1-10 and 12 are
+required for the Adobe-class NLE plus LLM destination; item 11 remains
+explicitly conditional. A sequencing decision is still required because full item 7
+capability closure and parts of items 8-10 overlap work explicitly assigned by
+the governing plan to Stages 4-8. No work is removed: the founder must declare
+the first supported project class and which capability/source/workflow families
+must gate Stage 3, while all remaining parity rows retain their later-stage
+owners. The authoritative current queue and stage ledger are recorded in the
+2026-08-31 founder-scope reconciliation in
+`docs/EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md`.
