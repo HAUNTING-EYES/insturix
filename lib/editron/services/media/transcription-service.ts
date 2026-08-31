@@ -38,9 +38,16 @@ type TranscriptionProviderCostInput = {
   error?: unknown;
 };
 
-type GeneratedTranscriptionV2 = Readonly<{
+export type GeneratedTranscriptionV2 = Readonly<{
   transcription: TranscriptionData;
   timingEvidence: AssetTranscriptionTimingEvidenceV2;
+}>;
+
+type TranscriptionGenerationOptionsV2 = Readonly<{
+  preferWordLevel?: boolean;
+  userId?: string;
+  exactMediaUrl?: string;
+  allowSyntheticNarration?: boolean;
 }>;
 
 export function hasUsableWordTimings(transcription: unknown): transcription is TranscriptionData {
@@ -178,6 +185,35 @@ export async function getTranscription(
 }
 
 /**
+ * Raw provider adapter for a caller that already owns a qualified source
+ * lease. This function neither authorizes provider egress nor revalidates the
+ * lease after provider work; the source-bound orchestration owner must do both.
+ * Unlike the legacy asset path, no provider may substitute another asset URL.
+ */
+export async function transcribeLeasedMediaSourceWithProviderV2(input: Readonly<{
+  asset: MediaAsset;
+  userId: string;
+  sourceUrl: string;
+  requestedLanguage?: string | null;
+  precision: 'TEXT_ALLOWED' | 'MEASURED_WORD_REQUIRED';
+}>): Promise<GeneratedTranscriptionV2> {
+  if (input.asset.type !== 'video' && input.asset.type !== 'audio') {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_MEDIA_KIND_INVALID');
+  }
+  const sourceUrl = exactProviderMediaUrl(input.sourceUrl);
+  const requestedLanguage = input.requestedLanguage?.trim() || undefined;
+  if (requestedLanguage && requestedLanguage.length > 64) {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_LANGUAGE_INVALID');
+  }
+  return generateTranscription(input.asset, requestedLanguage, {
+    preferWordLevel: input.precision === 'MEASURED_WORD_REQUIRED',
+    userId: input.userId,
+    exactMediaUrl: sourceUrl,
+    allowSyntheticNarration: false,
+  });
+}
+
+/**
  * Generate transcription.
  * Text priority: synthetic narration, fal.ai segment timing, Gemini estimated
  * timing, then Deepgram measured word timing. Precision requests may only use
@@ -186,11 +222,13 @@ export async function getTranscription(
 async function generateTranscription(
   asset: MediaAsset,
   language?: string,
-  options?: { preferWordLevel?: boolean; userId?: string }
+  options?: TranscriptionGenerationOptionsV2,
 ): Promise<GeneratedTranscriptionV2> {
   // Synthetic timing is suitable for non-precision reading/caption previews only.
   // Frame-addressed edits require measured ASR timing even when narration text is known.
-  const narrationText = await getNarrationTextForAsset(asset.assetId);
+  const narrationText = options?.allowSyntheticNarration === false
+    ? null
+    : await getNarrationTextForAsset(asset.assetId);
   if (narrationText && !options?.preferWordLevel) {
     return {
       transcription: generateSyntheticTimings(narrationText, asset),
@@ -218,7 +256,7 @@ async function generateTranscription(
       let grokBytesIn: number | undefined;
       const grokStartedAt = Date.now();
       try {
-        let mediaUrl = asset.cachedUrl;
+        let mediaUrl = options.exactMediaUrl ?? asset.cachedUrl;
         if (!mediaUrl && asset.gcsPath) {
           const { refreshSignedUrl } = await import('../gcs-service');
           const signed = await refreshSignedUrl(asset.gcsPath);
@@ -234,12 +272,14 @@ async function generateTranscription(
         // Scale note: holds file in memory (~90MB typical). For 1000+ concurrent, use
         // xAI Files API (upload once, reference by ID). Documented in scaling phase backlog.
         let fileUrl = mediaUrl;
-        try {
-          const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
-          if (isR2Available()) {
-            fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
-          }
-        } catch (e) { console.warn(`[Transcription] R2 presigned URL failed, using CDN:`, e instanceof Error ? e.message : e); }
+        if (!options.exactMediaUrl) {
+          try {
+            const { isR2Available, getR2PresignedReadUrl } = await import('../r2-service');
+            if (isR2Available()) {
+              fileUrl = await getR2PresignedReadUrl(asset.assetId, 3600);
+            }
+          } catch (e) { console.warn(`[Transcription] R2 presigned URL failed, using CDN:`, e instanceof Error ? e.message : e); }
+        }
 
         const dlController = new AbortController();
         const dlTimer = setTimeout(() => dlController.abort(), 120_000);
@@ -366,7 +406,9 @@ async function generateTranscription(
   // --- Get accessible URL for external transcription --------------
   let mediaUrl: string;
 
-  if (asset.gcsPath) {
+  if (options?.exactMediaUrl) {
+    mediaUrl = options.exactMediaUrl;
+  } else if (asset.gcsPath) {
     try {
       const { refreshSignedUrl } = await import('../gcs-service');
       const { url } = await refreshSignedUrl(asset.gcsPath);
@@ -575,6 +617,23 @@ async function generateTranscription(
       : 'text fallback Deepgram route';
     throw new Error(`Transcription failed: ${route} failed. Last error: ${deepgramErr.message}`);
   }
+}
+
+function exactProviderMediaUrl(value: unknown): string {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_SOURCE_URL_INVALID');
+  }
+  if (parsed.protocol !== 'https:'
+    || parsed.username
+    || parsed.password
+    || parsed.hash) {
+    throw new Error('ASSET_TRANSCRIPTION_PROVIDER_SOURCE_URL_INVALID');
+  }
+  return candidate;
 }
 
 /**

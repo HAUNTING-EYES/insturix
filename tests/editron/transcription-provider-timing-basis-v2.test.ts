@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getTranscription } from '@/lib/editron/services/media/transcription-service';
+import {
+  getTranscription,
+  transcribeLeasedMediaSourceWithProviderV2,
+} from '@/lib/editron/services/media/transcription-service';
 
 const mocks = vi.hoisted(() => ({
   getDatabase: vi.fn(),
@@ -8,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   falConfig: vi.fn(),
   falSubscribe: vi.fn(),
   getAnalysisModel: vi.fn(),
+  getR2PresignedReadUrl: vi.fn(),
+  isR2Available: vi.fn(),
+  refreshSignedUrl: vi.fn(),
   transcribeMedia: vi.fn(),
 }));
 
@@ -21,8 +27,12 @@ vi.mock('@/lib/financials/provider-cost-events', () => ({
 }));
 
 vi.mock('@/lib/editron/services/r2-service', () => ({
-  isR2Available: () => false,
-  getR2PresignedReadUrl: vi.fn(),
+  isR2Available: mocks.isR2Available,
+  getR2PresignedReadUrl: mocks.getR2PresignedReadUrl,
+}));
+
+vi.mock('@/lib/editron/services/gcs-service', () => ({
+  refreshSignedUrl: mocks.refreshSignedUrl,
 }));
 
 vi.mock('@fal-ai/client', () => ({
@@ -48,6 +58,7 @@ describe('transcription provider timing basis V2', () => {
     vi.clearAllMocks();
     delete process.env.XAI_API_KEY;
     delete process.env.GROK_API_KEY;
+    mocks.isR2Available.mockReturnValue(false);
 
     const updateOne = vi.fn().mockResolvedValue({ acknowledged: true });
     const collections = {
@@ -104,5 +115,42 @@ describe('transcription provider timing basis V2', () => {
         }),
       }),
     );
+  });
+
+  it('uses only the lease URL even when stale asset and R2 URLs are available', async () => {
+    mocks.isR2Available.mockReturnValue(true);
+    mocks.getR2PresignedReadUrl.mockResolvedValue(
+      'https://stale-r2.example.com/asset-1.wav',
+    );
+    mocks.refreshSignedUrl.mockResolvedValue({
+      url: 'https://stale-gcs.example.com/asset-1.wav',
+    });
+
+    const result = await transcribeLeasedMediaSourceWithProviderV2({
+      asset: {
+        assetId: 'asset-1',
+        userId: 'user-1',
+        type: 'audio',
+        filename: 'asset-1.wav',
+        source: 'user-upload',
+        gcsPath: 'stale/object.wav',
+        cachedUrl: 'https://stale-cdn.example.com/asset-1.wav',
+        urlExpiresAt: new Date('2026-09-01T00:00:00.000Z'),
+        size: 1_024,
+        uploadedAt: new Date('2026-08-31T00:00:00.000Z'),
+      },
+      userId: 'user-1',
+      sourceUrl: 'https://lease.example.com/exact-source.wav?signature=bound',
+      precision: 'MEASURED_WORD_REQUIRED',
+    });
+
+    expect(result.timingEvidence.timingBasis).toBe('MEASURED_WORD');
+    expect(mocks.transcribeMedia).toHaveBeenCalledWith(
+      'https://lease.example.com/exact-source.wav?signature=bound',
+      expect.any(Object),
+    );
+    expect(mocks.getDatabase).not.toHaveBeenCalled();
+    expect(mocks.getR2PresignedReadUrl).not.toHaveBeenCalled();
+    expect(mocks.refreshSignedUrl).not.toHaveBeenCalled();
   });
 });
