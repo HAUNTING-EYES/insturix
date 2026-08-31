@@ -11339,12 +11339,52 @@ and upserted by `assetId` alone, `analyzeProjectAssets` prefers the media row's
 `cachedUrl` over the ProjectService-hydrated overlay URL, cached consumers do
 not require user/project/source-version identity, and project duration
 conversion still assumes 30 fps. These are production blockers, not completed
-source-bound analysis. The next structural phase must issue a new record
-identity bound to owner, asset, exact source version/storage version, analyzer
-contract and project coordinate evidence; migrate project callers and refuse
-legacy cache hits for pinned proxy/master overlays. Historical V1 records may
+source-bound analysis. The next structural phase must issue a reusable record
+identity bound to owner, asset, exact source/storage versions, material analysis
+inputs and analyzer contract; project callers must separately admit that record
+against current project-coordinate evidence and refuse legacy cache hits for
+pinned proxy/master overlays. Historical V1 records may
 remain read-compatible only in explicitly unversioned single-source contexts;
 they may not be silently promoted. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
+**Immutable source/input-bound five-track cache Phase 3F-C8ca (2026-08-31):**
+code commit `cc8d3ad1a` adds the production V2 cache identity and integrates it
+as an optional path in the existing five-track analyzer owner. A V2 identity
+now binds user, asset, proxy/master role, exact source-version hash, exact
+storage-version hash, material analysis-input hash and the explicit analyzer
+contract. The material-input hash covers duration, source type, transcript,
+word timings, storyboard evidence and the availability of the video, audio and
+preloaded-Gemini transports without hashing rotating signed URLs. The analyzer
+independently recomputes that input hash and rejects a mismatched binding before
+any cache or provider work.
+
+V2 rows use a deterministic binding-derived ID in the existing
+`asset_analyses` collection. Completed output is canonicalized, hashed and
+inserted with `$setOnInsert`; a primary reread validates binding, payload and
+record hashes. A concurrent/different second provider result cannot overwrite
+the first valid row. A bound analyzer call never consults the legacy
+asset-only cache. Unbound pre-project callers retain the historical path until
+they are separately migrated. Focused core, boundary and surrounding analysis
+proof passes 30/30; repository TypeScript and repository-wide quiet ESLint
+pass.
+
+This result is
+`FIVE_TRACK_SOURCE_INPUT_CACHE_OWNER_LOCALLY_VERIFIED_PROJECT_ROUTE_CUTOVER_OPEN`.
+It establishes the reusable analysis-record producer and exact consumer
+admission inside `runFullAnalysis`; it does not claim that a project route
+currently supplies the binding. Project ID, revision, overlay range and pin
+receipt are intentionally not part of reusable source-byte cache identity:
+ProjectService must validate them immediately before cache consumption and
+bind them into the project operation/evidence receipt. The next phase must
+migrate `analyzeProjectAssets` and `/api/services/editron/analysis` through a
+current ProjectService load, authenticated per-overlay source pin and exact
+hydrated URL, and refuse a legacy hit for a pinned overlay. The separate
+`/analyze` asset-transcription path still requires source-version-bound
+transcript persistence; this V2 cache does not retroactively make that
+transcript trustworthy. Live Atlas proof, project-coordinate admission,
+duration/rate correction, synchronous legacy consumers, browser QA and
+semantic-retrieval accuracy remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
