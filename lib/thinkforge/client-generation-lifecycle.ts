@@ -16,6 +16,17 @@ export type ThinkForgeCompletedDocumentReconciliationInput = {
   scriptId?: string | null;
 };
 
+export type ThinkForgeStreamRecoveryInput = {
+  ownsLiveStream: boolean;
+  errorName?: string | null;
+};
+
+export type ThinkForgeStreamPollingHandoffInput = {
+  streamReadFailed: boolean;
+  doneReceived: boolean;
+  hasDocumentEvent: boolean;
+};
+
 const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch|spoken_density_mismatch|narration_mode_missing_speech)\b/i;
 const EVIDENCE_REQUIREMENT_FAILURE_PATTERN = /\bSCRIPT_REQUIRES_ADDITIONAL_EVIDENCE\b/i;
 const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
@@ -78,6 +89,21 @@ export function resolveCompletedGenerationDelivery(input: {
   return input.hasScriptPayload
     ? { type: 'apply_current_document' }
     : { type: 'missing_document' };
+}
+
+/** A transport failure is recoverable; an explicit AbortError is a user cancellation. */
+export function shouldRecoverThinkForgeGenerationStream(
+  input: ThinkForgeStreamRecoveryInput,
+): boolean {
+  return input.ownsLiveStream && input.errorName !== 'AbortError';
+}
+
+/** Poll durable state unless replay restored both completion and its document payload. */
+export function shouldHandoffThinkForgeStreamToPolling(
+  input: ThinkForgeStreamPollingHandoffInput,
+): boolean {
+  return input.streamReadFailed
+    && (!input.doneReceived || !input.hasDocumentEvent);
 }
 
 /**

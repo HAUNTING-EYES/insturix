@@ -142,6 +142,7 @@ describe('ThinkForge internal command authorization', () => {
       scriptId: 'default',
       script: expect.objectContaining({ version: 2, content: 'Persisted content' }),
     }));
+    expect(mocks.processChat.mock.calls[0]?.[0]).not.toHaveProperty('abortSignal');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
   });
 

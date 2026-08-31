@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   resolveCompletedGenerationDelivery,
   resolveThinkForgeGenerationFailureMessage,
+  shouldHandoffThinkForgeStreamToPolling,
   shouldReconcileThinkForgeCompletedDocument,
+  shouldRecoverThinkForgeGenerationStream,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
@@ -305,7 +307,7 @@ describe('ThinkForge generation lifecycle', () => {
     expect(route).toContain('const deduction = await creditCheck.deduct()');
     expect(route).toContain('await db.setActiveGeneration(');
     expect(route.indexOf('await db.setActiveGeneration(')).toBeLessThan(route.indexOf('processChat({'));
-    expect(route).toContain('abortSignal: req.signal');
+    expect(route).not.toContain('abortSignal: req.signal');
     expect(route).not.toContain('retryOnceOnOverload(() => processChat');
     expect(service).toContain('claimCommitOwnership');
     expect(service).toContain('isThinkForgeAbortFailure(error, abortSignal) || isStreamClosed');
@@ -429,6 +431,37 @@ describe('ThinkForge generation lifecycle', () => {
     })).toEqual({ type: 'missing_document' });
   });
 
+  it('recovers transport failures through durable polling without treating user cancellation as a reconnect', () => {
+    expect(shouldRecoverThinkForgeGenerationStream({
+      ownsLiveStream: true,
+      errorName: 'TypeError',
+    })).toBe(true);
+    expect(shouldRecoverThinkForgeGenerationStream({
+      ownsLiveStream: true,
+      errorName: 'AbortError',
+    })).toBe(false);
+    expect(shouldRecoverThinkForgeGenerationStream({
+      ownsLiveStream: false,
+      errorName: 'TypeError',
+    })).toBe(false);
+
+    expect(shouldHandoffThinkForgeStreamToPolling({
+      streamReadFailed: true,
+      doneReceived: false,
+      hasDocumentEvent: false,
+    })).toBe(true);
+    expect(shouldHandoffThinkForgeStreamToPolling({
+      streamReadFailed: true,
+      doneReceived: true,
+      hasDocumentEvent: false,
+    })).toBe(true);
+    expect(shouldHandoffThinkForgeStreamToPolling({
+      streamReadFailed: true,
+      doneReceived: true,
+      hasDocumentEvent: true,
+    })).toBe(false);
+  });
+
   it('reconciles a durable document only after a completed generation actually emitted one', () => {
     expect(shouldReconcileThinkForgeCompletedDocument({
       doneReceived: true,
@@ -488,6 +521,9 @@ describe('ThinkForge generation lifecycle', () => {
     expect(hook).toContain('receivedGeneratedDocumentEvent');
     expect(hook).toContain('reconcilePersistedDocument');
     expect(hook).toContain('shouldScheduleThinkForgeGenerationPolling');
+    expect(hook).toContain('shouldRecoverThinkForgeGenerationStream');
+    expect(hook).toContain('shouldHandoffThinkForgeStreamToPolling');
+    expect(hook).toContain('Connection interrupted. Reconnecting to your saved draft...');
   });
 });
 
