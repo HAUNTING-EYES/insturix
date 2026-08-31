@@ -14813,3 +14813,26 @@ invalidation admission owner, followed by the remaining Queue 5 writers and
 the still-open Queue 3/4 downstream/live/browser/R2/mixed-rate/delivery
 consumers. No declaration-only CAP artifact authorizes downstream
 certification or production mutation.
+
+## 2026-09-01 vertical-convergence Phase 3D checkpoint
+
+At declared commit `4d0b7edc8`, ProjectService is the durable admission owner
+for the owner/project/target/revision/range/fingerprint tuple, but admission
+remains `PENDING` while the required artifact chain is not materialized and
+current. The first admission attempt durably records that pending admission
+and increments the project revision. The route and direct mutation paths then
+remain fail-closed before charge, provider dispatch, QStash dispatch, delivery
+or timeline replacement, and any success receipt because that artifact chain
+is pending. Safe replay and a fresh HTTP retry add no further write or revision
+churn; multi-target admission remains blocked.
+
+The focused source-truth run passed 27/27 tests; the full TypeScript, ESLint
+(`--quiet`) and `git diff --check` gates passed. No provider spend occurred.
+This checkpoint explicitly supersedes V13's statement that no durable
+current-target/current-revision invalidation admission owner exists; V13 and
+all earlier versioned artifacts remain immutable historical records.
+
+Queue 5 remains `OPEN`; Queues 3 and 4 remain `ACTIVE_PARTIAL`. The next
+bounded dependency is an active-artifact registry with stale marking and an
+outbox, followed by the corresponding consumer gates. This does not close
+Queue 5 or authorize certification, Stage 2.5 or Stage 3.
