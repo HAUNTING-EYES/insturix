@@ -11409,6 +11409,51 @@ route still needs to consume this decision, current ProjectService revision,
 source pin, full overlay mapping and exact cache identity. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project five-track exact-source route cutover Phase 3F-C8cc
+(2026-08-31):** code commits `e2a7ad02d` and `43e3221df` replace the raw
+project-analysis loop at `/api/services/editron/analysis` with one bounded
+project adapter. POST now proves project access through ProjectService before
+rate-limit or provider work, resolves each current overlay's authenticated
+proxy/master pin and exact AssetResolver-hydrated URL, verifies the current V3
+source/version/storage timing binding, and reads or writes only the immutable
+V2 source/input-bound analysis cache. A full provider run reloads the project
+after that long work and consumes only cache evidence rebound to the fresh
+ProjectService revision. The former `analyzeProjectAssets` bypass, which read a
+raw project, preferred `cachedUrl`, assumed 30 fps and accepted the legacy
+asset-only cache, has been deleted.
+
+The existing reactive suggestion and cinematic-moment consumers remain
+fixed-30-fps consumers. They receive an analysis only when the source is exact
+30-fps CFR, the project is 30 fps, the overlay has an explicit full-source
+range, normal speed and a single use of that source. A trimmed source may still
+receive reusable byte-level analysis while its timeline suggestions are
+blocked. VFR, mismatched-rate, retimed, duplicated, missing-range and cache-miss
+cases return structured source/timeline block reasons; corrupt project timing
+returns `PROJECT_TIMELINE_INVALID` with HTTP 409. There is no Unified
+Intelligence-to-reactive fallback. The legacy GET debug endpoint now requires
+direct asset ownership and labels its response `LEGACY_ASSET_ONLY`; a
+project/org/source-bound V2 debug contract remains open.
+
+Focused cache/adapter/route proof passes 16/16. Repository TypeScript, targeted
+quiet ESLint, repository-wide quiet ESLint and `git diff --check` pass. No paid
+provider call, live Atlas/R2 media, authenticated browser or human evaluation
+was used.
+
+This result is
+`PROJECT_FIVE_TRACK_EXACT_SOURCE_ROUTE_LOCALLY_VERIFIED_TIMESTAMP_MAPPING_AUDIO_AND_LIVE_PROOF_OPEN`.
+It is a real route cutover for the exact current-source 30-CFR subset, not
+analysis-wide mixed-rate/VFR support. The production timestamp-addressed
+five-track consumer for VFR, rational mixed-rate, discontinuous epochs,
+trim/retime and repeated source uses remains open. An active proxy/master
+mapping does not yet expose a complete selected-source V3 cadence/timebase join
+to this adapter, so that state blocks rather than guessing. The route also does
+not yet provide or prove a selected-source playable-audio decode contract; the
+existing five-track audio layer cannot be promoted as project audio evidence.
+Other legacy synchronous/ingest analysis consumers, source-version-bound
+transcription, live provider/Atlas proof, browser QA and semantic-retrieval
+accuracy remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
