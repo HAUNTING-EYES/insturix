@@ -14506,3 +14506,134 @@ five-track, fast-QA and preview-coordinator owners. `pnpm exec tsc --noEmit`,
 - Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`; Stage 3 production model-
   driven mutation remains `BLOCKED_NOT_AUTHORIZED` until Queue item 12 issues a
   successor receipt supported by the remaining evidence.
+
+## 2026-09-01 vertical-convergence Phase 2 checkpoint
+
+This checkpoint completes roadmap step 1's read-only current-source
+reconciliation against committed source `1ada3fa6108bf595a4d62861cbf57ff716ae8d8e`.
+It also reconciles the two independent read-only audits of the media/time/proxy
+lane and the visible-QA/capability boundary. It does not certify a CAP row,
+prove the agency resource envelope, close Stage 2.5 or authorize Stage 3.
+
+### CAP-2 V11 current-source truth
+
+CAP-2 V11 is a separately identified reissue. V10 remains immutable historical
+evidence and is expected to fail its current-tree assertion after later owners
+changed. V11 binds the current extractor result:
+
+- 351 normalized source paths across the same 11 observation families;
+- 636 identifier occurrences;
+- source snapshot hash
+  `597f43a3c9faf7ccd33adfdf7de87fe13efdca99facded3737447c20439b2cdd`;
+- 120 paths and 150 identifier occurrences added since V10; and
+- four changed observation families: Editron-linked API exports,
+  ProjectService public methods, proof/render/delivery candidates and
+  worker/job candidates.
+
+The artifact preserves the V2-through-V10 manifest chain and explicitly keeps:
+
+```text
+authority: RESEARCH_CENSUS_NO_RUNTIME_MUTATION
+status: REISSUED_CURRENT_TRUTH_RESEARCH_ONLY
+declared operations: 37
+certified operations: 0
+production-eligible operations: 0
+planner registry wired: false
+planner project mutation authorized: false
+production certification granted: false
+```
+
+Source inventory is not owner reconciliation, product reachability or
+certification. The broad observations still overlap and still require bounded
+caller-to-consumer reconciliation before any CAP row can be promoted.
+
+### Frozen `AGENCY_100GB_4H_V1` support boundary
+
+V11 hash-binds a declaration-only capability/source/delivery boundary derived
+from the accepted agency VFX/finishing/relighting ADR. Admission is bounded by:
+
+```text
+at most 100 GB total ingested source bytes
+AND
+at most four hours aggregate raw source duration
+-> stop admission when either ceiling is reached first
+```
+
+Only rights-cleared media with project, source-version, stream, epoch and range
+identity is eligible. Immutable inputs, proxy/master mapping and versioned
+sequence identity are required. The frozen first-agency families are:
+
+1. canonical masks, mattes, rotoscoping, keying and point/planar/object/face
+   tracking;
+2. plates, declared EXR interchange and VFX pulls with handles and identity;
+3. non-destructive, range-scoped, temporally consistent relighting;
+4. picture lock, online conform, deterministic reconform and human/machine
+   change lists;
+5. versioned master-source mastering and independent QC;
+6. one explicitly declared agency IMF class with independent validation; and
+7. content-addressed archive plus interrupted creation and fresh-environment
+   restore/relink/reread/rerender proof.
+
+Every row must close the same proof chain:
+
+```text
+caller
+-> decision owner
+-> form owner
+-> mutation owner
+-> stored revision
+-> renderer
+-> exact/perceptual/human proof
+```
+
+This is a supported-subclass declaration, not an implementation or readiness
+receipt. VFX, relighting, professional conform/reconform, concrete IMF package
+generation/validation and fresh archive restoration remain implementation
+gaps. The five-/ten-hour capacity targets, production-house accepted run,
+camera-card/dailies/high-end multicam, full RAW/log/HDR/scopes and professional
+ADR/buses/stems/surround/Atmos subclasses retain their later stage owners.
+
+### Reconciled QA and Queue 3-4 truth
+
+- QA Q0/Q1 is `BOUNDED_PASS_TEXT_OVERLAY_ONLY`. It proves one authenticated
+  visible text-overlay edit/correction/undo/redo/reload/delete journey. Its
+  artifact recorded `playerElementCount: 0`; therefore it proves no decoded
+  video/audio, waveform, A/V sync, caption, graphics, VFX, resource-envelope or
+  human-quality behavior.
+- The observed project-duration split remains open: the fixture persisted 300
+  frames while the mounted UI derived 210 frames from the last overlay end.
+- Queue item 3 remains `ACTIVE_PARTIAL`. Exact selected-source and same-rate
+  five-track analysis are connected, while ordinary mixed-rate/VFR, retimed or
+  repeated-use project coordinates, authenticated browser/device playback and
+  remaining transcription/audio/final-render consumers are incomplete.
+- Queue item 4 remains `ACTIVE_PARTIAL`. Qualification, per-project source pins,
+  exact ProjectService relink and bounded local consumers exist. Deployed
+  private R2/Atlas proof, legacy/all-writer migration, full invalidation,
+  rollback, delivery and interrupted recovery remain open.
+- Per-operation limits such as bounded PTS, preview and final-render reads do
+  not prove the 100 GB/four-hour agency envelope. A rights-cleared accepted run
+  using the same manifest and owners is still mandatory.
+
+### Ledger update and next dependency
+
+- Stage 0 current-source reconciliation is now
+  `FROZEN_FOUNDATION_CURRENT_RECONCILED_V11`; zero CAP rows are certified.
+- Canonical roadmap step 1 is complete at its declared bounded scope: V11,
+  Q0/Q1's text-overlay QA spine and the selected-source/five-track connection
+  are present and verified.
+- Roadmap steps 2 and 3 are the next independent implementation lanes and may
+  proceed concurrently: the universal mutation prerequisite envelope, and the
+  remaining Stage 2 media/time/proxy product chain. Shared writers still
+  serialize and every slice must attach to the same visible agency journey.
+- Queue item 6 and agency creative-family implementation remain downstream of
+  those real mutation/media owners; declaration-only V11 rows do not authorize
+  premature route-broker or family certification claims.
+- No model inference, historical cohort rerun or external provider spend was
+  performed. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`; Stage 3 remains
+  `BLOCKED_NOT_AUTHORIZED` until Queue item 12 issues a successor receipt.
+
+Phase 2 verification: the focused CAP gate passed 20/20 tests, the full
+repository TypeScript check passed, repository ESLint passed with `--quiet`,
+and `git diff --check` passed. A transient TypeScript failure observed while an
+unrelated ThinkForge billing-state edit was incomplete cleared after that edit
+settled; no ThinkForge file was changed or staged by this Editron phase.
