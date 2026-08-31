@@ -30,7 +30,7 @@ import {
 } from './project-selected-video-source-time-binding-v1';
 import type { ProjectRevisionV1 } from './project-service';
 
-export const PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_KIND_V1 =
+const PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_KIND_V1 =
   'EDITRON_PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_V1' as const;
 
 type SelectedSourceV1 = Pick<
@@ -63,7 +63,7 @@ type NativeAudioBlockReasonV1 = Extract<
   Readonly<{ disposition: 'UNVERIFIABLE' }>
 >['reason'];
 
-export type ProjectSelectedSourceAudioEvidencePortsV1 = Readonly<{
+type ProjectSelectedSourceAudioEvidencePortsV1 = Readonly<{
   loadSourceVersionEvidence(
     scope: MediaSourceVersionEvidenceScopeV1,
   ): Promise<unknown | null>;
