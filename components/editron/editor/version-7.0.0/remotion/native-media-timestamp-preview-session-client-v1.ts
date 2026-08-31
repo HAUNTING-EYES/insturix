@@ -174,6 +174,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
   function update(input: Parameters<NativeMediaTimestampPreviewSessionCoordinatorV1['update']>[0]) {
     if (disposed) return;
     lastInput = input;
+    const previousGlobalReason = globalReason;
     let normalized;
     try {
       normalized = normalizeUpdate(input, maxActiveVideoOverlays);
@@ -184,6 +185,7 @@ export function createNativeMediaTimestampPreviewSessionCoordinatorV1(
       return;
     }
     globalReason = null;
+    if (previousGlobalReason !== null) publish();
     const nextProjectScope = JSON.stringify([
       normalized.projectId,
       normalized.sequenceId,

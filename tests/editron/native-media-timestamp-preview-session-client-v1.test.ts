@@ -54,6 +54,36 @@ describe('native media timestamp preview session client V1', () => {
     expect(playable(stale, 10)).toEqual([]);
   });
 
+  it('republishes recovery when a valid revision reaches a non-video timeline', () => {
+    const harness = coordinatorHarness(async (command) => ordinary(command, 1));
+    const textOnlyInput = {
+      ...updateInput(10, null),
+      overlays: [],
+    } as const;
+
+    harness.coordinator.update(textOnlyInput);
+    expect(selectNativeMediaTimestampPreviewClientGateV1({
+      overlays: [],
+      currentFrame: 10,
+      snapshot: harness.coordinator.snapshot(),
+    })).toMatchObject({
+      disposition: 'BLOCKED',
+      reason: 'SESSION_PROJECT_REVISION_REQUIRED',
+    });
+
+    harness.coordinator.update({
+      ...textOnlyInput,
+      projectRevision: revision(),
+    });
+
+    expect(selectNativeMediaTimestampPreviewClientGateV1({
+      overlays: [],
+      currentFrame: 10,
+      snapshot: harness.coordinator.snapshot(),
+    })).toEqual({ disposition: 'READY', overlayId: null, reason: null });
+    expect(harness.materialize).not.toHaveBeenCalled();
+  });
+
   it('rejects wrong-asset and expired-on-arrival ordinary classifications', async () => {
     const wrongAsset = coordinatorHarness(async (command) => {
       const result = ordinary(command, 1);
