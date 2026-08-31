@@ -7,7 +7,7 @@ import {
   assertAssetTranscriptionSourceBindingV2,
   type AssetTranscriptionPrecisionV2,
   type AssetTranscriptionSourceBindingV2,
-} from './asset-transcription-source-cache-v2';
+} from './asset-transcription-source-binding-v2';
 import {
   EditorialPlanArtifactRefSchemaV1,
   type EditorialPlanArtifactRefV1,
