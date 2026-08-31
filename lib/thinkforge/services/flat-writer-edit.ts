@@ -92,6 +92,7 @@ export type FlatWriterEditArgs = FlatWriterEditBaseArgs & (
       selection?: never;
       expectedVersion: number;
       productionContractPlan?: ProductionContractRefreshPlan;
+      refreshJobId?: string;
     }
 );
 
@@ -136,6 +137,7 @@ function resolveStoredWriterKind(script: db.Script): ThinkForgeWriterKind {
 async function prepareFlatWriterEdit(args: FlatWriterEditArgs) {
   const { userId, orgId } = args;
   const refreshesProductionContract = args.mode === 'refresh-production-contract';
+  const refreshJobId = refreshesProductionContract ? args.refreshJobId : undefined;
   const instruction = refreshesProductionContract
     ? PRODUCTION_CONTRACT_REFRESH_INSTRUCTION
     : args.instruction;
@@ -287,6 +289,7 @@ async function prepareFlatWriterEdit(args: FlatWriterEditArgs) {
     instruction,
     selection,
     refreshesProductionContract,
+    refreshJobId,
   };
 }
 
@@ -369,6 +372,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     instruction,
     selection,
     refreshesProductionContract,
+    refreshJobId,
   } = prepared;
   const videoTreatmentPlan = isScript
     ? args.mode === 'refresh-production-contract' && args.productionContractPlan
@@ -465,7 +469,9 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   const generationTrace = buildThinkForgeDocumentGenerationTrace({
     operation: {
       kind: 'edit',
-      id: `${refreshesProductionContract ? 'production-contract-refresh' : 'edit'}:${canonicalSessionId}:${scriptId}:v${baseVersion + 1}`,
+      id: refreshJobId
+        ? `production-contract-refresh:${refreshJobId}`
+        : `${refreshesProductionContract ? 'production-contract-refresh' : 'edit'}:${canonicalSessionId}:${scriptId}:v${baseVersion + 1}`,
     },
     document: {
       sessionId: canonicalSessionId,
@@ -505,6 +511,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       metadata: {
         ...previousMetadata,
         workflow: refreshesProductionContract ? 'production-contract-refresh' : 'edit',
+        ...(refreshJobId ? { productionContractRefreshJobId: refreshJobId } : {}),
         source: 'ai',
         documentType: documentKind,
         authoringContextSnapshot: authoringContext.snapshot,

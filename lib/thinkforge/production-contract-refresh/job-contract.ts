@@ -5,7 +5,7 @@ import type { VideoTreatment } from '../schemas/video-treatment';
 
 export const PRODUCTION_CONTRACT_REFRESH_JOB_VERSION = 1;
 export const PRODUCTION_CONTRACT_REFRESH_JOB_COLLECTION = 'thinkforge_production_contract_refresh_jobs';
-export const PRODUCTION_CONTRACT_REFRESH_JOB_LEASE_MS = 8 * 60_000;
+export const PRODUCTION_CONTRACT_REFRESH_JOB_LEASE_MS = 2 * 60_000;
 export const PRODUCTION_CONTRACT_REFRESH_JOB_MAX_STAGE_FAILURES = 3;
 export const PRODUCTION_CONTRACT_REFRESH_JOB_TTL_MS = 48 * 60 * 60_000;
 

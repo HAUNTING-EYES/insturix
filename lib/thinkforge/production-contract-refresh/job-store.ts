@@ -395,6 +395,14 @@ export class ProductionContractRefreshJobStore {
     }).sort({ updatedAt: 1 }).limit(Math.max(1, Math.min(limit, 100))).toArray();
     return records.map(toSnapshot);
   }
+
+  async listRefundPending(limit = 25): Promise<ProductionContractRefreshJobSnapshot[]> {
+    const records = await (await this.collectionProvider()).find({
+      status: 'dead_letter',
+      'billing.status': 'refund_pending',
+    }).sort({ updatedAt: 1 }).limit(Math.max(1, Math.min(limit, 100))).toArray();
+    return records.map(toSnapshot);
+  }
 }
 
 export const productionContractRefreshJobStore = new ProductionContractRefreshJobStore();
