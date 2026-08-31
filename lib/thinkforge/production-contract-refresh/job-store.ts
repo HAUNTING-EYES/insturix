@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient, type Collection } from 'mongodb';
+import type { WalletRef } from '../../editron/services/project-ownership';
 import { parseVideoTreatment } from '../schemas/video-treatment';
 import {
   PRODUCTION_CONTRACT_REFRESH_JOB_COLLECTION,
@@ -88,7 +89,14 @@ export class ProductionContractRefreshJobStore {
       treatmentCheckpoint: null,
       treatmentCheckpointHash: null,
       commitReceipt: null,
-      billing: { status: 'pending', updatedAt: now, reason: null },
+      billing: {
+        status: 'pending',
+        wallet: null,
+        transactionId: null,
+        cost: null,
+        updatedAt: now,
+        reason: null,
+      },
       error: null,
       createdAt: now,
       updatedAt: now,
@@ -114,13 +122,54 @@ export class ProductionContractRefreshJobStore {
     return record ? toSnapshot(record) : null;
   }
 
-  async markCharged(jobId: string, now = new Date()): Promise<void> {
+  async markCharged(
+    jobId: string,
+    charge: { wallet: WalletRef; transactionId: string; cost: number },
+    now = new Date(),
+  ): Promise<void> {
+    validateCharge(charge);
+    const collection = await this.collectionProvider();
+    const update = await collection.updateOne(
+      { _id: jobId, status: 'queued', 'billing.status': 'pending' },
+      {
+        $set: {
+          'billing.status': 'charged',
+          'billing.wallet': cloneProductionContractRefreshJobValue(charge.wallet),
+          'billing.transactionId': charge.transactionId,
+          'billing.cost': charge.cost,
+          'billing.updatedAt': now,
+          'billing.reason': null,
+          updatedAt: now,
+        },
+      },
+    );
+    if (update.matchedCount === 1) return;
+    const current = await collection.findOne({ _id: jobId });
+    if (current?.billing.status === 'charged'
+      && current.billing.transactionId === charge.transactionId
+      && current.billing.cost === charge.cost
+      && hashProductionContractRefreshJobValue(current.billing.wallet) === hashProductionContractRefreshJobValue(charge.wallet)) {
+      return;
+    }
+    throw new ProductionContractRefreshJobTransitionError('Refresh job could not record its charge exactly once.');
+  }
+
+  async cancelUncharged(jobId: string, reason: string, now = new Date()): Promise<void> {
     const update = await (await this.collectionProvider()).updateOne(
       { _id: jobId, status: 'queued', 'billing.status': 'pending' },
-      { $set: { 'billing.status': 'charged', 'billing.updatedAt': now, 'billing.reason': null, updatedAt: now } },
+      {
+        $set: {
+          status: 'cancelled',
+          'billing.status': 'not_charged',
+          'billing.updatedAt': now,
+          'billing.reason': reason.slice(0, 2_000),
+          updatedAt: now,
+        },
+        $unset: { activeDedupeKey: '' },
+      },
     );
     if (update.matchedCount !== 1) {
-      throw new ProductionContractRefreshJobTransitionError('Refresh job could not record its charge exactly once.');
+      throw new ProductionContractRefreshJobTransitionError('Uncharged refresh job could not be cancelled.');
     }
   }
 
@@ -394,7 +443,24 @@ function validateTreatmentCheckpoint(
   if (!Number.isFinite(input.latencyMs) || input.latencyMs < 0) {
     throw new Error('Treatment checkpoint latency must be non-negative.');
   }
+  if (!input.writingKnowledgeVersion.trim()) {
+    throw new Error('Treatment checkpoint requires a writing-knowledge version.');
+  }
   return cloneProductionContractRefreshJobValue({ ...input, treatment });
+}
+
+function validateCharge(charge: { wallet: WalletRef; transactionId: string; cost: number }): void {
+  if (!charge.transactionId.trim()) throw new Error('Refresh charge requires a transactionId.');
+  if (!Number.isFinite(charge.cost) || charge.cost <= 0) {
+    throw new Error('Refresh charge cost must be positive.');
+  }
+  if (charge.wallet.type === 'user') {
+    if (!charge.wallet.clerkUserId.trim()) throw new Error('Refresh charge requires a user wallet identity.');
+    return;
+  }
+  if (!charge.wallet.clerkOrgId.trim() || !charge.wallet.actorUserId.trim()) {
+    throw new Error('Refresh charge requires organisation wallet and actor identities.');
+  }
 }
 
 function validateCommitReceipt(

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { IndexDescription } from 'mongodb';
+import type { WalletRef } from '../../editron/services/project-ownership';
 import type { VideoTreatment } from '../schemas/video-treatment';
 
 export const PRODUCTION_CONTRACT_REFRESH_JOB_VERSION = 1;
@@ -29,7 +30,8 @@ export type ProductionContractRefreshBillingStatus =
   | 'charged'
   | 'settled'
   | 'refund_pending'
-  | 'refunded';
+  | 'refunded'
+  | 'not_charged';
 
 export interface ProductionContractRefreshJobInput {
   userId: string;
@@ -48,6 +50,8 @@ export interface ProductionContractRefreshTreatmentCheckpoint {
   modelName: string;
   latencyMs: number;
   writingContextCacheStatus?: 'hit' | 'created' | 'inline';
+  writingKnowledgeVersion: string;
+  editronCreativeGraphVersion: string | null;
 }
 
 export interface ProductionContractRefreshCommitReceipt {
@@ -65,6 +69,9 @@ export interface ProductionContractRefreshJobError {
 
 export interface ProductionContractRefreshBillingState {
   status: ProductionContractRefreshBillingStatus;
+  wallet: WalletRef | null;
+  transactionId: string | null;
+  cost: number | null;
   updatedAt: Date;
   reason: string | null;
 }

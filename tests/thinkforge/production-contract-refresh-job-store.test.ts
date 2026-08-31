@@ -46,7 +46,14 @@ function record(overrides: Partial<ProductionContractRefreshJobRecord> = {}): Pr
     treatmentCheckpoint: null,
     treatmentCheckpointHash: null,
     commitReceipt: null,
-    billing: { status: 'pending', updatedAt: NOW, reason: null },
+    billing: {
+      status: 'pending',
+      wallet: null,
+      transactionId: null,
+      cost: null,
+      updatedAt: NOW,
+      reason: null,
+    },
     error: null,
     createdAt: NOW,
     updatedAt: NOW,
@@ -107,7 +114,14 @@ describe('ProductionContractRefreshJobStore', () => {
       const set = (update as { $set: { leaseToken: string; leaseExpiresAt: Date } }).$set;
       return record({
         status: 'running',
-        billing: { status: 'charged', updatedAt: NOW, reason: null },
+        billing: {
+          status: 'charged',
+          wallet: { type: 'user', clerkUserId: 'user_1' },
+          transactionId: 'txn_1',
+          cost: 5,
+          updatedAt: NOW,
+          reason: null,
+        },
         dispatchCount: 1,
         leaseToken: set.leaseToken,
         leaseExpiresAt: set.leaseExpiresAt,
@@ -129,7 +143,14 @@ describe('ProductionContractRefreshJobStore', () => {
       stage: 'sidecar',
       stageFailureCount: 2,
       leaseToken: 'lease_1',
-      billing: { status: 'charged', updatedAt: NOW, reason: null },
+      billing: {
+        status: 'charged',
+        wallet: { type: 'user', clerkUserId: 'user_1' },
+        transactionId: 'txn_1',
+        cost: 5,
+        updatedAt: NOW,
+        reason: null,
+      },
     }));
     vi.mocked(collection.updateOne).mockResolvedValue(successfulUpdate());
     const store = new ProductionContractRefreshJobStore(async () => collection);
@@ -158,7 +179,14 @@ describe('ProductionContractRefreshJobStore', () => {
     vi.mocked(collection.findOne).mockResolvedValue(record({
       status: 'running',
       leaseToken: 'lease_1',
-      billing: { status: 'charged', updatedAt: NOW, reason: null },
+      billing: {
+        status: 'charged',
+        wallet: { type: 'user', clerkUserId: 'user_1' },
+        transactionId: 'txn_1',
+        cost: 5,
+        updatedAt: NOW,
+        reason: null,
+      },
     }));
     const store = new ProductionContractRefreshJobStore(async () => collection);
 
@@ -173,7 +201,14 @@ describe('ProductionContractRefreshJobStore', () => {
       status: 'running',
       stage: 'sidecar',
       leaseToken: 'lease_1',
-      billing: { status: 'charged', updatedAt: NOW, reason: null },
+      billing: {
+        status: 'charged',
+        wallet: { type: 'user', clerkUserId: 'user_1' },
+        transactionId: 'txn_1',
+        cost: 5,
+        updatedAt: NOW,
+        reason: null,
+      },
       treatmentCheckpoint: {} as never,
       treatmentCheckpointHash: 'b'.repeat(64),
     }));
@@ -187,13 +222,62 @@ describe('ProductionContractRefreshJobStore', () => {
     expect(collection.updateOne).not.toHaveBeenCalled();
   });
 
+  it('records the exact charged wallet and transaction idempotently', async () => {
+    const collection = collectionMock();
+    vi.mocked(collection.updateOne).mockResolvedValue({
+      ...successfulUpdate(),
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    vi.mocked(collection.findOne).mockResolvedValue(record({
+      billing: {
+        status: 'charged',
+        wallet: { type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_1' },
+        transactionId: 'txn_1',
+        cost: 5,
+        updatedAt: NOW,
+        reason: null,
+      },
+    }));
+    const store = new ProductionContractRefreshJobStore(async () => collection);
+
+    await expect(store.markCharged('contractrefresh_1', {
+      wallet: { type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_1' },
+      transactionId: 'txn_1',
+      cost: 5,
+    }, NOW)).resolves.toBeUndefined();
+  });
+
+  it('cancels a job that never charged and releases its dedupe key', async () => {
+    const collection = collectionMock();
+    vi.mocked(collection.updateOne).mockResolvedValue(successfulUpdate());
+    const store = new ProductionContractRefreshJobStore(async () => collection);
+
+    await store.cancelUncharged('contractrefresh_1', 'insufficient credits', NOW);
+
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      { _id: 'contractrefresh_1', status: 'queued', 'billing.status': 'pending' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: 'cancelled', 'billing.status': 'not_charged' }),
+        $unset: { activeDedupeKey: '' },
+      }),
+    );
+  });
+
   it('yields treatment work into a separately dispatchable sidecar stage', async () => {
     const collection = collectionMock();
     vi.mocked(collection.findOne).mockResolvedValue(record({
       status: 'running',
       stage: 'sidecar',
       leaseToken: 'lease_1',
-      billing: { status: 'charged', updatedAt: NOW, reason: null },
+      billing: {
+        status: 'charged',
+        wallet: { type: 'user', clerkUserId: 'user_1' },
+        transactionId: 'txn_1',
+        cost: 5,
+        updatedAt: NOW,
+        reason: null,
+      },
       treatmentCheckpoint: {} as never,
       treatmentCheckpointHash: 'b'.repeat(64),
     }));
