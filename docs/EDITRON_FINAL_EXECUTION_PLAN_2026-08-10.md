@@ -11545,6 +11545,48 @@ equivalence, source-version-bound transcription, browser QA and semantic-
 retrieval accuracy remain open. Queue item 3 and Stage 2.5 therefore remain
 in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
 
+**Project-selected exact-audio evidence binding Phase 3F-C8cf
+(2026-08-31):** commits `c8975a162`, `570bca75a`, `0516433c5` and
+`e4bf0b5a2` add the next read-only project-analysis dependency without
+promoting metadata to playback proof. A new composition owner accepts only an
+already-resolved ProjectService source selection, finds exactly one matching
+current or historical source version, loads that immutable source-version
+evidence and requires the selected evidence root when an active proxy/master
+mapping supplied one. It then delegates private manifest/sample-map
+verification to the existing exact-audio owner and rechecks the audio binding's
+asset, source-version and storage-version identities before issuing a
+project/sequence/overlay/revision-bound receipt.
+
+Wrong-source candidates, duplicated matching candidates, absent or stale
+source-version evidence, multiple observed audio streams without an explicit
+stream-selection owner, private artifact read failure and invalid project
+revision all remain distinct structured `UNVERIFIABLE` outcomes. The
+project-coordinate analysis path now runs this audio composition beside the
+exact visual materialization. A visual result may remain available with an
+explicit audio stop, but that stop is never converted into speech, music,
+preservation or mutation evidence. The authenticated route returns only a
+redacted hash/count summary; private manifest references and internal audio
+evidence do not leave the server.
+
+The standalone composition, project adapter and authenticated route battery
+passes 15/15 focused tests. Repository TypeScript, targeted quiet ESLint,
+repository-wide quiet ESLint and `git diff --check` pass. No paid provider,
+live private R2 object, browser/device playback, customer project or mutation
+was exercised.
+
+This result is
+`PROJECT_SELECTED_SOURCE_EXACT_AUDIO_MANIFEST_AND_SAMPLE_MAP_LOCALLY_BOUND_PLAYBACK_AND_RIGHTS_OPEN`.
+It proves exact source/version/revision scope plus private manifest and sample-
+epoch-map readability. It does **not** read or hash the selected PCM window,
+materialize/schedule playable audio, prove decoded PCM equivalence for the
+analysis window, authorize current source-media rights, select among multiple
+audio streams, bind source-version transcription, or supply timestamp-native
+speech/music tracks. The public summary therefore states
+`playbackAuthority: NOT_PROVEN`. Queue item 3 next requires a bounded project-
+coordinate PCM/audio-window consumer with current rights and revision checks,
+followed by source-version-bound transcription and the remaining full track
+consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
