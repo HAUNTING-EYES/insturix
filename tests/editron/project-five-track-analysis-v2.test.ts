@@ -250,6 +250,7 @@ function ports(
 ): ProjectFiveTrackAnalysisPortsV2 {
   return {
     loadAssets: vi.fn(async (_assetIds: readonly string[]) => [asset]),
+    loadSourceVersionEvidence: vi.fn(async () => null),
     readAnalysis,
     runAnalysis,
     nowMs: () => 0,

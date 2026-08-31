@@ -14,16 +14,17 @@ import {
 } from './five-track-analysis';
 import type { PipelineWarningCollector } from './pipeline-warnings';
 import type { Project } from './project-service';
+import type {
+  MediaSourceVersionEvidenceScopeV1,
+  MediaSourceVersionEvidenceStorePortsV1,
+} from './media-source-version-evidence-owner-v1';
 import {
-  resolveProjectVideoSourceStorageV1,
-  type ProjectVideoSourceStorageAssetV1,
-} from './project-video-source-version-pin-v1';
-import type { MediaSourcePtsCadenceMapAssetStateInputV3 }
-  from './media-source-pts-cadence-map-asset-owner-v3';
-import { assertMediaSourceVersionV1 } from './media-source-version-v1';
+  resolveProjectSelectedVideoSourceTimeBindingV1,
+  type ProjectSelectedVideoSourceTimeBindingResultV1,
+}
+  from './project-selected-video-source-time-binding-v1';
 import {
   classifyVerifiedVideoSourceEpochRateCompatibilityV3,
-  resolveVerifiedVideoSourceEpochTimeBindingV3,
 } from './video-source-time-transform-v1';
 
 const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
@@ -31,12 +32,16 @@ const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
 
 type ProjectFiveTrackAnalysisModeV2 = 'FULL' | 'CACHE_ONLY';
 
+type SelectedSourceTimeBlockReasonV1 = Extract<
+  ProjectSelectedVideoSourceTimeBindingResultV1,
+  Readonly<{ disposition: 'UNVERIFIABLE' }>
+>['reason'];
+
 type ProjectFiveTrackAnalysisBlockReasonV2 =
   | 'OVERLAY_ASSET_ID_REQUIRED'
   | 'ASSET_NOT_FOUND'
-  | 'SELECTED_SOURCE_UNVERIFIABLE'
+  | `SELECTED_SOURCE_TIME_${SelectedSourceTimeBlockReasonV1}`
   | 'SELECTED_SOURCE_URL_UNAVAILABLE'
-  | 'VERIFIED_V3_SOURCE_TIMING_REQUIRED'
   | 'FIVE_TRACK_SOURCE_RATE_UNSUPPORTED'
   | 'SOURCE_FRAME_COUNT_INVALID'
   | 'ANALYSIS_CACHE_MISS'
@@ -80,8 +85,7 @@ type ProjectFiveTrackAnalysisResultV2 = Readonly<{
 }>;
 
 type AnalysisAssetV2 = MediaAsset
-  & ProjectVideoSourceStorageAssetV1
-  & MediaSourcePtsCadenceMapAssetStateInputV3;
+  & Parameters<typeof resolveProjectSelectedVideoSourceTimeBindingV1>[0]['asset'];
 
 type PreparedOverlayV2 = Readonly<{
   overlay: ClipOverlay;
@@ -95,6 +99,9 @@ type PreparedOverlayV2 = Readonly<{
 
 export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
   loadAssets(assetIds: readonly string[]): Promise<readonly AnalysisAssetV2[]>;
+  loadSourceVersionEvidence(
+    scope: MediaSourceVersionEvidenceScopeV1,
+  ): Promise<unknown | null>;
   readAnalysis(binding: AssetAnalysisSourceBindingV2): Promise<AssetAnalysis | null>;
   runAnalysis(input: Readonly<{
     assetId: string;
@@ -133,11 +140,12 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   const blocked = new Map<number, ProjectFiveTrackAnalysisBlockReasonV2>();
 
   for (const overlay of videoOverlays) {
-    const result = prepareOverlay({
+    const result = await prepareOverlay({
       project: input.project,
       userId: input.userId,
       overlay,
       assets,
+      loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
     });
     if ('reason' in result) blocked.set(overlay.id, result.reason);
     else prepared.set(overlay.id, result);
@@ -243,49 +251,39 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   });
 }
 
-function prepareOverlay(input: Readonly<{
+async function prepareOverlay(input: Readonly<{
   project: Project;
   userId: string;
   overlay: ClipOverlay;
   assets: ReadonlyMap<string, AnalysisAssetV2>;
-}>): PreparedOverlayV2 | Readonly<{ reason: ProjectFiveTrackAnalysisBlockReasonV2 }> {
+  loadSourceVersionEvidence:
+    ProjectFiveTrackAnalysisPortsV2['loadSourceVersionEvidence'];
+}>): Promise<
+  PreparedOverlayV2
+  | Readonly<{ reason: ProjectFiveTrackAnalysisBlockReasonV2 }>
+> {
   const assetId = typeof input.overlay.assetId === 'string'
     ? input.overlay.assetId.trim()
     : '';
   if (!assetId) return { reason: 'OVERLAY_ASSET_ID_REQUIRED' };
   const asset = input.assets.get(assetId);
   if (!asset) return { reason: 'ASSET_NOT_FOUND' };
-  const selected = resolveProjectVideoSourceStorageV1({
+  const selected = await resolveProjectSelectedVideoSourceTimeBindingV1({
     projectId: input.project.projectId,
     overlayId: input.overlay.id,
     assetId,
     sourcePin: input.overlay.sourceVersionPinV1,
     asset,
+    ports: {
+      loadSourceVersionEvidence: input.loadSourceVersionEvidence,
+    },
   });
   if (selected.disposition === 'UNVERIFIABLE') {
-    return { reason: 'SELECTED_SOURCE_UNVERIFIABLE' };
+    return { reason: `SELECTED_SOURCE_TIME_${selected.reason}` };
   }
   const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
   if (!videoUrl) return { reason: 'SELECTED_SOURCE_URL_UNAVAILABLE' };
-
-  let timing: NonNullable<ReturnType<
-  typeof resolveVerifiedVideoSourceEpochTimeBindingV3
-  >> | null;
-  try {
-    timing = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
-  } catch {
-    timing = null;
-  }
-  if (!timing) return { reason: 'VERIFIED_V3_SOURCE_TIMING_REQUIRED' };
-  const sourceVersion = assertMediaSourceVersionV1(asset.sourceVersionV1);
-  if (timing.assetId !== assetId
-    || timing.sourceVersionSha256 !== sourceVersion.sourceVersionSha256
-    || timing.storageVersionSha256
-      !== sourceVersion.storageVersion.storageVersionSha256
-    || sourceVersion.storageVersion.locator.provider !== 'R2'
-    || sourceVersion.storageVersion.locator.objectKey !== selected.storageKey) {
-    return { reason: 'SELECTED_SOURCE_UNVERIFIABLE' };
-  }
+  const timing = selected.binding;
   const compatibility = classifyVerifiedVideoSourceEpochRateCompatibilityV3(
     timing,
     30,
@@ -297,9 +295,6 @@ function prepareOverlay(input: Readonly<{
   if (totalSourceFrameCount === null) {
     return { reason: 'SOURCE_FRAME_COUNT_INVALID' };
   }
-  const sourceRole = selected.disposition === 'DIRECT_SOURCE'
-    ? asset.isProxy === true ? 'PROXY' : 'MASTER'
-    : selected.pin.sourceRole;
   const baseOptions = {
     videoUrl,
     durationMs: totalSourceFrameCount / 30 * 1000,
@@ -308,7 +303,7 @@ function prepareOverlay(input: Readonly<{
   const sourceBinding = createAssetAnalysisSourceBindingV2({
     userId: input.userId,
     assetId,
-    sourceRole,
+    sourceRole: selected.sourceRole,
     sourceVersionSha256: timing.sourceVersionSha256,
     storageVersionSha256: timing.storageVersionSha256,
     analysisInputSha256: createFiveTrackAnalysisInputSha256V2(baseOptions),
@@ -365,6 +360,8 @@ function uniqueSources(
 }
 
 function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
+  let evidenceStorePromise:
+    Promise<MediaSourceVersionEvidenceStorePortsV1> | null = null;
   return {
     async loadAssets(assetIds) {
       if (assetIds.length === 0) return [];
@@ -373,6 +370,13 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       return db.collection(COLLECTIONS.MEDIA_ASSETS).find({
         assetId: { $in: [...assetIds] },
       }).toArray() as unknown as AnalysisAssetV2[];
+    },
+    async loadSourceVersionEvidence(scope) {
+      evidenceStorePromise ??= import(
+        './media-source-version-evidence-mongo-store-v1'
+      ).then(({ createMediaSourceVersionEvidenceMongoStorePortsV1 }) =>
+        createMediaSourceVersionEvidenceMongoStorePortsV1());
+      return (await evidenceStorePromise).load(scope);
     },
     readAnalysis: getSourceBoundAnalysisV2<AssetAnalysis>,
     runAnalysis: ({ assetId, userId, options, pipelineWarnings }) =>
