@@ -22,6 +22,8 @@ import {
   type SourceMediaRightsLicenseEvidenceV1,
   type SourceMediaRightsPrincipalAuthorityV1,
 } from '@/lib/editron/services/source-media-rights-owner-v1';
+import { authorizeCurrentSourceMediaRightsV1 }
+  from '@/lib/editron/services/source-media-rights-authorization-v1';
 
 const ISSUED_AT = new Date('2026-08-30T10:00:00.000Z');
 const ACTIVE_AT = new Date('2026-08-30T12:00:00.000Z');
@@ -436,6 +438,70 @@ describe('NativeMediaFinalRenderSourceRightsOwnerV1', () => {
     })).toEqual({
       disposition: 'BLOCKED',
       diagnosticCode: 'SOURCE_MEDIA_RIGHTS_PROJECT_SCOPE_MISMATCH',
+    });
+  });
+});
+
+describe('authorizeCurrentSourceMediaRightsV1', () => {
+  it('binds the current actor, project, complete source reference and ledger head', async () => {
+    const sourceVersion = mediaSourceVersion();
+    const state = await issueRights({ sourceVersion });
+    const result = await authorizeCurrentSourceMediaRightsV1({
+      tenantId: 'tenant-1',
+      userId: 'collaborator-a',
+      orgId: null,
+      projectId: 'project-1',
+      projectOwnerId: 'user-a',
+      sourceVersion,
+    }, {
+      rightsReader: { read: vi.fn().mockResolvedValue(state) },
+      now: () => ACTIVE_AT,
+    });
+
+    expect(result.disposition).toBe('AUTHORIZED');
+    if (result.disposition !== 'AUTHORIZED') throw new Error('expected authorization');
+    expect(result.receipt).toMatchObject({
+      tenantId: 'tenant-1',
+      userId: 'collaborator-a',
+      projectId: 'project-1',
+      projectOwnerId: 'user-a',
+      source: {
+        assetId: sourceVersion.assetId,
+        contentSha256: sourceVersion.contentSha256,
+        storageVersionSha256:
+          sourceVersion.storageVersion.storageVersionSha256,
+        sourceVersionSha256: sourceVersion.sourceVersionSha256,
+      },
+      sourceMediaRightsStateSha256V1:
+        state.sourceMediaRightsStateSha256V1,
+      sourceMediaRightsRecordSha256: state.sourceMediaRightsV1.recordSha256,
+      evaluatedAt: ACTIVE_AT.toISOString(),
+    });
+    expect(result.receipt.receiptSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('rejects a ledger state for a different immutable source reference', async () => {
+    const authorizedSource = mediaSourceVersion();
+    const selectedSource = mediaSourceVersion(
+      { kind: 'USER', userId: 'user-a' },
+      { contentSha256: hex('b'), objectKey: 'asset-a-v2', eTag: 'etag-v2' },
+    );
+    const state = await issueRights({ sourceVersion: authorizedSource });
+    const result = await authorizeCurrentSourceMediaRightsV1({
+      tenantId: 'tenant-1',
+      userId: 'user-a',
+      orgId: null,
+      projectId: 'project-1',
+      projectOwnerId: 'user-a',
+      sourceVersion: selectedSource,
+    }, {
+      rightsReader: { read: vi.fn().mockResolvedValue(state) },
+      now: () => ACTIVE_AT,
+    });
+
+    expect(result).toEqual({
+      disposition: 'BLOCKED',
+      diagnosticCode: 'SOURCE_MEDIA_RIGHTS_SOURCE_SCOPE_MISMATCH',
     });
   });
 });

@@ -12,16 +12,15 @@ import {
 } from './native-media-final-render-source-preparation-v1';
 import { verifyRenderAudioRightsAuthority } from './render-audio-rights-authority';
 import {
-  assertSourceMediaRightsGrantStateV1,
   SOURCE_MEDIA_RIGHTS_OWNER_ID_V1,
   SOURCE_MEDIA_RIGHTS_OWNER_VERSION_V1,
-  type SourceMediaRightsRecordV1,
 } from './source-media-rights-owner-v1';
 import {
-  createSourceMediaRightsLedgerScopeV1,
   type SourceMediaRightsLedgerReaderV1,
 } from './source-media-rights-ledger-v1';
 import { assertMediaSourceVersionV1 } from './media-source-version-v1';
+import { authorizeCurrentSourceMediaRightsV1 }
+  from './source-media-rights-authorization-v1';
 
 export const NATIVE_MEDIA_FINAL_RENDER_SOURCE_RIGHTS_ADAPTER_VERSION_V1 =
   'EDITRON_NATIVE_MEDIA_FINAL_RENDER_SOURCE_RIGHTS_ADAPTER_V1' as const;
@@ -62,31 +61,20 @@ export function createNativeMediaFinalRenderSourceRightsOwnerV1(
         const overlay = assertOverlay(input.overlay, artifact);
         const sourceVersion = assertMediaSourceVersionV1(input.asset.sourceVersionV1);
         assertArtifactScope(input, artifact, overlay, sourceVersion);
-
-        let rightsState;
-        try {
-          const stored = await ports.rightsReader.read(
-            createSourceMediaRightsLedgerScopeV1({
-              tenantId: input.tenantId,
-              orgId: input.orgId,
-              projectId: input.projectId,
-              assetId: sourceVersion.assetId,
-              sourceVersionSha256: sourceVersion.sourceVersionSha256,
-            }),
-          );
-          rightsState = stored === null
-            ? null
-            : assertSourceMediaRightsGrantStateV1(stored);
-        } catch {
-          fail('SOURCE_MEDIA_RIGHTS_EVIDENCE_INVALID');
+        const sourceRights = await authorizeCurrentSourceMediaRightsV1({
+          tenantId: input.tenantId,
+          userId: input.userId,
+          orgId: input.orgId,
+          projectId: input.projectId,
+          projectOwnerId: input.projectOwnerId,
+          sourceVersion,
+        }, {
+          rightsReader: ports.rightsReader,
+          now,
+        });
+        if (sourceRights.disposition === 'BLOCKED') {
+          fail(sourceRights.diagnosticCode);
         }
-        if (!rightsState) fail('SOURCE_MEDIA_RIGHTS_EVIDENCE_MISSING');
-        if (rightsState.sourceMediaRightsRevocationV1) {
-          fail('SOURCE_MEDIA_RIGHTS_REVOKED');
-        }
-        const record = rightsState.sourceMediaRightsV1;
-        assertRightsScope(record, input, sourceVersion.owner);
-        assertLicenseActive(record, now());
 
         const audioEvidenceSha256 = await authorizeAudio(
           artifact,
@@ -98,10 +86,8 @@ export function createNativeMediaFinalRenderSourceRightsOwnerV1(
         );
         const rightsEvidenceSha256 = hashEditronCanonicalJsonV1({
           adapterVersion: NATIVE_MEDIA_FINAL_RENDER_SOURCE_RIGHTS_ADAPTER_VERSION_V1,
-          sourceMediaRightsStateSha256V1:
-            rightsState.sourceMediaRightsStateSha256V1,
-          sourceMediaRightsRecordSha256: record.recordSha256,
-          sourceMediaRightsRevocationSha256: null,
+          sourceMediaRightsAuthorizationReceiptSha256:
+            sourceRights.receipt.receiptSha256,
           audioEvidenceSha256,
         });
         return Object.freeze({
@@ -190,56 +176,6 @@ function assertArtifactScope(
     || input.asset.type !== sourceVersion.mediaKind
     || overlay.assetId !== sourceVersion.assetId) {
     fail('SOURCE_MEDIA_RIGHTS_ARTIFACT_SCOPE_MISMATCH');
-  }
-}
-
-function assertRightsScope(
-  record: SourceMediaRightsRecordV1,
-  input: Parameters<NativeMediaFinalRenderPublicationRightsOwnerV1['authorize']>[0],
-  sourceOwner: ReturnType<typeof assertMediaSourceVersionV1>['owner'],
-): void {
-  if (record.tenantId !== input.tenantId
-    || record.orgId !== input.orgId
-    || record.projectId !== input.projectId) {
-    fail('SOURCE_MEDIA_RIGHTS_PROJECT_SCOPE_MISMATCH');
-  }
-  if (record.disposition === 'OWNED_BY_USER') {
-    if (sourceOwner.kind !== 'USER'
-      || record.attestedByUserId !== sourceOwner.userId
-      || (input.userId !== sourceOwner.userId
-        && input.projectOwnerId !== sourceOwner.userId)) {
-      fail('SOURCE_MEDIA_RIGHTS_PRINCIPAL_SCOPE_MISMATCH');
-    }
-    return;
-  }
-  if (record.disposition === 'OWNED_BY_ORG') {
-    if (sourceOwner.kind !== 'ORG'
-      || input.orgId !== sourceOwner.orgId) {
-      fail('SOURCE_MEDIA_RIGHTS_PRINCIPAL_SCOPE_MISMATCH');
-    }
-    return;
-  }
-  if (record.orgId === null
-    && input.userId !== record.attestedByUserId
-    && input.projectOwnerId !== record.attestedByUserId) {
-    fail('SOURCE_MEDIA_RIGHTS_PRINCIPAL_SCOPE_MISMATCH');
-  }
-}
-
-function assertLicenseActive(
-  record: SourceMediaRightsRecordV1,
-  value: Date,
-): void {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    fail('SOURCE_MEDIA_RIGHTS_CURRENT_TIME_INVALID');
-  }
-  if (record.disposition !== 'LICENSED_FOR_PROJECT') return;
-  const license = record.license;
-  if (!license
-    || value.getTime() < Date.parse(license.validFrom)
-    || (license.expiresAt !== null
-      && value.getTime() >= Date.parse(license.expiresAt))) {
-    fail('SOURCE_MEDIA_RIGHTS_LICENSE_NOT_ACTIVE');
   }
 }
 
