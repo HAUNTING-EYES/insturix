@@ -437,7 +437,24 @@ export async function POST(
     const linkedProjectId = (
       typeof storyboard.projectId === 'string' && storyboard.projectId.startsWith('proj_')
     ) ? storyboard.projectId : undefined;
-    if (linkedProjectId && sceneJobs.some((scene) => scene.expectedProjectAssetId)) {
+    const linkedProjectTargetCount = sceneJobs.filter(
+      (scene) => Boolean(scene.expectedProjectAssetId),
+    ).length;
+    // This bounded admission advances one project revision. Reject multiple
+    // linked targets before credits/provider/QStash until a batch owner exists.
+    if (
+      linkedProjectId
+      && linkedProjectTargetCount > 0
+      && linkedProjectTargetCount !== 1
+    ) {
+      return NextResponse.json({
+        success: false,
+        error: 'Multiple linked project video targets require a batch admission owner.',
+        code: 'PROJECT_DELIVERY_MULTIPLE_LINKED_TARGETS_UNSUPPORTED',
+        linkedProjectTargetCount,
+      }, { status: 409 });
+    }
+    if (linkedProjectId && linkedProjectTargetCount === 1) {
       let projectSnapshot: Awaited<ReturnType<
         typeof import('@/lib/editron/services/project-service')['projectService']['loadProjectForMutation']
       >>;
@@ -482,8 +499,7 @@ export async function POST(
           }, { status: 409 });
         }
         try {
-          scene.projectDeliveryTarget = resolution.target;
-          scene.projectDeliveryPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+          const unmaterializedPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
             projectId: linkedProjectId,
             expectedRevision: projectSnapshot.revision,
             overlay: targetOverlay,
@@ -491,26 +507,47 @@ export async function POST(
             directorLockAt: projectSnapshot.project.directorLockAt,
             timelineRangeCutLocks: projectSnapshot.project.timelineRangeCutLocks,
           });
-          // No current ProjectService/media owner can issue explicit,
-          // target-and-revision-bound materialized invalidation admission.
-          // An unmaterialized claim is diagnostic only: stop before credits,
-          // provider dispatch, or a queued worker can create a false success.
-          if (scene.projectDeliveryPrerequisite.invalidation.status !== 'MATERIALIZED') {
-            return NextResponse.json({
-              success: false,
-              error: `Scene ${scene.sceneIndex} has no durable current-target invalidation admission.`,
-              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
-              sceneIndex: scene.sceneIndex,
-              subShotIndex: scene.subShotIndex,
-            }, { status: 409 });
+          const { projectService } = await import('@/lib/editron/services/project-service');
+          const admission = await projectService.admitPipelineVideoDeliveryInvalidationV1(
+            userId,
+            linkedProjectId,
+            unmaterializedPrerequisite,
+          );
+          const rejectPendingAdmission = () => NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} has a durable invalidation admission, but no consumer-enforced artifact invalidation chain exists yet.`,
+            code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+          if (admission.disposition === 'ALREADY_PENDING') {
+            return rejectPendingAdmission();
           }
+          if (admission.admission.status === 'ADMITTED_ARTIFACT_CHAIN_PENDING') {
+            return rejectPendingAdmission();
+          }
+          scene.projectDeliveryTarget = {
+            ...resolution.target,
+            expectedRevision: admission.afterRevision,
+          };
+          scene.projectDeliveryPrerequisite = admission.prerequisite;
+          // The single-target guard above means this revised snapshot cannot
+          // collide with another independent admission in this request.
+          projectSnapshot = {
+            ...projectSnapshot,
+            revision: admission.afterRevision,
+          };
         } catch (prerequisiteError: any) {
+          const prerequisiteCode = typeof prerequisiteError?.message === 'string'
+            ? prerequisiteError.message
+            : 'PROJECT_DELIVERY_PREREQUISITE_INVALID';
           return NextResponse.json({
             success: false,
             error: `Scene ${scene.sceneIndex} cannot be admitted for safe project delivery.`,
-            code: typeof prerequisiteError?.message === 'string'
-              ? prerequisiteError.message
-              : 'PROJECT_DELIVERY_PREREQUISITE_INVALID',
+            code: prerequisiteCode === 'INVALIDATION_UNVERIFIABLE'
+              || prerequisiteError?.reason === 'INVALIDATION_UNVERIFIABLE'
+              ? 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE'
+              : prerequisiteCode,
             sceneIndex: scene.sceneIndex,
             subShotIndex: scene.subShotIndex,
           }, { status: 409 });

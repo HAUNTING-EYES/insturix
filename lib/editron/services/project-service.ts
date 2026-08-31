@@ -73,11 +73,16 @@ import {
   type PipelineAudioDeliveryOutcomeV1,
 } from "./pipeline-audio-project-delivery-v1";
 import {
+  assertPipelineVideoDeliveryInvalidationAdmissionV1,
   assertPipelineVideoProjectDeliveryPrerequisiteV1,
   clonePipelineVideoCanonicalValueV1,
+  materializePipelineVideoProjectDeliveryPrerequisiteV1,
+  pipelineVideoDeliveryInvalidationAdmissionHashV1,
+  pipelineVideoDeliveryInvalidationAdmissionKeyV1,
   pipelineVideoDeliveryExactFrameRangeV1,
   pipelineVideoDeliveryMaterialHashV1,
   pipelineVideoDeliveryTargetFingerprintV1,
+  type PipelineVideoDeliveryInvalidationAdmissionV1,
   type PipelineVideoDeliveryMaterialV1,
   type PipelineVideoProjectDeliveryPrerequisiteV1,
 } from "./pipeline-video-project-delivery-v1";
@@ -648,6 +653,8 @@ export interface ProjectPipelineVideoDeliveryReceiptV1 {
   materialHash: string;
   prerequisiteHash: string;
   target: Readonly<PipelineVideoDeliveryMaterialV1["target"]>;
+  invalidationAdmissionId: string;
+  invalidationAdmissionHash: string;
   replacementAssetId: string;
   requestedRevision: ProjectRevisionV1;
   beforeRevision: ProjectRevisionV1;
@@ -696,6 +703,23 @@ export interface ProjectPipelineVideoDeliveryResultV1 {
   disposition: "APPLIED" | "ALREADY_APPLIED";
   deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1;
 }
+
+export type ProjectPipelineVideoDeliveryInvalidationAdmissionResultV1 =
+  | {
+      disposition: "ADMITTED" | "ALREADY_ADMITTED";
+      admission: PipelineVideoDeliveryInvalidationAdmissionV1;
+      prerequisite: PipelineVideoProjectDeliveryPrerequisiteV1;
+      beforeRevision: ProjectRevisionV1;
+      afterRevision: ProjectRevisionV1;
+    }
+  | {
+      /** A retry recovered a live reservation; no usable prerequisite exists yet. */
+      disposition: "ALREADY_PENDING";
+      admission: PipelineVideoDeliveryInvalidationAdmissionV1;
+      prerequisite: null;
+      beforeRevision: ProjectRevisionV1;
+      afterRevision: ProjectRevisionV1;
+    };
 
 /**
  * A Video Analysis worker may correct only its exact initial source overlay.
@@ -1086,6 +1110,7 @@ const MAX_TIMELINE_RANGE_CUT_LOCK_RECORDS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_RECEIPTS_V1 = 200;
 const MAX_PIPELINE_AUDIO_DELIVERY_CAS_ATTEMPTS_V1 = 2;
 const MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1 = 200;
+const PIPELINE_VIDEO_DELIVERY_INVALIDATION_ADMISSION_TTL_MS_V1 = 15 * 60 * 1000;
 const MAX_VIDEO_ANALYSIS_DURATION_CORRECTION_RECEIPTS_V1 = 200;
 
 export class ProjectMutationConflictError extends Error {
@@ -1237,6 +1262,8 @@ export interface Project {
   pipelineAudioDeliveryReceipts?: ProjectPipelineAudioDeliveryReceiptV1[];
   /** Bounded idempotency/receipt history for signed generated-video deliveries. */
   pipelineVideoDeliveryReceipts?: ProjectPipelineVideoDeliveryReceiptV1[];
+  /** ProjectService-issued current-target invalidation admissions consumed by delivery CAS. */
+  pipelineVideoDeliveryInvalidationAdmissionsV1?: PipelineVideoDeliveryInvalidationAdmissionV1[];
   /** Bounded replay history for source-bound Video Analysis duration corrections. */
   videoAnalysisDurationCorrectionReceipts?: ProjectVideoAnalysisDurationCorrectionReceiptV1[];
   /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
@@ -5060,6 +5087,211 @@ export class ProjectService {
   }
 
   /**
+   * Issue the only durable current-target invalidation admission for the
+   * pipeline-video pilot. The admission advances the ProjectService revision
+   * once, but does not prove that downstream artifacts were invalidated and
+   * cannot authorize delivery until that consumer-enforced chain exists.
+   */
+  async admitPipelineVideoDeliveryInvalidationV1(
+    userId: string,
+    projectId: string,
+    prerequisite: PipelineVideoProjectDeliveryPrerequisiteV1,
+  ): Promise<ProjectPipelineVideoDeliveryInvalidationAdmissionResultV1> {
+    try {
+      assertPipelineVideoProjectDeliveryPrerequisiteV1(prerequisite);
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video invalidation prerequisite is invalid: "
+          + (error instanceof Error ? error.message : "UNKNOWN"),
+      );
+    }
+    if (
+      prerequisite.projectId !== projectId
+      || prerequisite.invalidation.status !== "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN"
+      || typeof userId !== "string"
+      || userId.trim() !== userId
+      || userId.length === 0
+      || userId.length > 200
+    ) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video invalidation admission must start from one unmaterialized owner-bound prerequisite.",
+      );
+    }
+
+    const admissionKey = pipelineVideoDeliveryInvalidationAdmissionKeyV1({
+      projectId,
+      ownerId: userId,
+      expectedRevision: prerequisite.expectedRevision,
+      target: prerequisite.target,
+    });
+    const admissionId = `pipeline-video-invalidation_${admissionKey}`;
+    const db = await getDatabase();
+    let current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) throw new ProjectNotFoundOrForbiddenError();
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const beforeRevision = projectRevisionFor(current);
+      const existing = findPipelineVideoDeliveryInvalidationAdmissionV1(
+        current,
+        admissionId,
+      );
+      if (existing) {
+        if (
+          existing.ownerId !== userId
+          || existing.projectId !== projectId
+          || !sameProjectRevisionV1(existing.beforeRevision, prerequisite.expectedRevision)
+          || !sameProjectRevisionV1(existing.afterRevision, beforeRevision)
+          || Date.now() >= new Date(existing.expiresAt).getTime()
+        ) {
+          throw new ProjectPipelineVideoDeliveryConflictError(
+            beforeRevision,
+            "INVALIDATION_UNVERIFIABLE",
+          );
+        }
+        let materializedPrerequisite: PipelineVideoProjectDeliveryPrerequisiteV1;
+        try {
+          materializedPrerequisite = materializePipelineVideoProjectDeliveryPrerequisiteV1(
+            prerequisite,
+            existing,
+          );
+        } catch (error) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video invalidation admission does not match its prerequisite: "
+              + (error instanceof Error ? error.message : "UNKNOWN"),
+          );
+        }
+        return {
+          disposition: "ALREADY_ADMITTED",
+          admission: structuredClone(existing),
+          prerequisite: materializedPrerequisite,
+          beforeRevision: structuredClone(existing.beforeRevision),
+          afterRevision: structuredClone(existing.afterRevision),
+        };
+      }
+
+      if (!sameProjectRevisionV1(prerequisite.expectedRevision, beforeRevision)) {
+        throw new ProjectMutationConflictError(
+          beforeRevision,
+          "Pipeline video invalidation admission is stale. Reload before retrying.",
+        );
+      }
+
+      assertPipelineVideoDeliveryTargetAndLocksAgainstCurrentV1(
+        projectId,
+        current,
+        {
+          expectedRevision: prerequisite.expectedRevision,
+          target: {
+            overlayId: prerequisite.target.overlayId,
+            expectedAssetId: prerequisite.target.expectedAssetId,
+          },
+          prerequisite,
+        },
+        beforeRevision,
+      );
+
+      const recoverableAdmission = findRecoverablePipelineVideoDeliveryInvalidationAdmissionV1(
+        current,
+        projectId,
+        userId,
+        prerequisite.target,
+        beforeRevision,
+      );
+      if (recoverableAdmission) {
+        return {
+          disposition: "ALREADY_PENDING",
+          admission: structuredClone(recoverableAdmission),
+          prerequisite: null,
+          // No write occurred for this retry; both values remain the current
+          // ProjectService revision rather than manufacturing a new fence.
+          beforeRevision: structuredClone(beforeRevision),
+          afterRevision: structuredClone(beforeRevision),
+        };
+      }
+
+      const admittedAt = new Date();
+      const expiresAt = new Date(
+        admittedAt.getTime() + PIPELINE_VIDEO_DELIVERY_INVALIDATION_ADMISSION_TTL_MS_V1,
+      );
+      const unsignedAdmission = {
+        required: true as const,
+        status: "ADMITTED_ARTIFACT_CHAIN_PENDING" as const,
+        admissionId,
+        projectId,
+        ownerId: userId,
+        beforeRevision: structuredClone(beforeRevision),
+        afterRevision: {
+          schemaVersion: 1 as const,
+          value: beforeRevision.value + 1,
+          compatibilityUpdatedAt: admittedAt.toISOString(),
+        },
+        target: clonePipelineVideoCanonicalValueV1(prerequisite.target),
+        affectedDerivativeClasses: ["RENDERED_PREVIEW", "DELIVERY_PROOF"] as const,
+        admittedAt: admittedAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+      };
+      const admission: PipelineVideoDeliveryInvalidationAdmissionV1 = {
+        ...unsignedAdmission,
+        admissionHash: pipelineVideoDeliveryInvalidationAdmissionHashV1(unsignedAdmission),
+      };
+      assertPipelineVideoDeliveryInvalidationAdmissionV1(admission);
+      const afterRevision = admission.afterRevision;
+      const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        {
+          projectId,
+          userId,
+          "pipelineVideoDeliveryInvalidationAdmissionsV1.admissionId": { $ne: admissionId },
+          ...projectRevisionPredicate(beforeRevision),
+        },
+        {
+          $set: { updatedAt: admittedAt },
+          $push: {
+            pipelineVideoDeliveryInvalidationAdmissionsV1: {
+              $each: [admission],
+              $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+            },
+          } as never,
+          $inc: { projectRevision: 1 },
+        },
+      );
+      if (result.matchedCount === 1) {
+        if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+        this.publishMutationReceipt({
+          schemaVersion: 1,
+          projectId,
+          revision: afterRevision,
+          committedAt: admittedAt.toISOString(),
+        });
+        return {
+          disposition: "ADMITTED",
+          admission,
+          prerequisite: materializePipelineVideoProjectDeliveryPrerequisiteV1(
+            prerequisite,
+            admission,
+          ),
+          beforeRevision: structuredClone(beforeRevision),
+          afterRevision: structuredClone(afterRevision),
+        };
+      }
+
+      const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
+      current = afterConflict;
+    }
+
+    throw new ProjectMutationConflictError(
+      projectRevisionFor(current),
+      "Pipeline video invalidation admission lost the final compare-and-swap race.",
+    );
+  }
+
+  /**
    * Replace exactly one previously identified generated-video overlay through
    * ProjectService. A delivery never rebinds by a broad asset query. The
    * producer prerequisite is re-derived against the current project and must
@@ -5091,11 +5323,22 @@ export class ProjectService {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const beforeRevision = projectRevisionFor(current);
       const targetOverlay = assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
+        userId,
         projectId,
         current,
         input,
         beforeRevision,
       );
+      // The prerequisite helper has already strictly validated and matched
+      // the persisted pending admission; narrow it for this owner-level gate.
+      const admission = input.prerequisite.invalidation as
+        PipelineVideoDeliveryInvalidationAdmissionV1;
+      if (admission.status === "ADMITTED_ARTIFACT_CHAIN_PENDING") {
+        throw new ProjectPipelineVideoDeliveryConflictError(
+          beforeRevision,
+          "INVALIDATION_UNVERIFIABLE",
+        );
+      }
       const existing = findPipelineVideoDeliveryReceiptV1(current, input.deliveryId);
       if (existing) {
         if (existing.materialHash !== materialHash) {
@@ -5154,6 +5397,7 @@ export class ProjectService {
         "overlays",
         "pipelineVideoDeliveryReceipts",
         "timelineRangeChangeReceipts",
+        "pipelineVideoDeliveryInvalidationAdmissionsV1",
       ] as const;
       const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
         schemaVersion: 1,
@@ -5192,6 +5436,8 @@ export class ProjectService {
         materialHash,
         prerequisiteHash: input.prerequisite.envelopeHash,
         target: canonicalTarget,
+        invalidationAdmissionId: admission.admissionId,
+        invalidationAdmissionHash: admission.admissionHash,
         replacementAssetId: canonicalReplacement.assetId,
         requestedRevision: structuredClone(input.expectedRevision),
         beforeRevision,
@@ -5219,6 +5465,14 @@ export class ProjectService {
             },
           },
           "pipelineVideoDeliveryReceipts.deliveryId": { $ne: input.deliveryId },
+          "pipelineVideoDeliveryInvalidationAdmissionsV1": {
+            $elemMatch: {
+              admissionId: admission.admissionId,
+              admissionHash: admission.admissionHash,
+              status: "ADMITTED_ARTIFACT_CHAIN_PENDING",
+              ownerId: userId,
+            },
+          },
           ...projectRevisionPredicate(beforeRevision),
         },
         {
@@ -5234,6 +5488,11 @@ export class ProjectService {
             timelineRangeChangeReceipts: {
               $each: [timelineChangeReceipt],
               $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+            },
+          } as never,
+          $pull: {
+            pipelineVideoDeliveryInvalidationAdmissionsV1: {
+              admissionId: admission.admissionId,
             },
           } as never,
           $inc: { projectRevision: 1 },
@@ -6952,10 +7211,15 @@ function pipelineAudioDeliveryChangedPathsV1(
   return paths;
 }
 
-function assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
+type PipelineVideoDeliveryTargetValidationInputV1 = Pick<
+  ProjectPipelineVideoDeliveryCommandV1,
+  "expectedRevision" | "target" | "prerequisite"
+>;
+
+function assertPipelineVideoDeliveryTargetAndLocksAgainstCurrentV1(
   projectId: string,
   current: Project,
-  input: ProjectPipelineVideoDeliveryCommandV1,
+  input: PipelineVideoDeliveryTargetValidationInputV1,
   currentRevision: ProjectRevisionV1,
 ): Overlay {
   const prerequisite = input.prerequisite;
@@ -7002,6 +7266,13 @@ function assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
   if (!sameTimelineFrameRangeV1(beforeFrameRange, expectedFrameRange)) {
     throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "TARGET_RANGE_CHANGED");
   }
+  if (
+    Number.isSafeInteger(current.durationInFrames)
+    && current.durationInFrames > 0
+    && beforeFrameRange.endFrame > current.durationInFrames
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "TARGET_RANGE_CHANGED");
+  }
 
   const targetFingerprint = pipelineVideoDeliveryTargetFingerprintV1(targetOverlay);
   if (
@@ -7031,14 +7302,95 @@ function assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
     );
   }
 
-  // Timeline receipts only record that invalidation is unmaterialized. The
-  // current Project schema has no durable owner for a target-and-revision-
-  // bound MATERIALIZED admission, so a producer-declared status is not proof.
-  // Fail closed until that real owner can be consumed here.
-  throw new ProjectPipelineVideoDeliveryConflictError(
+  return targetOverlay;
+}
+
+function assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
+  userId: string,
+  projectId: string,
+  current: Project,
+  input: ProjectPipelineVideoDeliveryCommandV1,
+  currentRevision: ProjectRevisionV1,
+): Overlay {
+  const targetOverlay = assertPipelineVideoDeliveryTargetAndLocksAgainstCurrentV1(
+    projectId,
+    current,
+    input,
     currentRevision,
-    "INVALIDATION_UNVERIFIABLE",
   );
+  const invalidation = input.prerequisite.invalidation;
+  if (invalidation.status !== "ADMITTED_ARTIFACT_CHAIN_PENDING") {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "INVALIDATION_UNVERIFIABLE",
+    );
+  }
+  try {
+    assertPipelineVideoDeliveryInvalidationAdmissionV1(invalidation);
+  } catch {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "INVALIDATION_UNVERIFIABLE",
+    );
+  }
+  const expectedAdmissionId = `pipeline-video-invalidation_${pipelineVideoDeliveryInvalidationAdmissionKeyV1({
+    projectId,
+    ownerId: userId,
+    expectedRevision: invalidation.beforeRevision,
+    target: invalidation.target,
+  })}`;
+  const admissionTargetMatches = samePipelineVideoDeliveryAdmissionTargetV1(
+    invalidation.target,
+    input.prerequisite.target,
+  );
+  if (
+    invalidation.projectId !== projectId
+    || invalidation.ownerId !== userId
+    || invalidation.admissionId !== expectedAdmissionId
+    || !sameProjectRevisionV1(invalidation.afterRevision, currentRevision)
+    || !admissionTargetMatches
+    || Date.now() >= new Date(invalidation.expiresAt).getTime()
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "INVALIDATION_UNVERIFIABLE",
+    );
+  }
+  const persistedAdmission = findPipelineVideoDeliveryInvalidationAdmissionV1(
+    current,
+    invalidation.admissionId,
+  );
+  if (
+    !persistedAdmission
+    || persistedAdmission.admissionHash !== invalidation.admissionHash
+    || persistedAdmission.ownerId !== userId
+    || !sameProjectRevisionV1(persistedAdmission.afterRevision, currentRevision)
+    || !samePipelineVideoDeliveryAdmissionTargetV1(
+      persistedAdmission.target,
+      input.prerequisite.target,
+    )
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "INVALIDATION_UNVERIFIABLE",
+    );
+  }
+
+  // This helper proves only the owner/revision/target admission. The mutation
+  // owner applies the pending-admission rejection after this validation and
+  // before any receipt lookup, replacement construction, or CAS write.
+  return targetOverlay;
+}
+
+function samePipelineVideoDeliveryAdmissionTargetV1(
+  left: PipelineVideoDeliveryInvalidationAdmissionV1["target"],
+  right: PipelineVideoProjectDeliveryPrerequisiteV1["target"],
+): boolean {
+  return left.overlayId === right.overlayId
+    && left.expectedAssetId === right.expectedAssetId
+    && left.exactFrameRange.startFrame === right.exactFrameRange.startFrame
+    && left.exactFrameRange.endFrame === right.exactFrameRange.endFrame
+    && left.targetFingerprint === right.targetFingerprint;
 }
 
 function assertProjectPipelineVideoDeliveryCommandV1(
@@ -7259,6 +7611,67 @@ function findPipelineVideoDeliveryReceiptV1(
   const matching = receipts.filter((receipt) => receipt?.deliveryId === deliveryId);
   if (matching.length > 1) {
     throw new ProjectMutationWriteError("Pipeline video delivery identity is not unique.");
+  }
+  return matching[0] ?? null;
+}
+
+function listPipelineVideoDeliveryInvalidationAdmissionsV1(
+  project: Pick<Project, "pipelineVideoDeliveryInvalidationAdmissionsV1">,
+): PipelineVideoDeliveryInvalidationAdmissionV1[] {
+  const admissions = project.pipelineVideoDeliveryInvalidationAdmissionsV1;
+  if (admissions === undefined) return [];
+  if (!Array.isArray(admissions)) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video invalidation admission history is invalid.",
+    );
+  }
+  return admissions.map((admission) => {
+    try {
+      assertPipelineVideoDeliveryInvalidationAdmissionV1(admission);
+    } catch {
+      throw new ProjectMutationWriteError(
+        "Pipeline video invalidation admission history is invalid.",
+      );
+    }
+    return admission;
+  });
+}
+
+function findPipelineVideoDeliveryInvalidationAdmissionV1(
+  project: Pick<Project, "pipelineVideoDeliveryInvalidationAdmissionsV1">,
+  admissionId: string,
+): PipelineVideoDeliveryInvalidationAdmissionV1 | null {
+  const matching = listPipelineVideoDeliveryInvalidationAdmissionsV1(project)
+    .filter((admission) => admission.admissionId === admissionId);
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video invalidation admission identity is not unique.",
+    );
+  }
+  return matching[0] ?? null;
+}
+
+function findRecoverablePipelineVideoDeliveryInvalidationAdmissionV1(
+  project: Pick<Project, "pipelineVideoDeliveryInvalidationAdmissionsV1">,
+  projectId: string,
+  ownerId: string,
+  target: PipelineVideoProjectDeliveryPrerequisiteV1["target"],
+  currentRevision: ProjectRevisionV1,
+): PipelineVideoDeliveryInvalidationAdmissionV1 | null {
+  const now = Date.now();
+  const matching = listPipelineVideoDeliveryInvalidationAdmissionsV1(project)
+    .filter((admission) => (
+      admission.status === "ADMITTED_ARTIFACT_CHAIN_PENDING"
+      && admission.projectId === projectId
+      && admission.ownerId === ownerId
+      && sameProjectRevisionV1(admission.afterRevision, currentRevision)
+      && now < new Date(admission.expiresAt).getTime()
+      && samePipelineVideoDeliveryAdmissionTargetV1(admission.target, target)
+    ));
+  if (matching.length > 1) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video invalidation admission identity is not unique.",
+    );
   }
   return matching[0] ?? null;
 }

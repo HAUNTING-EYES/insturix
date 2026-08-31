@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPipelineVideoProjectDeliveryPrerequisiteV1,
+  materializePipelineVideoProjectDeliveryPrerequisiteV1,
+  pipelineVideoDeliveryInvalidationAdmissionHashV1,
+  pipelineVideoDeliveryInvalidationAdmissionKeyV1,
   pipelineVideoDeliveryTargetFingerprintV1,
   pipelineVideoProjectDeliveryPrerequisiteHashV1,
 } from "@/lib/editron/services/pipeline-video-project-delivery-v1";
@@ -165,6 +168,54 @@ function videoCommand(
   } as any;
 }
 
+function pendingAdmissionPrerequisite(
+  project: ReturnType<typeof projectFixture>,
+  ownerId = USER_ID,
+) {
+  const prerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+    projectId: PROJECT_ID,
+    expectedRevision: revisionFor(project),
+    overlay: project.overlays[0] as any,
+  });
+  const beforeRevision = revisionFor(project);
+  const admittedAt = new Date("2026-08-25T00:00:10.000Z");
+  const afterRevision = {
+    schemaVersion: 1 as const,
+    value: beforeRevision.value + 1,
+    compatibilityUpdatedAt: admittedAt.toISOString(),
+  };
+  const admissionId = `pipeline-video-invalidation_${pipelineVideoDeliveryInvalidationAdmissionKeyV1({
+    projectId: PROJECT_ID,
+    ownerId,
+    expectedRevision: beforeRevision,
+    target: prerequisite.target,
+  })}`;
+  const unsignedAdmission = {
+    required: true as const,
+    status: "ADMITTED_ARTIFACT_CHAIN_PENDING" as const,
+    admissionId,
+    projectId: PROJECT_ID,
+    ownerId,
+    beforeRevision,
+    afterRevision,
+    target: prerequisite.target,
+    affectedDerivativeClasses: ["RENDERED_PREVIEW", "DELIVERY_PROOF"] as const,
+    admittedAt: admittedAt.toISOString(),
+    expiresAt: new Date(admittedAt.getTime() + 15 * 60 * 1000).toISOString(),
+  };
+  const admission = {
+    ...unsignedAdmission,
+    admissionHash: pipelineVideoDeliveryInvalidationAdmissionHashV1(unsignedAdmission),
+  };
+  return {
+    admission,
+    prerequisite: materializePipelineVideoProjectDeliveryPrerequisiteV1(
+      prerequisite,
+      admission,
+    ),
+  };
+}
+
 function qualityWarningCommand(
   project: ReturnType<typeof projectFixture>,
   overrides: Record<string, unknown> = {},
@@ -203,6 +254,173 @@ describe("ProjectService pipeline video delivery V1", () => {
       reason: "INVALIDATION_UNVERIFIABLE",
     });
     expect(persistenceMocks.findOne).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("persists, reloads, and safely replays a pending admission while delivery stays blocked", async () => {
+    const project = projectFixture();
+    const prerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+      projectId: PROJECT_ID,
+      expectedRevision: revisionFor(project),
+      overlay: project.overlays[0] as any,
+    });
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const admissionResult = await projectService.admitPipelineVideoDeliveryInvalidationV1(
+      USER_ID,
+      PROJECT_ID,
+      prerequisite,
+    );
+    expect(admissionResult.disposition).toBe("ADMITTED");
+    expect(admissionResult.afterRevision.value).toBe(8);
+    expect(admissionResult.admission).toMatchObject({
+      required: true,
+      status: "ADMITTED_ARTIFACT_CHAIN_PENDING",
+      projectId: PROJECT_ID,
+      ownerId: USER_ID,
+      beforeRevision: { value: 7 },
+      afterRevision: { value: 8 },
+      target: {
+        overlayId: 10,
+        expectedAssetId: "video-old",
+        exactFrameRange: { startFrame: 30, endFrame: 180 },
+      },
+      affectedDerivativeClasses: ["RENDERED_PREVIEW", "DELIVERY_PROOF"],
+    });
+    const admissionWrite = persistenceMocks.updateOne.mock.calls[0] as [
+      Record<string, any>,
+      Record<string, any>,
+    ];
+    expect(admissionWrite[0]).toMatchObject({
+      projectId: PROJECT_ID,
+      userId: USER_ID,
+      projectRevision: 7,
+      "pipelineVideoDeliveryInvalidationAdmissionsV1.admissionId": {
+        $ne: admissionResult.admission.admissionId,
+      },
+    });
+    expect(admissionWrite[1].$push.pipelineVideoDeliveryInvalidationAdmissionsV1.$each)
+      .toEqual([admissionResult.admission]);
+
+    const admittedProject = {
+      ...project,
+      projectRevision: admissionResult.afterRevision.value,
+      updatedAt: new Date(admissionResult.afterRevision.compatibilityUpdatedAt),
+      pipelineVideoDeliveryInvalidationAdmissionsV1: [admissionResult.admission],
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    await expect(projectService.loadProjectForMutation(USER_ID, PROJECT_ID))
+      .resolves.toMatchObject({
+        revision: admissionResult.afterRevision,
+        project: {
+          pipelineVideoDeliveryInvalidationAdmissionsV1: [admissionResult.admission],
+        },
+      });
+
+    // A retry recovers the same durable admission without advancing revision.
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    await expect(projectService.admitPipelineVideoDeliveryInvalidationV1(
+      USER_ID,
+      PROJECT_ID,
+      prerequisite,
+    )).resolves.toMatchObject({
+      disposition: "ALREADY_ADMITTED",
+      admission: admissionResult.admission,
+      prerequisite: {
+        expectedRevision: admissionResult.afterRevision,
+        invalidation: { status: "ADMITTED_ARTIFACT_CHAIN_PENDING" },
+      },
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+
+    // A fresh HTTP retry starts from the already-admitted revision. Recover
+    // the pending reservation instead of advancing the project again.
+    const freshRetryPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+      projectId: PROJECT_ID,
+      expectedRevision: admissionResult.afterRevision,
+      overlay: project.overlays[0] as any,
+    });
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    await expect(projectService.admitPipelineVideoDeliveryInvalidationV1(
+      USER_ID,
+      PROJECT_ID,
+      freshRetryPrerequisite,
+    )).resolves.toMatchObject({
+      disposition: "ALREADY_PENDING",
+      admission: admissionResult.admission,
+      prerequisite: null,
+      beforeRevision: admissionResult.afterRevision,
+      afterRevision: admissionResult.afterRevision,
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+
+    // Admission alone is not artifact invalidation; delivery must not write.
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    await expect(projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(project, {
+        expectedRevision: admissionResult.afterRevision,
+        prerequisite: admissionResult.prerequisite,
+      }),
+    )).rejects.toMatchObject({
+      code: "PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT",
+      reason: "INVALIDATION_UNVERIFIABLE",
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+    expect(admittedProject).not.toHaveProperty("pipelineVideoDeliveryReceipts");
+  });
+
+  it("rejects a valid-hash pending admission claim without the persisted ProjectService admission", async () => {
+    const project = projectFixture();
+    const forged = pendingAdmissionPrerequisite(project);
+    const admittedProject = {
+      ...project,
+      projectRevision: forged.admission.afterRevision.value,
+      updatedAt: new Date(forged.admission.afterRevision.compatibilityUpdatedAt),
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce(admittedProject);
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(project, {
+        expectedRevision: forged.admission.afterRevision,
+        prerequisite: forged.prerequisite,
+      }),
+    )).rejects.toMatchObject({
+      code: "PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT",
+      reason: "INVALIDATION_UNVERIFIABLE",
+    });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects a replay when no persisted admission remains", async () => {
+    const project = projectFixture();
+    const admitted = pendingAdmissionPrerequisite(project);
+    const projectWithoutAdmission = {
+      ...project,
+      projectRevision: admitted.admission.afterRevision.value,
+      updatedAt: new Date(admitted.admission.afterRevision.compatibilityUpdatedAt),
+      pipelineVideoDeliveryReceipts: [],
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce(projectWithoutAdmission);
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.commitPipelineVideoDeliveryV1(
+      USER_ID,
+      PROJECT_ID,
+      videoCommand(project, {
+        expectedRevision: admitted.admission.afterRevision,
+        prerequisite: admitted.prerequisite,
+      }),
+    )).rejects.toMatchObject({
+      code: "PROJECT_PIPELINE_VIDEO_DELIVERY_CONFLICT",
+      reason: "INVALIDATION_UNVERIFIABLE",
+    });
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 

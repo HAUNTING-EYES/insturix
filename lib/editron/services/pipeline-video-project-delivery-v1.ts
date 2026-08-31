@@ -14,12 +14,34 @@ export interface PipelineVideoDeliveryTimelineRangeV1 {
   endFrame: number;
 }
 
+export type PipelineVideoDeliveryInvalidationDerivativeClassV1 =
+  | 'RENDERED_PREVIEW'
+  | 'DELIVERY_PROOF';
+
+export interface PipelineVideoDeliveryInvalidationAdmissionV1 {
+  required: true;
+  /** Durable admission only; downstream artifact invalidation is still pending. */
+  status: 'ADMITTED_ARTIFACT_CHAIN_PENDING';
+  admissionId: string;
+  projectId: string;
+  /** The authenticated ProjectService owner that issued this admission. */
+  ownerId: string;
+  beforeRevision: ProjectRevisionV1;
+  afterRevision: ProjectRevisionV1;
+  target: {
+    overlayId: number;
+    expectedAssetId: string;
+    exactFrameRange: PipelineVideoDeliveryTimelineRangeV1;
+    targetFingerprint: string;
+  };
+  affectedDerivativeClasses: readonly PipelineVideoDeliveryInvalidationDerivativeClassV1[];
+  admittedAt: string;
+  expiresAt: string;
+  admissionHash: string;
+}
+
 export type PipelineVideoDeliveryInvalidationV1 =
-  | {
-      required: true;
-      status: 'MATERIALIZED';
-      evidenceHash: string;
-    }
+  | PipelineVideoDeliveryInvalidationAdmissionV1
   | {
       required: true;
       status: 'UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN';
@@ -54,6 +76,13 @@ export interface PipelineVideoProjectDeliveryPrerequisiteV1 {
   };
   invalidation: PipelineVideoDeliveryInvalidationV1;
   envelopeHash: string;
+}
+
+export interface PipelineVideoProjectDeliveryAdmissionInputV1 {
+  projectId: string;
+  ownerId: string;
+  expectedRevision: ProjectRevisionV1;
+  target: PipelineVideoProjectDeliveryPrerequisiteV1['target'];
 }
 
 /**
@@ -156,6 +185,84 @@ export function pipelineVideoDeliveryMaterialHashV1(
 }
 
 /**
+ * Stable identity for one owner-scoped admission attempt. Timestamps are not
+ * part of this key so a retried route can recover the same durable admission
+ * without issuing a second project revision.
+ */
+export function pipelineVideoDeliveryInvalidationAdmissionKeyV1(
+  input: PipelineVideoProjectDeliveryAdmissionInputV1,
+): string {
+  return hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    projectId: input.projectId,
+    ownerId: input.ownerId,
+    expectedRevision: canonicalValueOrNull(input.expectedRevision),
+    target: canonicalValueOrNull(input.target),
+  });
+}
+
+export function pipelineVideoDeliveryInvalidationAdmissionHashV1(
+  input: Omit<PipelineVideoDeliveryInvalidationAdmissionV1, 'admissionHash'>,
+): string {
+  return hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    required: input.required,
+    status: input.status,
+    admissionId: input.admissionId,
+    projectId: input.projectId,
+    ownerId: input.ownerId,
+    beforeRevision: canonicalValueOrNull(input.beforeRevision),
+    afterRevision: canonicalValueOrNull(input.afterRevision),
+    target: canonicalValueOrNull(input.target),
+    affectedDerivativeClasses: canonicalValueOrNull(input.affectedDerivativeClasses),
+    admittedAt: input.admittedAt,
+    expiresAt: input.expiresAt,
+  });
+}
+
+export function assertPipelineVideoDeliveryInvalidationAdmissionV1(
+  input: unknown,
+): asserts input is PipelineVideoDeliveryInvalidationAdmissionV1 {
+  if (!isPlainRecord(input) || !isValidInvalidation(input)
+    || input.status !== 'ADMITTED_ARTIFACT_CHAIN_PENDING') {
+    throw new Error('PIPELINE_VIDEO_DELIVERY_INVALIDATION_ADMISSION_INVALID');
+  }
+}
+
+/**
+ * Bind the producer's unmaterialized claim to the exact durable ProjectService
+ * admission and advance the prerequisite revision to its fence. The pending
+ * status is intentionally not an artifact-invalidation completion receipt.
+ */
+export function materializePipelineVideoProjectDeliveryPrerequisiteV1(
+  input: PipelineVideoProjectDeliveryPrerequisiteV1,
+  admission: PipelineVideoDeliveryInvalidationAdmissionV1,
+): PipelineVideoProjectDeliveryPrerequisiteV1 {
+  assertPipelineVideoDeliveryInvalidationAdmissionV1(admission);
+  if (
+    input.invalidation.status !== 'UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN'
+    || input.projectId !== admission.projectId
+    || !sameProjectRevisionV1(input.expectedRevision, admission.beforeRevision)
+    || input.target.overlayId !== admission.target.overlayId
+    || input.target.expectedAssetId !== admission.target.expectedAssetId
+    || input.target.exactFrameRange.startFrame !== admission.target.exactFrameRange.startFrame
+    || input.target.exactFrameRange.endFrame !== admission.target.exactFrameRange.endFrame
+    || input.target.targetFingerprint !== admission.target.targetFingerprint
+  ) {
+    throw new Error('PIPELINE_VIDEO_DELIVERY_INVALIDATION_ADMISSION_MISMATCH');
+  }
+  const unsigned = {
+    ...input,
+    expectedRevision: structuredClone(admission.afterRevision),
+    invalidation: structuredClone(admission),
+  };
+  return {
+    ...unsigned,
+    envelopeHash: pipelineVideoProjectDeliveryPrerequisiteHashV1(unsigned),
+  };
+}
+
+/**
  * Derive the stable identity and exact occupied range of the target from the
  * ProjectService snapshot. The complete persisted overlay is bound so raw
  * writer bypasses cannot change style/layout/timing without being detected.
@@ -193,11 +300,10 @@ export function pipelineVideoDeliveryExactFrameRangeV1(input: {
 }
 
 /**
- * Create the immutable prerequisite carried by each queued job. The current
- * source has no durable invalidation owner, so every new claim is explicitly
- * unmaterialized and must be rejected before credit/provider dispatch. A
- * future owner may issue the separate MATERIALIZED form; no absence of a
- * timeline receipt is interpreted as NOT_REQUIRED.
+ * Create the immutable producer prerequisite carried by a queued job. It
+ * starts unmaterialized; ProjectService must replace that claim with its
+ * target/revision-bound admission before credit/provider dispatch. No absence
+ * of a timeline receipt is interpreted as NOT_REQUIRED.
  */
 export function createPipelineVideoProjectDeliveryPrerequisiteV1(input: {
   projectId: string;
@@ -400,8 +506,68 @@ function isValidInvalidation(value: Record<string, any>): boolean {
   if (value.required === true && value.status === 'UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN') {
     return keys.every((key) => key === 'required' || key === 'status');
   }
-  return value.required === true
-    && value.status === 'MATERIALIZED'
-    && keys.every((key) => key === 'required' || key === 'status' || key === 'evidenceHash')
-    && /^[a-f0-9]{64}$/.test(String(value.evidenceHash));
+  if (
+    value.required !== true
+    || value.status !== 'ADMITTED_ARTIFACT_CHAIN_PENDING'
+    || keys.some((key) => ![
+      'required',
+      'status',
+      'admissionId',
+      'projectId',
+      'ownerId',
+      'beforeRevision',
+      'afterRevision',
+      'target',
+      'affectedDerivativeClasses',
+      'admittedAt',
+      'expiresAt',
+      'admissionHash',
+    ].includes(key))
+    || !/^pipeline-video-invalidation_[a-f0-9]{64}$/.test(String(value.admissionId))
+    || !isBoundedNonEmptyString(value.projectId, 200)
+    || value.projectId !== value.projectId.trim()
+    || !isBoundedNonEmptyString(value.ownerId, 200)
+    || value.ownerId !== value.ownerId.trim()
+    || !isProjectRevision(value.beforeRevision)
+    || !isProjectRevision(value.afterRevision)
+    || value.afterRevision.value !== value.beforeRevision.value + 1
+    || !isPlainRecord(value.target)
+    || Object.keys(value.target).some((key) => ![
+      'overlayId', 'expectedAssetId', 'exactFrameRange', 'targetFingerprint',
+    ].includes(key))
+    || !Number.isSafeInteger(value.target.overlayId)
+    || value.target.overlayId < 0
+    || !isBoundedNonEmptyString(value.target.expectedAssetId, 500)
+    || !isPlainRecord(value.target.exactFrameRange)
+    || !isExactFrameRange(value.target.exactFrameRange)
+    || !/^[a-f0-9]{64}$/.test(String(value.target.targetFingerprint))
+    || !Array.isArray(value.affectedDerivativeClasses)
+    || value.affectedDerivativeClasses.length < 1
+    || value.affectedDerivativeClasses.length > 2
+    || new Set(value.affectedDerivativeClasses).size !== value.affectedDerivativeClasses.length
+    || value.affectedDerivativeClasses.some((item: unknown) => (
+      item !== 'RENDERED_PREVIEW' && item !== 'DELIVERY_PROOF'
+    ))
+    || !isValidDateValue(value.admittedAt)
+    || !isValidDateValue(value.expiresAt)
+    || new Date(value.expiresAt).getTime() <= new Date(value.admittedAt).getTime()
+    || !/^[a-f0-9]{64}$/.test(String(value.admissionHash))
+  ) {
+    return false;
+  }
+  const { admissionHash, ...unsigned } = value as unknown as PipelineVideoDeliveryInvalidationAdmissionV1;
+  return pipelineVideoDeliveryInvalidationAdmissionHashV1(unsigned) === admissionHash;
+}
+
+function isValidDateValue(value: unknown): value is string {
+  return typeof value === 'string' && !Number.isNaN(new Date(value).getTime());
+}
+
+function sameProjectRevisionV1(
+  left: ProjectRevisionV1,
+  right: ProjectRevisionV1,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
 }

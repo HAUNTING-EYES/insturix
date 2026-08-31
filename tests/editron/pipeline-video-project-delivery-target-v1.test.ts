@@ -61,6 +61,16 @@ describe('pipeline video project delivery target V1', () => {
     const worker = readFileSync('app/api/internal/workers/pipeline/video/route.ts', 'utf8');
 
     expect(producer).toContain('resolvePipelineVideoProjectDeliveryTargetV1');
+    expect(producer).toContain('admitPipelineVideoDeliveryInvalidationV1');
+    expect(producer).toContain('ALREADY_PENDING');
+    expect(producer).toContain('ADMITTED_ARTIFACT_CHAIN_PENDING');
+    expect(producer).toContain('PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE');
+    expect(producer).toContain('linkedProjectTargetCount !== 1');
+    expect(producer).toContain('PROJECT_DELIVERY_MULTIPLE_LINKED_TARGETS_UNSUPPORTED');
+    expect(producer.indexOf('admitPipelineVideoDeliveryInvalidationV1'))
+      .toBeLessThan(producer.indexOf("CreditsService.hasCredits"));
+    expect(producer.indexOf('ADMITTED_ARTIFACT_CHAIN_PENDING'))
+      .toBeLessThan(producer.indexOf("CreditsService.hasCredits"));
     expect(producer).toContain('projectDelivery: projectDeliveryForScene(scene)');
     expect(worker).toContain('commitPipelineVideoDeliveryV1');
     expect(worker).toContain("status: 'CONFLICT'");
