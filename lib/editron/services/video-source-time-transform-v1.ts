@@ -207,7 +207,7 @@ type VideoSourceTimestampConformFromIndexResultV2 = Readonly<
   | Extract<MediaSourcePtsCadencePresentationWindowResultV2, { disposition: 'UNVERIFIABLE' }>
 >;
 
-type VerifiedVideoSourceEpochTimeBindingV3 = Readonly<{
+export type VerifiedVideoSourceEpochTimeBindingV3 = Readonly<{
   schemaVersion: 3;
   kind: typeof VIDEO_SOURCE_EPOCH_TIME_BINDING_KIND_V3;
   assetId: string;
@@ -408,7 +408,31 @@ export function classifyVerifiedVideoSourceRateCompatibilityV1(
   projectFps: number,
 ): VerifiedVideoSourceRateCompatibilityV1 {
   const sourceBinding = assertBinding(binding);
-  if (sourceBinding.sourceCadence.kind === 'VFR') {
+  return classifyVerifiedRateCompatibility(
+    sourceBinding.sourceTimebase,
+    sourceBinding.sourceCadence,
+    projectFps,
+  );
+}
+
+export function classifyVerifiedVideoSourceEpochRateCompatibilityV3(
+  binding: VerifiedVideoSourceEpochTimeBindingV3,
+  projectFps: number,
+): VerifiedVideoSourceRateCompatibilityV1 {
+  const sourceBinding = assertVerifiedVideoSourceEpochTimeBindingV3(binding);
+  return classifyVerifiedRateCompatibility(
+    sourceBinding.sourceTimebase,
+    sourceBinding.sourceCadence,
+    projectFps,
+  );
+}
+
+function classifyVerifiedRateCompatibility(
+  sourceTimebase: Readonly<{ numerator: string; denominator: string }>,
+  sourceCadence: Readonly<{ kind: 'CFR'; durationTicks: string } | { kind: 'VFR' }>,
+  projectFps: number,
+): VerifiedVideoSourceRateCompatibilityV1 {
+  if (sourceCadence.kind === 'VFR') {
     return frozen({ disposition: 'UNSUPPORTED' as const, reason: 'VFR_INDEX_REQUIRED' as const });
   }
   if (!Number.isSafeInteger(projectFps) || projectFps <= 0) {
@@ -421,9 +445,9 @@ export function classifyVerifiedVideoSourceRateCompatibilityV1(
     if (!/^[1-9][0-9]*$/.test(value)) return null;
     return BigInt(value);
   };
-  const timebaseNumerator = positive(sourceBinding.sourceTimebase.numerator);
-  const timebaseDenominator = positive(sourceBinding.sourceTimebase.denominator);
-  const frameDurationTicks = positive(sourceBinding.sourceCadence.durationTicks);
+  const timebaseNumerator = positive(sourceTimebase.numerator);
+  const timebaseDenominator = positive(sourceTimebase.denominator);
+  const frameDurationTicks = positive(sourceCadence.durationTicks);
   if (!timebaseNumerator || !timebaseDenominator || !frameDurationTicks) {
     throw new Error('VIDEO_SOURCE_TIME_BINDING_INVALID');
   }
