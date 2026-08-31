@@ -250,6 +250,17 @@ function exactTimestampResult(job: ChatDeepAnalysisJob) {
     frameMap: samplePlan.samples.map((sample) => ({
       sampleIndex: sample.sampleIndex,
       timelineFrame: sample.timelineFrame,
+      decoderPictureRequestSha256: fixtureSha256(sample.sampleIndex + 1),
+      sourceFrameOrdinal: String(sample.sampleIndex + 10),
+      epochId: 'epoch-a',
+      presentationTimestampTicks: String(sample.sampleIndex + 1000),
+      selection: 'COVERING_PRESENTATION' as const,
+      pictureHandle: `nmpv1_${fixtureSha256(sample.sampleIndex + 4)}`,
+      decodedPictureContentSha256: fixtureSha256(sample.sampleIndex + 7),
+      pngContentSha256: fixtureSha256(sample.sampleIndex + 10),
+      pngByteLength: 128,
+      width: 1920,
+      height: 1080,
     })),
     observations: [
       {
@@ -278,8 +289,10 @@ function exactTimestampResult(job: ChatDeepAnalysisJob) {
         coordinateDisposition: 'NO_RANGE_COORDINATE' as const,
       },
     ],
-    receiptSha256: '7'.repeat(64),
+    receiptSha256: '',
   };
+  const { receiptSha256: _receiptSha256, ...receiptMaterial } = analysisReceipt;
+  analysisReceipt.receiptSha256 = hashEditronCanonicalJsonV1(receiptMaterial);
   const material = {
     schemaVersion: 1 as const,
     kind: 'EDITRON_NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_V1' as const,
@@ -296,6 +309,10 @@ function exactTimestampResult(job: ChatDeepAnalysisJob) {
     analysisReceipt,
     materializationSha256: hashEditronCanonicalJsonV1(material),
   };
+}
+
+function fixtureSha256(value: number): string {
+  return value.toString(16).padStart(64, '0');
 }
 
 describe('durable chat deep-analysis contracts', () => {
@@ -703,7 +720,7 @@ describe('durable chat deep-analysis contracts', () => {
         ...exact,
         materializationSha256: '0'.repeat(64),
       })),
-    })).rejects.toThrow('CHAT_DEEP_ANALYSIS_EXACT_RESULT_HASH_MISMATCH');
+    })).rejects.toThrow('NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_HASH_MISMATCH');
     expect(providerMocks.sampleVideoClip).not.toHaveBeenCalled();
     expect(providerMocks.sendVideoToGemini).not.toHaveBeenCalled();
   });

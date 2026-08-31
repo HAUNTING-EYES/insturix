@@ -15,14 +15,13 @@ import {
   type NativeMediaTimestampPreviewClassificationLeaseV1,
 } from '@/components/editron/editor/version-7.0.0/remotion/native-media-timestamp-preview-session-contract-v1';
 
-import { hashEditronCanonicalJsonV1 } from './canonical-json-v1';
+import type { NativeMediaTimestampAnalysisReceiptV1 }
+  from './native-media-timestamp-analysis-consumer-v1';
 import {
-  NATIVE_MEDIA_TIMESTAMP_ANALYSIS_RECEIPT_KIND_V1,
-  type NativeMediaTimestampAnalysisReceiptV1,
-} from './native-media-timestamp-analysis-consumer-v1';
+  assertNativeMediaTimestampAnalysisMaterializationV1,
+  type NativeMediaTimestampAnalysisMaterializationV1,
+} from './native-media-timestamp-analysis-materialization-v1';
 import { analysisSameRevision } from './native-media-timestamp-analysis-validation-v1';
-import { NATIVE_MEDIA_TIMESTAMP_ANALYSIS_SAMPLE_PLAN_KIND_V1 } from './native-media-timestamp-analysis-sample-plan-v1';
-import { NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1 } from './native-media-timestamp-preview-materializer-v1';
 import { assertProjectVideoSourceVersionPinV1 } from './project-video-source-version-pin-v1';
 import type { ProjectRevisionV1 } from './project-service';
 
@@ -403,7 +402,14 @@ export async function executeChatDeepAnalysisProvider(
     return exactTimestampVideoResult(
       job,
       snapshot.revision,
-      assertExactTimestampMaterialization(timestampResult, job, snapshot.revision),
+      assertNativeMediaTimestampAnalysisMaterializationV1(timestampResult, {
+        projectId: job.projectId,
+        sequenceId: 'main',
+        overlayId: job.target.overlayId,
+        projectRevision: snapshot.revision,
+        timelineStartFrame: String(job.target.timeline.startFrame),
+        timelineEndExclusiveFrame: String(job.target.timeline.endFrame),
+      }),
     );
   }
   if (disposition !== 'NOT_APPLICABLE') {
@@ -599,84 +605,10 @@ function assertOrdinaryTimestampClassification(
   return lease;
 }
 
-type ExactTimestampMaterializationV1 = Readonly<{
-  samplePlan: Record<string, unknown>;
-  analysisReceipt: NativeMediaTimestampAnalysisReceiptV1;
-  samplePlanSha256: string;
-  analysisReceiptSha256: string;
-  sourcePtsCadenceMapStateSha256V3: string;
-  transformSha256: string;
-  materializedPictureCount: number;
-  materializationSha256: string;
-}>;
-
-function assertExactTimestampMaterialization(
-  value: unknown,
-  job: ChatDeepAnalysisJob,
-  revision: ProjectRevisionV1,
-): ExactTimestampMaterializationV1 {
-  const record = objectRecord(value, 'CHAT_DEEP_ANALYSIS_EXACT_RESULT_INVALID');
-  const samplePlan = objectRecord(record.samplePlan, 'CHAT_DEEP_ANALYSIS_EXACT_PLAN_INVALID');
-  const receipt = objectRecord(record.analysisReceipt, 'CHAT_DEEP_ANALYSIS_EXACT_RECEIPT_INVALID');
-  const samplePlanSha256 = sha256(record.samplePlanSha256);
-  const analysisReceiptSha256 = sha256(record.analysisReceiptSha256);
-  const sourcePtsCadenceMapStateSha256V3 = sha256(
-    record.sourcePtsCadenceMapStateSha256V3,
-  );
-  const transformSha256 = sha256(record.transformSha256);
-  const materializedPictureCount = positiveSafeInteger(
-    record.materializedPictureCount,
-    'materialized picture count',
-  );
-  if (record.schemaVersion !== 1
-    || record.kind !== NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1
-    || samplePlan.kind !== NATIVE_MEDIA_TIMESTAMP_ANALYSIS_SAMPLE_PLAN_KIND_V1
-    || samplePlan.samplePlanSha256 !== samplePlanSha256
-    || samplePlan.timelineStartFrame !== String(job.target.timeline.startFrame)
-    || samplePlan.timelineEndExclusiveFrame !== String(job.target.timeline.endFrame)
-    || !Array.isArray(samplePlan.samples)
-    || samplePlan.samples.length !== materializedPictureCount
-    || receipt.kind !== NATIVE_MEDIA_TIMESTAMP_ANALYSIS_RECEIPT_KIND_V1
-    || receipt.projectId !== job.projectId
-    || receipt.sequenceId !== 'main'
-    || receipt.overlayId !== job.target.overlayId
-    || receipt.transformSha256 !== transformSha256
-    || receipt.receiptSha256 !== analysisReceiptSha256
-    || !analysisSameRevision(receipt.projectRevision as ProjectRevisionV1, revision)
-    || !Array.isArray(receipt.frameMap)
-    || receipt.frameMap.length !== materializedPictureCount
-    || !Array.isArray(receipt.observations)) {
-    throw new Error('CHAT_DEEP_ANALYSIS_EXACT_RESULT_SCOPE_MISMATCH');
-  }
-  const materializationSha256 = sha256(record.materializationSha256);
-  const material = {
-    schemaVersion: 1,
-    kind: NATIVE_MEDIA_TIMESTAMP_ANALYSIS_MATERIALIZATION_KIND_V1,
-    samplePlanSha256,
-    analysisReceiptSha256,
-    sourcePtsCadenceMapStateSha256V3,
-    transformSha256,
-    materializedPictureCount,
-  };
-  if (materializationSha256 !== hashEditronCanonicalJsonV1(material)) {
-    throw new Error('CHAT_DEEP_ANALYSIS_EXACT_RESULT_HASH_MISMATCH');
-  }
-  return Object.freeze({
-    samplePlan,
-    analysisReceipt: receipt as unknown as NativeMediaTimestampAnalysisReceiptV1,
-    samplePlanSha256,
-    analysisReceiptSha256,
-    sourcePtsCadenceMapStateSha256V3,
-    transformSha256,
-    materializedPictureCount,
-    materializationSha256,
-  });
-}
-
 function exactTimestampVideoResult(
   job: ChatDeepAnalysisJob,
   revision: ProjectRevisionV1,
-  materialization: ExactTimestampMaterializationV1,
+  materialization: NativeMediaTimestampAnalysisMaterializationV1,
 ): Record<string, unknown> {
   return {
     modality: 'video',
