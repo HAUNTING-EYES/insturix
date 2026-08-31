@@ -14281,15 +14281,18 @@ product-scope reduction.
 #### One dependency-ordered roadmap
 
 1. **Reconcile current truth and establish the visible QA spine.** Issue CAP-2
-   V11 without rewriting V10, then implement QA Q0/Q1 around one real visible
-   agency edit. This provides the current owner inventory and evidence bundle
-   into which every following slice must connect.
+   V11 without rewriting V10, implement QA Q0/Q1 around one real visible agency
+   edit, and finish the already-open exact selected-source/five-track consumer
+   connection from Queue item 3. These three disjoint tasks may proceed in
+   parallel and merge in the same visible evidence bundle; every following
+   slice must connect to that bundle.
 2. **Finish Stage 1 and Stage 1.5 safety required by the active journey.** Close
    Queue item 5's universal mutation envelope across authoritative writers:
    evidence, project/source revision, ranges, locks, rights, predecessors,
    invalidations, receipts, truthful proof state, conflicts, safe rebase,
    undo/replay and reload. No direct writer may bypass ProjectService.
-3. **Finish the Stage 2 media chain.** Complete Queue items 3 then 4 through
+3. **Finish the Stage 2 media chain.** Complete the remainder of Queue item 3,
+   then Queue item 4, through
    authenticated product consumers: timestamp-driven ingest, preview,
    transcription/analysis and final render; ordinary mixed-CFR/VFR/epoch
    conform; private PTS; per-project proxy pins; exact proxy/master relink;
