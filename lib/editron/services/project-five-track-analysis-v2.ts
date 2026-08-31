@@ -52,10 +52,6 @@ import type {
   SourceMediaRightsLedgerReaderV1,
   SourceMediaRightsLedgerStorePortsV1,
 } from './source-media-rights-ledger-v1';
-import {
-  assertMediaSourceVersionV1,
-  type MediaSourceVersionV1,
-} from './media-source-version-v1';
 
 const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
   'EDITRON_PROJECT_FIVE_TRACK_ANALYSIS_V2' as const;
@@ -78,7 +74,6 @@ type ProjectFiveTrackAnalysisBlockReasonV2 =
   | `SELECTED_SOURCE_TIME_${SelectedSourceTimeBlockReasonV1}`
   | 'SELECTED_SOURCE_URL_UNAVAILABLE'
   | 'SOURCE_FRAME_COUNT_INVALID'
-  | 'SELECTED_SOURCE_RIGHTS_SOURCE_REQUIRED'
   | `SELECTED_SOURCE_RIGHTS_${string}`
   | 'TIMESTAMP_ANALYSIS_PROJECT_REVISION_REQUIRED'
   | 'TIMESTAMP_ANALYSIS_PORT_REQUIRED'
@@ -478,17 +473,7 @@ async function prepareOverlay(input: Readonly<{
   if (selected.disposition === 'UNVERIFIABLE') {
     return { reason: `SELECTED_SOURCE_TIME_${selected.reason}` };
   }
-  const sourceVersionCandidates = Object.freeze([
-    asset.sourceVersionV1,
-    asset.proxySourceVersionV1,
-  ]);
-  const sourceVersion = exactSelectedSourceVersion(
-    selected,
-    sourceVersionCandidates,
-  );
-  if (sourceVersion === null) {
-    return { reason: 'SELECTED_SOURCE_RIGHTS_SOURCE_REQUIRED' };
-  }
+  const sourceVersion = selected.sourceVersion;
   const rightsScope = projectRightsScope(input.project, input.userId);
   let sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
   if (input.authorizeCurrentSourceRights || input.mode === 'CACHE_ONLY') {
@@ -545,7 +530,7 @@ async function prepareOverlay(input: Readonly<{
       kind: 'PROJECT_TIMESTAMP' as const,
       overlay: input.overlay,
       selectedSource: selected,
-      sourceVersionCandidates,
+      sourceVersionCandidates: Object.freeze([sourceVersion]),
       sourceMediaRightsAuthorization,
     });
   }
@@ -577,31 +562,6 @@ async function prepareOverlay(input: Readonly<{
     options: Object.freeze({ ...baseOptions, sourceBindingV2: sourceBinding }),
     sourceMediaRightsAuthorization,
   });
-}
-
-function exactSelectedSourceVersion(
-  selected: Extract<
-    ProjectSelectedVideoSourceTimeBindingResultV1,
-    Readonly<{ disposition: 'RESOLVED' }>
-  >,
-  candidates: readonly unknown[],
-): Readonly<MediaSourceVersionV1> | null {
-  const matches: MediaSourceVersionV1[] = [];
-  for (const candidate of candidates) {
-    try {
-      const source = assertMediaSourceVersionV1(candidate);
-      if (source.assetId === selected.binding.assetId
-        && source.sourceVersionSha256
-          === selected.binding.sourceVersionSha256
-        && source.storageVersion.storageVersionSha256
-          === selected.binding.storageVersionSha256) {
-        matches.push(source);
-      }
-    } catch {
-      // A malformed unrelated candidate cannot authorize the selected source.
-    }
-  }
-  return matches.length === 1 ? matches[0]! : null;
 }
 
 function projectRightsScope(project: Project, userId: string) {
