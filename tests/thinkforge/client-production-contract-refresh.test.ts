@@ -83,9 +83,36 @@ describe('production-contract refresh client', () => {
     expect(productionContractRefreshStageLabel(null)).toBe('Starting refresh');
     expect(productionContractRefreshStageLabel({
       id: 'contractrefresh_abc',
+      status: 'queued',
+      stage: 'treatment',
+      error: null,
+    })).toBe('Queued for production refresh');
+    expect(productionContractRefreshStageLabel({
+      id: 'contractrefresh_abc',
       status: 'running',
       stage: 'sidecar',
       error: null,
     })).toBe('Refreshing production metadata');
+  });
+
+  it('removes settled polling abort listeners', async () => {
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({
+        job: { id: 'contractrefresh_abc', status: 'queued', stage: 'treatment', error: null },
+      }, 202))
+      .mockResolvedValueOnce(response({
+        job: { id: 'contractrefresh_abc', status: 'completed', stage: 'committing', error: null },
+        script: { scriptId: 'default', version: 3, content: 'unchanged' },
+      }));
+
+    await refreshProductionContractClient({
+      sessionId: 'session_1',
+      scriptId: 'default',
+      baseVersion: 2,
+    }, { fetcher, pollIntervalMs: 1, signal: controller.signal });
+
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });

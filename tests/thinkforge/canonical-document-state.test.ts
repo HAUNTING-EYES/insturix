@@ -54,6 +54,28 @@ describe('canonical ThinkForge document state', () => {
     expect(serializeThinkForgeBlocksToMarkdown(state.blocks)).toBe(state.content);
   });
 
+  it('accepts canonical prose after a scene without reparsing it through the lossy markdown importer', () => {
+    const scene: ThinkForgeBlock = {
+      id: 'block_scene',
+      kind: 'scene',
+      content: [{ type: 'text', text: 'Deliver the core claim.', styles: {} }],
+      scene: { visualDescription: 'Show the proof.', subjects: [] },
+    };
+    const closing: ThinkForgeBlock = {
+      id: 'block_closing',
+      kind: 'paragraph',
+      content: [{ type: 'text', text: 'Exact manually edited closing.', styles: {} }],
+    };
+    const blocks = [scene, closing];
+    const richText = thinkForgeBlocksToTiptapJSON(blocks);
+    const content = serializeThinkForgeBlocksToMarkdown(blocks);
+
+    const state = normalizeCanonicalThinkForgeDocumentState({ richText, blocks, content });
+
+    expect(state.content).toBe(content);
+    expect(state.content).toContain('Exact manually edited closing.');
+  });
+
   it('round-trips every scene slot used by production guidance', () => {
     const scene: ThinkForgeBlock = {
       id: 'block_scene',

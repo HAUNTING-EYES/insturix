@@ -72,6 +72,7 @@ export function productionContractRefreshStageLabel(
   job: ProductionContractRefreshClientJob | null,
 ): string {
   if (!job) return 'Starting refresh';
+  if (job.status === 'queued') return 'Queued for production refresh';
   if (job.stage === 'treatment') return 'Planning treatment';
   if (job.stage === 'sidecar') return 'Refreshing production metadata';
   return 'Saving production plan';
@@ -125,9 +126,14 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
     const abort = () => {
       clearTimeout(timer);
+      cleanup();
       reject(signal?.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'));
     };
     signal?.addEventListener('abort', abort, { once: true });
