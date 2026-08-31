@@ -20,6 +20,10 @@ import type {
 } from './media-source-version-evidence-owner-v1';
 import type { MediaSourceAudioPrivateArtifactReaderV1 }
   from './media-source-audio-private-artifact-port-v1';
+import type { MediaSourceAudioPrivateArtifactStoreV1 }
+  from './media-source-audio-r2-private-artifact-v1';
+import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 }
+  from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import {
   resolveProjectSelectedSourceAudioEvidenceV1,
   type ProjectSelectedSourceAudioEvidenceResultV1,
@@ -36,6 +40,7 @@ import {
 } from './project-timestamp-video-analysis-v1';
 import {
   classifyVerifiedVideoSourceEpochRateCompatibilityV3,
+  createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
 } from './video-source-time-transform-v1';
 
 const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
@@ -163,6 +168,16 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
   materializeTimestampAnalysis?:
     ProjectTimestampVideoAnalysisPortsV1['materialize'];
   audioArtifactReader: MediaSourceAudioPrivateArtifactReaderV1;
+  timestampPcmStoredObjectReader?:
+    MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+  timestampPcmReader?: Pick<
+    MediaSourceAudioPrivateArtifactStoreV1,
+    'readPcmSampleRange'
+  >;
+  timestampPcmCreateConform?:
+    typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
+  resolveSelectedSourceAudioEvidence?:
+    typeof resolveProjectSelectedSourceAudioEvidenceV1;
   nowMs(): number;
 }>;
 
@@ -290,19 +305,21 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       blocked.set(candidate.overlay.id, 'TIMESTAMP_ANALYSIS_PORT_REQUIRED');
       continue;
     }
-    const [result, audioEvidence] = await Promise.all([
-      analyzeProjectTimestampVideoV1({
-        userId: input.userId,
-        projectId,
-        sequenceId: 'main',
-        overlayId: candidate.overlay.id,
-        projectRevision: input.projectRevisionV1,
-        overlayFromFrame: candidate.overlay.from,
-        overlayDurationInFrames: candidate.overlay.durationInFrames,
-        selectedSource: candidate.selectedSource.binding,
-        ports: { materialize: ports.materializeTimestampAnalysis },
-      }),
-      resolveProjectSelectedSourceAudioEvidenceV1({
+    const result = await analyzeProjectTimestampVideoV1({
+      userId: input.userId,
+      projectId,
+      sequenceId: 'main',
+      overlayId: candidate.overlay.id,
+      projectRevision: input.projectRevisionV1,
+      overlayFromFrame: candidate.overlay.from,
+      overlayDurationInFrames: candidate.overlay.durationInFrames,
+      selectedSource: candidate.selectedSource.binding,
+      ports: { materialize: ports.materializeTimestampAnalysis },
+    });
+    if (result.disposition === 'ANALYZED') {
+      const resolveAudio = ports.resolveSelectedSourceAudioEvidence
+        ?? resolveProjectSelectedSourceAudioEvidenceV1;
+      const audioEvidence = await resolveAudio({
         projectId,
         sequenceId: 'main',
         overlayId: candidate.overlay.id,
@@ -310,13 +327,19 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
         assetId: candidate.selectedSource.binding.assetId,
         selectedSource: candidate.selectedSource,
         sourceVersionCandidates: candidate.sourceVersionCandidates,
+        pcmWindow: projectTimestampPcmWindow(
+          candidate,
+          result,
+          input.userId,
+        ),
         ports: {
           loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
           audioArtifactReader: ports.audioArtifactReader,
+          storedObjectReader: ports.timestampPcmStoredObjectReader,
+          pcmReader: ports.timestampPcmReader,
+          createTimestampConform: ports.timestampPcmCreateConform,
         },
-      }),
-    ]);
-    if (result.disposition === 'ANALYZED') {
+      });
       timestampAnalyses.set(candidate.overlay.id, Object.freeze({
         ...result,
         audioEvidence,
@@ -518,11 +541,48 @@ function timestampCandidates(
   );
 }
 
+function projectTimestampPcmWindow(
+  candidate: TimestampPreparedOverlayV2,
+  analysis: ProjectCoordinateVisionAnalysisV1,
+  userId: string,
+) {
+  const sourceStartFrame = candidate.overlay.sourceStartFrame
+    ?? candidate.overlay.videoStartTime
+    ?? 0;
+  const sourceEndExclusiveFrame = candidate.overlay.sourceEndFrame
+    ?? candidate.selectedSource.binding.totalSourceFrameCount;
+  return Object.freeze({
+    userId,
+    projectRate: analysis.materialization.samplePlan.projectRate,
+    overlayFromFrame: candidate.overlay.from,
+    overlayDurationInFrames: candidate.overlay.durationInFrames,
+    windowLocalStartFrame: 0,
+    windowDurationInFrames: candidate.overlay.durationInFrames,
+    sourceStartFrame: String(sourceStartFrame),
+    sourceEndExclusiveFrame: String(sourceEndExclusiveFrame),
+    timelineFrameQueries: analysis.materialization.samplePlan.samples.map(
+      ({ timelineFrame }) => timelineFrame,
+    ),
+    expectedVisualTransformSha256:
+      analysis.materialization.transformSha256,
+  });
+}
+
 function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
   let evidenceStorePromise:
     Promise<MediaSourceVersionEvidenceStorePortsV1> | null = null;
-  let audioArtifactReaderPromise:
-    Promise<MediaSourceAudioPrivateArtifactReaderV1> | null = null;
+  let mediaRuntimePromise: Promise<ReturnType<
+    typeof import('./media-source-pts-cadence-r2-runtime-v1')[
+      'createMediaSourcePtsCadenceR2RuntimePortsV1'
+    ]
+  >> | null = null;
+  const mediaRuntime = () => {
+    mediaRuntimePromise ??= import(
+      './media-source-pts-cadence-r2-runtime-v1'
+    ).then(({ createMediaSourcePtsCadenceR2RuntimePortsV1 }) =>
+      createMediaSourcePtsCadenceR2RuntimePortsV1(process.env));
+    return mediaRuntimePromise;
+  };
   return {
     async loadAssets(assetIds) {
       if (assetIds.length === 0) return [];
@@ -549,12 +609,17 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
     },
     audioArtifactReader: {
       async readArtifactSet(reference) {
-        audioArtifactReaderPromise ??= import(
-          './media-source-pts-cadence-r2-runtime-v1'
-        ).then(({ createMediaSourcePtsCadenceR2RuntimePortsV1 }) =>
-          createMediaSourcePtsCadenceR2RuntimePortsV1(process.env)
-            .audioArtifact);
-        return (await audioArtifactReaderPromise).readArtifactSet(reference);
+        return (await mediaRuntime()).audioArtifact.readArtifactSet(reference);
+      },
+    },
+    timestampPcmStoredObjectReader: {
+      async read(sidecar) {
+        return (await mediaRuntime()).epochArtifactReader.read(sidecar);
+      },
+    },
+    timestampPcmReader: {
+      async readPcmSampleRange(range) {
+        return (await mediaRuntime()).audioArtifact.readPcmSampleRange(range);
       },
     },
     nowMs: () => Date.now(),

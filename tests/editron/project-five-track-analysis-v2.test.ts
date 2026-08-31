@@ -122,7 +122,7 @@ describe('project five-track analysis v2', () => {
       fixture.userId,
       100,
     ));
-    const materializeTimestampAnalysis = vi.fn(async () =>
+    const materialization =
       buildNativeMediaTimestampAnalysisMaterializationFixtureV1({
         projectId: project.projectId,
         overlayId: '1',
@@ -133,7 +133,13 @@ describe('project five-track analysis v2', () => {
         storageVersionSha256: fixture.verifiedBinding.storageVersionSha256,
         sourcePtsCadenceMapStateSha256V3:
           fixture.verifiedBinding.sourcePtsCadenceMapStateSha256V3,
-      }));
+      });
+    const materializeTimestampAnalysis = vi.fn(async () => materialization);
+    const resolveSelectedSourceAudioEvidence = vi.fn(async () => ({
+      disposition: 'UNVERIFIABLE' as const,
+      reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' as const,
+      diagnostic: null,
+    }));
 
     const result = await analyzeProjectFiveTrackV2({
       project,
@@ -145,6 +151,7 @@ describe('project five-track analysis v2', () => {
         readAnalysis,
         runAnalysis,
         materializeTimestampAnalysis,
+        resolveSelectedSourceAudioEvidence,
       ),
     });
 
@@ -168,6 +175,26 @@ describe('project five-track analysis v2', () => {
     expect(readAnalysis).not.toHaveBeenCalled();
     expect(runAnalysis).not.toHaveBeenCalled();
     expect(materializeTimestampAnalysis).toHaveBeenCalledTimes(1);
+    expect(resolveSelectedSourceAudioEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pcmWindow: {
+          userId: fixture.userId,
+          projectRate: { numerator: '30', denominator: '1' },
+          overlayFromFrame: 30,
+          overlayDurationInFrames: 3,
+          windowLocalStartFrame: 0,
+          windowDurationInFrames: 3,
+          sourceStartFrame: '0',
+          sourceEndExclusiveFrame: '3',
+          timelineFrameQueries: ['30'],
+          expectedVisualTransformSha256: materialization.transformSha256,
+        },
+      }),
+    );
+    expect(materializeTimestampAnalysis.mock.invocationCallOrder[0])
+      .toBeLessThan(
+        resolveSelectedSourceAudioEvidence.mock.invocationCallOrder[0]!,
+      );
     expect(result.overlays[0]?.projectCoordinateAnalysis?.audioEvidence)
       .toMatchObject({ reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' });
   });
@@ -315,6 +342,9 @@ function ports(
   materializeTimestampAnalysis?: NonNullable<
     ProjectFiveTrackAnalysisPortsV2['materializeTimestampAnalysis']
   >,
+  resolveSelectedSourceAudioEvidence?: NonNullable<
+    ProjectFiveTrackAnalysisPortsV2['resolveSelectedSourceAudioEvidence']
+  >,
 ): ProjectFiveTrackAnalysisPortsV2 {
   const readArtifactSet = vi.fn();
   return {
@@ -323,6 +353,9 @@ function ports(
     readAnalysis,
     runAnalysis,
     ...(materializeTimestampAnalysis ? { materializeTimestampAnalysis } : {}),
+    ...(resolveSelectedSourceAudioEvidence
+      ? { resolveSelectedSourceAudioEvidence }
+      : {}),
     audioArtifactReader: { readArtifactSet },
     nowMs: () => 0,
   };
