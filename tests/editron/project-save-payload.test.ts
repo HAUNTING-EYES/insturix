@@ -321,6 +321,49 @@ describe("Editron project save payload compaction", () => {
     );
   });
 
+  it("preserves the stored duration when manual save and autosave omit it", async () => {
+    const updatedAt = "2026-08-09T00:30:00.000Z";
+    const revision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: updatedAt,
+    };
+    persistenceMocks.findOne.mockResolvedValue({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      fps: 30,
+      durationInFrames: 300,
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValue({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+    const state = {
+      overlays: [],
+      aspectRatio: "16:9" as const,
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+    };
+
+    await projectService.saveProjectWithReceipt("user_1", "proj_1", state, {
+      expectedRevision: revision,
+    });
+    await projectService.autosaveProject("user_1", "proj_1", state, {
+      expectedRevision: revision,
+    });
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(2);
+    for (const [, update] of persistenceMocks.updateOne.mock.calls) {
+      expect(update.$set.durationInFrames).toBe(300);
+    }
+  });
+
   it("binds a manual save to owner, numeric revision, and compatibility timestamp in one write predicate", async () => {
     const updatedAt = "2026-08-09T01:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({

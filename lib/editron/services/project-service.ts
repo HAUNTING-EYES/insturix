@@ -4310,6 +4310,13 @@ export class ProjectService {
 
     if (!currentProject) throw new ProjectNotFoundOrForbiddenError();
 
+    // Legacy or partial editor payloads may omit the root duration. Preserve
+    // the durable project value in that case; only an explicit duration
+    // command owner should intentionally change the project duration.
+    const durationInFrames = input.state.durationInFrames
+      ?? currentProject.durationInFrames
+      ?? 0;
+
     // A direct caller may omit duration while supplying markers. Bind those
     // markers to the durable project duration before any write so the route
     // layer is never the sole range authority.
@@ -4371,7 +4378,7 @@ export class ProjectService {
         aspectRatio: input.state.aspectRatio,
         playerDimensions: dimensions,
         fps: input.state.fps || 30,
-        durationInFrames: input.state.durationInFrames || 0,
+        durationInFrames,
         ...(input.state.markers !== undefined
           ? { markers: input.state.markers }
           : {}),

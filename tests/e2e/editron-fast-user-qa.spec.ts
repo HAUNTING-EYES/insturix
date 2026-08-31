@@ -34,6 +34,8 @@ const runId = process.env.EDITRON_FAST_QA_RUN_ID?.trim() || `ad-hoc-${Date.now()
 const outputRoot = process.env.EDITRON_FAST_QA_OUTPUT_ROOT?.trim()
   || '.calibration-temp/editron-fast-user-qa';
 const artifactPaths = buildEditronFastQaArtifactPaths(outputRoot, runId, projectId);
+const EXPECTED_DURATION_IN_FRAMES = 300;
+const EXPECTED_DURATION_DISPLAY = '00:10.00';
 
 test.describe('Editron fast visible user QA', () => {
   test('proves one real timeline edit, playback attempt, correction, undo/redo, and reload', async ({
@@ -69,6 +71,8 @@ test.describe('Editron fast visible user QA', () => {
       const beforeProject = requireProject(beforePayload);
       projectValues.before = beforeProject;
       await writeStage(artifactPaths, 'before', beforeProject, page);
+      assertPersistedDuration(beforeProject, 'before');
+      await expectVisibleDuration(page, 'before');
       const targetOverlay = pickTargetTextOverlay(beforeProject, fixtureManifest);
       const targetLabel = textOverlayLabel(targetOverlay);
       expect(targetLabel, 'Fixture must contain a visible selected text overlay.').toBeTruthy();
@@ -81,6 +85,8 @@ test.describe('Editron fast visible user QA', () => {
       const baselineStyle = await targetItem.getAttribute('style');
       stages.baseline = {
         status: 'PASS',
+        durationInFrames: beforeProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         projectDigest: buildEditronFastQaProjectDiff(beforeProject, beforeProject).beforeDigest,
         overlayId: targetOverlay.id,
         label: targetLabel,
@@ -105,10 +111,14 @@ test.describe('Editron fast visible user QA', () => {
       const firstEditProject = requireProject(await loadProject(page, projectId));
       projectValues.firstEdit = firstEditProject;
       await writeStage(artifactPaths, 'firstEdit', firstEditProject, page);
+      assertPersistedDuration(firstEditProject, 'first edit');
+      await expectVisibleDuration(page, 'first edit');
       const firstEditDiff = buildEditronFastQaProjectDiff(beforeProject, firstEditProject);
       expect(firstEditDiff.changed, 'The first visible timeline drag must persist a diff.').toBe(true);
       stages.visibleTimelineEdit = {
         status: 'PASS',
+        durationInFrames: firstEditProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         styleChanged: firstEditStyle !== baselineStyle,
         diff: firstEditDiff,
       };
@@ -130,10 +140,14 @@ test.describe('Editron fast visible user QA', () => {
       const correctionProject = requireProject(await loadProject(page, projectId));
       projectValues.correction = correctionProject;
       await writeStage(artifactPaths, 'correction', correctionProject, page);
+      assertPersistedDuration(correctionProject, 'correction');
+      await expectVisibleDuration(page, 'correction');
       const correctionDiff = buildEditronFastQaProjectDiff(firstEditProject, correctionProject);
       expect(correctionDiff.changed, 'The visible correction must persist a diff.').toBe(true);
       stages.correction = {
         status: 'PASS',
+        durationInFrames: correctionProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         styleChanged: correctionStyle !== firstEditStyle,
         diff: correctionDiff,
       };
@@ -152,10 +166,14 @@ test.describe('Editron fast visible user QA', () => {
       const undoProject = requireProject(await loadProject(page, projectId));
       projectValues.undo = undoProject;
       await writeStage(artifactPaths, 'undo', undoProject, page);
+      assertPersistedDuration(undoProject, 'undo');
+      await expectVisibleDuration(page, 'undo');
       const undoDiff = buildEditronFastQaProjectDiff(firstEditProject, undoProject);
       expect(undoDiff.beforeDigest).toBe(undoDiff.afterDigest);
       stages.undo = {
         status: 'PASS',
+        durationInFrames: undoProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         restoredFirstEdit: undoDiff.beforeDigest === undoDiff.afterDigest,
         diff: undoDiff,
       };
@@ -174,10 +192,14 @@ test.describe('Editron fast visible user QA', () => {
       const redoProject = requireProject(await loadProject(page, projectId));
       projectValues.redo = redoProject;
       await writeStage(artifactPaths, 'redo', redoProject, page);
+      assertPersistedDuration(redoProject, 'redo');
+      await expectVisibleDuration(page, 'redo');
       const redoDiff = buildEditronFastQaProjectDiff(correctionProject, redoProject);
       expect(redoDiff.beforeDigest).toBe(redoDiff.afterDigest);
       stages.redo = {
         status: 'PASS',
+        durationInFrames: redoProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         restoredCorrection: redoDiff.beforeDigest === redoDiff.afterDigest,
         diff: redoDiff,
       };
@@ -190,10 +212,14 @@ test.describe('Editron fast visible user QA', () => {
       const reloadedProject = requireProject(await loadProject(page, projectId));
       projectValues.reload = reloadedProject;
       await writeStage(artifactPaths, 'reload', reloadedProject, page);
+      assertPersistedDuration(reloadedProject, 'reload');
+      await expectVisibleDuration(page, 'reload');
       const reloadDiff = buildEditronFastQaProjectDiff(redoProject, reloadedProject);
       expect(reloadDiff.beforeDigest).toBe(reloadDiff.afterDigest);
       stages.reload = {
         status: 'PASS',
+        durationInFrames: reloadedProject.durationInFrames,
+        durationDisplay: EXPECTED_DURATION_DISPLAY,
         persistedRedo: reloadDiff.beforeDigest === reloadDiff.afterDigest,
         diff: reloadDiff,
       };
@@ -537,6 +563,20 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 function requireProject(payload: ProjectPayload): JsonRecord {
   if (!payload.project || typeof payload.project !== 'object') throw new Error('Project response omitted project payload.');
   return payload.project;
+}
+
+function assertPersistedDuration(project: JsonRecord, stage: string): void {
+  expect(
+    project.durationInFrames,
+    `${stage} project duration must remain the fixture's persisted 300 frames.`,
+  ).toBe(EXPECTED_DURATION_IN_FRAMES);
+}
+
+async function expectVisibleDuration(page: Page, stage: string): Promise<void> {
+  await expect(
+    page.getByText(EXPECTED_DURATION_DISPLAY, { exact: true }).last(),
+    `${stage} editor must visibly show the persisted 00:10.00 total.`,
+  ).toBeVisible();
 }
 
 function pickTargetTextOverlay(project: JsonRecord, manifest: FixtureManifest): JsonRecord {
