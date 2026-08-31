@@ -334,8 +334,9 @@ function projectCoordinateAudioSummary(
   }
   return {
     disposition: value.disposition,
-    evidenceAuthority:
-      'EXACT_SOURCE_AUDIO_MANIFEST_AND_SAMPLE_MAP_BOUND' as const,
+    evidenceAuthority: value.pcmWindowProof === null
+      ? 'EXACT_SOURCE_AUDIO_MANIFEST_AND_SAMPLE_MAP_BOUND' as const
+      : 'EXACT_SOURCE_AUDIO_PCM_WINDOW_BOUND' as const,
     playbackAuthority: 'NOT_PROVEN' as const,
     evidenceSha256: value.evidenceSha256,
     sourceVersionEvidenceSha256: value.sourceVersionEvidenceSha256,
@@ -347,5 +348,25 @@ function projectCoordinateAudioSummary(
     audioSampleEpochMapSha256: value.audioSampleEpochMapSha256,
     decodedPcmSha256: value.decodedPcmSha256,
     decodedSampleFrameCount: value.decodedSampleFrameCount,
+    pcmWindowProofSha256: value.pcmWindowProofSha256,
+    pcmWindowProof: value.pcmWindowProof === null
+      ? null
+      : {
+          disposition: value.pcmWindowProof.disposition,
+          proofSha256: value.pcmWindowProof.proofSha256,
+          audioMappingSha256: value.pcmWindowProof.audioMappingSha256,
+          windowProjectStartFrame:
+            value.pcmWindowProof.windowProjectStartFrame,
+          windowProjectEndExclusiveFrame:
+            value.pcmWindowProof.windowProjectEndExclusiveFrame,
+          canonicalWindowStartSamplePosition:
+            value.pcmWindowProof.canonicalWindowStartSamplePosition,
+          canonicalWindowEndExclusiveSamplePosition:
+            value.pcmWindowProof.canonicalWindowEndExclusiveSamplePosition,
+          readOperations: value.pcmWindowProof.readOperations,
+          totalPcmBytes: value.pcmWindowProof.totalPcmBytes,
+          pcmSegmentCount: value.pcmWindowProof.pcmSegmentCount,
+          silenceSegmentCount: value.pcmWindowProof.silenceSegmentCount,
+        },
   };
 }

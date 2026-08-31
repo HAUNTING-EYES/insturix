@@ -169,11 +169,33 @@ describe('Editron project-scoped analysis route', () => {
         audioEvidence: {
           disposition: 'EXACT_AUDIO_EVIDENCE_BOUND',
           evidenceAuthority:
-            'EXACT_SOURCE_AUDIO_MANIFEST_AND_SAMPLE_MAP_BOUND',
+            'EXACT_SOURCE_AUDIO_PCM_WINDOW_BOUND',
           playbackAuthority: 'NOT_PROVEN',
           evidenceSha256: '5'.repeat(64),
           decodedPcmSha256: 'b'.repeat(64),
           decodedSampleFrameCount: '480000',
+          pcmWindowProofSha256: 'c'.repeat(64),
+          pcmWindowProof: {
+            disposition: 'PCM_WINDOW_VERIFIED',
+            proofSha256: 'c'.repeat(64),
+            audioMappingSha256: 'd'.repeat(64),
+            windowProjectStartFrame: 30,
+            windowProjectEndExclusiveFrame: 33,
+            canonicalWindowStartSamplePosition: {
+              numerator: '0',
+              denominator: '1',
+              disposition: 'INTEGER_SAMPLE_FRAME',
+            },
+            canonicalWindowEndExclusiveSamplePosition: {
+              numerator: '4800',
+              denominator: '1',
+              disposition: 'INTEGER_SAMPLE_FRAME',
+            },
+            readOperations: 1,
+            totalPcmBytes: 38_400,
+            pcmSegmentCount: 1,
+            silenceSegmentCount: 0,
+          },
         },
         mutationAuthority:
           'REQUIRES_DEDICATED_PROJECT_COORDINATE_FIVE_TRACK_CONSUMER',
@@ -296,6 +318,26 @@ function timestampEvidence(projectRevision: number, analyzed: boolean) {
           audioSampleEpochMapSha256: 'a'.repeat(64),
           decodedPcmSha256: 'b'.repeat(64),
           decodedSampleFrameCount: '480000',
+          pcmWindowProofSha256: 'c'.repeat(64),
+          pcmWindowProof: {
+            disposition: 'PCM_WINDOW_VERIFIED',
+            proofSha256: 'c'.repeat(64),
+            audioMappingSha256: 'd'.repeat(64),
+            windowProjectStartFrame: 30,
+            windowProjectEndExclusiveFrame: 33,
+            canonicalWindowStartSamplePosition: {
+              numerator: '0', denominator: '1',
+              disposition: 'INTEGER_SAMPLE_FRAME',
+            },
+            canonicalWindowEndExclusiveSamplePosition: {
+              numerator: '4800', denominator: '1',
+              disposition: 'INTEGER_SAMPLE_FRAME',
+            },
+            readOperations: 1,
+            totalPcmBytes: 38_400,
+            pcmSegmentCount: 1,
+            silenceSegmentCount: 0,
+          },
           audioEvidence: {
             record: {
               manifestReference: { objectKey: 'private/object-key' },
