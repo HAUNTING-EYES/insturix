@@ -125,7 +125,6 @@ type SourceBoundPreparedOverlayV2 = Readonly<{
 type TimestampPreparedOverlayV2 = Readonly<{
   kind: 'PROJECT_TIMESTAMP';
   overlay: ClipOverlay;
-  assetId: string;
   selectedSource: Extract<
     ProjectSelectedVideoSourceTimeBindingResultV1,
     Readonly<{ disposition: 'RESOLVED' }>
@@ -391,7 +390,6 @@ async function prepareOverlay(input: Readonly<{
     return Object.freeze({
       kind: 'PROJECT_TIMESTAMP' as const,
       overlay: input.overlay,
-      assetId,
       selectedSource: timing,
     });
   }
