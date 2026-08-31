@@ -47,7 +47,7 @@ async function withRetry<T>(
   throw new Error('unreachable');
 }
 
-export interface GeminiUsageCapture {
+interface GeminiUsageCapture {
   tracker: TokenTracker;
   requestCount: number;
   missingUsageCount: number;
@@ -329,7 +329,7 @@ export async function getAnalysis(assetId: string): Promise<AssetAnalysis | null
   return db.collection(ANALYSIS_COLLECTION).findOne({ assetId }) as any;
 }
 
-export async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
+async function saveAnalysis(analysis: AssetAnalysis): Promise<void> {
   const db = await getDatabase();
   await db.collection(ANALYSIS_COLLECTION).updateOne(
     { assetId: analysis.assetId },
@@ -350,7 +350,6 @@ const GEMINI_EXTERNAL_URL_LIMIT = 100 * 1024 * 1024; // 100MB — Gemini fetches
 async function uploadToGeminiFiles(
   videoUrl: string,
   assetId: string,
-  durationMs: number,
 ): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
@@ -888,7 +887,7 @@ Return JSON:
 
 // ─── Track A: Speech Semantic Classification ─────────────────────
 
-export async function classifySpeech(
+async function classifySpeech(
   transcript: string,
   words: Array<{ word: string; startMs: number; endMs: number }>,
   usageCapture?: GeminiUsageCapture,
@@ -946,7 +945,7 @@ ${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.l
 
 // ─── Track C: Music Structure ────────────────────────────────────
 
-export async function analyzeMusicStructure(
+async function analyzeMusicStructure(
   audioUrl: string,
   beats: number[],
   bpm: number,
@@ -1202,7 +1201,7 @@ export async function runFullAnalysis(
           t1.ok(`reused VU uri=${geminiFileUri.substring(0, 60)}...`);
         } else {
           try {
-            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId, durationMs);
+            geminiFileUri = await uploadToGeminiFiles(videoUrl, assetId);
             if (geminiFileUri) {
               t1.ok(`uri=${geminiFileUri.substring(0, 60)}...`);
             } else {
@@ -1271,9 +1270,6 @@ export async function runFullAnalysis(
   } else {
     trace.push({ step: 'video_url', status: 'skipped: no videoUrl provided', durationMs: 0 });
   }
-
-  // Log full trace for debugging
-  console.log(`[Analysis] TRACE for ${assetId}:`, JSON.stringify(trace));
 
   // Enrich with storyboard metadata if available (supplements Vision, doesn't replace)
   // Even with Vision analysis, storyboard data adds intent context (what was MEANT to happen)
