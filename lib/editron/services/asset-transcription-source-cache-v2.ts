@@ -1,5 +1,4 @@
 import {
-  canonicalizeEditronJsonV1,
   deepFreezeEditronJsonV1,
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
