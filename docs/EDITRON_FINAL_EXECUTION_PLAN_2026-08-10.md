@@ -11325,6 +11325,28 @@ remains intentionally asset-owned before a project exists. Queue item 4 next
 separates/fixes the remaining project analysis consumers without making ingest
 depend on project pins. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Five-track source-binding Step-0 Phase 3F-C8bz (2026-08-31):** code
+commit `5a9d50c79` completes the required separate cleanup before changing the
+1,762-line legacy analysis owner. It removes one unused Gemini-upload argument,
+three internal-only function exports, one internal-only type export and the raw
+full diagnostic-trace console dump; the trace remains stored on the analysis
+record. No analyzer decision, provider call, cache key, project state or media
+selection changes. Focused dependent suites pass 37/37, and repository
+TypeScript plus repository-wide quiet ESLint pass.
+
+The grounding audit found that the current `asset_analyses` record is selected
+and upserted by `assetId` alone, `analyzeProjectAssets` prefers the media row's
+`cachedUrl` over the ProjectService-hydrated overlay URL, cached consumers do
+not require user/project/source-version identity, and project duration
+conversion still assumes 30 fps. These are production blockers, not completed
+source-bound analysis. The next structural phase must issue a new record
+identity bound to owner, asset, exact source version/storage version, analyzer
+contract and project coordinate evidence; migrate project callers and refuse
+legacy cache hits for pinned proxy/master overlays. Historical V1 records may
+remain read-compatible only in explicitly unversioned single-source contexts;
+they may not be silently promoted. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
