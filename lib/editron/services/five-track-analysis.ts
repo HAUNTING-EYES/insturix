@@ -21,6 +21,14 @@
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { TokenTracker, type TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
+import {
+  assertAssetAnalysisSourceBindingV2,
+  FIVE_TRACK_ANALYSIS_VERSION_V2,
+  getSourceBoundAnalysisV2,
+  hashAssetAnalysisInputV2,
+  saveSourceBoundAnalysisV2,
+  type AssetAnalysisSourceBindingV2,
+} from './asset-analysis-source-cache-v2';
 import type { PipelineWarningCollector } from './pipeline-warnings';
 import { waitForGeminiFileActive } from './gemini-file-active';
 
@@ -1112,26 +1120,62 @@ export interface StoryboardMetadata {
   };
 }
 
+export type FullAnalysisOptions = Readonly<{
+  videoUrl?: string;
+  audioUrl?: string;
+  durationMs: number;
+  transcript?: string;
+  words?: Array<{ word: string; startMs: number; endMs: number }>;
+  /** For AI videos from ThinkForge — pre-classified scene data */
+  storyboardScene?: StoryboardMetadata;
+  /** 'ai-generated' skips shot detection, uses storyboard metadata.
+   *  'real-footage' runs full pipeline including clip matching. */
+  sourceType?: 'ai-generated' | 'real-footage';
+  /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
+  geminiFileUri?: string;
+  /** Exact ProjectService-authenticated source bytes and analysis-input identity. */
+  sourceBindingV2?: AssetAnalysisSourceBindingV2;
+}>;
+
+export function createFiveTrackAnalysisInputSha256V2(
+  options: FullAnalysisOptions,
+): string {
+  return hashAssetAnalysisInputV2({
+    schemaVersion: 2,
+    kind: 'EDITRON_FIVE_TRACK_ANALYSIS_INPUT_V2',
+    durationMs: options.durationMs,
+    sourceType: options.sourceType ?? 'ai-generated',
+    transcript: options.transcript ?? null,
+    words: options.words ?? null,
+    storyboardScene: options.storyboardScene ?? null,
+    videoUrlAvailable: typeof options.videoUrl === 'string'
+      && options.videoUrl.length > 0,
+    audioUrlAvailable: typeof options.audioUrl === 'string'
+      && options.audioUrl.length > 0,
+    geminiFileUriAvailable: typeof options.geminiFileUri === 'string'
+      && options.geminiFileUri.length > 0,
+  });
+}
+
 export async function runFullAnalysis(
   assetId: string,
   userId: string,
-  options: {
-    videoUrl?: string;
-    audioUrl?: string;
-    durationMs: number;
-    transcript?: string;
-    words?: Array<{ word: string; startMs: number; endMs: number }>;
-    /** For AI videos from ThinkForge — pre-classified scene data */
-    storyboardScene?: StoryboardMetadata;
-    /** 'ai-generated' skips shot detection, uses storyboard metadata.
-     *  'real-footage' runs full pipeline including clip matching. */
-    sourceType?: 'ai-generated' | 'real-footage';
-    /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
-    geminiFileUri?: string;
-  },
+  options: FullAnalysisOptions,
   pipelineWarnings?: PipelineWarningCollector,
 ): Promise<AssetAnalysis> {
   const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
+  const sourceBindingV2 = options.sourceBindingV2
+    ? assertAssetAnalysisSourceBindingV2(options.sourceBindingV2)
+    : null;
+  if (sourceBindingV2
+    && (sourceBindingV2.assetId !== assetId || sourceBindingV2.userId !== userId)) {
+    throw new Error('FIVE_TRACK_ANALYSIS_SOURCE_BINDING_SCOPE_MISMATCH');
+  }
+  if (sourceBindingV2
+    && sourceBindingV2.analysisInputSha256
+      !== createFiveTrackAnalysisInputSha256V2(options)) {
+    throw new Error('FIVE_TRACK_ANALYSIS_SOURCE_BINDING_INPUT_MISMATCH');
+  }
 
   const isAIVideo = sourceType === 'ai-generated';
   const analysisStartMs = Date.now();
@@ -1139,19 +1183,27 @@ export async function runFullAnalysis(
   const isOverBudget = () => Date.now() - analysisStartMs > TIME_BUDGET_MS;
   console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s, budget: ${TIME_BUDGET_MS / 1000}s)`);
 
-  // Check cache — 7 day TTL. Also version-check: if analysis code updated, re-analyze.
-  // ANALYSIS_VERSION should be bumped whenever the analysis logic changes significantly
-  // (e.g., dense frame sampling, new prompt, new fields) so old cached data gets refreshed.
-  const ANALYSIS_VERSION = 2; // v1=original 3-keyframe, v2=dense 1-per-second + confidence
-  const cached = await getAnalysis(assetId);
-  if (cached && cached.status === 'complete' &&
-      Date.now() - new Date(cached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
-    const cachedVersion = (cached as any).analysisVersion || 1;
+  // Bound V2 entries are immutable and include exact source + material input identity.
+  // Only unbound legacy callers retain the historical 7-day/version cache policy.
+  const ANALYSIS_VERSION = FIVE_TRACK_ANALYSIS_VERSION_V2; // v1=original 3-keyframe, v2=dense 1-per-second + confidence
+  const sourceBoundCached = sourceBindingV2
+    ? await getSourceBoundAnalysisV2<AssetAnalysis>(sourceBindingV2)
+    : null;
+  if (sourceBoundCached) {
+    const quality = (sourceBoundCached as any).analysisQuality || 'unknown';
+    console.log(`[Analysis] Using exact source-bound cache v${ANALYSIS_VERSION} for ${assetId} (quality=${quality})`);
+    (sourceBoundCached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
+    return sourceBoundCached;
+  }
+  const legacyCached = sourceBindingV2 ? null : await getAnalysis(assetId);
+  if (legacyCached && legacyCached.status === 'complete' &&
+      Date.now() - new Date(legacyCached.analyzedAt).getTime() < 7 * 24 * 3600 * 1000) {
+    const cachedVersion = (legacyCached as any).analysisVersion || 1;
     if (cachedVersion >= ANALYSIS_VERSION) {
-      const quality = (cached as any).analysisQuality || 'unknown';
+      const quality = (legacyCached as any).analysisQuality || 'unknown';
       console.log(`[Analysis] Using cached analysis v${cachedVersion} for ${assetId} (quality=${quality})`);
-      (cached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
-      return cached;
+      (legacyCached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
+      return legacyCached;
     }
     console.log(`[Analysis] Cache STALE for ${assetId}: v${cachedVersion} < v${ANALYSIS_VERSION}, re-analyzing with updated logic`);
   }
@@ -1522,7 +1574,10 @@ export async function runFullAnalysis(
   (analysis as any).analysisVersion = ANALYSIS_VERSION;
   (analysis as any)._diagnosticTrace = trace;
 
-  await saveAnalysis(analysis);
+  const persistedAnalysis = sourceBindingV2
+    ? await saveSourceBoundAnalysisV2<AssetAnalysis>(sourceBindingV2, analysis)
+    : analysis;
+  if (!sourceBindingV2) await saveAnalysis(analysis);
 
   const layerResults = [
     shots.length > 0 ? `L1:${shots.length}shots` : null,
@@ -1535,7 +1590,7 @@ export async function runFullAnalysis(
   ].filter(Boolean);
 
   console.log(`[Analysis] Complete: ${layerResults.join(', ')}`);
-  return analysis;
+  return persistedAnalysis;
 }
 
 /**
