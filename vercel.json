@@ -110,7 +110,7 @@
     },
     {
       "path": "/api/cron/process-thinkforge-long-form-scripts",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recoverStalledLongFormScriptJobs } from '@/lib/thinkforge/long-form/script-generation-job';
+import { recoverProductionContractRefreshJobs } from '@/lib/thinkforge/production-contract-refresh/job';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,10 +17,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const recovery = await recoverStalledLongFormScriptJobs();
-    return NextResponse.json({ ok: true, recovery, timestamp: new Date().toISOString() });
+    const [longFormScripts, productionContractRefreshes] = await Promise.all([
+      recoverStalledLongFormScriptJobs(),
+      recoverProductionContractRefreshJobs(),
+    ]);
+    return NextResponse.json({
+      ok: true,
+      recovery: { longFormScripts, productionContractRefreshes },
+      timestamp: new Date().toISOString(),
+    });
   } catch {
-    console.error('[cron/process-thinkforge-long-form-scripts] recovery failed.');
-    return NextResponse.json({ ok: false, error: 'Long-form script recovery failed.' }, { status: 500 });
+    console.error('[cron/process-thinkforge-long-form-scripts] ThinkForge durable-work recovery failed.');
+    return NextResponse.json({ ok: false, error: 'ThinkForge durable-work recovery failed.' }, { status: 500 });
   }
 }
