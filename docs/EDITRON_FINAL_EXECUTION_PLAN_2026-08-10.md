@@ -11222,6 +11222,42 @@ migration, rollback of coordinates plus proxy pin, invalidation/rerender,
 delivery, interrupted recovery and live Atlas/R2 proof. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Per-project source-pin preview/final-render consumption Phase 3F-C8bw
+(2026-08-31):** code commit `a6e44656f` wires the first real consumers without
+claiming project-wide cutover. `AssetResolver.resolveProjectAssets` now accepts
+explicit caller-owned project scope while preserving the historical boolean
+argument for single-version callers. A video with dual-version evidence is
+excluded from the legacy asset-level `isProxy`/`originalR2Key` URL map and is
+resolved per overlay through `resolveProjectVideoSourceStorageV1`. The resolver
+authenticates project, overlay, asset, source-version, storage-version and
+active-mapping identity before selecting the proxy or master object. Missing,
+copied, malformed, stale or wrong-scope pins return a typed
+`PROJECT_VIDEO_SOURCE_UNVERIFIABLE` error; cached URLs and global transition
+state are not fallback authority. With no browser CDN, an exact selected R2
+object is presigned by key rather than inferred from a prior URL.
+
+Both normal ProjectService load hydration and Director-lease hydration now pass
+their trusted project ID. The authenticated cloud-render route also passes its
+persisted `canonicalProjectId`; whether the source error occurs during initial
+ProjectService load or the later pre-dispatch refresh, it is surfaced as HTTP
+409 with the exact safe diagnostic before credit deduction or provider render
+dispatch. One qualified media asset is proven to remain on proxy bytes for one
+project while a second project selects master bytes from its own valid master
+pin after global media promotion.
+
+The focused binding, relink, source-pin, resolver and render-contract suites
+pass 71/71. Repository TypeScript and repository-wide quiet ESLint pass, and
+the five-file code commit is pushed to the approved branch. This result is
+`PROJECT_SOURCE_PIN_PREVIEW_AND_FINAL_RENDER_SELECTION_LOCALLY_VERIFIED_ANALYSIS_DELIVERY_AND_LIVE_PROOF_OPEN`.
+It proves exact project-load/Director hydration and final-render selection, not
+browser-visible preview recovery, checkpoint/undo hydration, analysis inputs,
+delivery/finalization consumption, new-overlay issuance, legacy migration,
+rollback, invalidation execution, interrupted recovery or live Atlas/R2 media.
+Generic `resolveAssetUrl`, the unused legacy render helper and other workers
+still contain `isProxy`-based decisions and must not be described as cut over.
+Queue item 4 next wires and proves those remaining consumers and visible
+failure boundaries. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
