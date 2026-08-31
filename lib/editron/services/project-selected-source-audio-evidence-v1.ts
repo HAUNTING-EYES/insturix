@@ -3,8 +3,14 @@ import {
   deepFreezeEditronJsonV1,
   hashEditronCanonicalJsonV1,
 } from './canonical-json-v1';
+import { parseExactRationalRateV1 }
+  from '../contracts/canonical-media-time-v1';
 import type { MediaSourceAudioPrivateArtifactReaderV1 }
   from './media-source-audio-private-artifact-port-v1';
+import type { MediaSourceAudioPrivateArtifactStoreV1 }
+  from './media-source-audio-r2-private-artifact-v1';
+import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 }
+  from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import {
   assertMediaSourceVersionEvidenceRecordV1,
   mediaSourceVersionEvidenceAssetViewV1,
@@ -15,6 +21,7 @@ import {
   type MediaSourceVersionV1,
 } from './media-source-version-v1';
 import {
+  analysisNonNegativeIntegerText,
   analysisProjectRevision,
   analysisSha256,
   analysisText,
@@ -25,10 +32,22 @@ import {
   type NativeMediaExactAudioEvidenceV1,
 } from './native-media-exact-audio-evidence-v1';
 import {
+  verifyNativeMediaTimestampAudioPcmWindowV1,
+  type NativeMediaTimestampAudioPcmWindowProofResultV1,
+  type NativeMediaTimestampAudioPcmWindowProofV1,
+} from './native-media-timestamp-preview-audio-materializer-v1';
+import {
+  NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
+} from './native-media-timestamp-preview-materializer-v1';
+import {
   PROJECT_SELECTED_VIDEO_SOURCE_TIME_BINDING_KIND_V1,
   type ProjectSelectedVideoSourceTimeBindingResultV1,
 } from './project-selected-video-source-time-binding-v1';
 import type { ProjectRevisionV1 } from './project-service';
+import {
+  createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
+  type VideoSourceTimestampConformV3,
+} from './video-source-time-transform-v1';
 
 const PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_KIND_V1 =
   'EDITRON_PROJECT_SELECTED_SOURCE_AUDIO_EVIDENCE_V1' as const;
@@ -63,11 +82,33 @@ type NativeAudioBlockReasonV1 = Extract<
   Readonly<{ disposition: 'UNVERIFIABLE' }>
 >['reason'];
 
+type NativePcmWindowBlockReasonV1 = Extract<
+  NativeMediaTimestampAudioPcmWindowProofResultV1,
+  Readonly<{ disposition: 'UNVERIFIABLE' }>
+>['reason'];
+
+type ProjectSelectedSourceAudioPcmWindowInputV1 = Readonly<{
+  userId: string;
+  projectRate: VideoSourceTimestampConformV3['projectRate'];
+  overlayFromFrame: number;
+  overlayDurationInFrames: number;
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+  sourceStartFrame: string;
+  sourceEndExclusiveFrame: string;
+  timelineFrameQueries: readonly string[];
+  expectedVisualTransformSha256: string;
+}>;
+
 type ProjectSelectedSourceAudioEvidencePortsV1 = Readonly<{
   loadSourceVersionEvidence(
     scope: MediaSourceVersionEvidenceScopeV1,
   ): Promise<unknown | null>;
   audioArtifactReader: MediaSourceAudioPrivateArtifactReaderV1;
+  storedObjectReader?: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
+  pcmReader?: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
+  createTimestampConform?:
+    typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
 }>;
 
 export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
@@ -93,8 +134,10 @@ export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
       audioSampleEpochMapSha256: string;
       decodedPcmSha256: string;
       decodedSampleFrameCount: string;
+      pcmWindowProofSha256: string | null;
       evidenceSha256: string;
       audioEvidence: NativeMediaExactAudioEvidenceV1;
+      pcmWindowProof: NativeMediaTimestampAudioPcmWindowProofV1 | null;
     }
   | {
       disposition: 'UNVERIFIABLE';
@@ -106,6 +149,13 @@ export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
         | 'SOURCE_VERSION_EVIDENCE_REQUIRED'
         | 'SOURCE_VERSION_EVIDENCE_INVALID'
         | 'SELECTED_SOURCE_EVIDENCE_MISMATCH'
+        | 'PCM_WINDOW_PORT_REQUIRED'
+        | 'PCM_WINDOW_CONFORM_FAILED'
+        | 'PCM_WINDOW_CONFORM_UNVERIFIABLE'
+        | 'PCM_WINDOW_TRANSFORM_MISMATCH'
+        | 'PCM_WINDOW_AUDIO_MAPPING_REQUIRED'
+        | 'PCM_WINDOW_AUDIO_MAPPING_MISMATCH'
+        | `PCM_WINDOW_${NativePcmWindowBlockReasonV1}`
         | `AUDIO_${NativeAudioBlockReasonV1}`;
       diagnostic: string | null;
     }
@@ -113,7 +163,8 @@ export type ProjectSelectedSourceAudioEvidenceResultV1 = Readonly<
 
 /**
  * Binds immutable exact-audio metadata to one already-resolved project source.
- * It proves the private manifest and sample map, not audible device playback.
+ * An optional window additionally proves exact PCM bytes against the same
+ * canonical transform as visual analysis. It never proves device playback.
  */
 export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonly<{
   projectId: string;
@@ -123,6 +174,7 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
   assetId: string;
   selectedSource: SelectedSourceV1;
   sourceVersionCandidates: readonly unknown[];
+  pcmWindow?: ProjectSelectedSourceAudioPcmWindowInputV1;
   ports: ProjectSelectedSourceAudioEvidencePortsV1;
 }>): Promise<ProjectSelectedSourceAudioEvidenceResultV1> {
   let scope: ReturnType<typeof normalizeScope>;
@@ -184,10 +236,11 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
     return unverifiable('SELECTED_SOURCE_EVIDENCE_MISMATCH', null);
   }
 
+  const sourceAsset = mediaSourceVersionEvidenceAssetViewV1(evidence);
   let audio: Awaited<ReturnType<typeof resolveNativeMediaExactAudioEvidenceV1>>;
   try {
     audio = await resolveNativeMediaExactAudioEvidenceV1({
-      asset: mediaSourceVersionEvidenceAssetViewV1(evidence),
+      asset: sourceAsset,
       required: true,
       reader: input.ports.audioArtifactReader,
     });
@@ -210,6 +263,90 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
     || selected.evidence.binding.storageVersionSha256
       !== source.storageVersion.storageVersionSha256) {
     return unverifiable('SELECTED_SOURCE_EVIDENCE_MISMATCH', null);
+  }
+
+  let pcmWindowProof: NativeMediaTimestampAudioPcmWindowProofV1 | null = null;
+  if (scope.pcmWindow !== null) {
+    if (typeof input.ports.storedObjectReader?.read !== 'function'
+      || typeof input.ports.pcmReader?.readPcmSampleRange !== 'function') {
+      return unverifiable('PCM_WINDOW_PORT_REQUIRED', null);
+    }
+    let conform: Awaited<ReturnType<
+      typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3
+    >>;
+    try {
+      const createConform = input.ports.createTimestampConform
+        ?? createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
+      conform = await createConform({
+        asset: sourceAsset,
+        storedObjectReader: input.ports.storedObjectReader,
+        firstFrameOrdinal: scope.pcmWindow.sourceStartFrame,
+        endExclusiveFrameOrdinal: scope.pcmWindow.sourceEndExclusiveFrame,
+        windowResourcePolicy:
+          NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1
+            .epochWindow,
+        projectRate: scope.pcmWindow.projectRate,
+        timelineStartFrame: String(scope.pcmWindow.overlayFromFrame),
+        timelineFrameQueries: scope.pcmWindow.timelineFrameQueries,
+        sourceAnchorFrameOrdinal: scope.pcmWindow.sourceStartFrame,
+        resourcePolicy:
+          NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1
+            .conform,
+        audio: {
+          evidence: selected.evidence,
+          endExclusiveTimelineFrame: String(
+            scope.pcmWindow.overlayFromFrame
+              + scope.pcmWindow.overlayDurationInFrames,
+          ),
+        },
+      });
+    } catch (error) {
+      return unverifiable('PCM_WINDOW_CONFORM_FAILED', diagnostic(error));
+    }
+    if (conform.disposition === 'UNVERIFIABLE') {
+      return unverifiable(
+        'PCM_WINDOW_CONFORM_UNVERIFIABLE',
+        diagnosticText(conform.reason),
+      );
+    }
+    if (conform.transform.transformSha256
+        !== scope.pcmWindow.expectedVisualTransformSha256
+      || conform.transform.sourceBinding.bindingSha256
+        !== scope.sourceTimeBindingSha256
+      || conform.transform.sourceBinding.sourcePtsCadenceMapStateSha256V3
+        !== scope.sourcePtsCadenceMapStateSha256V3) {
+      return unverifiable('PCM_WINDOW_TRANSFORM_MISMATCH', null);
+    }
+    const mapping = conform.transform.audioMapping;
+    if (mapping === null) {
+      return unverifiable('PCM_WINDOW_AUDIO_MAPPING_REQUIRED', null);
+    }
+    if (!audioMappingMatchesSelected(mapping, selected)) {
+      return unverifiable('PCM_WINDOW_AUDIO_MAPPING_MISMATCH', null);
+    }
+    const proof = await verifyNativeMediaTimestampAudioPcmWindowV1({
+      leaseScope: {
+        userId: scope.pcmWindow.userId,
+        projectId: scope.projectId,
+        sequenceId: scope.sequenceId,
+        overlayId: scope.overlayId,
+        projectRevision: scope.projectRevision,
+      },
+      mapping,
+      projectRate: conform.transform.projectRate,
+      overlayFromFrame: scope.pcmWindow.overlayFromFrame,
+      windowLocalStartFrame: scope.pcmWindow.windowLocalStartFrame,
+      windowDurationInFrames: scope.pcmWindow.windowDurationInFrames,
+      expectedAssetId: scope.assetId,
+      manifestSha256: selected.record.manifestSha256,
+      manifestReference: selected.record.manifestReference,
+    }, {
+      pcmReader: input.ports.pcmReader,
+    });
+    if (proof.disposition === 'UNVERIFIABLE') {
+      return unverifiable(`PCM_WINDOW_${proof.reason}`, proof.diagnostic);
+    }
+    pcmWindowProof = proof;
   }
 
   const material = {
@@ -238,11 +375,13 @@ export async function resolveProjectSelectedSourceAudioEvidenceV1(input: Readonl
     decodedPcmSha256: selected.evidence.pcm.decodedPcmSha256,
     decodedSampleFrameCount:
       selected.evidence.pcm.decodedSampleFrameCount,
+    pcmWindowProofSha256: pcmWindowProof?.proofSha256 ?? null,
   };
   return deepFreezeEditronJsonV1({
     ...material,
     evidenceSha256: hashEditronCanonicalJsonV1(material),
     audioEvidence: selected,
+    pcmWindowProof,
   });
 }
 
@@ -276,6 +415,10 @@ function normalizeScope(input: Parameters<
     && expectedSourceVersionEvidenceSha256 === null) {
     throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_ACTIVE_EVIDENCE_REQUIRED');
   }
+  const pcmWindow = normalizePcmWindow(
+    input.pcmWindow,
+    selected.binding,
+  );
   return {
     projectId: analysisText(
       input.projectId, 256, 'PROJECT_SELECTED_SOURCE_AUDIO_SCOPE_INVALID',
@@ -312,7 +455,122 @@ function normalizeScope(input: Parameters<
       selected.binding.bindingSha256,
       'PROJECT_SELECTED_SOURCE_AUDIO_SOURCE_INVALID',
     ),
+    pcmWindow,
   };
+}
+
+function normalizePcmWindow(
+  value: ProjectSelectedSourceAudioPcmWindowInputV1 | undefined,
+  binding: SelectedSourceV1['binding'],
+): ProjectSelectedSourceAudioPcmWindowInputV1 | null {
+  if (value === undefined) return null;
+  const overlayFromFrame = safeFrame(
+    value.overlayFromFrame,
+    false,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID',
+  );
+  const overlayDurationInFrames = safeFrame(
+    value.overlayDurationInFrames,
+    true,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID',
+  );
+  const windowLocalStartFrame = safeFrame(
+    value.windowLocalStartFrame,
+    false,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID',
+  );
+  const windowDurationInFrames = safeFrame(
+    value.windowDurationInFrames,
+    true,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID',
+  );
+  if (windowLocalStartFrame + windowDurationInFrames
+      > overlayDurationInFrames) {
+    throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID');
+  }
+  const sourceStartFrame = analysisNonNegativeIntegerText(
+    value.sourceStartFrame,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_SOURCE_RANGE_INVALID',
+  );
+  const sourceEndExclusiveFrame = analysisNonNegativeIntegerText(
+    value.sourceEndExclusiveFrame,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_SOURCE_RANGE_INVALID',
+  );
+  const totalSourceFrameCount = analysisNonNegativeIntegerText(
+    (binding as { totalSourceFrameCount?: unknown }).totalSourceFrameCount,
+    'PROJECT_SELECTED_SOURCE_AUDIO_PCM_SOURCE_RANGE_INVALID',
+  );
+  if (BigInt(sourceStartFrame) >= BigInt(sourceEndExclusiveFrame)
+    || BigInt(sourceEndExclusiveFrame) > BigInt(totalSourceFrameCount)
+    || BigInt(sourceEndExclusiveFrame) - BigInt(sourceStartFrame)
+      > BigInt(
+        NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1
+          .epochWindow.maxFrameRecords,
+      )) {
+    throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PCM_SOURCE_RANGE_INVALID');
+  }
+  if (!Array.isArray(value.timelineFrameQueries)
+    || value.timelineFrameQueries.length < 1
+    || value.timelineFrameQueries.length
+      > NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1
+        .conform.maxFrameQueries) {
+    throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PCM_QUERIES_INVALID');
+  }
+  const overlayEnd = overlayFromFrame + overlayDurationInFrames;
+  if (!Number.isSafeInteger(overlayEnd)) {
+    throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PCM_WINDOW_INVALID');
+  }
+  const timelineFrameQueries = value.timelineFrameQueries.map((query, index) => {
+    const normalized = analysisNonNegativeIntegerText(
+      query,
+      'PROJECT_SELECTED_SOURCE_AUDIO_PCM_QUERIES_INVALID',
+    );
+    const frame = BigInt(normalized);
+    if (frame < BigInt(overlayFromFrame) || frame >= BigInt(overlayEnd)
+      || (index > 0
+        && frame <= BigInt(value.timelineFrameQueries[index - 1]!))) {
+      throw new Error('PROJECT_SELECTED_SOURCE_AUDIO_PCM_QUERIES_INVALID');
+    }
+    return normalized;
+  });
+  return Object.freeze({
+    userId: analysisText(
+      value.userId, 256, 'PROJECT_SELECTED_SOURCE_AUDIO_PCM_USER_INVALID',
+    ),
+    projectRate: parseExactRationalRateV1(value.projectRate),
+    overlayFromFrame,
+    overlayDurationInFrames,
+    windowLocalStartFrame,
+    windowDurationInFrames,
+    sourceStartFrame,
+    sourceEndExclusiveFrame,
+    timelineFrameQueries: Object.freeze(timelineFrameQueries),
+    expectedVisualTransformSha256: analysisSha256(
+      value.expectedVisualTransformSha256,
+      'PROJECT_SELECTED_SOURCE_AUDIO_PCM_TRANSFORM_INVALID',
+    ),
+  });
+}
+
+function audioMappingMatchesSelected(
+  mapping: NonNullable<VideoSourceTimestampConformV3['audioMapping']>,
+  selected: NativeMediaExactAudioEvidenceV1,
+): boolean {
+  return mapping.sourceVersionSha256
+      === selected.evidence.binding.sourceVersionSha256
+    && mapping.storageVersionSha256
+      === selected.evidence.binding.storageVersionSha256
+    && mapping.audioStreamBindingSha256
+      === selected.evidence.binding.audioStreamBindingSha256
+    && mapping.audioSampleEpochMapSha256
+      === selected.evidence.audioSampleEpochMapSha256
+    && mapping.decodedPcmSha256 === selected.evidence.pcm.decodedPcmSha256
+    && mapping.decodedSampleFrameCount
+      === selected.evidence.pcm.decodedSampleFrameCount
+    && mapping.streamId === selected.evidence.binding.streamId
+    && mapping.audioStreamIndex === selected.evidence.binding.audioStreamIndex
+    && mapping.sampleRate === selected.evidence.binding.sampleRate
+    && mapping.channelCount === selected.evidence.binding.channelCount;
 }
 
 function assertPorts(ports: ProjectSelectedSourceAudioEvidencePortsV1): void {
@@ -324,6 +582,20 @@ function assertPorts(ports: ProjectSelectedSourceAudioEvidencePortsV1): void {
 
 function nullableSha256(value: unknown, code: string): string | null {
   return value === null ? null : analysisSha256(value, code);
+}
+
+function safeFrame(value: unknown, positive: boolean, code: string): number {
+  if (!Number.isSafeInteger(value)
+    || Number(value) < (positive ? 1 : 0)) {
+    throw new Error(code);
+  }
+  return Number(value);
+}
+
+function diagnosticText(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Z0-9_:.-]{1,240}$/.test(value)
+    ? value
+    : null;
 }
 
 function diagnostic(error: unknown): string | null {
