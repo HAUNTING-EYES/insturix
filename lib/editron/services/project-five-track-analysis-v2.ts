@@ -13,7 +13,7 @@ import {
   type FullAnalysisOptions,
 } from './five-track-analysis';
 import type { PipelineWarningCollector } from './pipeline-warnings';
-import type { Project } from './project-service';
+import type { Project, ProjectRevisionV1 } from './project-service';
 import type {
   MediaSourceVersionEvidenceScopeV1,
   MediaSourceVersionEvidenceStorePortsV1,
@@ -23,6 +23,11 @@ import {
   type ProjectSelectedVideoSourceTimeBindingResultV1,
 }
   from './project-selected-video-source-time-binding-v1';
+import {
+  analyzeProjectTimestampVideoV1,
+  type ProjectTimestampVideoAnalysisPortsV1,
+  type ProjectTimestampVideoAnalysisResultV1,
+} from './project-timestamp-video-analysis-v1';
 import {
   classifyVerifiedVideoSourceEpochRateCompatibilityV3,
 } from './video-source-time-transform-v1';
@@ -37,13 +42,21 @@ type SelectedSourceTimeBlockReasonV1 = Extract<
   Readonly<{ disposition: 'UNVERIFIABLE' }>
 >['reason'];
 
+type ProjectTimestampVideoAnalysisBlockReasonV1 = Extract<
+  ProjectTimestampVideoAnalysisResultV1,
+  Readonly<{ disposition: 'UNVERIFIABLE' }>
+>['reason'];
+
 type ProjectFiveTrackAnalysisBlockReasonV2 =
   | 'OVERLAY_ASSET_ID_REQUIRED'
   | 'ASSET_NOT_FOUND'
   | `SELECTED_SOURCE_TIME_${SelectedSourceTimeBlockReasonV1}`
   | 'SELECTED_SOURCE_URL_UNAVAILABLE'
-  | 'FIVE_TRACK_SOURCE_RATE_UNSUPPORTED'
   | 'SOURCE_FRAME_COUNT_INVALID'
+  | 'TIMESTAMP_ANALYSIS_PROJECT_REVISION_REQUIRED'
+  | 'TIMESTAMP_ANALYSIS_PORT_REQUIRED'
+  | 'TIMESTAMP_ANALYSIS_CACHE_MISS'
+  | `TIMESTAMP_ANALYSIS_${ProjectTimestampVideoAnalysisBlockReasonV1}`
   | 'ANALYSIS_CACHE_MISS'
   | 'ANALYSIS_EXECUTION_FAILED'
   | 'TIME_BUDGET_EXCEEDED';
@@ -54,13 +67,24 @@ type ProjectFiveTrackTimelineBlockReasonV2 =
   | 'EXPLICIT_SOURCE_RANGE_REQUIRED'
   | 'FULL_SOURCE_RANGE_REQUIRED'
   | 'NORMAL_SPEED_REQUIRED'
-  | 'SINGLE_OVERLAY_SOURCE_REQUIRED';
+  | 'SINGLE_OVERLAY_SOURCE_REQUIRED'
+  | 'PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED';
+
+type ProjectCoordinateAnalysisV1 = Extract<
+  ProjectTimestampVideoAnalysisResultV1,
+  Readonly<{ disposition: 'ANALYZED' }>
+>;
 
 type ProjectFiveTrackOverlayResultV2 = Readonly<{
   overlayId: number;
   assetId: string | null;
   analysis: AssetAnalysis | null;
-  analysisDisposition: 'ANALYZED' | 'CACHED' | 'UNAVAILABLE';
+  projectCoordinateAnalysis: ProjectCoordinateAnalysisV1 | null;
+  analysisDisposition:
+    | 'ANALYZED'
+    | 'CACHED'
+    | 'PROJECT_COORDINATE_ANALYZED'
+    | 'UNAVAILABLE';
   analysisBlockReason: ProjectFiveTrackAnalysisBlockReasonV2 | null;
   timelineAdmission: Readonly<
     | { disposition: 'ADMITTED'; timelineOffsetFrames: number }
@@ -87,7 +111,8 @@ type ProjectFiveTrackAnalysisResultV2 = Readonly<{
 type AnalysisAssetV2 = MediaAsset
   & Parameters<typeof resolveProjectSelectedVideoSourceTimeBindingV1>[0]['asset'];
 
-type PreparedOverlayV2 = Readonly<{
+type SourceBoundPreparedOverlayV2 = Readonly<{
+  kind: 'SOURCE_BOUND_FIVE_TRACK';
   overlay: ClipOverlay;
   assetId: string;
   totalSourceFrameCount: number;
@@ -96,6 +121,20 @@ type PreparedOverlayV2 = Readonly<{
     sourceBindingV2: AssetAnalysisSourceBindingV2;
   }>;
 }>;
+
+type TimestampPreparedOverlayV2 = Readonly<{
+  kind: 'PROJECT_TIMESTAMP';
+  overlay: ClipOverlay;
+  assetId: string;
+  selectedSource: Extract<
+    ProjectSelectedVideoSourceTimeBindingResultV1,
+    Readonly<{ disposition: 'RESOLVED' }>
+  >['binding'];
+}>;
+
+type PreparedOverlayV2 =
+  | SourceBoundPreparedOverlayV2
+  | TimestampPreparedOverlayV2;
 
 export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
   loadAssets(assetIds: readonly string[]): Promise<readonly AnalysisAssetV2[]>;
@@ -109,6 +148,8 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
     options: FullAnalysisOptions;
     pipelineWarnings?: PipelineWarningCollector;
   }>): Promise<AssetAnalysis>;
+  materializeTimestampAnalysis?:
+    ProjectTimestampVideoAnalysisPortsV1['materialize'];
   nowMs(): number;
 }>;
 
@@ -116,6 +157,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   project: Project;
   userId: string;
   mode: ProjectFiveTrackAnalysisModeV2;
+  projectRevisionV1?: ProjectRevisionV1;
   timeBudgetMs?: number;
   pipelineWarnings?: PipelineWarningCollector;
   ports?: ProjectFiveTrackAnalysisPortsV2;
@@ -153,6 +195,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
 
   const sourceUseCount = new Map<string, number>();
   for (const candidate of prepared.values()) {
+    if (candidate.kind !== 'SOURCE_BOUND_FIVE_TRACK') continue;
     const key = candidate.sourceBinding.bindingSha256;
     sourceUseCount.set(key, (sourceUseCount.get(key) ?? 0) + 1);
   }
@@ -166,7 +209,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   let failed = 0;
   let timedOut = false;
 
-  for (const candidate of uniqueSources(prepared.values())) {
+  for (const candidate of uniqueSources(sourceBoundCandidates(prepared.values()))) {
     if (ports.nowMs() - startedAt > timeBudgetMs) {
       timedOut = true;
       blocked.set(candidate.overlay.id, 'TIME_BUDGET_EXCEEDED');
@@ -210,15 +253,70 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
     }
   }
 
+  const timestampAnalyses = new Map<number, ProjectCoordinateAnalysisV1>();
+  for (const candidate of timestampCandidates(prepared.values())) {
+    if (input.mode === 'CACHE_ONLY') {
+      blocked.set(candidate.overlay.id, 'TIMESTAMP_ANALYSIS_CACHE_MISS');
+      continue;
+    }
+    if (ports.nowMs() - startedAt > timeBudgetMs) {
+      timedOut = true;
+      blocked.set(candidate.overlay.id, 'TIME_BUDGET_EXCEEDED');
+      continue;
+    }
+    if (!input.projectRevisionV1) {
+      failed += 1;
+      blocked.set(
+        candidate.overlay.id,
+        'TIMESTAMP_ANALYSIS_PROJECT_REVISION_REQUIRED',
+      );
+      continue;
+    }
+    if (!ports.materializeTimestampAnalysis) {
+      failed += 1;
+      blocked.set(candidate.overlay.id, 'TIMESTAMP_ANALYSIS_PORT_REQUIRED');
+      continue;
+    }
+    const result = await analyzeProjectTimestampVideoV1({
+      userId: input.userId,
+      projectId,
+      sequenceId: 'main',
+      overlayId: candidate.overlay.id,
+      projectRevision: input.projectRevisionV1,
+      overlayFromFrame: candidate.overlay.from,
+      overlayDurationInFrames: candidate.overlay.durationInFrames,
+      selectedSource: candidate.selectedSource,
+      ports: { materialize: ports.materializeTimestampAnalysis },
+    });
+    if (result.disposition === 'ANALYZED') {
+      timestampAnalyses.set(candidate.overlay.id, result);
+      analyzed += 1;
+    } else {
+      failed += 1;
+      blocked.set(
+        candidate.overlay.id,
+        `TIMESTAMP_ANALYSIS_${result.reason}`,
+      );
+    }
+  }
+
   const overlayResults = videoOverlays.map((overlay) => {
     const candidate = prepared.get(overlay.id);
-    const sourceAnalysis = candidate
+    const sourceAnalysis = candidate?.kind === 'SOURCE_BOUND_FIVE_TRACK'
       ? analyses.get(candidate.sourceBinding.bindingSha256)
       : undefined;
-    const analysisBlockReason = candidate && !sourceAnalysis
+    const projectCoordinateAnalysis = timestampAnalyses.get(overlay.id);
+    const analysisBlockReason = candidate
+      && !sourceAnalysis
+      && !projectCoordinateAnalysis
       ? blocked.get(candidate.overlay.id) ?? 'ANALYSIS_CACHE_MISS'
       : blocked.get(overlay.id) ?? null;
-    const timelineAdmission = candidate && sourceAnalysis
+    const timelineAdmission = projectCoordinateAnalysis
+      ? {
+          disposition: 'BLOCKED' as const,
+          reason: 'PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED' as const,
+        }
+      : candidate?.kind === 'SOURCE_BOUND_FIVE_TRACK' && sourceAnalysis
       ? admitTimeline({
           project: input.project,
           candidate,
@@ -231,7 +329,10 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       overlayId: overlay.id,
       assetId: typeof overlay.assetId === 'string' ? overlay.assetId : null,
       analysis: sourceAnalysis?.analysis ?? null,
-      analysisDisposition: sourceAnalysis?.disposition ?? 'UNAVAILABLE',
+      projectCoordinateAnalysis: projectCoordinateAnalysis ?? null,
+      analysisDisposition: projectCoordinateAnalysis
+        ? 'PROJECT_COORDINATE_ANALYZED' as const
+        : sourceAnalysis?.disposition ?? 'UNAVAILABLE',
       analysisBlockReason,
       timelineAdmission,
     });
@@ -281,16 +382,21 @@ async function prepareOverlay(input: Readonly<{
   if (selected.disposition === 'UNVERIFIABLE') {
     return { reason: `SELECTED_SOURCE_TIME_${selected.reason}` };
   }
-  const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
-  if (!videoUrl) return { reason: 'SELECTED_SOURCE_URL_UNAVAILABLE' };
   const timing = selected.binding;
   const compatibility = classifyVerifiedVideoSourceEpochRateCompatibilityV3(
     timing,
     30,
   );
   if (compatibility.disposition !== 'COMPATIBLE_SAME_RATE_CFR') {
-    return { reason: 'FIVE_TRACK_SOURCE_RATE_UNSUPPORTED' };
+    return Object.freeze({
+      kind: 'PROJECT_TIMESTAMP' as const,
+      overlay: input.overlay,
+      assetId,
+      selectedSource: timing,
+    });
   }
+  const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
+  if (!videoUrl) return { reason: 'SELECTED_SOURCE_URL_UNAVAILABLE' };
   const totalSourceFrameCount = safeFrameCount(timing.totalSourceFrameCount);
   if (totalSourceFrameCount === null) {
     return { reason: 'SOURCE_FRAME_COUNT_INVALID' };
@@ -309,6 +415,7 @@ async function prepareOverlay(input: Readonly<{
     analysisInputSha256: createFiveTrackAnalysisInputSha256V2(baseOptions),
   });
   return Object.freeze({
+    kind: 'SOURCE_BOUND_FIVE_TRACK' as const,
     overlay: input.overlay,
     assetId,
     totalSourceFrameCount,
@@ -319,7 +426,7 @@ async function prepareOverlay(input: Readonly<{
 
 function admitTimeline(input: Readonly<{
   project: Project;
-  candidate: PreparedOverlayV2;
+  candidate: SourceBoundPreparedOverlayV2;
   sourceUseCount: number;
 }>): ProjectFiveTrackOverlayResultV2['timelineAdmission'] {
   const { overlay, totalSourceFrameCount } = input.candidate;
@@ -348,15 +455,33 @@ function admitTimeline(input: Readonly<{
 }
 
 function uniqueSources(
-  candidates: Iterable<PreparedOverlayV2>,
-): readonly PreparedOverlayV2[] {
-  const unique = new Map<string, PreparedOverlayV2>();
+  candidates: Iterable<SourceBoundPreparedOverlayV2>,
+): readonly SourceBoundPreparedOverlayV2[] {
+  const unique = new Map<string, SourceBoundPreparedOverlayV2>();
   for (const candidate of candidates) {
     if (!unique.has(candidate.sourceBinding.bindingSha256)) {
       unique.set(candidate.sourceBinding.bindingSha256, candidate);
     }
   }
   return Array.from(unique.values());
+}
+
+function sourceBoundCandidates(
+  candidates: Iterable<PreparedOverlayV2>,
+): readonly SourceBoundPreparedOverlayV2[] {
+  return Array.from(candidates).filter(
+    (candidate): candidate is SourceBoundPreparedOverlayV2 =>
+      candidate.kind === 'SOURCE_BOUND_FIVE_TRACK',
+  );
+}
+
+function timestampCandidates(
+  candidates: Iterable<PreparedOverlayV2>,
+): readonly TimestampPreparedOverlayV2[] {
+  return Array.from(candidates).filter(
+    (candidate): candidate is TimestampPreparedOverlayV2 =>
+      candidate.kind === 'PROJECT_TIMESTAMP',
+  );
 }
 
 function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
@@ -381,6 +506,11 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
     readAnalysis: getSourceBoundAnalysisV2<AssetAnalysis>,
     runAnalysis: ({ assetId, userId, options, pipelineWarnings }) =>
       runFullAnalysis(assetId, userId, options, pipelineWarnings),
+    async materializeTimestampAnalysis(input) {
+      const { materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1 } =
+        await import('./native-media-timestamp-preview-materializer-v1');
+      return materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(input);
+    },
     nowMs: () => Date.now(),
   };
 }

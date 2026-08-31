@@ -14,6 +14,10 @@ import { createProjectVideoSourceVersionPinV1 }
   from '@/lib/editron/services/project-video-source-version-pin-v1';
 import { buildVerifiedProxySourceV3FixtureV1 }
   from './helpers/verified-proxy-source-v3-fixture';
+import {
+  buildNativeMediaTimestampAnalysisMaterializationFixtureV1,
+  TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+} from './helpers/native-media-timestamp-analysis-materialization-fixture';
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
   COLLECTIONS: { MEDIA_ASSETS: 'media_assets' },
@@ -102,7 +106,7 @@ describe('project five-track analysis v2', () => {
     expect(runAnalysis).toHaveBeenCalledTimes(1);
   });
 
-  it('blocks VFR before cache or provider access', async () => {
+  it('analyzes VFR in exact project coordinates without admitting the legacy EDL', async () => {
     const fixture = await sourceFixture(
       'vfr',
       ['3000', '1500', '4500'],
@@ -118,24 +122,79 @@ describe('project five-track analysis v2', () => {
       fixture.userId,
       100,
     ));
+    const materializeTimestampAnalysis = vi.fn(async () =>
+      buildNativeMediaTimestampAnalysisMaterializationFixtureV1({
+        projectId: project.projectId,
+        overlayId: '1',
+        projectRevision: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+        timelineStartFrame: '30',
+        timelineEndExclusiveFrame: '33',
+        sourceVersionSha256: fixture.verifiedBinding.sourceVersionSha256,
+        storageVersionSha256: fixture.verifiedBinding.storageVersionSha256,
+        sourcePtsCadenceMapStateSha256V3:
+          fixture.verifiedBinding.sourcePtsCadenceMapStateSha256V3,
+      }));
 
     const result = await analyzeProjectFiveTrackV2({
       project,
       userId: fixture.userId,
       mode: 'FULL',
-      ports: ports(fixture.asset, readAnalysis, runAnalysis),
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        materializeTimestampAnalysis,
+      ),
     });
 
     expect(result.overlays[0]).toMatchObject({
-      analysisDisposition: 'UNAVAILABLE',
-      analysisBlockReason: 'FIVE_TRACK_SOURCE_RATE_UNSUPPORTED',
+      analysis: null,
+      analysisDisposition: 'PROJECT_COORDINATE_ANALYZED',
+      analysisBlockReason: null,
+      projectCoordinateAnalysis: {
+        disposition: 'ANALYZED',
+        vision: { sceneChanges: ['30'] },
+      },
       timelineAdmission: {
         disposition: 'BLOCKED',
-        reason: 'ANALYSIS_UNAVAILABLE',
+        reason: 'PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED',
       },
     });
     expect(readAnalysis).not.toHaveBeenCalled();
     expect(runAnalysis).not.toHaveBeenCalled();
+    expect(materializeTimestampAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not materialize timestamp analysis in cache-only mode', async () => {
+    const fixture = await sourceFixture('vfr-cache', ['3000', '1500', '4500']);
+    const project = projectFixture(fixture, 3);
+    const readAnalysis = vi.fn(async (): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (): Promise<AssetAnalysis> =>
+      completedAnalysis(fixture.assetId, fixture.userId, 100));
+    const materializeTimestampAnalysis = vi.fn();
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'CACHE_ONLY',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        materializeTimestampAnalysis,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'UNAVAILABLE',
+      analysisBlockReason: 'TIMESTAMP_ANALYSIS_CACHE_MISS',
+      projectCoordinateAnalysis: null,
+    });
+    expect(readAnalysis).not.toHaveBeenCalled();
+    expect(runAnalysis).not.toHaveBeenCalled();
+    expect(materializeTimestampAnalysis).not.toHaveBeenCalled();
   });
 });
 
@@ -247,12 +306,16 @@ function ports(
   asset: Awaited<ReturnType<typeof sourceFixture>>['asset'],
   readAnalysis: ProjectFiveTrackAnalysisPortsV2['readAnalysis'],
   runAnalysis: ProjectFiveTrackAnalysisPortsV2['runAnalysis'],
+  materializeTimestampAnalysis?: NonNullable<
+    ProjectFiveTrackAnalysisPortsV2['materializeTimestampAnalysis']
+  >,
 ): ProjectFiveTrackAnalysisPortsV2 {
   return {
     loadAssets: vi.fn(async (_assetIds: readonly string[]) => [asset]),
     loadSourceVersionEvidence: vi.fn(async () => null),
     readAnalysis,
     runAnalysis,
+    ...(materializeTimestampAnalysis ? { materializeTimestampAnalysis } : {}),
     nowMs: () => 0,
   };
 }
