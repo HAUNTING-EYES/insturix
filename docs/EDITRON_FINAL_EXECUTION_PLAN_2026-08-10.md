@@ -11587,6 +11587,37 @@ coordinate PCM/audio-window consumer with current rights and revision checks,
 followed by source-version-bound transcription and the remaining full track
 consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact timestamp PCM-window verification Phase 3F-C8cg (2026-08-31):**
+commit `6e7022cb1` separates private PCM-byte verification from browser audio-
+surface materialization while retaining one exact range-calculation owner.
+The existing timestamp audio materializer now reads and validates every
+bounded PCM segment before it writes any browser surface. A new proof-only
+entry point uses the same project-frame -> rational-sample -> source-range
+calculation, reads the exact private PCM ranges, verifies manifest/map/stream/
+rate/channel/range scope and recalculates each byte-range SHA-256. Its receipt
+contains project/sequence/overlay/revision scope, source/storage/audio hashes,
+exact sample positions, declared silence, range hashes and aggregate byte
+counts; it contains neither PCM bytes, private object keys nor browser audio
+handles.
+
+The focused owner battery passes 9/9, including a forged-range-hash stop with
+no surface write. The paired timestamp materializer regression passes 4/4.
+Repository TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No live private R2 object, browser/device playback,
+customer project, paid provider or mutation was exercised.
+
+This result is
+`EXACT_TIMESTAMP_PCM_WINDOW_LOCALLY_VERIFIED_PROJECT_COMPOSITION_AND_PLAYBACK_OPEN`.
+It proves that the bounded PCM bytes selected by an already-constructed exact
+audio mapping are readable and untampered. It does **not** yet prove that the
+mapping came from the current ProjectService-selected source/revision, that a
+browser/device scheduled or played those bytes, that the source is currently
+rights-authorized, or that analysis/transcription consumed them. Queue item 3
+next composes this proof with the existing project-selected source evidence
+and exact visual transform without duplicating time-conformance authority,
+then binds source-version transcription and the remaining timestamp-native
+audio consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
