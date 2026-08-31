@@ -17,6 +17,7 @@ import {
   fingerprintThinkForgeStructuredWriterOutput,
   fingerprintThinkForgeVisiblePublishableOutput,
   getThinkForgeWriterEvalCorpusManifest,
+  resolveEvalWriterTimeoutMs,
 } from '../../scripts/prompt-optimization/eval-thinkforge-writers';
 import type { PostWriterResult } from '../../lib/thinkforge/agents/post-writer-agent';
 
@@ -283,6 +284,19 @@ describe('ThinkForge eval provider budget', () => {
 });
 
 describe('ThinkForge writer paid-run preflight', () => {
+  it('gives the complete writer workflow the production execution envelope', () => {
+    expect(resolveEvalWriterTimeoutMs({})).toBe(300_000);
+    expect(resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_REQUEST_TIMEOUT_MS: '90000',
+    })).toBe(300_000);
+    expect(resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_WRITER_TIMEOUT_MS: '420000',
+    })).toBe(420_000);
+    expect(() => resolveEvalWriterTimeoutMs({
+      THINKFORGE_EVAL_WRITER_TIMEOUT_MS: '90.5',
+    })).toThrow('THINKFORGE_EVAL_WRITER_TIMEOUT_MS must be a positive whole number');
+  });
+
   it('keeps tuned regressions separate and exposes fifteen genuinely blind cases', () => {
     const manifest = getThinkForgeWriterEvalCorpusManifest();
 

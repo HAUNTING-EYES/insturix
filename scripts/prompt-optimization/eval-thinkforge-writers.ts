@@ -105,10 +105,25 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
-const configuredWriterTimeoutMs = Number.parseInt(process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS ?? '90000', 10);
-const EVAL_WRITER_TIMEOUT_MS = Number.isFinite(configuredWriterTimeoutMs) && configuredWriterTimeoutMs > 0
-  ? configuredWriterTimeoutMs
-  : 90_000;
+
+// Match the production chat route's five-minute execution envelope. Judge/provider HTTP calls
+// keep their independent request timeout in thinkforge-eval-provider-adapter.
+const DEFAULT_EVAL_WRITER_TIMEOUT_MS = 5 * 60 * 1_000;
+
+export function resolveEvalWriterTimeoutMs(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const configured = environment.THINKFORGE_EVAL_WRITER_TIMEOUT_MS?.trim();
+  if (!configured) return DEFAULT_EVAL_WRITER_TIMEOUT_MS;
+
+  const timeoutMs = Number(configured);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('THINKFORGE_EVAL_WRITER_TIMEOUT_MS must be a positive whole number');
+  }
+  return timeoutMs;
+}
+
+const EVAL_WRITER_TIMEOUT_MS = resolveEvalWriterTimeoutMs();
 
 async function withWriterTimeout<T>(
   operation: (abortSignal: AbortSignal) => Promise<T>,
