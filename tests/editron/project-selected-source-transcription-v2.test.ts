@@ -58,6 +58,7 @@ describe('project selected source transcription V2', () => {
     });
     expect(resolveTranscription).toHaveBeenCalledWith(
       expect.objectContaining({
+        mode: 'FULL',
         tenantId: 'org-1',
         userId: 'member-1',
         orgId: 'org-1',
@@ -114,16 +115,20 @@ describe('project selected source transcription V2', () => {
       resolvedSelection(source(), 'PROXY'));
     const resolveTranscription = vi.fn(async () => ({
       disposition: 'BLOCKED' as const,
-      diagnosticCode: 'SOURCE_TRANSCRIPTION_EGRESS_AUTHORIZATION_NOT_CURRENT',
+      diagnosticCode: 'ASSET_TRANSCRIPTION_CACHE_MISS',
     }));
 
     expect(await resolveProjectSelectedSourceTranscriptionV2(
-      request(),
+      { ...request(), mode: 'CACHE_ONLY' },
       ports({ resolveSelectedSource, resolveTranscription }),
     )).toEqual({
       disposition: 'BLOCKED',
-      diagnosticCode: 'SOURCE_TRANSCRIPTION_EGRESS_AUTHORIZATION_NOT_CURRENT',
+      diagnosticCode: 'ASSET_TRANSCRIPTION_CACHE_MISS',
     });
+    expect(resolveTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'CACHE_ONLY' }),
+      expect.any(Object),
+    );
   });
 });
 
@@ -141,6 +146,7 @@ function ports(overrides: Partial<ProjectSelectedSourceTranscriptionPortsV2>) {
 function request(): RequestV2 {
   const sourceVersion = source();
   return {
+    mode: 'FULL',
     project: {
       projectId: 'project-1',
       userId: 'owner-1',

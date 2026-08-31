@@ -49,6 +49,7 @@ export type ProjectSelectedSourceTranscriptionPortsV2 = Readonly<{
  */
 export async function resolveProjectSelectedSourceTranscriptionV2(
   input: Readonly<{
+    mode: 'FULL' | 'CACHE_ONLY';
     project: Project;
     projectRevision: ProjectRevisionV1;
     userId: string;
@@ -109,6 +110,7 @@ export async function resolveProjectSelectedSourceTranscriptionV2(
     const transcription = await (
       ports.resolveTranscription ?? resolveSourceBoundAssetTranscriptionV2
     )({
+      mode: input.mode,
       tenantId: orgId ?? projectOwnerId,
       userId,
       orgId,

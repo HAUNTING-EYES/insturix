@@ -21,6 +21,7 @@ import { createMediaSourceVersionV1 }
   from '@/lib/editron/services/media-source-version-v1';
 import {
   resolveSourceBoundAssetTranscriptionV2,
+  type SourceBoundAssetTranscriptionInputV2,
   type SourceBoundAssetTranscriptionPortsV2,
 } from '@/lib/editron/services/source-bound-asset-transcription-v2';
 import {
@@ -102,6 +103,30 @@ describe('source-bound asset transcription V2', () => {
     expect(runtime.events).toEqual(['cache:get', 'rights', 'revision']);
     expect(runtime.transcribe).toHaveBeenCalledTimes(providerCalls);
     expect(runtime.save).toHaveBeenCalledTimes(cacheWrites);
+  });
+
+  it('keeps CACHE_ONLY cache misses read-only before provider owners', async () => {
+    const runtime = await harness();
+
+    expect(await runtime.run({}, { mode: 'CACHE_ONLY' })).toEqual({
+      disposition: 'BLOCKED',
+      diagnosticCode: 'ASSET_TRANSCRIPTION_CACHE_MISS',
+    });
+    expect(runtime.events).toEqual(['cache:get', 'rights', 'revision']);
+    expect(runtime.egressAuthorize).not.toHaveBeenCalled();
+    expect(runtime.openLease).not.toHaveBeenCalled();
+    expect(runtime.transcribe).not.toHaveBeenCalled();
+    expect(runtime.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid orchestration mode before reading the cache', async () => {
+    const runtime = await harness();
+
+    expect(await runtime.run({}, { mode: 'INVALID' as never })).toEqual({
+      disposition: 'BLOCKED',
+      diagnosticCode: 'ASSET_TRANSCRIPTION_MODE_INVALID',
+    });
+    expect(runtime.events).toEqual([]);
   });
 
   it('rejects corrupt cache evidence before rights, policy, lease, or provider work', async () => {
@@ -258,7 +283,8 @@ async function harness() {
     providerTranscriber: { transcribe },
     now: () => NOW,
   } satisfies SourceBoundAssetTranscriptionPortsV2;
-  const input = {
+  const input: SourceBoundAssetTranscriptionInputV2 = {
+    mode: 'FULL',
     tenantId: 'user-1',
     userId: 'user-1',
     orgId: null,
@@ -283,8 +309,13 @@ async function harness() {
     revalidate,
     transcribe,
     save,
-    run: (overrides: Partial<SourceBoundAssetTranscriptionPortsV2> = {}) =>
-      resolveSourceBoundAssetTranscriptionV2(input, { ...ports, ...overrides }),
+    run: (
+      overrides: Partial<SourceBoundAssetTranscriptionPortsV2> = {},
+      inputOverrides: Partial<typeof input> = {},
+    ) => resolveSourceBoundAssetTranscriptionV2(
+      { ...input, ...inputOverrides },
+      { ...ports, ...overrides },
+    ),
   };
 }
 

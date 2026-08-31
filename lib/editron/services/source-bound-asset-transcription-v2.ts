@@ -39,6 +39,7 @@ import type { VerifiedMediaSourceLeasePortV1 }
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 
 export type SourceBoundAssetTranscriptionInputV2 = Readonly<{
+  mode: 'FULL' | 'CACHE_ONLY';
   tenantId: string;
   userId: string;
   orgId: string | null;
@@ -127,6 +128,11 @@ export async function resolveSourceBoundAssetTranscriptionV2(
         sourceRightsAuthorization: firstRights.receipt,
         evidence: cached.evidence,
       });
+    }
+    // CACHE_ONLY is a read contract, not permission to acquire a lease, egress,
+    // spend provider resources, or create durable evidence.
+    if (scope.mode === 'CACHE_ONLY') {
+      return blocked('ASSET_TRANSCRIPTION_CACHE_MISS');
     }
 
     const owners = requireMissOwners(ports);
@@ -242,12 +248,16 @@ function normalizeScope(
     || (ports.now !== undefined && typeof ports.now !== 'function')) {
     throw new Error('ASSET_TRANSCRIPTION_ORCHESTRATION_PORT_INVALID');
   }
+  if (input.mode !== 'FULL' && input.mode !== 'CACHE_ONLY') {
+    throw new Error('ASSET_TRANSCRIPTION_MODE_INVALID');
+  }
   const sourceVersion = assertMediaSourceVersionV1(input.sourceVersion);
   if (!input.asset || input.asset.assetId !== sourceVersion.assetId
     || input.asset.type !== sourceVersion.mediaKind) {
     throw new Error('ASSET_TRANSCRIPTION_ASSET_SOURCE_SCOPE_MISMATCH');
   }
   return Object.freeze({
+    mode: input.mode,
     tenantId: identity(input.tenantId),
     userId: identity(input.userId),
     orgId: input.orgId === null ? null : identity(input.orgId),
