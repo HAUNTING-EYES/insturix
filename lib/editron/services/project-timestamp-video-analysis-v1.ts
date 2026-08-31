@@ -15,10 +15,9 @@ import {
 } from './native-media-timestamp-analysis-vision-v1';
 import type {
   NativeMediaTimestampAnalysisMaterializerInputV1,
+  NativeMediaTimestampPreviewSelectedSourceBindingV1,
 } from './native-media-timestamp-preview-materializer-v1';
 import type { ProjectRevisionV1 } from './project-service';
-import type { VerifiedVideoSourceEpochTimeBindingV3 }
-  from './video-source-time-transform-v1';
 
 export type ProjectTimestampVideoAnalysisPortsV1 = Readonly<{
   materialize(
@@ -57,12 +56,7 @@ export async function analyzeProjectTimestampVideoV1(input: Readonly<{
   projectRevision: ProjectRevisionV1;
   overlayFromFrame: number;
   overlayDurationInFrames: number;
-  selectedSource: Pick<
-    VerifiedVideoSourceEpochTimeBindingV3,
-    | 'sourceVersionSha256'
-    | 'storageVersionSha256'
-    | 'sourcePtsCadenceMapStateSha256V3'
-  >;
+  selectedSource: NativeMediaTimestampPreviewSelectedSourceBindingV1;
   ports: ProjectTimestampVideoAnalysisPortsV1;
 }>): Promise<ProjectTimestampVideoAnalysisResultV1> {
   let scope: ReturnType<typeof normalizeScope>;
@@ -80,7 +74,7 @@ export async function analyzeProjectTimestampVideoV1(input: Readonly<{
 
   let raw: unknown;
   try {
-    raw = await input.ports.materialize({
+    const materializerInput: NativeMediaTimestampAnalysisMaterializerInputV1 = {
       userId: scope.userId,
       projectId: scope.projectId,
       sequenceId: scope.sequenceId,
@@ -89,7 +83,11 @@ export async function analyzeProjectTimestampVideoV1(input: Readonly<{
       windowLocalStartFrame: 0,
       windowDurationInFrames: scope.overlayDurationInFrames,
       deliveryContract: 'ANALYSIS_RECEIPT_V1',
-    });
+      ...(scope.selectedSource.bindingSha256 === undefined
+        ? {}
+        : { selectedSource: scope.selectedSource }),
+    };
+    raw = await input.ports.materialize(materializerInput);
   } catch (error) {
     return unverifiable('MATERIALIZATION_UNAVAILABLE', diagnostic(error));
   }
@@ -177,6 +175,24 @@ function normalizeScope(input: Parameters<
   if (!Number.isSafeInteger(end)) {
     throw new Error('PROJECT_TIMESTAMP_VIDEO_ANALYSIS_WINDOW_INVALID');
   }
+  const sourceVersionSha256 = analysisSha256(
+    input.selectedSource?.sourceVersionSha256,
+    'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
+  );
+  const storageVersionSha256 = analysisSha256(
+    input.selectedSource?.storageVersionSha256,
+    'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
+  );
+  const sourcePtsCadenceMapStateSha256V3 = analysisSha256(
+    input.selectedSource?.sourcePtsCadenceMapStateSha256V3,
+    'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
+  );
+  const bindingSha256 = input.selectedSource?.bindingSha256 === undefined
+    ? undefined
+    : analysisSha256(
+      input.selectedSource.bindingSha256,
+      'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
+    );
   return {
     userId: analysisText(
       input.userId, 256, 'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SCOPE_INVALID',
@@ -201,18 +217,15 @@ function normalizeScope(input: Parameters<
       String(end),
       'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_WINDOW_INVALID',
     ),
-    sourceVersionSha256: analysisSha256(
-      input.selectedSource?.sourceVersionSha256,
-      'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
-    ),
-    storageVersionSha256: analysisSha256(
-      input.selectedSource?.storageVersionSha256,
-      'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
-    ),
-    sourcePtsCadenceMapStateSha256V3: analysisSha256(
-      input.selectedSource?.sourcePtsCadenceMapStateSha256V3,
-      'PROJECT_TIMESTAMP_VIDEO_ANALYSIS_SOURCE_INVALID',
-    ),
+    sourceVersionSha256,
+    storageVersionSha256,
+    sourcePtsCadenceMapStateSha256V3,
+    selectedSource: Object.freeze({
+      sourceVersionSha256,
+      storageVersionSha256,
+      sourcePtsCadenceMapStateSha256V3,
+      ...(bindingSha256 === undefined ? {} : { bindingSha256 }),
+    }),
   };
 }
 

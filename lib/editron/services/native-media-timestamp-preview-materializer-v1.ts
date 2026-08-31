@@ -33,6 +33,11 @@ import {
 import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 } from './media-source-pts-cadence-epoch-artifact-verifier-v3';
 import type { MediaSourcePtsCadenceEpochWindowResourcePolicyV3 } from './media-source-pts-cadence-epoch-window-reader-v3';
 import { classifyMediaSourceTimestampManagementV1 } from './media-source-timestamp-management-v1';
+import {
+  assertMediaSourceVersionEvidenceRecordV1,
+  mediaSourceVersionEvidenceAssetViewV1,
+  type MediaSourceVersionEvidenceScopeV1,
+} from './media-source-version-evidence-owner-v1';
 import type { NativeMediaTimestampAnalysisEnginePortV1 } from './native-media-timestamp-analysis-contract-v1';
 import {
   analyzeNativeMediaTimestampReceiptV1,
@@ -76,8 +81,14 @@ import {
 } from './media-source-pts-cadence-r2-runtime-v1';
 import type { Project, ProjectRevisionV1 } from './project-service';
 import {
+  resolveProjectSelectedVideoSourceTimeBindingV1,
+  type ProjectSelectedVideoSourceTimeBindingPortsV1,
+  type ProjectSelectedVideoSourceTimeBindingResultV1,
+} from './project-selected-video-source-time-binding-v1';
+import {
   createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
   resolveVerifiedVideoSourceEpochTimeBindingV3,
+  type VerifiedVideoSourceEpochTimeBindingV3,
   type VideoSourceTimestampConformResourcePolicyV2,
 } from './video-source-time-transform-v1';
 
@@ -170,6 +181,7 @@ export type NativeMediaTimestampPreviewMaterializerReasonV1 =
   | 'OVERLAY_RETIME_UNSUPPORTED'
   | 'ASSET_UNAVAILABLE'
   | 'ASSET_SCOPE_INVALID'
+  | 'SELECTED_SOURCE_UNVERIFIABLE'
   | 'LEGACY_TIME_MAP_MIGRATION_REQUIRED'
   | 'EXACT_AUDIO_MAPPING_REQUIRED'
   | 'SOURCE_WINDOW_REQUIRES_EXPLICIT_END'
@@ -257,7 +269,19 @@ export type NativeMediaTimestampPreviewMaterializerInputV1 = Readonly<{
   expectedProjectRevision?: ProjectRevisionV1;
   windowLocalStartFrame: number;
   windowDurationInFrames: number;
+  /** Optional caller binding; the materializer re-resolves the project pin. */
+  selectedSource?: NativeMediaTimestampPreviewSelectedSourceBindingV1;
 }>;
+
+export type NativeMediaTimestampPreviewSelectedSourceBindingV1 = Readonly<Pick<
+  VerifiedVideoSourceEpochTimeBindingV3,
+  | 'sourceVersionSha256'
+  | 'storageVersionSha256'
+  | 'sourcePtsCadenceMapStateSha256V3'
+>> & Readonly<Partial<Pick<
+  VerifiedVideoSourceEpochTimeBindingV3,
+  'bindingSha256'
+>>>;
 
 export type NativeMediaTimestampPreviewSessionMaterializerInputV1 =
   NativeMediaTimestampPreviewMaterializerInputV1 & Readonly<{
@@ -289,6 +313,7 @@ export type NativeMediaTimestampPreviewMaterializerPortsV1 = Readonly<{
       userId: string,
     ): Promise<MediaSourceAudioArtifactAssetStateInputV1 | null>;
   }>;
+  selectedSource?: ProjectSelectedVideoSourceTimeBindingPortsV1;
   storedObjectReader: MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3;
   audioArtifactReader?: MediaSourceAudioPrivateArtifactReaderV1;
   audioPreview?: Readonly<{
@@ -396,71 +421,102 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   } catch {
     return unverifiable('ASSET_UNAVAILABLE', null);
   }
-  if (asset) {
-    if (asset.assetId !== overlay.assetId || asset.type !== 'video') {
-      return unverifiable('ASSET_SCOPE_INVALID', null);
-    }
-    const management = classifyMediaSourceTimestampManagementV1(asset);
-    if (management === 'NONE') {
-      let classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
-      try {
-        const issuedAtEpochMs = epochMs(now());
-        const expiresAtEpochMs = epochMs(
-          issuedAtEpochMs + policy.classificationLeaseTtlMs,
-        );
-        classificationLease = assertNativeMediaTimestampPreviewClassificationLeaseV1({
+  if (!asset || asset.assetId !== overlay.assetId || asset.type !== 'video') {
+    return unverifiable('ASSET_SCOPE_INVALID', null);
+  }
+  const currentManagement = classifyMediaSourceTimestampManagementV1(asset);
+  const hasSelectedSourcePin = overlay.sourceVersionPinV1 != null;
+  if (!hasSelectedSourcePin && currentManagement === 'NONE') {
+    let classificationLease: NativeMediaTimestampPreviewClassificationLeaseV1;
+    try {
+      const issuedAtEpochMs = epochMs(now());
+      const expiresAtEpochMs = epochMs(
+        issuedAtEpochMs + policy.classificationLeaseTtlMs,
+      );
+      classificationLease = assertNativeMediaTimestampPreviewClassificationLeaseV1({
+        schemaVersion: 1,
+        kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_KIND_V1,
+        decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
+        projectId: scope.projectId,
+        sequenceId: scope.sequenceId,
+        overlayId: scope.overlayId,
+        assetId: overlay.assetId,
+        projectRevision: snapshot.revision,
+        decisionStateSha256: hashEditronCanonicalJsonV1({
           schemaVersion: 1,
-          kind: NATIVE_MEDIA_TIMESTAMP_PREVIEW_CLASSIFICATION_LEASE_KIND_V1,
           decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
           projectId: scope.projectId,
           sequenceId: scope.sequenceId,
           overlayId: scope.overlayId,
           assetId: overlay.assetId,
           projectRevision: snapshot.revision,
-          decisionStateSha256: hashEditronCanonicalJsonV1({
-            schemaVersion: 1,
-            decision: 'ASSET_NOT_TIMESTAMP_MANAGED',
-            projectId: scope.projectId,
-            sequenceId: scope.sequenceId,
-            overlayId: scope.overlayId,
-            assetId: overlay.assetId,
-            projectRevision: snapshot.revision,
-            cadenceStatePresent: {
-              v1Map: false, v1Hash: false, v2Map: false, v2Hash: false,
-              v3Map: false, v3Hash: false,
-            },
-          }),
-          issuedAtEpochMs,
-          refreshAfterEpochMs:
-            expiresAtEpochMs - policy.classificationRenewBeforeExpiryMs,
-          expiresAtEpochMs,
-        });
-      } catch (error) {
-        return unverifiable('INPUT_INVALID', diagnostic(error));
-      }
-      return Object.freeze({
-        disposition: 'NOT_APPLICABLE' as const,
-        reason: 'ASSET_NOT_TIMESTAMP_MANAGED' as const,
-        classificationLease,
+          cadenceStatePresent: {
+            v1Map: false, v1Hash: false, v2Map: false, v2Hash: false,
+            v3Map: false, v3Hash: false,
+          },
+        }),
+        issuedAtEpochMs,
+        refreshAfterEpochMs:
+          expiresAtEpochMs - policy.classificationRenewBeforeExpiryMs,
+        expiresAtEpochMs,
       });
+    } catch (error) {
+      return unverifiable('INPUT_INVALID', diagnostic(error));
     }
-    if (management === 'EARLIER') {
+    return Object.freeze({
+      disposition: 'NOT_APPLICABLE' as const,
+      reason: 'ASSET_NOT_TIMESTAMP_MANAGED' as const,
+      classificationLease,
+    });
+  }
+  if (!hasSelectedSourcePin) {
+    if (currentManagement === 'EARLIER') {
       return unverifiable('LEGACY_TIME_MAP_MIGRATION_REQUIRED', null);
     }
-    if (management === 'CONFLICTING') {
+    if (currentManagement === 'CONFLICTING') {
       return unverifiable(
         'ASSET_SCOPE_INVALID',
         'NATIVE_MEDIA_PREVIEW_TIMESTAMP_GENERATIONS_CONFLICT',
       );
     }
+    return unverifiable(
+      'SELECTED_SOURCE_UNVERIFIABLE',
+      'SELECTED_SOURCE_PIN_REQUIRED',
+    );
   }
-  let binding: ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>;
-  try {
-    binding = asset === null ? null : resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
-  } catch (error) {
-    return unverifiable('ASSET_SCOPE_INVALID', diagnostic(error));
+  const selectedAssetResult = await resolveSelectedAssetForPreview({
+    projectId: scope.projectId,
+    overlayId: overlay.overlayId,
+    assetId: overlay.assetId,
+    sourcePin: overlay.sourceVersionPinV1,
+    asset,
+    ports,
+  });
+  if (selectedAssetResult.disposition === 'UNVERIFIABLE') {
+    return unverifiable(
+      'SELECTED_SOURCE_UNVERIFIABLE',
+      selectedAssetResult.diagnostic,
+    );
   }
-  if (!asset || !binding || binding.assetId !== overlay.assetId) {
+  asset = selectedAssetResult.asset;
+  const selectedManagement = classifyMediaSourceTimestampManagementV1(asset);
+  if (selectedManagement === 'NONE') {
+    return unverifiable('SELECTED_SOURCE_UNVERIFIABLE', 'SELECTED_SOURCE_V3_REQUIRED');
+  }
+  if (selectedManagement === 'EARLIER') {
+    return unverifiable('LEGACY_TIME_MAP_MIGRATION_REQUIRED', null);
+  }
+  if (selectedManagement === 'CONFLICTING') {
+    return unverifiable(
+      'SELECTED_SOURCE_UNVERIFIABLE',
+      'NATIVE_MEDIA_PREVIEW_TIMESTAMP_GENERATIONS_CONFLICT',
+    );
+  }
+  const binding = selectedAssetResult.selectedSource.binding;
+  if (!selectedSourceBindingMatches(binding, scope.selectedSource)) {
+    return unverifiable('SELECTED_SOURCE_UNVERIFIABLE', 'SELECTED_SOURCE_SCOPE_MISMATCH');
+  }
+  if (binding.assetId !== overlay.assetId) {
     return unverifiable('ASSET_SCOPE_INVALID', null);
   }
   const audioStreamIndexes = sourceAudioStreamIndexes(asset);
@@ -629,26 +685,37 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
   } catch {
     freshAsset = null;
   }
-  let freshBinding: ReturnType<typeof resolveVerifiedVideoSourceEpochTimeBindingV3>;
-  let freshAudioArtifactState: ReturnType<typeof readMediaSourceAudioArtifactAssetStateV1>;
-  try {
-    freshBinding = freshAsset === null
-      ? null
-      : resolveVerifiedVideoSourceEpochTimeBindingV3(freshAsset);
-    freshAudioArtifactState = freshAsset === null
-      ? null
-      : readMediaSourceAudioArtifactAssetStateV1(freshAsset);
-  } catch (error) {
+  if (!freshAsset || freshAsset.assetId !== overlay.assetId || freshAsset.type !== 'video') {
     return releaseThen(
       created.decoder,
       consumed.receipt.decoderRequestSha256,
       'ASSET_CHANGED_DURING_MATERIALIZATION',
-      diagnostic(error),
     );
   }
-  if (!freshBinding || freshBinding.bindingSha256 !== binding.bindingSha256
-    || (freshAudioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null)
-      !== (audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null)) {
+  const freshSelectedAssetResult = await resolveSelectedAssetForPreview({
+    projectId: scope.projectId,
+    overlayId: overlay.overlayId,
+    assetId: overlay.assetId,
+    sourcePin: overlay.sourceVersionPinV1,
+    asset: freshAsset,
+    ports,
+  });
+  if (freshSelectedAssetResult.disposition === 'UNVERIFIABLE') {
+    return releaseThen(
+      created.decoder,
+      consumed.receipt.decoderRequestSha256,
+      'ASSET_CHANGED_DURING_MATERIALIZATION',
+      freshSelectedAssetResult.diagnostic,
+    );
+  }
+  if (!selectedSourceBindingMatches(
+      freshSelectedAssetResult.selectedSource.binding,
+      scope.selectedSource,
+    )
+    || freshSelectedAssetResult.selectedSource.binding.bindingSha256
+      !== binding.bindingSha256
+    || sourceAudioArtifactStateHash(freshSelectedAssetResult.asset)
+      !== sourceAudioArtifactStateHash(asset)) {
     return releaseThen(created.decoder, consumed.receipt.decoderRequestSha256,
       'ASSET_CHANGED_DURING_MATERIALIZATION');
   }
@@ -678,8 +745,12 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     }
     if (!await assetStillMatches({
       assetReader: ports.assetReader,
+      projectId: scope.projectId,
+      overlayId: overlay.overlayId,
       assetId: overlay.assetId,
       userId: scope.userId,
+      sourcePin: overlay.sourceVersionPinV1,
+      ports,
       bindingSha256: binding.bindingSha256,
       audioArtifactStateSha256:
         audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null,
@@ -831,8 +902,12 @@ export async function materializeNativeMediaTimestampPreviewWindowV1(
     }
     if (!await assetStillMatches({
       assetReader: ports.assetReader,
+      projectId: scope.projectId,
+      overlayId: overlay.overlayId,
       assetId: overlay.assetId,
       userId: scope.userId,
+      sourcePin: overlay.sourceVersionPinV1,
+      ports,
       bindingSha256: binding.bindingSha256,
       audioArtifactStateSha256:
         audioArtifactState?.sourceAudioArtifactsStateSha256V1 ?? null,
@@ -1041,7 +1116,37 @@ function normalizeInput(
       : null,
     windowLocalStartFrame: nonNegativeSafeInteger(input.windowLocalStartFrame),
     windowDurationInFrames: positiveSafeInteger(input.windowDurationInFrames),
+    selectedSource: input.selectedSource
+      ? normalizeSelectedSourceBinding(input.selectedSource)
+      : null,
     deliveryContract,
+  });
+}
+
+function normalizeSelectedSourceBinding(
+  value: NativeMediaTimestampPreviewSelectedSourceBindingV1,
+): NativeMediaTimestampPreviewSelectedSourceBindingV1 {
+  return Object.freeze({
+    sourceVersionSha256: sha256(
+      value?.sourceVersionSha256,
+      'NATIVE_MEDIA_PREVIEW_SELECTED_SOURCE_INVALID',
+    ),
+    storageVersionSha256: sha256(
+      value?.storageVersionSha256,
+      'NATIVE_MEDIA_PREVIEW_SELECTED_SOURCE_INVALID',
+    ),
+    sourcePtsCadenceMapStateSha256V3: sha256(
+      value?.sourcePtsCadenceMapStateSha256V3,
+      'NATIVE_MEDIA_PREVIEW_SELECTED_SOURCE_INVALID',
+    ),
+    ...(value?.bindingSha256 === undefined
+      ? {}
+      : {
+          bindingSha256: sha256(
+            value.bindingSha256,
+            'NATIVE_MEDIA_PREVIEW_SELECTED_SOURCE_INVALID',
+          ),
+        }),
   });
 }
 
@@ -1072,11 +1177,13 @@ function normalizeVideoOverlay(overlay: Overlay) {
     || Boolean(overlay.speedCurve?.length)
     || Boolean(overlay.keyframeTracks?.some((track) => track.property === 'speed'));
   return Object.freeze({
+    overlayId: nonNegativeSafeInteger(overlay.id),
     from: nonNegativeSafeInteger(overlay.from),
     durationInFrames: positiveSafeInteger(overlay.durationInFrames),
     assetId: identifier(overlay.assetId, 'NATIVE_MEDIA_PREVIEW_ASSET_INVALID'),
     sourceStartFrame: nonNegativeSafeInteger(sourceStart),
     sourceEndFrame: sourceEnd === null ? null : positiveSafeInteger(sourceEnd),
+    sourceVersionPinV1: overlay.sourceVersionPinV1,
     retimed,
   });
 }
@@ -1227,20 +1334,180 @@ async function releasePairedThen(
   return cleanupFailed ? unverifiable('CLEANUP_FAILED', reason) : unverifiable(reason, detail);
 }
 
+type ResolvedProjectSelectedSourceV1 = Extract<
+  ProjectSelectedVideoSourceTimeBindingResultV1,
+  { disposition: 'RESOLVED' }
+>;
+
+type SelectedAssetForPreviewResultV1 = Readonly<
+  | {
+      disposition: 'RESOLVED';
+      asset: MediaSourceAudioArtifactAssetStateInputV1;
+      selectedSource: ResolvedProjectSelectedSourceV1;
+    }
+  | {
+      disposition: 'UNVERIFIABLE';
+      diagnostic: string | null;
+    }
+>;
+
+async function resolveSelectedAssetForPreview(input: Readonly<{
+  projectId: string;
+  overlayId: number;
+  assetId: string;
+  sourcePin: unknown;
+  asset: MediaSourceAudioArtifactAssetStateInputV1;
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1;
+}>): Promise<SelectedAssetForPreviewResultV1> {
+  let evidenceLoaded = false;
+  let evidenceValue: unknown | null = null;
+  const loadEvidence = input.ports.selectedSource?.loadSourceVersionEvidence
+    ?? loadDefaultSourceVersionEvidence;
+  let selectedSource: ProjectSelectedVideoSourceTimeBindingResultV1;
+  try {
+    selectedSource = await resolveProjectSelectedVideoSourceTimeBindingV1({
+      projectId: input.projectId,
+      overlayId: input.overlayId,
+      assetId: input.assetId,
+      sourcePin: input.sourcePin,
+      asset: input.asset,
+      ports: {
+        loadSourceVersionEvidence: async (scope) => {
+          evidenceLoaded = true;
+          evidenceValue = await loadEvidence(scope);
+          return evidenceValue;
+        },
+      },
+    });
+  } catch (error) {
+    return Object.freeze({
+      disposition: 'UNVERIFIABLE' as const,
+      diagnostic: diagnostic(error) ?? 'SELECTED_SOURCE_RESOLUTION_FAILED',
+    });
+  }
+  if (selectedSource.disposition === 'UNVERIFIABLE') {
+    return Object.freeze({
+      disposition: 'UNVERIFIABLE' as const,
+      diagnostic: selectedSource.reason,
+    });
+  }
+
+  let selectedAsset = input.asset;
+  if (selectedSource.sourceVersionEvidenceSha256 !== null) {
+    if (!evidenceLoaded || evidenceValue === null) {
+      return Object.freeze({
+        disposition: 'UNVERIFIABLE' as const,
+        diagnostic: 'SOURCE_VERSION_EVIDENCE_REQUIRED',
+      });
+    }
+    try {
+      const evidence = assertMediaSourceVersionEvidenceRecordV1(evidenceValue);
+      if (evidence.evidenceSha256 !== selectedSource.sourceVersionEvidenceSha256) {
+        throw new Error('SOURCE_VERSION_EVIDENCE_HASH_MISMATCH');
+      }
+      selectedAsset = mediaSourceVersionEvidenceAssetViewV1(evidence);
+    } catch (error) {
+      return Object.freeze({
+        disposition: 'UNVERIFIABLE' as const,
+        diagnostic: diagnostic(error) ?? 'SOURCE_VERSION_EVIDENCE_INVALID',
+      });
+    }
+  }
+
+  let selectedBinding: VerifiedVideoSourceEpochTimeBindingV3 | null;
+  try {
+    selectedBinding = resolveVerifiedVideoSourceEpochTimeBindingV3(selectedAsset);
+  } catch (error) {
+    return Object.freeze({
+      disposition: 'UNVERIFIABLE' as const,
+      diagnostic: diagnostic(error) ?? 'SELECTED_SOURCE_V3_REQUIRED',
+    });
+  }
+  if (!selectedBinding
+    || selectedAsset.assetId !== input.assetId
+    || selectedAsset.type !== 'video'
+    || !sameSelectedSourceBinding(selectedBinding, selectedSource.binding)) {
+    return Object.freeze({
+      disposition: 'UNVERIFIABLE' as const,
+      diagnostic: 'SELECTED_SOURCE_SCOPE_MISMATCH',
+    });
+  }
+  return Object.freeze({
+    disposition: 'RESOLVED' as const,
+    asset: selectedAsset,
+    selectedSource,
+  });
+}
+
+async function loadDefaultSourceVersionEvidence(
+  scope: MediaSourceVersionEvidenceScopeV1,
+): Promise<unknown | null> {
+  const { createMediaSourceVersionEvidenceMongoStorePortsV1 } =
+    await import('./media-source-version-evidence-mongo-store-v1');
+  return createMediaSourceVersionEvidenceMongoStorePortsV1().load(scope);
+}
+
+function sameSelectedSourceBinding(
+  left: VerifiedVideoSourceEpochTimeBindingV3,
+  right: VerifiedVideoSourceEpochTimeBindingV3,
+): boolean {
+  return left.assetId === right.assetId
+    && left.sourceVersionSha256 === right.sourceVersionSha256
+    && left.storageVersionSha256 === right.storageVersionSha256
+    && left.sourcePtsCadenceMapStateSha256V3
+      === right.sourcePtsCadenceMapStateSha256V3
+    && left.bindingSha256 === right.bindingSha256;
+}
+
+function selectedSourceBindingMatches(
+  binding: VerifiedVideoSourceEpochTimeBindingV3,
+  expected: NativeMediaTimestampPreviewSelectedSourceBindingV1 | null,
+): boolean {
+  return expected === null
+    || (binding.sourceVersionSha256 === expected.sourceVersionSha256
+      && binding.storageVersionSha256 === expected.storageVersionSha256
+      && binding.sourcePtsCadenceMapStateSha256V3
+        === expected.sourcePtsCadenceMapStateSha256V3
+      && (expected.bindingSha256 === undefined
+        || binding.bindingSha256 === expected.bindingSha256));
+}
+
+function sourceAudioArtifactStateHash(
+  asset: MediaSourceAudioArtifactAssetStateInputV1,
+): string | null | 'INVALID' {
+  try {
+    return readMediaSourceAudioArtifactAssetStateV1(asset)
+      ?.sourceAudioArtifactsStateSha256V1 ?? null;
+  } catch {
+    return 'INVALID';
+  }
+}
+
 async function assetStillMatches(input: Readonly<{
   assetReader: NativeMediaTimestampPreviewMaterializerPortsV1['assetReader'];
+  projectId: string;
+  overlayId: number;
   assetId: string;
   userId: string;
+  sourcePin: unknown;
+  ports: NativeMediaTimestampPreviewMaterializerPortsV1;
   bindingSha256: string;
   audioArtifactStateSha256: string | null;
 }>): Promise<boolean> {
   try {
     const asset = await input.assetReader.load(input.assetId, input.userId);
     if (!asset) return false;
-    const binding = resolveVerifiedVideoSourceEpochTimeBindingV3(asset);
-    const audioState = readMediaSourceAudioArtifactAssetStateV1(asset);
-    return binding?.bindingSha256 === input.bindingSha256
-      && (audioState?.sourceAudioArtifactsStateSha256V1 ?? null)
+    const selected = await resolveSelectedAssetForPreview({
+      projectId: input.projectId,
+      overlayId: input.overlayId,
+      assetId: input.assetId,
+      sourcePin: input.sourcePin,
+      asset,
+      ports: input.ports,
+    });
+    return selected.disposition === 'RESOLVED'
+      && selected.selectedSource.binding.bindingSha256 === input.bindingSha256
+      && sourceAudioArtifactStateHash(selected.asset)
         === input.audioArtifactStateSha256;
   } catch {
     return false;
@@ -1264,6 +1531,13 @@ function diagnostic(error: unknown): string | null {
   return error instanceof Error && /^[A-Z0-9_]{1,160}$/.test(error.message)
     ? error.message
     : null;
+}
+
+function sha256(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(code);
+  }
+  return value;
 }
 
 function identifier(value: unknown, code: string): string {

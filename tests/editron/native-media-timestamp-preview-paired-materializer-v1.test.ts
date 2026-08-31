@@ -3,12 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OverlayType } from '@/components/editron/editor/version-7.0.0/types';
 import type { MediaSourceAudioArtifactAssetStateInputV1 } from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
 import type { MediaSourceAudioPrivateArtifactManifestV1 } from '@/lib/editron/services/media-source-audio-private-artifact-v1';
+import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
+import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 import {
   materializeNativeMediaTimestampPreviewWindowV1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
   type NativeMediaTimestampPreviewMaterializerPortsV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-materializer-v1';
 import type { NativeMediaTimestampPreviewAudioSurfaceStorePortV1 } from '@/lib/editron/services/native-media-timestamp-r2-preview-audio-surface-v1';
+import { createProjectVideoSourceVersionPinV1 } from '@/lib/editron/services/project-video-source-version-pin-v1';
 import type { Project } from '@/lib/editron/services/project-service';
 
 const mocks = vi.hoisted(() => ({
@@ -242,6 +245,7 @@ function projectFixture(): Project {
     overlays: [{
       id: 42, type: OverlayType.VIDEO, content: 'video', assetId: 'asset-1',
       from: 0, durationInFrames: 2, sourceStartFrame: 0, sourceEndFrame: 2,
+      sourceVersionPinV1: sourcePin(),
       width: 1920, height: 1080, left: 0, top: 0, row: 0, rotation: 0,
       isDragging: false, styles: {},
     }],
@@ -251,10 +255,52 @@ function projectFixture(): Project {
   };
 }
 
+function sourceVersion() {
+  const storageVersion = createMediaSourceStorageVersionV1({
+    locator: {
+      provider: 'R2',
+      objectKey: 'private/editron/test/paired-source.mkv',
+    },
+    byteLength: 1_024,
+    providerVersion: { kind: 'R2_ETAG', value: 'paired-source-etag' },
+  });
+  return createMediaSourceVersionV1({
+    owner: { kind: 'USER', userId: 'user-1' },
+    assetId: 'asset-1',
+    mediaKind: 'video',
+    byteLength: 1_024,
+    contentSha256: hex('7'),
+    storageVersion,
+  });
+}
+
+function sourcePin() {
+  const source = sourceVersion();
+  return createProjectVideoSourceVersionPinV1({
+    projectId: 'project-1',
+    overlayId: 42,
+    assetId: 'asset-1',
+    sourceRole: 'PROXY',
+    sourceVersionSha256: source.sourceVersionSha256,
+    storageVersionSha256: source.storageVersion.storageVersionSha256,
+    authority: {
+      kind: 'PROJECT_PROXY_SOURCE_BINDING',
+      bindingSha256: hex('8'),
+      proxyTimeMapReferenceSha256: hex('9'),
+    },
+    issuedAt: new Date('2026-08-29T00:00:00.000Z'),
+  });
+}
+
 function asset(): MediaSourceAudioArtifactAssetStateInputV1 {
+  const source = sourceVersion();
   return {
     assetId: 'asset-1',
+    userId: 'user-1',
     type: 'video',
+    isProxy: true,
+    r2Key: source.storageVersion.locator.objectKey,
+    sourceVersionV1: source,
     sourcePtsCadenceMapV3: {},
     sourceQualificationV1: {
       observation: { audioStreams: [{ streamIndex: 1 }] },
@@ -263,8 +309,11 @@ function asset(): MediaSourceAudioArtifactAssetStateInputV1 {
 }
 
 function binding() {
+  const source = sourceVersion();
   return {
     assetId: 'asset-1',
+    sourceVersionSha256: source.sourceVersionSha256,
+    storageVersionSha256: source.storageVersion.storageVersionSha256,
     totalSourceFrameCount: '2',
     bindingSha256: BINDING_SHA256,
     sourcePtsCadenceMapStateSha256V3: MAP_STATE_SHA256,

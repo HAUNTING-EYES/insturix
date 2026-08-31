@@ -15,6 +15,7 @@ import {
   createMediaSourceAudioArtifactAssetRecordV1,
   createMediaSourceAudioArtifactAssetStateV1,
 } from '@/lib/editron/services/media-source-audio-artifact-asset-owner-v1';
+import { captureMediaSourceVersionEvidenceV1 } from '@/lib/editron/services/media-source-version-evidence-owner-v1';
 import type { MediaSourceAudioPrivateArtifactReaderV1 } from '@/lib/editron/services/media-source-audio-private-artifact-port-v1';
 import {
   createMediaSourceAudioEpochMapArtifactReferenceV1,
@@ -60,6 +61,7 @@ import {
   createMediaProxyMasterRelationV1,
   createMediaSourceVersionV1,
 } from '@/lib/editron/services/media-source-version-v1';
+import { createProjectVideoSourceVersionPinV1 } from '@/lib/editron/services/project-video-source-version-pin-v1';
 import {
   createNativeMediaTimestampAnalysisEngineOutputV1,
   type NativeMediaTimestampAnalysisEnginePortV1,
@@ -87,6 +89,7 @@ import {
   createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3,
   type VideoSourceTimestampConformV3,
 } from '@/lib/editron/services/video-source-time-transform-v1';
+import { buildMediaProxyMasterExactBoundaryFixtureV1 } from './helpers/media-proxy-master-exact-boundary-fixture';
 
 describe('native media timestamp consumer V1', () => {
   it('consumes a verified VFR/reset/gap window with exact PTS, picture reuse, and separate audio', async () => {
@@ -446,6 +449,113 @@ describe('native media timestamp preview materializer V1', () => {
     expect(runtime.releaseDecodedBatch).not.toHaveBeenCalled();
   });
 
+  it('fails closed before decoder admission when a managed overlay has no source pin', async () => {
+    const fixture = await verifiedFixture('materializer-no-pin');
+    const runtime = materializerPorts(fixture, { sourcePin: null });
+
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), runtime.ports,
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SELECTED_SOURCE_UNVERIFIABLE',
+      diagnostic: 'SELECTED_SOURCE_PIN_REQUIRED',
+    });
+    expect(runtime.createDecoder).not.toHaveBeenCalled();
+    expect(runtime.decodePictures).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before decoder admission when the source pin selects another source', async () => {
+    const fixture = await verifiedFixture('materializer-wrong-pin');
+    const wrongPin = createProjectVideoSourceVersionPinV1({
+      projectId: 'project-1',
+      overlayId: 42,
+      assetId: fixture.sourceVersion.assetId,
+      sourceRole: 'PROXY',
+      sourceVersionSha256: '0'.repeat(64),
+      storageVersionSha256: fixture.sourceVersion.storageVersion.storageVersionSha256,
+      authority: {
+        kind: 'PROJECT_PROXY_SOURCE_BINDING',
+        bindingSha256: '0'.repeat(64),
+        proxyTimeMapReferenceSha256: '0'.repeat(64),
+      },
+      issuedAt: new Date('2026-08-29T00:00:00.000Z'),
+    });
+    const runtime = materializerPorts(fixture, { sourcePin: wrongPin });
+
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), runtime.ports,
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SELECTED_SOURCE_UNVERIFIABLE',
+      diagnostic: 'SOURCE_SELECTION_UNVERIFIABLE',
+    });
+    expect(runtime.createDecoder).not.toHaveBeenCalled();
+    expect(runtime.decodePictures).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before decoder admission when pinned source evidence belongs to another source', async () => {
+    const active = await buildMediaProxyMasterExactBoundaryFixtureV1({
+      tag: 'materializer-evidence-mismatch',
+      cadence: 'EQUAL',
+    });
+    const foreign = await verifiedFixture('materializer-foreign-evidence');
+    const activeAsset = {
+      ...active.asset,
+      r2Key: (active.asset.proxySourceVersionV1 as {
+        storageVersion: { locator: { objectKey: string } };
+      }).storageVersion.locator.objectKey,
+      originalR2Key: (active.asset.sourceVersionV1 as {
+        storageVersion: { locator: { objectKey: string } };
+      }).storageVersion.locator.objectKey,
+    } as unknown as MediaSourcePtsCadenceMapAssetStateInputV3 & Readonly<{
+      proxyMasterActiveMappingV1: unknown;
+      proxySourceVersionV1: unknown;
+    }>;
+    const mapping = (activeAsset.proxyMasterActiveMappingV1 as {
+      qualification: { mapping: { proxyTimeMap: unknown } };
+    }).qualification.mapping;
+    const proxySource = activeAsset.proxySourceVersionV1 as {
+      sourceVersionSha256: string;
+      storageVersion: { storageVersionSha256: string };
+    };
+    const pin = createProjectVideoSourceVersionPinV1({
+      projectId: 'project-1',
+      overlayId: 42,
+      assetId: activeAsset.assetId as string,
+      sourceRole: 'PROXY',
+      sourceVersionSha256: proxySource.sourceVersionSha256,
+      storageVersionSha256: proxySource.storageVersion.storageVersionSha256,
+      authority: {
+        kind: 'PROJECT_PROXY_SOURCE_BINDING',
+        bindingSha256: 'a'.repeat(64),
+        proxyTimeMapReferenceSha256: hashEditronCanonicalJsonV1(mapping.proxyTimeMap),
+      },
+      issuedAt: new Date('2026-08-31T00:01:00.000Z'),
+    });
+    const project = projectFixture(activeAsset.assetId as string, {
+      overlays: projectFixture(activeAsset.assetId as string).overlays.map((overlay) => ({
+        ...overlay,
+        sourceVersionPinV1: pin,
+      })),
+    });
+    const runtime = materializerPorts(foreign, {
+      project,
+      sourcePin: pin,
+      assetReads: [activeAsset, activeAsset],
+      sourceVersionEvidence: captureMediaSourceVersionEvidenceV1(foreign.asset),
+    });
+
+    await expect(materializeNativeMediaTimestampPreviewWindowV1(
+      materializerInput(), runtime.ports,
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'SELECTED_SOURCE_UNVERIFIABLE',
+      diagnostic: 'SELECTED_SOURCE_SCOPE_MISMATCH',
+    });
+    expect(runtime.createDecoder).not.toHaveBeenCalled();
+    expect(runtime.decodePictures).not.toHaveBeenCalled();
+  });
+
   it('blocks ambiguous rate, retime, source audio, and unbounded source extent before decode', async () => {
     const fixture = await verifiedFixture('materializer-preflight');
     const ambiguous = materializerPorts(fixture, {
@@ -745,9 +855,18 @@ function materializerPorts(
     withAnalysis?: boolean;
     analysisEngine?: NativeMediaTimestampAnalysisEnginePortV1;
     analysisPolicy?: NativeMediaTimestampAnalysisMaterializerPolicyV1;
+    sourcePin?: ReturnType<typeof createProjectVideoSourceVersionPinV1> | null;
+    sourceVersionEvidence?: unknown | null;
   }> = {},
 ) {
-  const project = options.project ?? projectFixture(fixture.sourceVersion.assetId);
+  const sourcePin = options.sourcePin === undefined
+    ? fixtureSourcePin(fixture)
+    : options.sourcePin;
+  const project = withSourcePin(
+    options.project ?? projectFixture(fixture.sourceVersion.assetId),
+    sourcePin,
+    fixture.sourceVersion.assetId,
+  );
   const assetReads = options.assetReads ?? [fixture.asset, fixture.asset];
   let assetReadIndex = 0;
   const decodePictures = vi.fn(async (request: NativeMediaTimestampDecoderBatchRequestV1) => (
@@ -757,6 +876,11 @@ function materializerPorts(
     ? vi.fn(async () => { throw new Error('TEST_RELEASE_FAILED'); })
     : vi.fn(async () => undefined);
   const decoder = { decodePictures, releaseDecodedBatch };
+  const createDecoder = vi.fn(({ materializationStartedAtEpochMs }) => ({
+    decoder,
+    surfaceExpiresAtEpochMs: materializationStartedAtEpochMs
+      + (options.expiresInMs ?? 60 * 60 * 1_000),
+  }));
   const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const readPicture = vi.fn(async (pictureHandle: string) => {
     const batchRequest = decodePictures.mock.calls[0]?.[0];
@@ -807,6 +931,7 @@ function materializerPorts(
     releaseDecodedBatch,
     readPicture,
     analysisEngine,
+    createDecoder,
     ports: {
       projectSnapshotReader: {
         loadProjectForMutation: vi.fn(async () => ({ project, revision: projectRevision(9) })),
@@ -826,11 +951,10 @@ function materializerPorts(
       ...(options.audioArtifactReader
         ? { audioArtifactReader: options.audioArtifactReader }
         : {}),
-      createDecoder: vi.fn(({ materializationStartedAtEpochMs }) => ({
-        decoder,
-        surfaceExpiresAtEpochMs: materializationStartedAtEpochMs
-          + (options.expiresInMs ?? 60 * 60 * 1_000),
-      })),
+      createDecoder,
+      selectedSource: {
+        loadSourceVersionEvidence: vi.fn(async () => options.sourceVersionEvidence ?? null),
+      },
       ...(options.withAnalysis ? {
         analysis: {
           pictureReader: { readPicture },
@@ -842,6 +966,44 @@ function materializerPorts(
       policy: options.policy ?? NATIVE_MEDIA_TIMESTAMP_PREVIEW_MATERIALIZER_DEFAULT_POLICY_V1,
       now: () => 1_000,
     },
+  };
+}
+
+function fixtureSourcePin(fixture: VerifiedFixture) {
+  return createProjectVideoSourceVersionPinV1({
+    projectId: 'project-1',
+    overlayId: 42,
+    assetId: fixture.sourceVersion.assetId,
+    sourceRole: 'PROXY',
+    sourceVersionSha256: fixture.sourceVersion.sourceVersionSha256,
+    storageVersionSha256: fixture.sourceVersion.storageVersion.storageVersionSha256,
+    authority: {
+      kind: 'PROJECT_PROXY_SOURCE_BINDING',
+      bindingSha256: 'a'.repeat(64),
+      proxyTimeMapReferenceSha256: 'b'.repeat(64),
+    },
+    issuedAt: new Date('2026-08-29T00:00:00.000Z'),
+  });
+}
+
+function withSourcePin(
+  project: Project,
+  sourcePin: ReturnType<typeof createProjectVideoSourceVersionPinV1> | null,
+  assetId: string,
+): Project {
+  return {
+    ...project,
+    overlays: project.overlays.map((overlay) => {
+      if (overlay.type !== OverlayType.VIDEO || overlay.assetId !== assetId) {
+        return overlay;
+      }
+      if (sourcePin === null) {
+        const next = { ...overlay };
+        delete next.sourceVersionPinV1;
+        return next;
+      }
+      return { ...overlay, sourceVersionPinV1: sourcePin };
+    }),
   };
 }
 
@@ -1188,9 +1350,16 @@ async function verifiedFixture(
   if (verification.disposition !== 'EPOCH_ARTIFACT_SET_VERIFIED') {
     throw new Error(JSON.stringify(verification));
   }
-  const baseAsset: MediaSourcePtsCadenceMapAssetStateInputV3 = {
+  const baseAsset: MediaSourcePtsCadenceMapAssetStateInputV3 & Readonly<{
+    userId: string;
+    isProxy: true;
+    r2Key: string;
+  }> = {
     assetId,
+    userId: 'user-1',
     type: 'video',
+    isProxy: true,
+    r2Key: storageVersion.locator.objectKey,
     sourceVersionV1: sourceVersion,
     sourceQualificationV1: qualification,
   };

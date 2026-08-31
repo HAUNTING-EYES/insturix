@@ -207,6 +207,18 @@ describe('project five-track analysis v2', () => {
     expect(readAnalysis).not.toHaveBeenCalled();
     expect(runAnalysis).not.toHaveBeenCalled();
     expect(materializeTimestampAnalysis).toHaveBeenCalledTimes(1);
+    expect(materializeTimestampAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryContract: 'ANALYSIS_RECEIPT_V1',
+        selectedSource: {
+          sourceVersionSha256: fixture.verifiedBinding.sourceVersionSha256,
+          storageVersionSha256: fixture.verifiedBinding.storageVersionSha256,
+          sourcePtsCadenceMapStateSha256V3:
+            fixture.verifiedBinding.sourcePtsCadenceMapStateSha256V3,
+          bindingSha256: fixture.verifiedBinding.bindingSha256,
+        },
+      }),
+    );
     expect(resolveSelectedSourceAudioEvidence).toHaveBeenCalledWith(
       expect.objectContaining({
         pcmWindow: {
