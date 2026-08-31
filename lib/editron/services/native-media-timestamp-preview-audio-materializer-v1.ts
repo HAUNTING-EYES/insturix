@@ -66,6 +66,77 @@ type NativeMediaTimestampPreviewAudioMaterializerResultV1 = Readonly<
     }
 >;
 
+export const NATIVE_MEDIA_TIMESTAMP_AUDIO_PCM_WINDOW_PROOF_KIND_V1 =
+  'EDITRON_NATIVE_MEDIA_TIMESTAMP_AUDIO_PCM_WINDOW_PROOF_V1' as const;
+
+export type NativeMediaTimestampAudioPcmWindowProofSegmentV1 = Readonly<
+  | {
+      kind: 'PCM';
+      audioEpochId: string;
+      sourceStartSampleFrame: string;
+      sourceEndExclusiveSampleFrame: string;
+      decodedStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      decodedEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      timelineStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      timelineEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      pcmByteLength: number;
+      rangeSha256: string;
+    }
+  | {
+      kind: 'SILENCE';
+      reason: 'LEADING_STREAM_OFFSET' | 'DECLARED_SOURCE_GAP';
+      precedingAudioEpochId: string | null;
+      nextAudioEpochId: string;
+      timelineStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      timelineEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+    }
+>;
+
+export type NativeMediaTimestampAudioPcmWindowProofV1 = Readonly<{
+  disposition: 'PCM_WINDOW_VERIFIED';
+  schemaVersion: 1;
+  kind: typeof NATIVE_MEDIA_TIMESTAMP_AUDIO_PCM_WINDOW_PROOF_KIND_V1;
+  projectId: string;
+  sequenceId: string;
+  overlayId: string;
+  projectRevision: NativeMediaTimestampPreviewSurfaceLeaseScopeV1['projectRevision'];
+  sourceVersionSha256: string;
+  storageVersionSha256: string;
+  manifestSha256: string;
+  audioMappingSha256: string;
+  audioSampleEpochMapSha256: string;
+  decodedPcmSha256: string;
+  sampleRate: number;
+  channelCount: number;
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+  windowProjectStartFrame: number;
+  windowProjectEndExclusiveFrame: number;
+  canonicalWindowStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+  canonicalWindowEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+  lease: NativeMediaTimestampPreviewWindowLeaseV2;
+  readOperations: number;
+  totalPcmBytes: number;
+  pcmSegmentCount: number;
+  silenceSegmentCount: number;
+  segments: readonly NativeMediaTimestampAudioPcmWindowProofSegmentV1[];
+  proofSha256: string;
+}>;
+
+export type NativeMediaTimestampAudioPcmWindowProofResultV1 = Readonly<
+  | NativeMediaTimestampAudioPcmWindowProofV1
+  | {
+      disposition: 'UNVERIFIABLE';
+      reason:
+        | 'INPUT_INVALID'
+        | 'RESOURCE_LIMIT_EXCEEDED'
+        | 'PCM_READ_FAILED'
+        | 'PCM_SCOPE_MISMATCH'
+        | 'OUTPUT_INVALID';
+      diagnostic: string | null;
+    }
+>;
+
 export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
   input: Readonly<{
     leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
@@ -95,88 +166,17 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
     return unverifiable('INPUT_INVALID', diagnostic(error));
   }
 
+  const read = await readWindowPcmSegments(normalized, ports.pcmReader);
+  if (read.disposition === 'UNVERIFIABLE') {
+    return unverifiable(read.reason, read.diagnostic);
+  }
+
   const writtenHandles: string[] = [];
   const outputSegments: NativeMediaTimestampPreviewAudioWindowSegmentV1[] = [];
-  let readOperations = 0;
-  let totalPcmBytes = 0;
-  for (const segment of normalized.mapping.segments) {
-    const start = maximum(normalized.windowStart, segment.timelineStart);
-    const end = minimum(normalized.windowEnd, segment.timelineEnd);
-    if (compare(start, end) >= 0) continue;
-    if (outputSegments.length >= normalized.policy.maxWindowSegments) {
-      return cleanupThen(
-        writtenHandles,
-        ports.surfaceStore,
-        'RESOURCE_LIMIT_EXCEEDED',
-        'NATIVE_MEDIA_PREVIEW_AUDIO_WINDOW_SEGMENT_LIMIT_EXCEEDED',
-      );
-    }
-    const timelineStartSamplePosition = position(start);
-    const timelineEndExclusiveSamplePosition = position(end);
+  for (const segment of read.segments) {
     if (segment.kind === 'SILENCE') {
-      outputSegments.push({
-        kind: 'SILENCE',
-        reason: segment.reason,
-        precedingAudioEpochId: segment.precedingAudioEpochId,
-        nextAudioEpochId: segment.nextAudioEpochId,
-        timelineStartSamplePosition,
-        timelineEndExclusiveSamplePosition,
-      });
+      outputSegments.push(segment);
       continue;
-    }
-    if (readOperations >= normalized.policy.maxReadOperations) {
-      return cleanupThen(
-        writtenHandles,
-        ports.surfaceStore,
-        'RESOURCE_LIMIT_EXCEEDED',
-        'NATIVE_MEDIA_PREVIEW_AUDIO_READ_LIMIT_EXCEEDED',
-      );
-    }
-    const decodedStart = add(
-      segment.decodedStart,
-      subtract(start, segment.timelineStart),
-    );
-    const decodedEnd = add(decodedStart, subtract(end, start));
-    const sourceStartSampleFrame = floorFraction(decodedStart).toString();
-    const sourceEndExclusiveSampleFrame = ceilFraction(decodedEnd).toString();
-    let range: Awaited<ReturnType<typeof ports.pcmReader.readPcmSampleRange>>;
-    try {
-      readOperations += 1;
-      range = await ports.pcmReader.readPcmSampleRange({
-        manifestReference: normalized.manifestReference,
-        startSampleFrame: sourceStartSampleFrame,
-        endExclusiveSampleFrame: sourceEndExclusiveSampleFrame,
-      });
-    } catch (error) {
-      return cleanupThen(
-        writtenHandles,
-        ports.surfaceStore,
-        'PCM_READ_FAILED',
-        diagnostic(error),
-      );
-    }
-    if (!sameRangeEvidence(range, {
-      manifestSha256: normalized.manifestSha256,
-      mapping: normalized.mapping,
-      sourceStartSampleFrame,
-      sourceEndExclusiveSampleFrame,
-    })) {
-      return cleanupThen(
-        writtenHandles,
-        ports.surfaceStore,
-        'PCM_SCOPE_MISMATCH',
-        'NATIVE_MEDIA_PREVIEW_AUDIO_PCM_RANGE_SCOPE_MISMATCH',
-      );
-    }
-    totalPcmBytes += range.pcmBytes.byteLength;
-    if (!Number.isSafeInteger(totalPcmBytes)
-      || totalPcmBytes > normalized.policy.maxTotalPcmBytes) {
-      return cleanupThen(
-        writtenHandles,
-        ports.surfaceStore,
-        'RESOURCE_LIMIT_EXCEEDED',
-        'NATIVE_MEDIA_PREVIEW_AUDIO_PCM_BYTE_LIMIT_EXCEEDED',
-      );
     }
     let stored: Awaited<ReturnType<typeof ports.surfaceStore.putAudioSegment>>;
     try {
@@ -188,13 +188,15 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
         decodedPcmSha256: normalized.mapping.decodedPcmSha256,
         sampleRate: normalized.mapping.sampleRate,
         channelCount: normalized.mapping.channelCount,
-        sourceStartSampleFrame,
-        sourceEndExclusiveSampleFrame,
-        decodedStartSamplePosition: position(decodedStart),
-        decodedEndExclusiveSamplePosition: position(decodedEnd),
-        timelineStartSamplePosition,
-        timelineEndExclusiveSamplePosition,
-        pcmBytes: range.pcmBytes,
+        sourceStartSampleFrame: segment.sourceStartSampleFrame,
+        sourceEndExclusiveSampleFrame: segment.sourceEndExclusiveSampleFrame,
+        decodedStartSamplePosition: segment.decodedStartSamplePosition,
+        decodedEndExclusiveSamplePosition:
+          segment.decodedEndExclusiveSamplePosition,
+        timelineStartSamplePosition: segment.timelineStartSamplePosition,
+        timelineEndExclusiveSamplePosition:
+          segment.timelineEndExclusiveSamplePosition,
+        pcmBytes: segment.pcmBytes,
       });
       writtenHandles.push(stored.audioHandle);
     } catch (error) {
@@ -218,21 +220,15 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
       audioEpochId: segment.audioEpochId,
       audioHandle: stored.audioHandle,
       segmentIdentitySha256: stored.segmentIdentitySha256,
-      sourceStartSampleFrame,
-      sourceEndExclusiveSampleFrame,
-      decodedStartSamplePosition: position(decodedStart),
-      decodedEndExclusiveSamplePosition: position(decodedEnd),
-      timelineStartSamplePosition,
-      timelineEndExclusiveSamplePosition,
+      sourceStartSampleFrame: segment.sourceStartSampleFrame,
+      sourceEndExclusiveSampleFrame: segment.sourceEndExclusiveSampleFrame,
+      decodedStartSamplePosition: segment.decodedStartSamplePosition,
+      decodedEndExclusiveSamplePosition:
+        segment.decodedEndExclusiveSamplePosition,
+      timelineStartSamplePosition: segment.timelineStartSamplePosition,
+      timelineEndExclusiveSamplePosition:
+        segment.timelineEndExclusiveSamplePosition,
     });
-  }
-  if (outputSegments.length < 1) {
-    return cleanupThen(
-      writtenHandles,
-      ports.surfaceStore,
-      'OUTPUT_INVALID',
-      'NATIVE_MEDIA_PREVIEW_AUDIO_WINDOW_EMPTY',
-    );
   }
   const material = {
     schemaVersion: 1 as const,
@@ -274,6 +270,81 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
   }
 }
 
+export async function verifyNativeMediaTimestampAudioPcmWindowV1(
+  input: Parameters<typeof materializeNativeMediaTimestampPreviewAudioWindowV1>[0],
+  ports: Readonly<{
+    pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
+  }>,
+  policyInput: NativeMediaTimestampPreviewAudioMaterializerPolicyV1 =
+    NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_DEFAULT_POLICY_V1,
+): Promise<NativeMediaTimestampAudioPcmWindowProofResultV1> {
+  let normalized: ReturnType<typeof normalizeInput>;
+  try {
+    const policy = normalizePolicy(policyInput);
+    assertPcmReader(ports);
+    normalized = normalizeInput(input, policy);
+  } catch (error) {
+    return pcmProofUnverifiable('INPUT_INVALID', diagnostic(error));
+  }
+  const read = await readWindowPcmSegments(normalized, ports.pcmReader);
+  if (read.disposition === 'UNVERIFIABLE') {
+    return pcmProofUnverifiable(read.reason, read.diagnostic);
+  }
+  const segments = Object.freeze(read.segments.map((segment) => (
+    segment.kind === 'SILENCE'
+      ? segment
+      : Object.freeze({
+          kind: segment.kind,
+          audioEpochId: segment.audioEpochId,
+          sourceStartSampleFrame: segment.sourceStartSampleFrame,
+          sourceEndExclusiveSampleFrame: segment.sourceEndExclusiveSampleFrame,
+          decodedStartSamplePosition: segment.decodedStartSamplePosition,
+          decodedEndExclusiveSamplePosition:
+            segment.decodedEndExclusiveSamplePosition,
+          timelineStartSamplePosition: segment.timelineStartSamplePosition,
+          timelineEndExclusiveSamplePosition:
+            segment.timelineEndExclusiveSamplePosition,
+          pcmByteLength: segment.pcmBytes.byteLength,
+          rangeSha256: segment.rangeSha256,
+        })
+  )));
+  const material = {
+    disposition: 'PCM_WINDOW_VERIFIED' as const,
+    schemaVersion: 1 as const,
+    kind: NATIVE_MEDIA_TIMESTAMP_AUDIO_PCM_WINDOW_PROOF_KIND_V1,
+    projectId: normalized.leaseScope.projectId,
+    sequenceId: normalized.leaseScope.sequenceId,
+    overlayId: normalized.leaseScope.overlayId,
+    projectRevision: normalized.leaseScope.projectRevision,
+    sourceVersionSha256: normalized.mapping.sourceVersionSha256,
+    storageVersionSha256: normalized.mapping.storageVersionSha256,
+    manifestSha256: normalized.manifestSha256,
+    audioMappingSha256: normalized.mapping.audioMappingSha256,
+    audioSampleEpochMapSha256: normalized.mapping.audioSampleEpochMapSha256,
+    decodedPcmSha256: normalized.mapping.decodedPcmSha256,
+    sampleRate: normalized.mapping.sampleRate,
+    channelCount: normalized.mapping.channelCount,
+    windowLocalStartFrame: normalized.windowLocalStartFrame,
+    windowDurationInFrames: normalized.windowDurationInFrames,
+    windowProjectStartFrame: normalized.windowProjectStartFrame,
+    windowProjectEndExclusiveFrame:
+      normalized.windowProjectEndExclusiveFrame,
+    canonicalWindowStartSamplePosition: position(normalized.windowStart),
+    canonicalWindowEndExclusiveSamplePosition: position(normalized.windowEnd),
+    lease: normalized.lease,
+    readOperations: read.readOperations,
+    totalPcmBytes: read.totalPcmBytes,
+    pcmSegmentCount: segments.filter(({ kind }) => kind === 'PCM').length,
+    silenceSegmentCount:
+      segments.filter(({ kind }) => kind === 'SILENCE').length,
+    segments,
+  };
+  return Object.freeze({
+    ...material,
+    proofSha256: hashEditronCanonicalJsonV1(material),
+  });
+}
+
 type NormalizedMappingV1 = Readonly<{
   audioMappingSha256: string;
   audioSampleEpochMapSha256: string;
@@ -309,6 +380,139 @@ type NormalizedSegmentV1 = Readonly<
       timelineEnd: FractionV1;
     }
 >;
+
+type ReadWindowPcmSegmentV1 = Readonly<
+  | Extract<NativeMediaTimestampPreviewAudioWindowSegmentV1, { kind: 'SILENCE' }>
+  | {
+      kind: 'PCM';
+      audioEpochId: string;
+      sourceStartSampleFrame: string;
+      sourceEndExclusiveSampleFrame: string;
+      decodedStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      decodedEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      timelineStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      timelineEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
+      pcmBytes: Uint8Array;
+      rangeSha256: string;
+    }
+>;
+
+type ReadWindowPcmResultV1 = Readonly<
+  | {
+      disposition: 'PCM_WINDOW_READ';
+      segments: readonly ReadWindowPcmSegmentV1[];
+      readOperations: number;
+      totalPcmBytes: number;
+    }
+  | {
+      disposition: 'UNVERIFIABLE';
+      reason:
+        | 'RESOURCE_LIMIT_EXCEEDED'
+        | 'PCM_READ_FAILED'
+        | 'PCM_SCOPE_MISMATCH'
+        | 'OUTPUT_INVALID';
+      diagnostic: string | null;
+    }
+>;
+
+async function readWindowPcmSegments(
+  normalized: ReturnType<typeof normalizeInput>,
+  pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>,
+): Promise<ReadWindowPcmResultV1> {
+  const outputSegments: ReadWindowPcmSegmentV1[] = [];
+  let readOperations = 0;
+  let totalPcmBytes = 0;
+  for (const segment of normalized.mapping.segments) {
+    const start = maximum(normalized.windowStart, segment.timelineStart);
+    const end = minimum(normalized.windowEnd, segment.timelineEnd);
+    if (compare(start, end) >= 0) continue;
+    if (outputSegments.length >= normalized.policy.maxWindowSegments) {
+      return readUnverifiable(
+        'RESOURCE_LIMIT_EXCEEDED',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_WINDOW_SEGMENT_LIMIT_EXCEEDED',
+      );
+    }
+    const timelineStartSamplePosition = position(start);
+    const timelineEndExclusiveSamplePosition = position(end);
+    if (segment.kind === 'SILENCE') {
+      outputSegments.push(Object.freeze({
+        kind: 'SILENCE' as const,
+        reason: segment.reason,
+        precedingAudioEpochId: segment.precedingAudioEpochId,
+        nextAudioEpochId: segment.nextAudioEpochId,
+        timelineStartSamplePosition,
+        timelineEndExclusiveSamplePosition,
+      }));
+      continue;
+    }
+    if (readOperations >= normalized.policy.maxReadOperations) {
+      return readUnverifiable(
+        'RESOURCE_LIMIT_EXCEEDED',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_READ_LIMIT_EXCEEDED',
+      );
+    }
+    const decodedStart = add(
+      segment.decodedStart,
+      subtract(start, segment.timelineStart),
+    );
+    const decodedEnd = add(decodedStart, subtract(end, start));
+    const sourceStartSampleFrame = floorFraction(decodedStart).toString();
+    const sourceEndExclusiveSampleFrame = ceilFraction(decodedEnd).toString();
+    let range: Awaited<ReturnType<typeof pcmReader.readPcmSampleRange>>;
+    try {
+      readOperations += 1;
+      range = await pcmReader.readPcmSampleRange({
+        manifestReference: normalized.manifestReference,
+        startSampleFrame: sourceStartSampleFrame,
+        endExclusiveSampleFrame: sourceEndExclusiveSampleFrame,
+      });
+    } catch (error) {
+      return readUnverifiable('PCM_READ_FAILED', diagnostic(error));
+    }
+    if (!sameRangeEvidence(range, {
+      manifestSha256: normalized.manifestSha256,
+      mapping: normalized.mapping,
+      sourceStartSampleFrame,
+      sourceEndExclusiveSampleFrame,
+    })) {
+      return readUnverifiable(
+        'PCM_SCOPE_MISMATCH',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_PCM_RANGE_SCOPE_MISMATCH',
+      );
+    }
+    totalPcmBytes += range.pcmBytes.byteLength;
+    if (!Number.isSafeInteger(totalPcmBytes)
+      || totalPcmBytes > normalized.policy.maxTotalPcmBytes) {
+      return readUnverifiable(
+        'RESOURCE_LIMIT_EXCEEDED',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_PCM_BYTE_LIMIT_EXCEEDED',
+      );
+    }
+    outputSegments.push(Object.freeze({
+      kind: 'PCM' as const,
+      audioEpochId: segment.audioEpochId,
+      sourceStartSampleFrame,
+      sourceEndExclusiveSampleFrame,
+      decodedStartSamplePosition: position(decodedStart),
+      decodedEndExclusiveSamplePosition: position(decodedEnd),
+      timelineStartSamplePosition,
+      timelineEndExclusiveSamplePosition,
+      pcmBytes: range.pcmBytes,
+      rangeSha256: range.rangeSha256,
+    }));
+  }
+  return outputSegments.length < 1
+    ? readUnverifiable(
+        'OUTPUT_INVALID',
+        'NATIVE_MEDIA_PREVIEW_AUDIO_WINDOW_EMPTY',
+      )
+    : Object.freeze({
+        disposition: 'PCM_WINDOW_READ' as const,
+        segments: Object.freeze(outputSegments),
+        readOperations,
+        totalPcmBytes,
+      });
+}
 
 function normalizeInput(
   input: Parameters<typeof materializeNativeMediaTimestampPreviewAudioWindowV1>[0],
@@ -692,12 +896,22 @@ function assertPorts(
     surfaceStore: NativeMediaTimestampPreviewAudioSurfaceStorePortV1;
   }>,
 ): void {
-  if (!value?.pcmReader
-    || typeof value.pcmReader.readPcmSampleRange !== 'function'
-    || !value.surfaceStore
+  assertPcmReader(value);
+  if (!value.surfaceStore
     || typeof value.surfaceStore.putAudioSegment !== 'function'
     || typeof value.surfaceStore.deleteAudioSegment !== 'function') {
     throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_PORTS_INVALID');
+  }
+}
+
+function assertPcmReader(
+  value: Readonly<{
+    pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
+  }>,
+): void {
+  if (!value?.pcmReader
+    || typeof value.pcmReader.readPcmSampleRange !== 'function') {
+    throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_PCM_READER_INVALID');
   }
 }
 
@@ -922,6 +1136,32 @@ function positivePolicyInteger(value: unknown, maximum: number): boolean {
 function diagnostic(error: unknown): string | null {
   if (!(error instanceof Error) || !/^[A-Z0-9_]{1,180}$/.test(error.message)) return null;
   return error.message;
+}
+
+function readUnverifiable(
+  reason: Extract<ReadWindowPcmResultV1, {
+    disposition: 'UNVERIFIABLE';
+  }>['reason'],
+  detail: string | null,
+): ReadWindowPcmResultV1 {
+  return Object.freeze({
+    disposition: 'UNVERIFIABLE' as const,
+    reason,
+    diagnostic: detail,
+  });
+}
+
+function pcmProofUnverifiable(
+  reason: Extract<NativeMediaTimestampAudioPcmWindowProofResultV1, {
+    disposition: 'UNVERIFIABLE';
+  }>['reason'],
+  detail: string | null,
+): NativeMediaTimestampAudioPcmWindowProofResultV1 {
+  return Object.freeze({
+    disposition: 'UNVERIFIABLE' as const,
+    reason,
+    diagnostic: detail,
+  });
 }
 
 function unverifiable(

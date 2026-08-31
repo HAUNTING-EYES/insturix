@@ -10,6 +10,7 @@ import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-jso
 import {
   materializeNativeMediaTimestampPreviewAudioWindowV1,
   NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_DEFAULT_POLICY_V1,
+  verifyNativeMediaTimestampAudioPcmWindowV1,
 } from '@/lib/editron/services/native-media-timestamp-preview-audio-materializer-v1';
 import type { VideoSourceTimestampConformV3 } from '@/lib/editron/services/video-source-time-transform-v1';
 
@@ -212,6 +213,77 @@ function rangeFor(startSampleFrame: string, endExclusiveSampleFrame: string) {
 }
 
 describe('native media timestamp preview audio materializer V1', () => {
+  it('verifies exact PCM ranges without exposing bytes or writing browser surfaces', async () => {
+    const runtime = createPorts();
+
+    const result = await verifyNativeMediaTimestampAudioPcmWindowV1(
+      input(),
+      { pcmReader: runtime.ports.pcmReader },
+    );
+
+    expect(result).toMatchObject({
+      disposition: 'PCM_WINDOW_VERIFIED',
+      projectId: 'project-1',
+      sequenceId: 'main',
+      overlayId: 'video-1',
+      projectRevision: REVISION,
+      sourceVersionSha256: SOURCE_SHA,
+      storageVersionSha256: STORAGE_SHA,
+      manifestSha256: MANIFEST_SHA,
+      audioMappingSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      audioSampleEpochMapSha256: MAP_SHA,
+      decodedPcmSha256: DECODED_PCM_SHA,
+      readOperations: 2,
+      totalPcmBytes: 20,
+      pcmSegmentCount: 2,
+      silenceSegmentCount: 1,
+      segments: [
+        {
+          kind: 'PCM',
+          sourceStartSampleFrame: '0',
+          sourceEndExclusiveSampleFrame: '3',
+          pcmByteLength: 12,
+          rangeSha256: digest(pcmBytes('0', '3')),
+        },
+        {
+          kind: 'SILENCE',
+          reason: 'DECLARED_SOURCE_GAP',
+        },
+        {
+          kind: 'PCM',
+          sourceStartSampleFrame: '3',
+          sourceEndExclusiveSampleFrame: '5',
+          pcmByteLength: 8,
+          rangeSha256: digest(pcmBytes('3', '5')),
+        },
+      ],
+      proofSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(runtime.readPcmSampleRange).toHaveBeenCalledTimes(2);
+    expect(runtime.putAudioSegment).not.toHaveBeenCalled();
+    expect(runtime.deleteAudioSegment).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(MANIFEST_REFERENCE.objectKey);
+    expect(serialized).not.toContain('"pcmBytes"');
+  });
+
+  it('rejects a forged PCM range hash without writing browser surfaces', async () => {
+    const runtime = createPorts({
+      alterRange: (range) => ({ ...range, rangeSha256: 'f'.repeat(64) }),
+    });
+
+    await expect(verifyNativeMediaTimestampAudioPcmWindowV1(
+      input(),
+      { pcmReader: runtime.ports.pcmReader },
+    )).resolves.toEqual({
+      disposition: 'UNVERIFIABLE',
+      reason: 'PCM_SCOPE_MISMATCH',
+      diagnostic: 'NATIVE_MEDIA_PREVIEW_AUDIO_PCM_RANGE_SCOPE_MISMATCH',
+    });
+    expect(runtime.putAudioSegment).not.toHaveBeenCalled();
+    expect(runtime.deleteAudioSegment).not.toHaveBeenCalled();
+  });
+
   it('materializes exact PCM/silence coverage and a browser-safe leased schedule', async () => {
     const runtime = createPorts();
 
