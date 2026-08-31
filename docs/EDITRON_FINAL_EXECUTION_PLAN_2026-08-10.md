@@ -11182,6 +11182,46 @@ coordinates and the proxy pin. Only after those consumers are wired may
 downstream invalidation, rerender, delivery and recovery claim source admission.
 Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Per-project source-pin mutation authority Phase 3F-C8bv (2026-08-31):**
+commit `803fe623b` closes the producer and stored-mutation portion of the
+cutover gap without claiming consumer cutover. `ClipOverlay` now has the typed
+immutable `sourceVersionPinV1` contract. The verified-proxy binding command
+issues one proxy pin per targeted overlay from the exact source/storage hashes
+and binding/time-map authority, then persists the pins, overlay set and binding
+history in the same Project document revision CAS. Exact proxy/master relink
+requires every target's valid current proxy pin before boundary conversion and
+atomically replaces it with a master pin bound to the relink-state, relation and
+active-mapping hashes beside the master coordinates and relink state. Both
+idempotent paths revalidate the stored pin rather than trusting history alone.
+
+Generic manual, autosave, Director and worker-style overlay persistence may
+preserve an existing source pin but cannot add, remove or replace one, even
+when the generic caller labels its overlay payload `server` authority. A copied,
+missing, wrong-scope or hash-invalid pin therefore cannot authorize relink.
+Legacy projects whose current binding predates pins can use the verified-proxy
+binding command to issue a new current binding and pins; relink remains blocked
+until that happens.
+
+Focused binding/relink/pin proof passes 29/29 and the existing complete generic
+save-payload suite passes 39/39. Repository TypeScript, targeted quiet ESLint
+and repository-wide quiet ESLint pass. A widened source-time/proxy/master
+selection passed 975 tests across 165 files with two intentional skips. One
+unrelated frozen DEV-02 research-proxy test still fails because its V2 raw API
+implementation hash no longer equals the current file; both hashed raw files
+match `HEAD` and none is in this phase's diff, so that failure is recorded and
+not rewritten as source-pin evidence.
+
+This result is
+`PROJECT_SOURCE_PIN_PRODUCER_AND_MUTATION_AUTHORITY_LOCALLY_VERIFIED_CONSUMERS_NOT_WIRED`.
+Preview, analysis, final render and delivery still do not resolve their media
+through the authenticated project pin, and global `isProxy`/`originalR2Key`
+selection still must cease being a playback cutover authority. Queue item 4
+next wires those consumers to `resolveProjectVideoSourceStorageV1`, adds visible
+`UNVERIFIABLE` handling, then addresses all new-overlay writers, safe legacy
+migration, rollback of coordinates plus proxy pin, invalidation/rerender,
+delivery, interrupted recovery and live Atlas/R2 proof. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
