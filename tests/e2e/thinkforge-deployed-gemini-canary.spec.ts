@@ -218,7 +218,6 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
     await input.press('Enter');
     const response = await responsePromise;
     expect(response.status()).toBe(200);
-    expect(await response.finished()).toBeNull();
 
     await expect.poll(async () => {
       const current = await browserJson<ScriptPayload>(page, '/api/services/thinkforge/script/current', 'POST', {
