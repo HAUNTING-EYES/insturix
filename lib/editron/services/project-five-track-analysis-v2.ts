@@ -26,12 +26,12 @@ import {
   resolveVerifiedVideoSourceEpochTimeBindingV3,
 } from './video-source-time-transform-v1';
 
-export const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
+const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
   'EDITRON_PROJECT_FIVE_TRACK_ANALYSIS_V2' as const;
 
-export type ProjectFiveTrackAnalysisModeV2 = 'FULL' | 'CACHE_ONLY';
+type ProjectFiveTrackAnalysisModeV2 = 'FULL' | 'CACHE_ONLY';
 
-export type ProjectFiveTrackAnalysisBlockReasonV2 =
+type ProjectFiveTrackAnalysisBlockReasonV2 =
   | 'OVERLAY_ASSET_ID_REQUIRED'
   | 'ASSET_NOT_FOUND'
   | 'SELECTED_SOURCE_UNVERIFIABLE'
@@ -43,7 +43,7 @@ export type ProjectFiveTrackAnalysisBlockReasonV2 =
   | 'ANALYSIS_EXECUTION_FAILED'
   | 'TIME_BUDGET_EXCEEDED';
 
-export type ProjectFiveTrackTimelineBlockReasonV2 =
+type ProjectFiveTrackTimelineBlockReasonV2 =
   | 'ANALYSIS_UNAVAILABLE'
   | 'PROJECT_30FPS_CONSUMER_REQUIRED'
   | 'EXPLICIT_SOURCE_RANGE_REQUIRED'
@@ -51,7 +51,7 @@ export type ProjectFiveTrackTimelineBlockReasonV2 =
   | 'NORMAL_SPEED_REQUIRED'
   | 'SINGLE_OVERLAY_SOURCE_REQUIRED';
 
-export type ProjectFiveTrackOverlayResultV2 = Readonly<{
+type ProjectFiveTrackOverlayResultV2 = Readonly<{
   overlayId: number;
   assetId: string | null;
   analysis: AssetAnalysis | null;
@@ -66,7 +66,7 @@ export type ProjectFiveTrackOverlayResultV2 = Readonly<{
   >;
 }>;
 
-export type ProjectFiveTrackAnalysisResultV2 = Readonly<{
+type ProjectFiveTrackAnalysisResultV2 = Readonly<{
   schemaVersion: 2;
   kind: typeof PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2;
   projectId: string;
