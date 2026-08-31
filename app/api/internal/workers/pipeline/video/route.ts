@@ -336,6 +336,9 @@ async function handler(request: NextRequest) {
             expectedRevision: payload.projectDelivery.expectedRevision,
             deliveryId: payload.projectDelivery.deliveryId,
             target: payload.projectDelivery.target,
+            // The worker relays the producer's admission envelope unchanged;
+            // ProjectService is the only owner that can validate and apply it.
+            prerequisite: payload.projectDelivery.prerequisite,
             replacement: {
               assetId: result.assetId,
               sourceUrl: result.videoUrl,

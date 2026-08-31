@@ -73,9 +73,13 @@ import {
   type PipelineAudioDeliveryOutcomeV1,
 } from "./pipeline-audio-project-delivery-v1";
 import {
+  assertPipelineVideoProjectDeliveryPrerequisiteV1,
   clonePipelineVideoCanonicalValueV1,
+  pipelineVideoDeliveryExactFrameRangeV1,
   pipelineVideoDeliveryMaterialHashV1,
+  pipelineVideoDeliveryTargetFingerprintV1,
   type PipelineVideoDeliveryMaterialV1,
+  type PipelineVideoProjectDeliveryPrerequisiteV1,
 } from "./pipeline-video-project-delivery-v1";
 import {
   assertProjectVideoSpeedRampStateV1,
@@ -631,6 +635,7 @@ export interface ProjectPipelineAudioDeliveryResultV1 {
  */
 export interface ProjectPipelineVideoDeliveryCommandV1 extends PipelineVideoDeliveryMaterialV1 {
   expectedRevision: ProjectRevisionV1;
+  prerequisite: PipelineVideoProjectDeliveryPrerequisiteV1;
 }
 
 export type ProjectPipelineVideoDeliveryRebaseV1 =
@@ -641,6 +646,7 @@ export interface ProjectPipelineVideoDeliveryReceiptV1 {
   schemaVersion: 1;
   deliveryId: string;
   materialHash: string;
+  prerequisiteHash: string;
   target: Readonly<PipelineVideoDeliveryMaterialV1["target"]>;
   replacementAssetId: string;
   requestedRevision: ProjectRevisionV1;
@@ -662,6 +668,16 @@ export type ProjectPipelineVideoDeliveryConflictReasonV1 =
   | "TARGET_NOT_FOUND"
   | "TARGET_NOT_VIDEO"
   | "TARGET_ASSET_CHANGED"
+  | "WRONG_PROJECT"
+  | "STALE_REVISION"
+  | "TARGET_FINGERPRINT_CHANGED"
+  | "TARGET_RANGE_CHANGED"
+  | "DIRECTOR_LEASE_ACTIVE"
+  | "TIMELINE_RANGE_LOCKED"
+  | "SOURCE_EVIDENCE_MISMATCH"
+  | "RIGHTS_EVIDENCE_INVALID"
+  | "GENERATION_PREDECESSOR_MISSING"
+  | "INVALIDATION_UNVERIFIABLE"
   | "CAS_LOST";
 
 export class ProjectPipelineVideoDeliveryConflictError extends Error {
@@ -5038,9 +5054,9 @@ export class ProjectService {
 
   /**
    * Replace exactly one previously identified generated-video overlay through
-   * ProjectService. A delivery never rebinds by a broad asset query. It may
-   * retry once after unrelated revision drift only when the exact target still
-   * has the exact source asset planned by the worker.
+   * ProjectService. A delivery never rebinds by a broad asset query. The
+   * producer prerequisite is re-derived against the current project and must
+   * still be fresh before the one compare-and-swap write.
    */
   async commitPipelineVideoDeliveryV1(
     userId: string,
@@ -5048,6 +5064,11 @@ export class ProjectService {
     input: ProjectPipelineVideoDeliveryCommandV1,
   ): Promise<ProjectPipelineVideoDeliveryResultV1> {
     assertProjectPipelineVideoDeliveryCommandV1(input);
+    if (input.prerequisite.projectId !== projectId) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video delivery prerequisite is bound to a different project.",
+      );
+    }
     const materialHash = pipelineVideoDeliveryMaterialHashV1(input);
     const canonicalTarget = clonePipelineVideoCanonicalValueV1({
       overlayId: input.target.overlayId,
@@ -5061,200 +5082,188 @@ export class ProjectService {
     if (!current) throw new ProjectNotFoundOrForbiddenError();
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-    const existing = findPipelineVideoDeliveryReceiptV1(current, input.deliveryId);
-    if (existing) {
-      if (existing.materialHash !== materialHash) {
-        throw new ProjectMutationWriteError(
-          "Pipeline video delivery identity was reused with different material.",
-        );
-      }
-      return {
-        disposition: "ALREADY_APPLIED",
-        deliveryReceipt: structuredClone(existing),
-      };
-    }
-
-    const beforeRevision = projectRevisionFor(current);
-    const targetOverlay = current.overlays?.find(
-      (overlay) => overlay.id === canonicalTarget.overlayId,
-    );
-    assertPipelineVideoDeliveryTargetV1(
-      targetOverlay,
-      canonicalTarget.expectedAssetId,
-      beforeRevision,
-    );
-    const rebase: ProjectPipelineVideoDeliveryRebaseV1 =
-      sameProjectRevisionV1(input.expectedRevision, beforeRevision)
-        ? "FRESH"
-        : "SAFE_REBASED_TARGET_UNCHANGED";
-
-    const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
-    if (!beforeFrameRange) {
-      throw new ProjectMutationWriteError(
-        "Pipeline video delivery requires an exactly representable target timeline range.",
-      );
-    }
-
-    const replacementOverlay = buildPipelineVideoReplacementOverlayV1(
-      targetOverlay,
-      canonicalReplacement,
-      input.deliveryId,
-      materialHash,
-    );
-    const afterFrameRange = overlayTimelineFrameRangeV1(replacementOverlay);
-    if (!afterFrameRange) {
-      throw new ProjectMutationWriteError(
-        "Pipeline video delivery produced an unrepresentable target timeline range.",
-      );
-    }
-    const unionFrameRange = unionTimelineFrameRangesV1(beforeFrameRange, afterFrameRange);
-    if (!unionFrameRange) {
-      throw new ProjectMutationWriteError(
-        "Pipeline video delivery could not derive its exact affected timeline range.",
-      );
-    }
-
-    const committedAt = new Date();
-    const afterRevision: ProjectRevisionV1 = {
-      schemaVersion: 1,
-      value: beforeRevision.value + 1,
-      compatibilityUpdatedAt: committedAt.toISOString(),
-    };
-    const mutationReceipt: ProjectMutationReceiptV1 = {
-      schemaVersion: 1,
-      projectId,
-      revision: afterRevision,
-      committedAt: committedAt.toISOString(),
-    };
-    const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
-    const changedPaths = [
-      "overlays",
-      "pipelineVideoDeliveryReceipts",
-      "timelineRangeChangeReceipts",
-    ] as const;
-    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
-      schemaVersion: 1,
-      receiptId: `timeline-pipeline-video_${nanoid(18)}`,
-      projectId,
-      operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
-      actorKind: "SYSTEM",
-      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
-      fps: current.fps || 30,
-      beforeProjectRevision: beforeRevision,
-      afterProjectRevision: afterRevision,
-      committedAt: committedAt.toISOString(),
-      readFrameRangesBefore: [beforeFrameRange],
-      writeFrameRangesBefore: [unionFrameRange],
-      affectedFrameRangesAfter: [afterFrameRange],
-      affectedOverlayRefs: [overlayRef],
-      changedPaths,
-      rangeObservation: "EXACT",
-      overlayTemporalChange: {
-        overlayRef,
-        beforeFrameRange,
-        afterFrameRange,
-        unionFrameRange,
-      },
-      timelineCoordinateTransform: null,
-      splitChildren: [],
-      ripple: null,
-      downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
-        affectedFrameRangesBefore: [unionFrameRange],
-      },
-    };
-    const deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1 = {
-      schemaVersion: 1,
-      deliveryId: input.deliveryId,
-      materialHash,
-      target: canonicalTarget,
-      replacementAssetId: canonicalReplacement.assetId,
-      requestedRevision: structuredClone(input.expectedRevision),
-      beforeRevision,
-      afterRevision,
-      mutationReceipt,
-      timelineChangeReceipt,
-      rebase,
-      changedPaths,
-      proof: {
-        required: true,
-        status: "UNVERIFIABLE",
-        reason: "NO_RENDERED_VIDEO_PROOF",
-      },
-      committedAt: committedAt.toISOString(),
-    };
-    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      {
+      const beforeRevision = projectRevisionFor(current);
+      const targetOverlay = assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
         projectId,
-        userId,
-        overlays: {
-          $elemMatch: {
-            id: canonicalTarget.overlayId,
-            type: "video",
-            assetId: canonicalTarget.expectedAssetId,
-          },
-        },
-        "pipelineVideoDeliveryReceipts.deliveryId": { $ne: input.deliveryId },
-        ...projectRevisionPredicate(beforeRevision),
-      },
-      {
-        $set: {
-          "overlays.$[target]": replacementOverlay,
-          updatedAt: committedAt,
-        },
-        $push: {
-          pipelineVideoDeliveryReceipts: {
-            $each: [deliveryReceipt],
-            $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
-          },
-          timelineRangeChangeReceipts: {
-            $each: [timelineChangeReceipt],
-            $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
-          },
-        } as never,
-        $inc: { projectRevision: 1 },
-      },
-      {
-        arrayFilters: [{
-          "target.id": canonicalTarget.overlayId,
-          "target.type": "video",
-          "target.assetId": canonicalTarget.expectedAssetId,
-        }],
-      },
-    );
-    if (result.matchedCount === 1) {
-      if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
-      this.publishMutationReceipt(mutationReceipt);
-      return { disposition: "APPLIED", deliveryReceipt };
-    }
+        current,
+        input,
+        beforeRevision,
+      );
+      const existing = findPipelineVideoDeliveryReceiptV1(current, input.deliveryId);
+      if (existing) {
+        if (existing.materialHash !== materialHash) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video delivery identity was reused with different material.",
+          );
+        }
+        return {
+          disposition: "ALREADY_APPLIED",
+          deliveryReceipt: structuredClone(existing),
+        };
+      }
 
-    const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne(
-      { projectId, userId },
-    )) as Project | null;
-    if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
-    const replay = findPipelineVideoDeliveryReceiptV1(afterConflict, input.deliveryId);
-    if (replay) {
-      if (replay.materialHash !== materialHash) {
+      const rebase: ProjectPipelineVideoDeliveryRebaseV1 = "FRESH";
+
+      const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
+      if (!beforeFrameRange) {
         throw new ProjectMutationWriteError(
-          "Pipeline video delivery identity was reused with different material.",
+          "Pipeline video delivery requires an exactly representable target timeline range.",
         );
       }
-      return { disposition: "ALREADY_APPLIED", deliveryReceipt: structuredClone(replay) };
-    }
-    const conflictRevision = projectRevisionFor(afterConflict);
-    const conflictOverlay = afterConflict.overlays?.find(
-      (overlay) => overlay.id === canonicalTarget.overlayId,
-    );
-    assertPipelineVideoDeliveryTargetV1(
-      conflictOverlay,
-      canonicalTarget.expectedAssetId,
-      conflictRevision,
-    );
-    if (attempt === 0) {
-      current = afterConflict;
-      continue;
-    }
-    throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "CAS_LOST");
+
+      const replacementOverlay = buildPipelineVideoReplacementOverlayV1(
+        targetOverlay,
+        canonicalReplacement,
+        input.deliveryId,
+        materialHash,
+      );
+      const afterFrameRange = overlayTimelineFrameRangeV1(replacementOverlay);
+      if (!afterFrameRange) {
+        throw new ProjectMutationWriteError(
+          "Pipeline video delivery produced an unrepresentable target timeline range.",
+        );
+      }
+      const unionFrameRange = unionTimelineFrameRangesV1(beforeFrameRange, afterFrameRange);
+      if (!unionFrameRange) {
+        throw new ProjectMutationWriteError(
+          "Pipeline video delivery could not derive its exact affected timeline range.",
+        );
+      }
+
+      const committedAt = new Date();
+      const afterRevision: ProjectRevisionV1 = {
+        schemaVersion: 1,
+        value: beforeRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      };
+      const mutationReceipt: ProjectMutationReceiptV1 = {
+        schemaVersion: 1,
+        projectId,
+        revision: afterRevision,
+        committedAt: committedAt.toISOString(),
+      };
+      const overlayRef = overlayReferenceForTimelineChangeV1(targetOverlay);
+      const changedPaths = [
+        "overlays",
+        "pipelineVideoDeliveryReceipts",
+        "timelineRangeChangeReceipts",
+      ] as const;
+      const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+        schemaVersion: 1,
+        receiptId: `timeline-pipeline-video_${nanoid(18)}`,
+        projectId,
+        operation: "REPLACE_PIPELINE_VIDEO_DELIVERY",
+        actorKind: "SYSTEM",
+        coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+        fps: current.fps || 30,
+        beforeProjectRevision: beforeRevision,
+        afterProjectRevision: afterRevision,
+        committedAt: committedAt.toISOString(),
+        readFrameRangesBefore: [beforeFrameRange],
+        writeFrameRangesBefore: [unionFrameRange],
+        affectedFrameRangesAfter: [afterFrameRange],
+        affectedOverlayRefs: [overlayRef],
+        changedPaths,
+        rangeObservation: "EXACT",
+        overlayTemporalChange: {
+          overlayRef,
+          beforeFrameRange,
+          afterFrameRange,
+          unionFrameRange,
+        },
+        timelineCoordinateTransform: null,
+        splitChildren: [],
+        ripple: null,
+        downstreamInvalidation: {
+          status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+          affectedFrameRangesBefore: [unionFrameRange],
+        },
+      };
+      const deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1 = {
+        schemaVersion: 1,
+        deliveryId: input.deliveryId,
+        materialHash,
+        prerequisiteHash: input.prerequisite.envelopeHash,
+        target: canonicalTarget,
+        replacementAssetId: canonicalReplacement.assetId,
+        requestedRevision: structuredClone(input.expectedRevision),
+        beforeRevision,
+        afterRevision,
+        mutationReceipt,
+        timelineChangeReceipt,
+        rebase,
+        changedPaths,
+        proof: {
+          required: true,
+          status: "UNVERIFIABLE",
+          reason: "NO_RENDERED_VIDEO_PROOF",
+        },
+        committedAt: committedAt.toISOString(),
+      };
+      const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        {
+          projectId,
+          userId,
+          overlays: {
+            $elemMatch: {
+              id: canonicalTarget.overlayId,
+              type: "video",
+              assetId: canonicalTarget.expectedAssetId,
+            },
+          },
+          "pipelineVideoDeliveryReceipts.deliveryId": { $ne: input.deliveryId },
+          ...projectRevisionPredicate(beforeRevision),
+        },
+        {
+          $set: {
+            "overlays.$[target]": replacementOverlay,
+            updatedAt: committedAt,
+          },
+          $push: {
+            pipelineVideoDeliveryReceipts: {
+              $each: [deliveryReceipt],
+              $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+            },
+            timelineRangeChangeReceipts: {
+              $each: [timelineChangeReceipt],
+              $slice: -MAX_PIPELINE_VIDEO_DELIVERY_RECEIPTS_V1,
+            },
+          } as never,
+          $inc: { projectRevision: 1 },
+        },
+        {
+          arrayFilters: [{
+            "target.id": canonicalTarget.overlayId,
+            "target.type": "video",
+            "target.assetId": canonicalTarget.expectedAssetId,
+          }],
+        },
+      );
+      if (result.matchedCount === 1) {
+        if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+        this.publishMutationReceipt(mutationReceipt);
+        return { disposition: "APPLIED", deliveryReceipt };
+      }
+
+      const afterConflict = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+        { projectId, userId },
+      )) as Project | null;
+      if (!afterConflict) throw new ProjectNotFoundOrForbiddenError();
+      const replay = findPipelineVideoDeliveryReceiptV1(afterConflict, input.deliveryId);
+      if (replay) {
+        if (replay.materialHash !== materialHash) {
+          throw new ProjectMutationWriteError(
+            "Pipeline video delivery identity was reused with different material.",
+          );
+        }
+        return { disposition: "ALREADY_APPLIED", deliveryReceipt: structuredClone(replay) };
+      }
+      const conflictRevision = projectRevisionFor(afterConflict);
+      if (attempt === 0 && sameProjectRevisionV1(conflictRevision, beforeRevision)) {
+        current = afterConflict;
+        continue;
+      }
+      throw new ProjectPipelineVideoDeliveryConflictError(conflictRevision, "CAS_LOST");
     }
 
     throw new ProjectMutationWriteError(
@@ -6936,6 +6945,95 @@ function pipelineAudioDeliveryChangedPathsV1(
   return paths;
 }
 
+function assertPipelineVideoDeliveryPrerequisiteAgainstCurrentV1(
+  projectId: string,
+  current: Project,
+  input: ProjectPipelineVideoDeliveryCommandV1,
+  currentRevision: ProjectRevisionV1,
+): Overlay {
+  const prerequisite = input.prerequisite;
+  if (
+    prerequisite.projectId !== projectId
+    || prerequisite.projectId !== current.projectId
+    || prerequisite.expectedRevision.schemaVersion !== input.expectedRevision.schemaVersion
+    || prerequisite.expectedRevision.value !== input.expectedRevision.value
+    || prerequisite.expectedRevision.compatibilityUpdatedAt
+      !== input.expectedRevision.compatibilityUpdatedAt
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "WRONG_PROJECT");
+  }
+  if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "STALE_REVISION");
+  }
+  if (
+    prerequisite.target.overlayId !== input.target.overlayId
+    || prerequisite.target.expectedAssetId !== input.target.expectedAssetId
+    || prerequisite.source.expectedAssetId !== input.target.expectedAssetId
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "SOURCE_EVIDENCE_MISMATCH");
+  }
+
+  const targetOverlay = current.overlays?.find(
+    (overlay) => overlay.id === input.target.overlayId,
+  );
+  assertPipelineVideoDeliveryTargetV1(
+    targetOverlay,
+    input.target.expectedAssetId,
+    currentRevision,
+  );
+  const beforeFrameRange = overlayTimelineFrameRangeV1(targetOverlay);
+  if (!beforeFrameRange) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery requires an exactly representable target timeline range.",
+    );
+  }
+  const expectedFrameRange = pipelineVideoDeliveryExactFrameRangeV1({
+    from: prerequisite.target.exactFrameRange.startFrame,
+    durationInFrames: prerequisite.target.exactFrameRange.endFrame
+      - prerequisite.target.exactFrameRange.startFrame,
+  });
+  if (!sameTimelineFrameRangeV1(beforeFrameRange, expectedFrameRange)) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "TARGET_RANGE_CHANGED");
+  }
+
+  const targetFingerprint = pipelineVideoDeliveryTargetFingerprintV1(targetOverlay);
+  if (
+    targetFingerprint !== prerequisite.target.targetFingerprint
+    || prerequisite.source.sourceFingerprint !== targetFingerprint
+  ) {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "TARGET_FINGERPRINT_CHANGED",
+    );
+  }
+
+  if (hasActiveDirectorMutationLeaseV1(current)) {
+    throw new ProjectPipelineVideoDeliveryConflictError(currentRevision, "DIRECTOR_LEASE_ACTIVE");
+  }
+  const activeCutLocks = activeTimelineRangeCutLocksV1(
+    readTimelineRangeCutLocksV1(current),
+    new Date(),
+  );
+  const overlappingCutLocks = activeCutLocks.filter((lock) => (
+    frameRangesOverlapHalfOpenV1(lock.frameRange, beforeFrameRange)
+  ));
+  if (overlappingCutLocks.length > 0) {
+    throw new ProjectPipelineVideoDeliveryConflictError(
+      currentRevision,
+      "TIMELINE_RANGE_LOCKED",
+    );
+  }
+
+  // Timeline receipts only record that invalidation is unmaterialized. The
+  // current Project schema has no durable owner for a target-and-revision-
+  // bound MATERIALIZED admission, so a producer-declared status is not proof.
+  // Fail closed until that real owner can be consumed here.
+  throw new ProjectPipelineVideoDeliveryConflictError(
+    currentRevision,
+    "INVALIDATION_UNVERIFIABLE",
+  );
+}
+
 function assertProjectPipelineVideoDeliveryCommandV1(
   input: ProjectPipelineVideoDeliveryCommandV1,
 ): void {
@@ -6943,6 +7041,7 @@ function assertProjectPipelineVideoDeliveryCommandV1(
     !isPlainRecord(input)
     || !isPlainRecord(input.target)
     || !isPlainRecord(input.replacement)
+    || !isPlainRecord(input.prerequisite)
     || !input.expectedRevision
     || !/^video-delivery_[A-Za-z0-9_-]{18,200}$/.test(input.deliveryId)
     || Object.keys(input.target).some((key) => (
@@ -6965,14 +7064,29 @@ function assertProjectPipelineVideoDeliveryCommandV1(
     || input.replacement.durationMs <= 0
     || typeof input.replacement.hasNativeAudio !== "boolean"
     || (input.replacement.audioRights !== null && !isPlainRecord(input.replacement.audioRights))
-    || (
-      input.replacement.generatedVideoReceipt !== null
-      && !isPlainRecord(input.replacement.generatedVideoReceipt)
-    )
+    || !isPlainRecord(input.replacement.generatedVideoReceipt)
   ) {
     throw new ProjectMutationWriteError("Pipeline video delivery input is invalid.");
   }
   assertProjectRevision(input.expectedRevision);
+  try {
+    assertPipelineVideoProjectDeliveryPrerequisiteV1(input.prerequisite);
+  } catch (error) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery prerequisite is invalid: "
+        + (error instanceof Error ? error.message : "UNKNOWN"),
+    );
+  }
+  if (
+    input.prerequisite.expectedRevision.schemaVersion !== input.expectedRevision.schemaVersion
+    || input.prerequisite.expectedRevision.value !== input.expectedRevision.value
+    || input.prerequisite.expectedRevision.compatibilityUpdatedAt
+      !== input.expectedRevision.compatibilityUpdatedAt
+  ) {
+    throw new ProjectMutationWriteError(
+      "Pipeline video delivery prerequisite revision does not match the command.",
+    );
+  }
 
   if (input.replacement.audioRights !== null) {
     const rightsIssue = getAudioRightsContractIssue(input.replacement.audioRights);
@@ -6982,13 +7096,11 @@ function assertProjectPipelineVideoDeliveryCommandV1(
       );
     }
   }
-  if (
-    input.replacement.generatedVideoReceipt !== null
-    && !isPipelineVideoReceiptForReplacementV1(
-      input.replacement.generatedVideoReceipt,
-      input.replacement.assetId,
-      input.replacement.hasNativeAudio,
-    )
+  if (!isPipelineVideoReceiptForReplacementV1(
+    input.replacement.generatedVideoReceipt,
+    input.replacement.assetId,
+    input.replacement.hasNativeAudio,
+  )
   ) {
     throw new ProjectMutationWriteError(
       "Pipeline video delivery generation receipt is invalid or mismatched.",

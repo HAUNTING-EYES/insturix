@@ -34,7 +34,9 @@ import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-
 import { verifyPipelineVideoEnqueueInternalRequestV1 } from '@/lib/editron/security/pipeline-video-enqueue-internal-auth';
 import { resolvePipelineVideoWorkerDispatchPolicyV1 } from '@/lib/pipeline/video-worker-dispatch-policy';
 import {
+  createPipelineVideoProjectDeliveryPrerequisiteV1,
   resolvePipelineVideoProjectDeliveryTargetV1,
+  type PipelineVideoProjectDeliveryPrerequisiteV1,
   type PipelineVideoProjectDeliveryTargetV1,
 } from '@/lib/editron/services/pipeline-video-project-delivery-v1';
 import { nanoid } from 'nanoid';
@@ -265,6 +267,8 @@ export async function POST(
       expectedProjectAssetId?: string;
       /** Exact producer snapshot for the worker's ProjectService delivery call. */
       projectDeliveryTarget?: PipelineVideoProjectDeliveryTargetV1;
+      /** Hash-bound admission evidence relayed unchanged to the worker. */
+      projectDeliveryPrerequisite?: PipelineVideoProjectDeliveryPrerequisiteV1;
     }
 
     const sceneJobs: SceneJob[] = [];
@@ -465,7 +469,52 @@ export async function POST(
             subShotIndex: scene.subShotIndex,
           }, { status: 409 });
         }
-        scene.projectDeliveryTarget = resolution.target;
+        const targetOverlay = projectSnapshot.project.overlays.find(
+          (overlay) => overlay.id === resolution.target.target.overlayId,
+        );
+        if (!targetOverlay) {
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} no longer has its resolved project video overlay.`,
+            code: 'PROJECT_DELIVERY_TARGET_NOT_FOUND',
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
+        try {
+          scene.projectDeliveryTarget = resolution.target;
+          scene.projectDeliveryPrerequisite = createPipelineVideoProjectDeliveryPrerequisiteV1({
+            projectId: linkedProjectId,
+            expectedRevision: projectSnapshot.revision,
+            overlay: targetOverlay,
+            directorLock: projectSnapshot.project.directorLock,
+            directorLockAt: projectSnapshot.project.directorLockAt,
+            timelineRangeCutLocks: projectSnapshot.project.timelineRangeCutLocks,
+          });
+          // No current ProjectService/media owner can issue explicit,
+          // target-and-revision-bound materialized invalidation admission.
+          // An unmaterialized claim is diagnostic only: stop before credits,
+          // provider dispatch, or a queued worker can create a false success.
+          if (scene.projectDeliveryPrerequisite.invalidation.status !== 'MATERIALIZED') {
+            return NextResponse.json({
+              success: false,
+              error: `Scene ${scene.sceneIndex} has no durable current-target invalidation admission.`,
+              code: 'PROJECT_DELIVERY_INVALIDATION_UNAVAILABLE',
+              sceneIndex: scene.sceneIndex,
+              subShotIndex: scene.subShotIndex,
+            }, { status: 409 });
+          }
+        } catch (prerequisiteError: any) {
+          return NextResponse.json({
+            success: false,
+            error: `Scene ${scene.sceneIndex} cannot be admitted for safe project delivery.`,
+            code: typeof prerequisiteError?.message === 'string'
+              ? prerequisiteError.message
+              : 'PROJECT_DELIVERY_PREREQUISITE_INVALID',
+            sceneIndex: scene.sceneIndex,
+            subShotIndex: scene.subShotIndex,
+          }, { status: 409 });
+        }
       }
     }
 
@@ -551,10 +600,11 @@ export async function POST(
         : `${batchId}_s${scene.sceneIndex}`
     );
     const projectDeliveryForScene = (scene: SceneJob) => {
-      if (!scene.projectDeliveryTarget) return undefined;
+      if (!scene.projectDeliveryTarget || !scene.projectDeliveryPrerequisite) return undefined;
       return {
         ...scene.projectDeliveryTarget,
         deliveryId: `video-delivery_${jobIdForScene(scene)}`,
+        prerequisite: scene.projectDeliveryPrerequisite,
       };
     };
 
