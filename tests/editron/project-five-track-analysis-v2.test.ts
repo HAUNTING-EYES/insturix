@@ -9,9 +9,17 @@ import type { AssetAnalysisSourceBindingV2 }
   from '@/lib/editron/services/asset-analysis-source-cache-v2';
 import type { AssetAnalysis }
   from '@/lib/editron/services/five-track-analysis';
+import {
+  buildNativeVideoAudioRights,
+  CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+} from '@/lib/editron/services/native-video-audio-rights';
 import type { Project } from '@/lib/editron/services/project-service';
 import { createProjectVideoSourceVersionPinV1 }
   from '@/lib/editron/services/project-video-source-version-pin-v1';
+import type { SourceMediaRightsGrantStateV1 }
+  from '@/lib/editron/services/source-media-rights-owner-v1';
+import type { SourceMediaRightsLedgerStorePortsV1 }
+  from '@/lib/editron/services/source-media-rights-ledger-v1';
 import { buildVerifiedProxySourceV3FixtureV1 }
   from './helpers/verified-proxy-source-v3-fixture';
 import {
@@ -243,6 +251,121 @@ describe('project five-track analysis v2', () => {
     expect(runAnalysis).not.toHaveBeenCalled();
   });
 
+  it('migrates an exact stored attestation before provider work in full mode', async () => {
+    const fixture = await sourceFixture('rights-migrated', ['3000', '3000']);
+    const asset = {
+      ...fixture.asset,
+      audioRights: buildNativeVideoAudioRights({
+        sourceAssetId: fixture.assetId,
+        userId: fixture.userId,
+        attestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+        attestedAt: new Date('2026-08-31T10:00:00.000Z'),
+      }),
+    } as LoadedAnalysisAssetV2;
+    const project = projectFixture({ ...fixture, asset }, 2);
+    const readAnalysis = vi.fn(async (): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (): Promise<AssetAnalysis> =>
+      completedAnalysis(fixture.assetId, fixture.userId, 100));
+    const rights = rightsStoreRuntime();
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'FULL',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        asset,
+        readAnalysis,
+        runAnalysis,
+        undefined,
+        undefined,
+        null,
+        rights.store,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'ANALYZED',
+      analysisBlockReason: null,
+      sourceMediaRightsAuthorizationReceiptSha256:
+        expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(rights.commit).toHaveBeenCalledTimes(1);
+    expect(rights.commit.mock.invocationCallOrder[0])
+      .toBeLessThan(readAnalysis.mock.invocationCallOrder[0]!);
+    expect(readAnalysis.mock.invocationCallOrder[0])
+      .toBeLessThan(runAnalysis.mock.invocationCallOrder[0]!);
+  });
+
+  it('blocks missing legacy attestation before cache or provider work', async () => {
+    const fixture = await sourceFixture('rights-unattested', ['3000', '3000']);
+    const project = projectFixture(fixture, 2);
+    const readAnalysis = vi.fn(async (): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (): Promise<AssetAnalysis> =>
+      completedAnalysis(fixture.assetId, fixture.userId, 100));
+    const rights = rightsStoreRuntime();
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'FULL',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        undefined,
+        undefined,
+        null,
+        rights.store,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'UNAVAILABLE',
+      analysisBlockReason:
+        'SELECTED_SOURCE_RIGHTS_PROJECT_SOURCE_RIGHTS_MIGRATION_ATTESTATION_REQUIRED',
+      sourceMediaRightsAuthorizationReceiptSha256: null,
+    });
+    expect(rights.commit).not.toHaveBeenCalled();
+    expect(readAnalysis).not.toHaveBeenCalled();
+    expect(runAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('keeps cache-only analysis read-only when a durable grant is missing', async () => {
+    const fixture = await sourceFixture('rights-cache-only', ['3000', '3000']);
+    const project = projectFixture(fixture, 2);
+    const readAnalysis = vi.fn(async (): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (): Promise<AssetAnalysis> =>
+      completedAnalysis(fixture.assetId, fixture.userId, 100));
+    const rights = rightsStoreRuntime();
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'CACHE_ONLY',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        undefined,
+        undefined,
+        null,
+        rights.store,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'UNAVAILABLE',
+      analysisBlockReason:
+        'SELECTED_SOURCE_RIGHTS_SOURCE_MEDIA_RIGHTS_EVIDENCE_MISSING',
+    });
+    expect(rights.commit).not.toHaveBeenCalled();
+    expect(readAnalysis).not.toHaveBeenCalled();
+    expect(runAnalysis).not.toHaveBeenCalled();
+  });
+
   it('does not materialize timestamp analysis in cache-only mode', async () => {
     const fixture = await sourceFixture('vfr-cache', ['3000', '1500', '4500']);
     const project = projectFixture(fixture, 3);
@@ -391,15 +514,18 @@ function ports(
   >,
   authorizeCurrentSourceRights?: NonNullable<
     ProjectFiveTrackAnalysisPortsV2['authorizeCurrentSourceRights']
-  >,
+  > | null,
+  rightsStore?: Readonly<SourceMediaRightsLedgerStorePortsV1>,
 ): ProjectFiveTrackAnalysisPortsV2 {
   const readArtifactSet = vi.fn();
-  const authorizeRights = authorizeCurrentSourceRights ?? vi.fn(async () => ({
-    disposition: 'AUTHORIZED' as const,
-    receipt: {
-      receiptSha256: 'e'.repeat(64),
-    },
-  } as never));
+  const authorizeRights = authorizeCurrentSourceRights === null
+    ? null
+    : authorizeCurrentSourceRights ?? vi.fn(async () => ({
+        disposition: 'AUTHORIZED' as const,
+        receipt: {
+          receiptSha256: 'e'.repeat(64),
+        },
+      } as never));
   return {
     loadAssets: vi.fn(async (_assetIds: readonly string[]) => [asset]),
     loadSourceVersionEvidence: vi.fn(async () => null),
@@ -410,9 +536,27 @@ function ports(
       ? { resolveSelectedSourceAudioEvidence }
       : {}),
     audioArtifactReader: { readArtifactSet },
-    rightsReader: { read: vi.fn() },
-    authorizeCurrentSourceRights: authorizeRights,
+    rightsReader: rightsStore ?? { read: vi.fn() },
+    ...(rightsStore ? { rightsStore } : {}),
+    ...(authorizeRights ? { authorizeCurrentSourceRights: authorizeRights } : {}),
     rightsNow: () => new Date('2026-08-31T12:00:00.000Z'),
     nowMs: () => 0,
   };
+}
+
+function rightsStoreRuntime() {
+  let state: SourceMediaRightsGrantStateV1 | null = null;
+  const commit = vi.fn(async ({ expectedState, nextState }: Parameters<
+    SourceMediaRightsLedgerStorePortsV1['commit']
+  >[0]) => {
+    if ((state?.sourceMediaRightsStateSha256V1 ?? null)
+      !== (expectedState?.sourceMediaRightsStateSha256V1 ?? null)) return false;
+    state = nextState;
+    return true;
+  });
+  const store: SourceMediaRightsLedgerStorePortsV1 = {
+    read: vi.fn(async () => state),
+    commit,
+  };
+  return { store, commit };
 }

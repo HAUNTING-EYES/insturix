@@ -24,6 +24,8 @@ import type { MediaSourceAudioPrivateArtifactStoreV1 }
   from './media-source-audio-r2-private-artifact-v1';
 import type { MediaSourcePtsCadenceEpochArtifactStoredObjectReaderV3 }
   from './media-source-pts-cadence-epoch-artifact-verifier-v3';
+import { ensureProjectSourceMediaRightsFromLegacyAttestationV1 }
+  from './project-source-media-rights-legacy-migration-v1';
 import {
   resolveProjectSelectedSourceAudioEvidenceV1,
   type ProjectSelectedSourceAudioEvidenceResultV1,
@@ -46,8 +48,10 @@ import {
   authorizeCurrentSourceMediaRightsV1,
   type SourceMediaRightsAuthorizationReceiptV1,
 } from './source-media-rights-authorization-v1';
-import type { SourceMediaRightsLedgerReaderV1 }
-  from './source-media-rights-ledger-v1';
+import type {
+  SourceMediaRightsLedgerReaderV1,
+  SourceMediaRightsLedgerStorePortsV1,
+} from './source-media-rights-ledger-v1';
 import {
   assertMediaSourceVersionV1,
   type MediaSourceVersionV1,
@@ -194,6 +198,7 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
   resolveSelectedSourceAudioEvidence?:
     typeof resolveProjectSelectedSourceAudioEvidenceV1;
   rightsReader: Readonly<SourceMediaRightsLedgerReaderV1>;
+  rightsStore?: Readonly<SourceMediaRightsLedgerStorePortsV1>;
   authorizeCurrentSourceRights?:
     typeof authorizeCurrentSourceMediaRightsV1;
   rightsNow?: () => Date;
@@ -232,10 +237,13 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
     const result = await prepareOverlay({
       project: input.project,
       userId: input.userId,
+      mode: input.mode,
+      projectRevisionV1: input.projectRevisionV1,
       overlay,
       assets,
       loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
       rightsReader: ports.rightsReader,
+      rightsStore: ports.rightsStore,
       authorizeCurrentSourceRights: ports.authorizeCurrentSourceRights,
       rightsNow: ports.rightsNow,
     });
@@ -436,11 +444,14 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
 async function prepareOverlay(input: Readonly<{
   project: Project;
   userId: string;
+  mode: ProjectFiveTrackAnalysisModeV2;
+  projectRevisionV1?: ProjectRevisionV1;
   overlay: ClipOverlay;
   assets: ReadonlyMap<string, AnalysisAssetV2>;
   loadSourceVersionEvidence:
     ProjectFiveTrackAnalysisPortsV2['loadSourceVersionEvidence'];
   rightsReader: ProjectFiveTrackAnalysisPortsV2['rightsReader'];
+  rightsStore: ProjectFiveTrackAnalysisPortsV2['rightsStore'];
   authorizeCurrentSourceRights:
     ProjectFiveTrackAnalysisPortsV2['authorizeCurrentSourceRights'];
   rightsNow: ProjectFiveTrackAnalysisPortsV2['rightsNow'];
@@ -478,20 +489,51 @@ async function prepareOverlay(input: Readonly<{
   if (sourceVersion === null) {
     return { reason: 'SELECTED_SOURCE_RIGHTS_SOURCE_REQUIRED' };
   }
-  const authorizeRights = input.authorizeCurrentSourceRights
-    ?? authorizeCurrentSourceMediaRightsV1;
-  const sourceMediaRights = await authorizeRights({
-    ...projectRightsScope(input.project, input.userId),
-    projectId: input.project.projectId,
-    sourceVersion,
-  }, {
-    rightsReader: input.rightsReader,
-    ...(input.rightsNow ? { now: input.rightsNow } : {}),
-  });
-  if (sourceMediaRights.disposition === 'BLOCKED') {
-    return {
-      reason: `SELECTED_SOURCE_RIGHTS_${sourceMediaRights.diagnosticCode}`,
-    };
+  const rightsScope = projectRightsScope(input.project, input.userId);
+  let sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
+  if (input.authorizeCurrentSourceRights || input.mode === 'CACHE_ONLY') {
+    const authorizeRights = input.authorizeCurrentSourceRights
+      ?? authorizeCurrentSourceMediaRightsV1;
+    const sourceMediaRights = await authorizeRights({
+      ...rightsScope,
+      projectId: input.project.projectId,
+      sourceVersion,
+    }, {
+      rightsReader: input.rightsReader,
+      ...(input.rightsNow ? { now: input.rightsNow } : {}),
+    });
+    if (sourceMediaRights.disposition === 'BLOCKED') {
+      return {
+        reason: `SELECTED_SOURCE_RIGHTS_${sourceMediaRights.diagnosticCode}`,
+      };
+    }
+    sourceMediaRightsAuthorization = sourceMediaRights.receipt;
+  } else {
+    if (!input.projectRevisionV1) {
+      return {
+        reason: 'SELECTED_SOURCE_RIGHTS_PROJECT_REVISION_REQUIRED',
+      };
+    }
+    if (!input.rightsStore) {
+      return { reason: 'SELECTED_SOURCE_RIGHTS_MIGRATION_STORE_REQUIRED' };
+    }
+    const sourceMediaRights =
+      await ensureProjectSourceMediaRightsFromLegacyAttestationV1({
+        ...rightsScope,
+        projectId: input.project.projectId,
+        projectRevision: input.projectRevisionV1,
+        sourceVersion,
+        asset,
+      }, {
+        rightsStore: input.rightsStore,
+        ...(input.rightsNow ? { now: input.rightsNow } : {}),
+      });
+    if (sourceMediaRights.disposition === 'BLOCKED') {
+      return {
+        reason: `SELECTED_SOURCE_RIGHTS_${sourceMediaRights.diagnosticCode}`,
+      };
+    }
+    sourceMediaRightsAuthorization = sourceMediaRights.authorization;
   }
   const timing = selected.binding;
   const compatibility = classifyVerifiedVideoSourceEpochRateCompatibilityV3(
@@ -504,7 +546,7 @@ async function prepareOverlay(input: Readonly<{
       overlay: input.overlay,
       selectedSource: selected,
       sourceVersionCandidates,
-      sourceMediaRightsAuthorization: sourceMediaRights.receipt,
+      sourceMediaRightsAuthorization,
     });
   }
   const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
@@ -533,7 +575,7 @@ async function prepareOverlay(input: Readonly<{
     totalSourceFrameCount,
     sourceBinding,
     options: Object.freeze({ ...baseOptions, sourceBindingV2: sourceBinding }),
-    sourceMediaRightsAuthorization: sourceMediaRights.receipt,
+    sourceMediaRightsAuthorization,
   });
 }
 
@@ -682,6 +724,22 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       createMediaSourcePtsCadenceR2RuntimePortsV1(process.env));
     return mediaRuntimePromise;
   };
+  const rightsStore: SourceMediaRightsLedgerStorePortsV1 = {
+    async read(scope) {
+      const store = rightsStorePromise ??= import(
+        './source-media-rights-ledger-v1'
+      ).then(({ createSourceMediaRightsLedgerMongoPortsV1 }) =>
+        createSourceMediaRightsLedgerMongoPortsV1());
+      return (await store).read(scope);
+    },
+    async commit(input) {
+      const store = rightsStorePromise ??= import(
+        './source-media-rights-ledger-v1'
+      ).then(({ createSourceMediaRightsLedgerMongoPortsV1 }) =>
+        createSourceMediaRightsLedgerMongoPortsV1());
+      return (await store).commit(input);
+    },
+  };
   return {
     async loadAssets(assetIds) {
       if (assetIds.length === 0) return [];
@@ -721,15 +779,8 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
         return (await mediaRuntime()).audioArtifact.readPcmSampleRange(range);
       },
     },
-    rightsReader: {
-      async read(scope) {
-        const rightsStore = rightsStorePromise ??= import(
-          './source-media-rights-ledger-v1'
-        ).then(({ createSourceMediaRightsLedgerMongoPortsV1 }) =>
-          createSourceMediaRightsLedgerMongoPortsV1());
-        return (await rightsStore).read(scope);
-      },
-    },
+    rightsReader: rightsStore,
+    rightsStore,
     rightsNow: () => new Date(),
     nowMs: () => Date.now(),
   };
