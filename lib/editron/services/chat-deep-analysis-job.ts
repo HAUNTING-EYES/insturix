@@ -33,10 +33,10 @@ const MAX_ANALYSIS_SECONDS = 120;
 const JOB_LEASE_MS = 5 * 60 * 1000;
 const JOB_TTL_MS = 24 * 60 * 60 * 1000;
 
-export type ChatDeepAnalysisModality = 'audio' | 'video';
-export type ChatDeepAnalysisTargetMode = 'overlay' | 'asset' | 'timeline' | 'search' | 'all';
-export type ChatDeepAnalysisRangeSpace = 'timeline' | 'source';
-export type ChatDeepAnalysisJobStatus =
+type ChatDeepAnalysisModality = 'audio' | 'video';
+type ChatDeepAnalysisTargetMode = 'overlay' | 'asset' | 'timeline' | 'search' | 'all';
+type ChatDeepAnalysisRangeSpace = 'timeline' | 'source';
+type ChatDeepAnalysisJobStatus =
   | 'resolved'
   | 'dispatching'
   | 'queued'
@@ -47,7 +47,7 @@ export type ChatDeepAnalysisJobStatus =
   | 'failed'
   | 'stale';
 
-export type ChatDeepAnalysisSourceSelection = Readonly<
+type ChatDeepAnalysisSourceSelection = Readonly<
   | {
       kind: 'PINNED_PROJECT_VIDEO_SOURCE';
       sourceRole: 'PROXY' | 'MASTER';
@@ -74,7 +74,7 @@ export interface ResolveChatDeepAnalysisRequest {
   windowSeconds?: number;
 }
 
-export interface ChatDeepAnalysisCoordinateContract {
+interface ChatDeepAnalysisCoordinateContract {
   overlayId: string;
   overlayType: string;
   assetId: string;
@@ -125,7 +125,7 @@ export interface QueueChatDeepAnalysisResult {
   reason?: string;
 }
 
-export interface RunChatDeepAnalysisResult {
+interface RunChatDeepAnalysisResult {
   status: 'completed' | 'retrying' | 'failed' | 'stale' | 'skipped';
   jobId: string;
   result?: Record<string, unknown>;
