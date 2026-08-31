@@ -124,10 +124,16 @@ type AssetTranscriptionSourceCacheMongoDocumentV2 = {
 export function isAssetTranscriptionFrameAddressableV2(
   evidence: AssetTranscriptionEvidenceV2,
 ): boolean {
-  const normalized = normalizeEvidence(evidence);
+  const normalized = assertAssetTranscriptionEvidenceV2(evidence);
   return normalized.sourceBindingV2.precision === 'MEASURED_WORD_REQUIRED'
     && normalized.timingEvidence.timingBasis === 'MEASURED_WORD'
     && normalized.transcription.words.length > 0;
+}
+
+export function assertAssetTranscriptionEvidenceV2(
+  value: unknown,
+): AssetTranscriptionEvidenceV2 {
+  return normalizeEvidence(value);
 }
 
 export async function getSourceBoundTranscriptionV2(
