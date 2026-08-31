@@ -8,7 +8,10 @@ import {
   markJobStarted,
   reserveJob,
 } from '@/lib/editron/services/render-job-service';
-import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import {
+  assetResolver,
+  ProjectAssetSourceUnverifiableErrorV1,
+} from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   RenderAudioRightsAuthorityError,
@@ -220,11 +223,14 @@ export async function POST(request: Request) {
 
     if (renderOverlays.length > 0) {
       try {
-        renderOverlays = await assetResolver.resolveProjectAssets(renderOverlays);
+        renderOverlays = await assetResolver.resolveProjectAssets(
+          renderOverlays,
+          { projectId: canonicalProjectId },
+        );
         resolvedProps = { ...resolvedProps, overlays: renderOverlays };
       } catch (error) {
         console.error('[Render] Asset URL resolution failed:', error);
-        throw new RenderAssetHydrationError();
+        throw new RenderAssetHydrationError(error);
       }
     }
 
@@ -430,27 +436,49 @@ export async function POST(request: Request) {
       || error instanceof RenderAudioRightsAuthorityError
     );
     const deliveryError = error instanceof RenderDeliveryContractError;
+    const sourceError = error instanceof ProjectAssetSourceUnverifiableErrorV1;
     const hydrationError = error instanceof RenderAssetHydrationError;
+    const assetPreparationError = sourceError || hydrationError;
     return NextResponse.json(
       {
         type: 'error',
         message: error.message || 'Failed to trigger render',
-        ...((rightsError || deliveryError || hydrationError) ? { code: error.code } : {}),
+        ...((rightsError || deliveryError || assetPreparationError) ? { code: error.code } : {}),
         ...(error instanceof RenderAudioRightsAuthorityError
           ? { details: error.diagnostic }
-          : {}),
+          : assetPreparationError && error.diagnostic
+            ? { details: error.diagnostic }
+            : {}),
       },
-      { status: rightsError ? 422 : deliveryError ? 400 : 500 }
+      {
+        status: rightsError
+          ? 422
+          : deliveryError
+            ? 400
+            : sourceError
+              ? 409
+              : hydrationError
+              ? error.status
+              : 500,
+      }
     );
   }
 }
 
 class RenderAssetHydrationError extends Error {
-  readonly code = 'RENDER_ASSET_HYDRATION_FAILED';
+  readonly code: 'RENDER_ASSET_HYDRATION_FAILED' | 'PROJECT_VIDEO_SOURCE_UNVERIFIABLE';
+  readonly diagnostic: ProjectAssetSourceUnverifiableErrorV1['diagnostic'] | null;
+  readonly status: 409 | 500;
 
-  constructor() {
-    super('Unable to prepare all project assets for rendering.');
+  constructor(cause: unknown) {
+    const sourceError = cause instanceof ProjectAssetSourceUnverifiableErrorV1
+      ? cause
+      : null;
+    super(sourceError?.message ?? 'Unable to prepare all project assets for rendering.');
     this.name = 'RenderAssetHydrationError';
+    this.code = sourceError?.code ?? 'RENDER_ASSET_HYDRATION_FAILED';
+    this.diagnostic = sourceError?.diagnostic ?? null;
+    this.status = sourceError ? 409 : 500;
   }
 }
 

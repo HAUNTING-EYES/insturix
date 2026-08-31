@@ -1503,6 +1503,7 @@ export class ProjectService {
     // Resolve asset IDs to signed URLs
     project.overlays = await assetResolver.resolveProjectAssets(
       project.overlays,
+      { projectId },
     );
     project.projectRevision = projectRevisionFor(project).value;
 
@@ -3036,7 +3037,10 @@ export class ProjectService {
     });
 
     const project = structuredClone(leasedProject);
-    project.overlays = await assetResolver.resolveProjectAssets(project.overlays ?? []);
+    project.overlays = await assetResolver.resolveProjectAssets(
+      project.overlays ?? [],
+      { projectId },
+    );
     return {
       leaseId,
       project,

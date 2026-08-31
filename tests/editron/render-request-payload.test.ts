@@ -621,16 +621,22 @@ describe("Editron render request payloads", () => {
       "verifyRenderAudioRightsAuthority({"
     );
     const hydrationIndex = routeSource.indexOf(
-      "assetResolver.resolveProjectAssets(renderOverlays)"
+      "assetResolver.resolveProjectAssets("
+    );
+    const projectScopeIndex = routeSource.indexOf(
+      "{ projectId: canonicalProjectId }",
+      hydrationIndex
     );
     const creditIndex = routeSource.indexOf("checkCredits(userId");
 
     expect(deliveryIndex).toBeGreaterThan(-1);
     expect(authorityIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeGreaterThan(-1);
+    expect(projectScopeIndex).toBeGreaterThan(hydrationIndex);
     expect(deliveryIndex).toBeLessThan(authorityIndex);
     expect(authorityIndex).toBeLessThan(gateIndex);
     expect(gateIndex).toBeLessThan(hydrationIndex);
+    expect(projectScopeIndex).toBeLessThan(creditIndex);
     expect(gateIndex).toBeLessThan(creditIndex);
     expect(
       chapterSource.match(/buildLambdaRenderInputProps\(/g)

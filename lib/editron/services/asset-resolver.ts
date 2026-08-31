@@ -19,6 +19,42 @@ import type {
   MediaSourceVersionV1,
 } from './media-source-version-v1';
 import { resolveActiveMediaR2StorageKeyV1 } from './media-proxy-master-transition-v1';
+import {
+  resolveProjectVideoSourceStorageV1,
+  type ProjectVideoSourceStorageResolutionV1,
+} from './project-video-source-version-pin-v1';
+import { getR2PresignedReadUrl } from './r2-service';
+
+export type ResolveProjectAssetsOptionsV1 = Readonly<{
+  forceGCS?: boolean;
+  projectId?: string;
+}>;
+
+export type ProjectAssetSourceUnverifiableReasonV1 =
+  | Extract<
+      ProjectVideoSourceStorageResolutionV1,
+      { disposition: 'UNVERIFIABLE' }
+    >['reason']
+  | 'PROJECT_SCOPE_REQUIRED'
+  | 'SOURCE_URL_UNAVAILABLE';
+
+export class ProjectAssetSourceUnverifiableErrorV1 extends Error {
+  readonly code = 'PROJECT_VIDEO_SOURCE_UNVERIFIABLE' as const;
+
+  constructor(
+    readonly diagnostic: Readonly<{
+      projectId: string | null;
+      overlayId: number;
+      assetId: string;
+      reason: ProjectAssetSourceUnverifiableReasonV1;
+    }>,
+  ) {
+    super(
+      `Project video source is unverifiable for overlay ${diagnostic.overlayId} (${diagnostic.reason}).`,
+    );
+    this.name = 'ProjectAssetSourceUnverifiableErrorV1';
+  }
+}
 
 export interface MediaAsset {
   _id?: any;
@@ -66,6 +102,10 @@ export interface MediaAsset {
   proxyMasterRelationV1?: Readonly<MediaProxyMasterRelationV1> | null;
   /** Media-owner invalidation intent; ProjectService separately owns project effects. */
   sourceInvalidationPlanV1?: Readonly<MediaSourceInvalidationPlanV1> | null;
+  /** Qualified proxy/master playback mapping. Project overlays still require their own source pins. */
+  proxyMasterActiveMappingV1?: unknown;
+  /** Exact canonical hash of `proxyMasterActiveMappingV1`. */
+  proxyMasterActiveMappingStateSha256V1?: unknown;
   /** Source-version-bound PTS/cadence lifecycle; absent until the media owner creates it. */
   sourcePtsCadenceMapV1?: Readonly<MediaSourcePtsCadenceMapRecordV1> | null;
   /** Exact canonical hash of `sourcePtsCadenceMapV1`, used only for owner CAS. */
@@ -225,6 +265,18 @@ async function touchAssetsLastUsed(db: any, assetIds: string[]): Promise<void> {
   }
 }
 
+function hasDualVersionVideoEvidence(asset: MediaAsset): boolean {
+  return (typeof asset.originalR2Key === 'string' && asset.originalR2Key.trim().length > 0)
+    || asset.proxySourceVersionV1 != null
+    || asset.proxyMasterRelationV1 != null
+    || asset.proxyMasterActiveMappingV1 != null
+    || asset.proxyMasterActiveMappingStateSha256V1 != null;
+}
+
+function overlayAssetKey(overlayId: number, assetId: string): string {
+  return `${overlayId}:${assetId}`;
+}
+
 export class AssetResolver {
   /**
    * Create or get a public asset (for stock media like Pexels, default sounds, etc.)
@@ -292,11 +344,23 @@ export class AssetResolver {
    * This adds the 'src' property based on assetId
    */
   /**
-   * @param forceGCS - When true, always use GCS signed URLs (skip CDN proxy).
-   *   Lambda rendering REQUIRES this because the CDN proxy doesn't support
-   *   Content-Length or Range headers needed by FFmpeg for video seeking.
+   * `projectId` is mandatory whenever an overlay or asset carries qualified
+   * proxy/master evidence. The explicit project scope is never inferred from
+   * the pin being authenticated.
+   *
+   * A boolean second argument remains read-compatible for older callers.
    */
-  async resolveProjectAssets(overlays: Overlay[], forceGCS: boolean = false): Promise<Overlay[]> {
+  async resolveProjectAssets(
+    overlays: Overlay[],
+    forceGCSOrOptions: boolean | ResolveProjectAssetsOptionsV1 = false,
+  ): Promise<Overlay[]> {
+    const options = typeof forceGCSOrOptions === 'boolean'
+      ? { forceGCS: forceGCSOrOptions }
+      : forceGCSOrOptions;
+    const forceGCS = options.forceGCS === true;
+    const projectId = typeof options.projectId === 'string' && options.projectId.trim()
+      ? options.projectId.trim()
+      : null;
     // Extract unique assetIds from overlays
     const assetIds = new Set<string>();
     
@@ -332,6 +396,10 @@ export class AssetResolver {
 
     for (const asset of assets) {
       if (asset.type === 'sequence') continue;
+      // A dual-version video is selected per overlay below. It may never enter
+      // the legacy asset-level map because one shared asset can be pinned to a
+      // different source version in each project.
+      if (asset.type === 'video' && hasDualVersionVideoEvidence(asset)) continue;
       try {
         // CDN Worker URL is the canonical path for R2 assets.
         // A completed proxy promotion retains the proxy key in `r2Key` and
@@ -358,6 +426,65 @@ export class AssetResolver {
           assetMap.set(asset.assetId, asset.cachedUrl);
         }
       }
+    }
+
+    const projectVideoMap = new Map<string, string>();
+    for (const overlay of overlays) {
+      if (overlay.type !== OverlayType.VIDEO
+        || !('assetId' in overlay)
+        || !overlay.assetId) continue;
+      const assetId = overlay.assetId as string;
+      const asset = assetsById.get(assetId);
+      if (!asset || asset.type !== 'video') continue;
+      const sourcePin = 'sourceVersionPinV1' in overlay
+        ? overlay.sourceVersionPinV1
+        : undefined;
+      if (!hasDualVersionVideoEvidence(asset) && sourcePin == null) continue;
+      if (!projectId) {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId: null,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'PROJECT_SCOPE_REQUIRED',
+        });
+      }
+      const source = resolveProjectVideoSourceStorageV1({
+        projectId,
+        overlayId: overlay.id,
+        assetId,
+        sourcePin,
+        asset,
+      });
+      if (source.disposition === 'UNVERIFIABLE') {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: source.reason,
+        });
+      }
+      let resolvedUrl: string;
+      try {
+        resolvedUrl = cdnBaseUrl
+          ? `${cdnBaseUrl}/asset/${source.storageKey}`
+          : await getR2PresignedReadUrl(source.storageKey);
+      } catch {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'SOURCE_URL_UNAVAILABLE',
+        });
+      }
+      if (!resolvedUrl) {
+        throw new ProjectAssetSourceUnverifiableErrorV1({
+          projectId,
+          overlayId: overlay.id,
+          assetId,
+          reason: 'SOURCE_URL_UNAVAILABLE',
+        });
+      }
+      projectVideoMap.set(overlayAssetKey(overlay.id, assetId), resolvedUrl);
     }
 
 
@@ -392,7 +519,10 @@ export class AssetResolver {
         );
       }
       if ('assetId' in overlay && overlay.assetId) {
-        const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
+        const assetId = overlay.assetId as string;
+        const resolvedUrl = projectVideoMap.get(overlayAssetKey(overlay.id, assetId))
+          || assetMap.get(assetId)
+          || '';
         const existingSrc = (overlay as any).src || (overlay as any).content || '';
 
         if (resolvedUrl) {
