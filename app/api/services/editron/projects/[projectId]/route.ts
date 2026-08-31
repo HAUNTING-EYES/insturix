@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { projectService } from '@/lib/editron/services/project-service';
 import { auth } from '@clerk/nextjs/server';
+import { ProjectAssetSourceUnverifiableErrorV1 }
+  from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
 
@@ -32,24 +34,55 @@ export async function GET(
       );
     }
 
-    // Check if any video overlay references a proxy asset (original still uploading)
-    let proxyAssets: Array<{ assetId: string; filename: string }> = [];
+    // Report the source selected by this project. A reusable MediaAsset's
+    // global `isProxy` lifecycle is not playback authority for any project.
+    const proxyPins = new Map<string, {
+      assetId: string;
+      overlayIds: number[];
+      sourceVersionSha256: string;
+    }>();
+    for (const overlay of project.overlays ?? []) {
+      const pin = overlay.type === 'video' && 'sourceVersionPinV1' in overlay
+        ? overlay.sourceVersionPinV1
+        : undefined;
+      if (!pin || pin.sourceRole !== 'PROXY') continue;
+      const current = proxyPins.get(pin.assetId);
+      if (current) {
+        current.overlayIds.push(overlay.id);
+      } else {
+        proxyPins.set(pin.assetId, {
+          assetId: pin.assetId,
+          overlayIds: [overlay.id],
+          sourceVersionSha256: pin.sourceVersionSha256,
+        });
+      }
+    }
+    let proxyAssets = Array.from(proxyPins.values()).map((entry) => ({
+      ...entry,
+      sourceRole: 'PROXY' as const,
+      selectionAuthority: 'PROJECT_SOURCE_PIN' as const,
+      filename: null as string | null,
+    }));
     try {
-      const videoAssetIds = (project.overlays || [])
-        .filter((o: any) => o.type === 'video' && o.assetId)
-        .map((o: any) => o.assetId);
-      if (videoAssetIds.length > 0) {
+      const proxyAssetIds = Array.from(proxyPins.keys());
+      if (proxyAssetIds.length > 0) {
         const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        const proxies = await db.collection(COLLECTIONS.MEDIA_ASSETS)
-          .find({ assetId: { $in: videoAssetIds }, isProxy: true })
+        const assets = await db.collection(COLLECTIONS.MEDIA_ASSETS)
+          .find({ assetId: { $in: proxyAssetIds } })
           .project({ assetId: 1, filename: 1, _id: 0 })
           .toArray();
-        proxyAssets = proxies as Array<{ assetId: string; filename: string }>;
+        const filenames = new Map(
+          assets.map((asset) => [String(asset.assetId), String(asset.filename)]),
+        );
+        proxyAssets = proxyAssets.map((entry) => ({
+          ...entry,
+          filename: filenames.get(entry.assetId) ?? null,
+        }));
       }
     } catch (err: unknown) {
-      // Non-fatal — project still loads, just without proxy info
-      console.warn('[ProjectLoad] proxy asset lookup failed:', err instanceof Error ? err.message : err);
+      // Filename enrichment is non-authoritative. Keep the validated pin status.
+      console.warn('[ProjectLoad] proxy filename lookup failed:', err instanceof Error ? err.message : err);
     }
 
     return NextResponse.json({
@@ -57,10 +90,24 @@ export async function GET(
       project,
       ...(proxyAssets.length > 0 && { proxyAssets }),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error loading project:', error);
+    if (error instanceof ProjectAssetSourceUnverifiableErrorV1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          code: error.code,
+          details: error.diagnostic,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to load project' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load project',
+      },
       { status: 500 }
     );
   }

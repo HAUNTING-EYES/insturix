@@ -1,16 +1,16 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use } from "react";
 import { useRouter } from "next/navigation";
 import ReactVideoEditor from "@/components/editron/editor/version-7.0.0/react-video-editor";
+import { useProjectLoadGuard } from "@/components/editron/project/use-project-load-guard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, Home } from "lucide-react";
 
-/* Editron editor — /v2 PREVIEW route. Same boot guard as the live editor page,
-   but mounts ReactVideoEditor with variant="v2" (the redesigned shell over the
-   identical provider stack). The live route (../page.tsx) is untouched; swap the
-   v2 shell in there once approved. */
+/* Editron editor — /v2 PREVIEW route. Uses the same source-integrity boot guard
+   as the live editor, then mounts the redesigned shell over the identical
+   provider stack. */
 
 interface ProjectPageProps {
   params: Promise<{ projectId: string }>;
@@ -19,41 +19,9 @@ interface ProjectPageProps {
 export default function ProjectV2PreviewPage({ params }: ProjectPageProps) {
   const { projectId } = use(params);
   const router = useRouter();
-  const [projectExists, setProjectExists] = useState<boolean | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
+  const projectLoad = useProjectLoadGuard(projectId);
 
-  useEffect(() => {
-    const checkProject = async (retries = 2) => {
-      try {
-        const response = await fetch(`/api/services/editron/projects/${projectId}`);
-        if (response.ok) {
-          setProjectExists(true);
-        } else if (response.status === 404) {
-          setProjectExists(false);
-        } else if (retries > 0) {
-          console.warn(`[Project] Check returned ${response.status}, retrying...`);
-          await new Promise((r) => setTimeout(r, 1000));
-          return checkProject(retries - 1);
-        } else {
-          setProjectExists(false);
-        }
-      } catch (error) {
-        console.error("Error checking project:", error);
-        if (retries > 0) {
-          await new Promise((r) => setTimeout(r, 1000));
-          return checkProject(retries - 1);
-        }
-        setProjectExists(false);
-      } finally {
-        if (retries === 0 || !retries) setIsChecking(false);
-      }
-      setIsChecking(false);
-    };
-
-    checkProject();
-  }, [projectId]);
-
-  if (isChecking) {
+  if (projectLoad.status === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="space-y-4 text-center">
@@ -64,7 +32,12 @@ export default function ProjectV2PreviewPage({ params }: ProjectPageProps) {
     );
   }
 
-  if (projectExists === false) {
+  if (projectLoad.status !== "ready") {
+    const title = projectLoad.status === "missing"
+      ? "Project Not Found"
+      : projectLoad.status === "blocked"
+        ? "Project media needs attention"
+        : "Unable to open project";
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="max-w-md space-y-6 px-4 text-center">
@@ -74,10 +47,15 @@ export default function ProjectV2PreviewPage({ params }: ProjectPageProps) {
             </div>
           </div>
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold">Project Not Found</h1>
+            <h1 className="text-2xl font-bold">{title}</h1>
             <p className="text-muted-foreground">
-              The project you&apos;re looking for doesn&apos;t exist or you don&apos;t have access to it.
+              {projectLoad.message}
             </p>
+            {projectLoad.status === "blocked" && projectLoad.reason && (
+              <p className="rounded bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
+                Safe stop: {projectLoad.reason}
+              </p>
+            )}
             <p className="rounded bg-muted px-3 py-1 font-mono text-sm text-muted-foreground">Project ID: {projectId}</p>
           </div>
           <Button onClick={() => router.push("/")} size="lg" className="gap-2">
