@@ -11766,6 +11766,55 @@ success route. Live Atlas/R2/provider proof and primary binding-time rights
 issuance remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project-selected transcription composition and read-only admission Phase
+3F-C8cl (2026-08-31):** commits `5fe1b1b69`, `6debc5bd8`, `6e8fd747c`,
+`67853303e`, `b3c0b1a9a` and `d02e469af` advance the local source-bound chain
+without claiming a product caller or production cutover. The existing
+project-selected proxy/master resolver now exposes the exact immutable
+`sourceVersion` it selected. A narrow composition owner passes that exact
+version, source role, ProjectService revision and project/principal scope to
+the source-bound transcription core. The five-track preparation owner no
+longer reconstructs a second proxy/master choice from asset flags or overlay
+URLs; it reuses the selection owner's result.
+
+External transcription now has an explicit durable policy authority. Its
+grant binds tenant, actor, organization, project, exact privacy-policy
+artifact, allowed providers, media kinds, source roles, timing precisions,
+validity and revocation. No default grant, seed or write shortcut exists. The
+selected-source lease adapter can open the current source version or an exact
+retained qualified proxy only when immutable source-version evidence and that
+version's own qualification agree; an arbitrary historical source cannot be
+leased. This closes the earlier mistake where an asset-global `isProxy` state
+could masquerade as project-specific source authority.
+
+The transcription input now requires `FULL | CACHE_ONLY`. Both modes may use
+a valid cache hit only after current rights and ProjectService revision checks.
+On a validated miss, `CACHE_ONLY` returns
+`ASSET_TRANSCRIPTION_CACHE_MISS` before egress-policy, source-lease, provider
+or cache-write owners are required or called. It cannot spend, egress, invent
+silence or create durable evidence. The focused current core/composition
+battery passes 12/12; the selected-source lease checkpoint passed 16/16, the
+durable egress-policy checkpoint passed 25/25 and the five-track selected-
+source cleanup checkpoint passed its 29-test battery. Repository TypeScript,
+repository-wide quiet ESLint and `git diff --check` pass at `d02e469af`.
+
+This result is
+`PROJECT_SELECTED_TRANSCRIPTION_PREREQUISITES_LOCALLY_COMPOSED_FIVE_TRACK_PRODUCT_CONSUMPTION_AND_LIVE_PROOF_OPEN`.
+The source-bound transcription owner is still not called by the authenticated
+five-track product path. No current durable policy-grant writer or production
+grant record was introduced, and no live Atlas policy/rights read, private R2
+lease, provider call, customer project or downstream edit was exercised. The
+legacy upload/asset-transcription dispatch and its false `no-speech` failure
+semantics remain separate unsafe paths and are not accepted as fallback
+success. The next bounded slice must compose the concrete cache, rights,
+ProjectService revision, egress-policy, exact selected-source lease and
+provider ports behind project five-track analysis; pass measured transcript
+and word timing into the same-rate analysis input; bind timestamp-path evidence
+without claiming an unimplemented speech consumer; and prove that the
+five-track `CACHE_ONLY` pass never generates on a miss. Only after the new path
+is authoritative may the legacy alternate-success route be disabled or
+migrated. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
