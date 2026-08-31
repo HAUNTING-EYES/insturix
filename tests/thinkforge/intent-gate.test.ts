@@ -23,6 +23,28 @@ const scriptContext = {
 };
 
 describe('ThinkForge intent gate lexical boundaries', () => {
+  it('treats a claimed initial draft as authoritative regardless of prompt wording', () => {
+    const result = classifyIntentFast(
+      'Proceed with the selected idea.',
+      null,
+      false,
+      {
+        editorFocused: false,
+        hasSelection: false,
+        workspaceMode: 'script',
+        lastUserAction: 'initial_draft_claim',
+      },
+    );
+
+    expect(result).toMatchObject({
+      intent: 'draft',
+      confidence: 1,
+      scope: 'document',
+      usedFallback: false,
+    });
+    expect(result.signals).toContain('initial_draft_claim');
+  });
+
   it('routes an explicit create request as a draft when later prose says editorial and research', () => {
     const result = classifyIntentFast(
       'Create a seven-minute documentary. Use this editorial framework as guidance, not measured research.',

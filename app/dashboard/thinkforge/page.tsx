@@ -495,18 +495,48 @@ export default function ThinkForgeLanding() {
 		// Persist URL brief data into the idea so it survives the ideation→scripting transition
 		const brandBrief = briefResults?.map(b => `${b.title}: ${b.summary}${b.keyTopics?.length ? ` | Topics: ${b.keyTopics.join(', ')}` : ''}${b.targetAudience ? ` | Audience: ${b.targetAudience}` : ''}`).join('\n') || undefined;
 		const ideaWithName = { ...idea, sessionName, originalPrompt: idea.originalPrompt || prompt, brandBrief };
-		setSelectedIdea(ideaWithName);
-		// SKIP the session settings screen — go directly to the script editor
-		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }
-		scriptHook.resetSessionState();
-		setPendingSessionId(null);
-		setActiveScriptId('default');
-		setWorkspaceMode('scripting');
-		setIdeationPhase('PROMPT');
-		setIdeas([]);
-		setHasSubmitted(false);
-		setPrompt("");
-		setAuthoringRequest(null);
+		const initialDraftIntent = { status: 'pending', requestedAt: new Date().toISOString() };
+
+		setOpeningSession(true);
+		try {
+			await session.closeSession();
+			scriptHook.resetSessionState();
+			setPendingSessionId(null);
+			setActiveScriptId('default');
+
+			// The editor must never mount against the previous session. Create the new
+			// server-owned session first, then expose its exact ID to the workspace.
+			const created = await session.hydrate({
+				projectMeta: bindActiveBrandToNewSession(
+					buildProjectMetaPayload(ideaWithName, initialDraftIntent),
+				),
+			});
+			if (!created?.sessionId) {
+				throw new Error('ThinkForge did not create a session for the selected idea');
+			}
+
+			initialDraftRequestedRef.current = false;
+			setSelectedIdea(ideaWithName);
+			setActiveScriptId(created.script?.scriptId || 'default');
+			setPendingSessionId(created.sessionId);
+			scriptHook.resetSessionState();
+			setWorkspaceMode('scripting');
+			setIdeationPhase('PROMPT');
+			setIdeas([]);
+			setHasSubmitted(false);
+			setPrompt("");
+			setAuthoringRequest(null);
+		} catch (error) {
+			initialDraftRequestedRef.current = false;
+			console.error('[ThinkForge] Failed to create the selected idea session:', error);
+			toast({
+				title: 'Could not start drafting',
+				description: 'The new session was not created. Your current workspace was left unchanged.',
+				variant: 'destructive',
+			});
+		} finally {
+			setOpeningSession(false);
+		}
 	};
 
 	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, authoringRequestInput: ThinkForgeAuthoringRequest): Promise<string | null> => {
