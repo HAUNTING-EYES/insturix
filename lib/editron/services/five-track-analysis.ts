@@ -18,7 +18,7 @@
  * Edit Decision Lists.
  */
 
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { TokenTracker, type TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
 import {
@@ -1591,58 +1591,6 @@ export async function runFullAnalysis(
 
   console.log(`[Analysis] Complete: ${layerResults.join(', ')}`);
   return persistedAnalysis;
-}
-
-/**
- * Analyze all video assets in a project.
- */
-export async function analyzeProjectAssets(
-  projectId: string,
-  userId: string,
-  /** Max time budget in ms. Analysis stops when exceeded. Default 120s. */
-  timeBudgetMs: number = 120_000,
-  pipelineWarnings?: PipelineWarningCollector,
-): Promise<{ analyzed: number; cached: number; failed: number; timedOut: boolean }> {
-  const startMs = Date.now();
-  const db = await getDatabase();
-  const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId }) as any;
-  if (!project) throw new Error('Project not found');
-
-  const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
-  let analyzed = 0, cached = 0, failed = 0;
-  let timedOut = false;
-
-  for (const overlay of videoOverlays) {
-    // F10.2: Check time budget before each analysis
-    const elapsed = Date.now() - startMs;
-    if (elapsed > timeBudgetMs) {
-      console.warn(`[Analysis] Time budget exceeded (${Math.round(elapsed / 1000)}s > ${Math.round(timeBudgetMs / 1000)}s). ${videoOverlays.length - analyzed - cached - failed} assets skipped.`);
-      timedOut = true;
-      break;
-    }
-
-    const assetId = overlay.assetId;
-    if (!assetId) continue;
-
-    try {
-      const existing = await getAnalysis(assetId);
-      if (existing?.status === 'complete') { cached++; continue; }
-
-      const asset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId }) as any;
-      const videoUrl = asset?.cachedUrl || overlay.src || overlay.content;
-      if (!videoUrl) { failed++; continue; }
-
-      const durationMs = (overlay.durationInFrames / 30) * 1000;
-      await runFullAnalysis(assetId, userId, { videoUrl, durationMs }, pipelineWarnings);
-      analyzed++;
-    } catch (err: any) {
-      console.error(`[Analysis] Failed ${assetId}:`, err.message);
-      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), `asset analysis ${assetId}`);
-      failed++;
-    }
-  }
-
-  return { analyzed, cached, failed, timedOut };
 }
 
 // ─── Smart Clip Selection ──────────────────────────────────────────
