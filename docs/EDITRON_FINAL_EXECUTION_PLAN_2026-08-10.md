@@ -11654,6 +11654,37 @@ transcription, then supplies a chunked aggregate proof for longer windows and
 the remaining timestamp-native audio consumers. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Current source-media rights analysis gate Phase 3F-C8ci (2026-08-31):**
+commits `910f67d12` and `abc42562a` create one reusable current-source rights
+authorizer and make both final-render publication and project analysis consume
+it. The authorizer reads the immutable project/source-version ledger head and
+binds tenant, actor, project owner/organization, permitted use, complete source
+owner/content/storage/version hashes, current licence time, revocation state
+and ledger-state hash into a canonical authorization receipt. Final render no
+longer maintains a separate copy of project/principal/licence checks.
+
+Five-track analysis now authorizes the exact ProjectService-selected proxy or
+master before cached analysis, provider analysis or timestamp visual
+materialization. The selected-source audio owner independently reauthorizes
+immediately before private audio-artifact or PCM reads. Missing, malformed,
+revoked, expired, wrong-project, wrong-principal or wrong-source evidence stops
+without provider, visual, audio or PCM work; legacy asset/overlay consent is not
+accepted as a substitute. The combined rights, selected-audio, five-track and
+API-route battery passes 40/40. Repository TypeScript, targeted quiet ESLint,
+repository-wide quiet ESLint and `git diff --check` pass. No live Atlas ledger,
+customer project, provider, private media object or mutation was exercised.
+
+This result is
+`CURRENT_SOURCE_MEDIA_RIGHTS_LOCALLY_ENFORCED_PRODUCTION_ISSUANCE_MIGRATION_AND_LIVE_LEDGER_OPEN`.
+The production codebase currently has no non-test caller that issues and
+persists a `SourceMediaRightsGrantStateV1`; therefore existing projects without
+a durable grant safely block. Queue item 3 must next wire explicit authenticated
+issuance at source intake/project binding, migrate only grants backed by valid
+existing attestations, and prove issue/read/revoke against live Atlas before
+source-version transcription can be called production-ready. No synthetic or
+implicit grant may be created for legacy media. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
