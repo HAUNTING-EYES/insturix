@@ -11454,6 +11454,47 @@ transcription, live provider/Atlas proof, browser QA and semantic-retrieval
 accuracy remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Selected proxy/master V3 timing consumption Phase 3F-C8cd
+(2026-08-31):** code commits `962ba6843`, `e33c6fa8a` and `f7b48480d`
+close the active-mapping limitation recorded by C8cc for the project five-track
+consumer. A new read-only composition owner first resolves the authenticated
+ProjectService source pin and exact R2 object. A direct/current source uses its
+current terminal V3 state. An active mapped proxy or master loads the immutable
+`MediaSourceVersionEvidenceRecordV1` keyed by owner, asset and exact source
+version, rebuilds the existing V3 asset view, and requires every V3 binding
+identity field to equal the already-qualified active mapping's proxy or master
+time-map reference. Cadence and source timebase remain owned by that source's
+terminal V3 evidence; they are never inferred from nominal FPS, correspondence
+segments or the other source.
+
+The project five-track adapter now consumes that owner through an injected,
+lazy primary evidence-store port. Its V2 analysis cache identity receives the
+selected proxy/master role and exact selected source/storage hashes. Missing
+historical evidence, invalid active state, stale source scope and active-map/V3
+mismatch remain separate stable block reasons and stop before cache or provider
+work. A historical proxy selected after the current asset changes but before an
+active mapping exists also stops explicitly; no unqualified cross-source join
+is attempted. The required >300-LOC Step-0 removed six unused exports in its
+own commit before this consumer refactor.
+
+The selected-source owner passes 6/6 direct/active/adversarial cases. The
+combined selected-source, adapter, route and cache battery passes 22/22;
+repository TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No paid provider call, live Atlas/R2 media read,
+authenticated browser or human evaluation was used.
+
+This result is
+`PROJECT_SELECTED_PROXY_MASTER_V3_TIME_BINDING_AND_FIVE_TRACK_CONSUMER_LOCALLY_VERIFIED_LIVE_AUDIO_AND_TIMESTAMP_CONFORM_OPEN`.
+It proves local exact selected-source timing composition and consumption for
+the existing fixed-30-fps analysis engine. It does not implement the
+timestamp-addressed five-track consumer required for VFR, rational mixed-rate,
+discontinuous epochs, trims, retimes or repeated source uses. The selected
+source's playable-audio decode/equivalence contract, live primary
+source-version-evidence read, live provider execution, source-version-bound
+transcription, project/org-aware V2 debug endpoint, browser QA and semantic
+retrieval accuracy remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
