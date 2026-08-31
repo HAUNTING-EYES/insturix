@@ -85,7 +85,10 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getSession: mocks.getSession,
 }));
 
-import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
+import {
+  planProductionContractRefresh,
+  reviseDocumentViaFlatWriter,
+} from '@/lib/thinkforge/services/flat-writer-edit';
 
 const signalProfile = {
   profile: { constraints: {}, signals: {}, derived: {}, _inference_metadata: {} },
@@ -544,19 +547,26 @@ describe('flat writer edit authoring context', () => {
         },
       },
     };
-    mocks.getSession.mockResolvedValueOnce({
+    mocks.getSession.mockResolvedValue({
       _id: 'session_1',
       userId: 'user_1',
       orgId: 'org_1',
       projectMeta: scriptAuthoringContext.projectMeta,
     });
-    mocks.getScript.mockResolvedValueOnce(stored);
-    mocks.resolveAuthoringContext.mockResolvedValueOnce(scriptAuthoringContext);
+    mocks.getScript.mockResolvedValue(stored);
+    mocks.resolveAuthoringContext.mockResolvedValue(scriptAuthoringContext);
     mocks.scriptRun.mockImplementation(async (input) => ({
       result: scriptResult(),
       metadata: { writerTrace: writerTrace('script', input.editorialPlan) },
     }));
 
+    const productionContractPlan = await planProductionContractRefresh({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+    });
     await reviseDocumentViaFlatWriter({
       mode: 'refresh-production-contract',
       userId: 'user_1',
@@ -564,6 +574,7 @@ describe('flat writer edit authoring context', () => {
       sessionId: 'session_1',
       scriptId: 'script_refresh',
       expectedVersion: 6,
+      productionContractPlan,
     });
 
     expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
@@ -573,6 +584,7 @@ describe('flat writer edit authoring context', () => {
         focusHint: expect.stringContaining('exactly'),
       }),
     }));
+    expect(mocks.planVideoTreatment).toHaveBeenCalledTimes(1);
     expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
       baseVersion: 6,
       payload: expect.objectContaining({

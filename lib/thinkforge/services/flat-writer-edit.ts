@@ -67,17 +67,31 @@ interface FlatWriterEditBaseArgs {
   expectedVersion?: number;
 }
 
+export interface ProductionContractRefreshPlan {
+  treatment: VideoTreatmentPlanResult['treatment'];
+  inputFingerprint: string;
+  source: VideoTreatmentPlanResult['source'];
+  cacheStatus: VideoTreatmentPlanResult['cacheStatus'];
+  modelName: string;
+  latencyMs: number;
+  writingContextCacheStatus?: VideoTreatmentPlanResult['writingContextCacheStatus'];
+  writingKnowledgeVersion: string;
+  editronCreativeGraphVersion: string | null;
+}
+
 export type FlatWriterEditArgs = FlatWriterEditBaseArgs & (
   | {
       mode?: 'revise';
       instruction: string;
       selection?: string;
+      productionContractPlan?: never;
     }
   | {
       mode: 'refresh-production-contract';
       instruction?: never;
       selection?: never;
       expectedVersion: number;
+      productionContractPlan?: ProductionContractRefreshPlan;
     }
 );
 
@@ -119,8 +133,8 @@ function resolveStoredWriterKind(script: db.Script): ThinkForgeWriterKind {
   return documentKind;
 }
 
-export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
-  const { userId, orgId, abortSignal, beforeCommit } = args;
+async function prepareFlatWriterEdit(args: FlatWriterEditArgs) {
+  const { userId, orgId } = args;
   const refreshesProductionContract = args.mode === 'refresh-production-contract';
   const instruction = refreshesProductionContract
     ? PRODUCTION_CONTRACT_REFRESH_INSTRUCTION
@@ -248,27 +262,121 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   const existingTreatment = isScript && previousWriterOutput.videoTreatment !== undefined
     ? parseVideoTreatment(previousWriterOutput.videoTreatment)
     : undefined;
+  return {
+    userId,
+    canonicalOrgId,
+    canonicalSessionId,
+    scriptId,
+    canonicalScript,
+    documentKind,
+    existingContent,
+    isScript,
+    persistedCanonicalState,
+    authoringContext,
+    authoringRequest,
+    brandId,
+    contentSignalProfile,
+    signalTrace,
+    groundedSystemBrief,
+    productionBrief,
+    projectSummary,
+    previousMetadata,
+    sourceLedger,
+    editorialPlan,
+    existingTreatment,
+    instruction,
+    selection,
+    refreshesProductionContract,
+  };
+}
+
+async function planPreparedVideoTreatment(
+  prepared: Awaited<ReturnType<typeof prepareFlatWriterEdit>>,
+  abortSignal?: AbortSignal,
+): Promise<ProductionContractRefreshPlan> {
+  if (!prepared.isScript) {
+    throw new Error('Video treatment planning is available only for video scripts');
+  }
+  const plan = await planVideoTreatment({
+    userPrompt: prepared.instruction,
+    authoringRequest: prepared.authoringRequest,
+    editorialPlan: prepared.editorialPlan,
+    productionBrief: prepared.productionBrief,
+    authoringContext: prepared.authoringContext,
+    contentSignalProfile: prepared.contentSignalProfile,
+    sourceLedger: prepared.sourceLedger,
+    userId: prepared.userId,
+    orgId: prepared.canonicalOrgId,
+    sessionId: prepared.canonicalSessionId,
+    projectId: prepared.canonicalSessionId,
+    editContext: {
+      currentContent: prepared.existingContent,
+      instruction: prepared.instruction,
+      ...(prepared.selection ? { selection: prepared.selection } : {}),
+      ...(prepared.existingTreatment ? { existingTreatment: prepared.existingTreatment } : {}),
+    },
+    abortSignal,
+  });
+  return {
+    treatment: plan.treatment,
+    inputFingerprint: plan.inputFingerprint,
+    source: plan.source,
+    cacheStatus: plan.cacheStatus,
+    modelName: plan.modelName,
+    latencyMs: plan.latencyMs,
+    ...(plan.writingContextCacheStatus
+      ? { writingContextCacheStatus: plan.writingContextCacheStatus }
+      : {}),
+    writingKnowledgeVersion: plan.knowledge.writingKnowledge.version,
+    editronCreativeGraphVersion: plan.knowledge.editronGraph.version,
+  };
+}
+
+export async function planProductionContractRefresh(
+  args: Omit<FlatWriterEditBaseArgs, 'beforeCommit'> & { expectedVersion: number },
+): Promise<ProductionContractRefreshPlan> {
+  const prepared = await prepareFlatWriterEdit({
+    ...args,
+    mode: 'refresh-production-contract',
+  });
+  return planPreparedVideoTreatment(prepared, args.abortSignal);
+}
+
+export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
+  const { abortSignal, beforeCommit } = args;
+  const prepared = await prepareFlatWriterEdit(args);
+  const {
+    userId,
+    canonicalOrgId,
+    canonicalSessionId,
+    scriptId,
+    canonicalScript,
+    documentKind,
+    existingContent,
+    isScript,
+    persistedCanonicalState,
+    authoringContext,
+    authoringRequest,
+    brandId,
+    contentSignalProfile,
+    signalTrace,
+    groundedSystemBrief,
+    productionBrief,
+    projectSummary,
+    previousMetadata,
+    sourceLedger,
+    editorialPlan,
+    instruction,
+    selection,
+    refreshesProductionContract,
+  } = prepared;
   const videoTreatmentPlan = isScript
-    ? await planVideoTreatment({
-        userPrompt: instruction,
-        authoringRequest,
-        editorialPlan,
-        productionBrief,
-        authoringContext,
-        contentSignalProfile,
-        sourceLedger,
-        userId,
-        orgId: canonicalOrgId,
-        sessionId: canonicalSessionId,
-        projectId: canonicalSessionId,
-        editContext: {
-          currentContent: existingContent,
-          instruction,
-          ...(selection ? { selection } : {}),
-          ...(existingTreatment ? { existingTreatment } : {}),
-        },
-        abortSignal,
-      })
+    ? args.mode === 'refresh-production-contract' && args.productionContractPlan
+      ? {
+          ...args.productionContractPlan,
+          treatment: parseVideoTreatment(args.productionContractPlan.treatment),
+        }
+      : await planPreparedVideoTreatment(prepared, abortSignal)
     : null;
 
   const baseInput = {
@@ -431,7 +539,7 @@ function postWriterMetadata(
 function scriptWriterMetadata(
   result: ScriptWriterResult,
   sourceLedger: ReturnType<typeof buildContinuedThinkForgeSourceLedger>,
-  videoTreatmentPlan: VideoTreatmentPlanResult | null,
+  videoTreatmentPlan: ProductionContractRefreshPlan | null,
 ): Record<string, unknown> {
   if (!videoTreatmentPlan) {
     throw new Error('Script edit completed without a video treatment plan');
@@ -451,8 +559,8 @@ function scriptWriterMetadata(
       cacheStatus: videoTreatmentPlan.cacheStatus,
       modelName: videoTreatmentPlan.modelName,
       latencyMs: videoTreatmentPlan.latencyMs,
-      writingKnowledgeVersion: videoTreatmentPlan.knowledge.writingKnowledge.version,
-      editronCreativeGraphVersion: videoTreatmentPlan.knowledge.editronGraph.version,
+      writingKnowledgeVersion: videoTreatmentPlan.writingKnowledgeVersion,
+      editronCreativeGraphVersion: videoTreatmentPlan.editronCreativeGraphVersion,
       ...(videoTreatmentPlan.writingContextCacheStatus
         ? { writingContextCacheStatus: videoTreatmentPlan.writingContextCacheStatus }
         : {}),
