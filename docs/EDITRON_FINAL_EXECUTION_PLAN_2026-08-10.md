@@ -11495,6 +11495,56 @@ transcription, project/org-aware V2 debug endpoint, browser QA and semantic
 retrieval accuracy remain open. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Exact project-coordinate timestamp analysis Phase 3F-C8ce
+(2026-08-31):** commits `ac67bebf2`, `a0db28a70`, `6113425a1`,
+`3ccee2c03`, `a9ee3e95e` and `65ecad783` replace the durable chat
+caller's private materialization/vision assertions with neutral shared owners,
+then bind the project analysis route to the same exact evidence. The
+materialization validator authenticates the root, sample-plan and analysis-
+receipt hashes, project/sequence/overlay/revision/window scope, every sampled
+frame identity and every mapped observation coordinate. Its decoded-picture
+count is the number of unique decoder picture requests, so multiple timeline
+samples may truthfully reuse one held VFR picture without being rejected or
+counted twice.
+
+For a selected V3 source outside the existing 30-CFR five-track subset, the
+project adapter now asks the existing timestamp materializer for the full
+overlay window. The result must match the already-selected proxy/master source
+version, storage version and V3 cadence-state hash before its lossless string-
+frame vision evidence is returned. The authenticated route carries the paired
+`ProjectRevisionV1`, reloads ProjectService after provider work, and retains
+same-request project-coordinate evidence only when the before/after revisions
+are identical. A changed revision discards it. Cache-only mode performs no
+materialization or provider work.
+
+This is partial convergence with the existing durable chat analysis path, not
+a merged analysis architecture: chat and project callers now share evidence
+validation and exact vision mapping, but retain separate orchestration and
+response contracts. The legacy source-bound five-track engine/cache remains
+the owner for its verified 30-CFR subset. Exact project-coordinate evidence is
+explicitly `PROJECT_COORDINATE_ANALYZED`, is exposed without private picture
+handles, and remains blocked from the linear-offset EDL as
+`PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED`. No approximate FPS offset,
+ordinary-media downgrade or provider fallback is permitted.
+
+The shared materialization, vision, project-coordinate, adapter, route and
+chat regression battery passes 40/40. Repository TypeScript, targeted quiet
+ESLint, repository-wide quiet ESLint and `git diff --check` pass. No paid
+provider call, configured private PTS read/write, live Atlas/R2 media,
+authenticated browser, customer project or mutation was exercised.
+
+This result is
+`PROJECT_EXACT_TIMESTAMP_ANALYSIS_ROUTE_LOCALLY_VERIFIED_FULL_FIVE_TRACK_AND_EDL_CONSUMER_OPEN`.
+It closes the former unconditional VFR analysis rejection for exact read-only
+vision evidence. It does not yet supply full timestamp-native motion,
+keyframe, subject, speech, music and playable-audio tracks; persist/reuse exact
+project-coordinate analysis across requests; or map those tracks into a
+timestamp-native suggestion/EDL owner for trims, retimes and repeated source
+uses. Live private runtime/provider proof, selected-source playable-audio
+equivalence, source-version-bound transcription, browser QA and semantic-
+retrieval accuracy remain open. Queue item 3 and Stage 2.5 therefore remain
+in progress and `FROZEN_MODIFY_DECISION_ISSUED` is unchanged.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
