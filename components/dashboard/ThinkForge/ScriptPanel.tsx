@@ -306,6 +306,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                  documentVersion={documentVersion}
                  onStatusChange={handleAVPresentationStatus}
                  onEditProse={() => setMode('scripting')}
+                 onContractRefreshed={onUpdate}
                />
              </div>
        </div>

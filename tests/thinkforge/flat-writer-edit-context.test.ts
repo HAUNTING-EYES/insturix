@@ -524,6 +524,125 @@ describe('flat writer edit authoring context', () => {
     }), 'user_1', 'org_1');
   });
 
+  it('refreshes a production contract without changing any canonical document content', async () => {
+    const scriptAuthoringContext = {
+      ...authoringContext,
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    };
+    const exactContent = scriptResult().content;
+    const stored = {
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      title: 'Manually edited script',
+      content: exactContent,
+      version: 6,
+      documentType: 'video_script',
+      contentContract: scriptAuthoringRequest.contentContract,
+      metadata: {
+        writerOutput: {
+          sourceLedger,
+          videoTreatment: mixedPresenterCutawayTreatment,
+        },
+      },
+    };
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: scriptAuthoringContext.projectMeta,
+    });
+    mocks.getScript.mockResolvedValueOnce(stored);
+    mocks.resolveAuthoringContext.mockResolvedValueOnce(scriptAuthoringContext);
+    mocks.scriptRun.mockImplementation(async (input) => ({
+      result: scriptResult(),
+      metadata: { writerTrace: writerTrace('script', input.editorialPlan) },
+    }));
+
+    await reviseDocumentViaFlatWriter({
+      mode: 'refresh-production-contract',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+    });
+
+    expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
+      videoTreatment: abstractExplainerTreatment,
+      editContext: expect.objectContaining({
+        existingContent: exactContent,
+        focusHint: expect.stringContaining('exactly'),
+      }),
+    }));
+    expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
+      baseVersion: 6,
+      payload: expect.objectContaining({
+        title: stored.title,
+        content: exactContent,
+        metadata: expect.objectContaining({
+          workflow: 'production-contract-refresh',
+          writerOutput: expect.objectContaining({
+            sidecarVersion: 1,
+            videoTreatment: abstractExplainerTreatment,
+          }),
+        }),
+      }),
+    }), 'user_1', 'org_1');
+  });
+
+  it('rejects a production-contract refresh if the writer changes visible prose', async () => {
+    const exactContent = scriptResult().content;
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    });
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      title: 'Manually edited script',
+      content: exactContent,
+      version: 6,
+      documentType: 'video_script',
+      contentContract: scriptAuthoringRequest.contentContract,
+      metadata: { writerOutput: { sourceLedger, videoTreatment: mixedPresenterCutawayTreatment } },
+    });
+    mocks.resolveAuthoringContext.mockResolvedValueOnce({
+      ...authoringContext,
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    });
+    mocks.scriptRun.mockResolvedValueOnce({
+      result: { ...scriptResult(), content: `${exactContent}\n\nUnrequested rewrite.` },
+      metadata: { writerTrace: writerTrace('script') },
+    });
+
+    await expect(reviseDocumentViaFlatWriter({
+      mode: 'refresh-production-contract',
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'script_refresh',
+      expectedVersion: 6,
+    })).rejects.toThrow(/changed visible content/i);
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
   it('fails before generation when the persisted authoring request is missing', async () => {
     const legacyProjectMeta = {
       ...authoringContext.projectMeta,

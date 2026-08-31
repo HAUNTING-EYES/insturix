@@ -57,15 +57,14 @@ import {
   type VideoTreatmentPlanResult,
 } from '../video-treatment/treatment-planner';
 
-export interface FlatWriterEditArgs {
+interface FlatWriterEditBaseArgs {
   userId: string;
   orgId?: string | null;
   sessionId: string;
   scriptId: string;
-  instruction: string;
-  selection?: string;
   abortSignal?: AbortSignal;
   beforeCommit?: () => Promise<void>;
+  expectedVersion?: number;
   /** @deprecated Ignored. Persisted document state is loaded by exact identity. */
   existingScript?: {
     title?: string;
@@ -80,7 +79,28 @@ export interface FlatWriterEditArgs {
   baseVersion?: number;
 }
 
+export type FlatWriterEditArgs = FlatWriterEditBaseArgs & (
+  | {
+      mode?: 'revise';
+      instruction: string;
+      selection?: string;
+    }
+  | {
+      mode: 'refresh-production-contract';
+      instruction?: never;
+      selection?: never;
+      expectedVersion: number;
+    }
+);
+
 export type FlatWriterEditResult = db.Script;
+
+const PRODUCTION_CONTRACT_REFRESH_INSTRUCTION = [
+  'Rebuild the complete audiovisual production contract for this saved script.',
+  'Preserve every visible word, punctuation mark, heading, paragraph, and narrative order exactly.',
+  'Do not add, remove, paraphrase, summarize, or reorder any visible script content.',
+  'Only synchronize semantic treatment bindings, source references, characters, beats, and production metadata.',
+].join(' ');
 
 function requireExactIdentity(value: unknown, label: 'session' | 'document'): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -112,7 +132,12 @@ function resolveStoredWriterKind(script: db.Script): ThinkForgeWriterKind {
 }
 
 export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
-  const { userId, orgId, instruction, selection, abortSignal, beforeCommit } = args;
+  const { userId, orgId, abortSignal, beforeCommit } = args;
+  const refreshesProductionContract = args.mode === 'refresh-production-contract';
+  const instruction = refreshesProductionContract
+    ? PRODUCTION_CONTRACT_REFRESH_INSTRUCTION
+    : args.instruction;
+  const selection = refreshesProductionContract ? undefined : args.selection;
   const sessionId = requireExactIdentity(args.sessionId, 'session');
   const scriptId = requireExactIdentity(args.scriptId, 'document');
 
@@ -126,10 +151,26 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   if (!canonicalScript) {
     throw new Error('ThinkForge document not found');
   }
+  if (args.expectedVersion !== undefined && (canonicalScript.version ?? 0) !== args.expectedVersion) {
+    throw new Error('Version conflict');
+  }
 
   const documentKind = resolveStoredWriterKind(canonicalScript);
   const existingContent = typeof canonicalScript.content === 'string' ? canonicalScript.content : '';
   const isScript = !isThinkForgePostKind(documentKind);
+  if (refreshesProductionContract && !isScript) {
+    throw new Error('Production contract refresh is available only for video scripts');
+  }
+  const persistedCanonicalState = refreshesProductionContract
+    ? {
+        ...normalizeCanonicalThinkForgeDocumentState({
+          content: existingContent,
+          ...(Array.isArray(canonicalScript.blocks) ? { blocks: canonicalScript.blocks } : {}),
+          ...(canonicalScript.richText ? { richText: canonicalScript.richText } : {}),
+        }),
+        content: existingContent,
+      }
+    : null;
   const authoringContext = await resolveThinkForgeAuthoringContext({
     userId,
     orgId: canonicalOrgId,
@@ -258,7 +299,14 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     productionBrief,
     sourceLedger,
     editorialPlan,
-    editContext: { existingContent, instruction, selection },
+    editContext: {
+      existingContent,
+      instruction,
+      selection,
+      ...(refreshesProductionContract
+        ? { focusHint: 'Preserve the canonical visible content exactly; rebuild metadata only.' }
+        : {}),
+    },
     ...(videoTreatmentPlan ? { videoTreatment: videoTreatmentPlan.treatment } : {}),
   };
 
@@ -290,15 +338,19 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   if (writerContent.trim().length < 30) {
     throw new Error('flat-writer edit returned empty/too-short content');
   }
+  if (refreshesProductionContract && writerContent !== existingContent) {
+    throw new Error('Production contract refresh changed visible content');
+  }
 
   const parsedBlocks = parseMarkdownToBlocks(writerContent);
   if (!Array.isArray(parsedBlocks) || parsedBlocks.length === 0) {
     throw new Error('flat-writer edit produced no parseable blocks');
   }
-  const canonicalState = normalizeCanonicalThinkForgeDocumentState({
+  const generatedCanonicalState = normalizeCanonicalThinkForgeDocumentState({
     content: writerContent,
     blocks: parsedBlocks,
   });
+  const canonicalState = persistedCanonicalState ?? generatedCanonicalState;
   const revised = canonicalState.content;
   const blocks = canonicalState.blocks;
 
@@ -317,7 +369,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   const generationTrace = buildThinkForgeDocumentGenerationTrace({
     operation: {
       kind: 'edit',
-      id: `edit:${canonicalSessionId}:${scriptId}:v${baseVersion + 1}`,
+      id: `${refreshesProductionContract ? 'production-contract-refresh' : 'edit'}:${canonicalSessionId}:${scriptId}:v${baseVersion + 1}`,
     },
     document: {
       sessionId: canonicalSessionId,
@@ -356,7 +408,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       documentType: documentKind,
       metadata: {
         ...previousMetadata,
-        workflow: 'edit',
+        workflow: refreshesProductionContract ? 'production-contract-refresh' : 'edit',
         source: 'ai',
         documentType: documentKind,
         authoringContextSnapshot: authoringContext.snapshot,

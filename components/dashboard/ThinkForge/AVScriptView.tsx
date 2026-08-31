@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronRight,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import type { AVScriptPresentation } from "@/lib/thinkforge/presentation/av-script-projection";
+import type { Script } from "@/app/dashboard/thinkforge/types";
 
 export type AVScriptPresentationStatus =
   | "idle"
@@ -46,6 +47,7 @@ export interface AVScriptViewProps {
   active: boolean;
   onStatusChange?: (status: AVScriptPresentationStatus) => void;
   onEditProse: () => void;
+  onContractRefreshed?: (script: Script) => void;
 }
 
 const MONO_LABEL = "font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#7A776E]";
@@ -469,7 +471,7 @@ function AVPresentationBody({ presentation, onEditProse }: { presentation: AVScr
   );
 }
 
-function AVStatusView({ state, onRetry, onEditProse }: { state: Exclude<AVScriptViewState, { status: "available" | "idle" | "loading" }>; onRetry: () => void; onEditProse: () => void }) {
+function AVStatusView({ state, onRetry, onEditProse, onRefreshContract, refreshing, refreshError }: { state: Exclude<AVScriptViewState, { status: "available" | "idle" | "loading" }>; onRetry: () => void; onEditProse: () => void; onRefreshContract: () => void; refreshing: boolean; refreshError: string | null }) {
   const stale = state.status === "stale";
   const isError = state.status === "error";
   const title = stale ? "The AV treatment needs a refresh" : isError ? "AV Script is temporarily unavailable" : "AV Script is unavailable for this document";
@@ -484,8 +486,15 @@ function AVStatusView({ state, onRetry, onEditProse }: { state: Exclude<AVScript
             <p className="mt-2 text-[12px] leading-relaxed text-[#B5B2A8]">{message}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={onEditProse} className="inline-flex items-center gap-1.5 rounded-[7px] border border-[#282724] px-3 py-2 text-[12px] text-[#B5B2A8] hover:text-[#ECE9E1]"><Pencil className="h-3.5 w-3.5" /> Edit prose</button>
+              {(state.status === "stale" || state.status === "invalid_contract") && (
+                <button type="button" onClick={onRefreshContract} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-[7px] bg-[#D4A652] px-3 py-2 text-[12px] font-medium text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-60">
+                  <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                  {refreshing ? "Refreshing" : "Refresh production plan"}
+                </button>
+              )}
               {isError && <button type="button" onClick={onRetry} className="inline-flex items-center gap-1.5 rounded-[7px] border border-[#282724] px-3 py-2 text-[12px] text-[#B5B2A8] hover:text-[#ECE9E1]"><RefreshCw className="h-3.5 w-3.5" /> Retry</button>}
             </div>
+            {refreshError && <p className="mt-3 text-[12px] text-red-300">{refreshError}</p>}
           </div>
         </div>
       </section>
@@ -493,9 +502,53 @@ function AVStatusView({ state, onRetry, onEditProse }: { state: Exclude<AVScript
   );
 }
 
-export function AVScriptView({ sessionId, scriptId, documentVersion, active, onStatusChange, onEditProse }: AVScriptViewProps) {
+export function AVScriptView({ sessionId, scriptId, documentVersion, active, onStatusChange, onEditProse, onContractRefreshed }: AVScriptViewProps) {
   const [state, setState] = useState<AVScriptViewState>({ status: "idle" });
   const [retryNonce, setRetryNonce] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+
+  const refreshProductionContract = async () => {
+    if (!sessionId || !scriptId || !Number.isInteger(documentVersion)) return;
+    refreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const response = await fetch("/api/services/thinkforge/script/refresh-production-contract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, scriptId, baseVersion: documentVersion }),
+        signal: controller.signal,
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (controller.signal.aborted) return;
+      const record = recordOf(body);
+      if (!response.ok || !record || typeof record.version !== "number") {
+        throw new Error(typeof record?.error === "string" ? record.error : "Production plan refresh failed.");
+      }
+      onContractRefreshed?.(record as unknown as Script);
+      setRetryNonce((value) => value + 1);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setRefreshError(error instanceof Error ? error.message : "Production plan refresh failed.");
+    } finally {
+      if (refreshControllerRef.current === controller) {
+        refreshControllerRef.current = null;
+        setRefreshing(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    refreshControllerRef.current?.abort();
+    refreshControllerRef.current = null;
+    setRefreshing(false);
+    setRefreshError(null);
+    return () => refreshControllerRef.current?.abort();
+  }, [documentVersion, scriptId, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !scriptId || !Number.isInteger(documentVersion) || (documentVersion ?? 0) <= 0) {
@@ -563,7 +616,7 @@ export function AVScriptView({ sessionId, scriptId, documentVersion, active, onS
     || state.status === "invalid_contract"
     || state.status === "error"
   ) {
-    return <AVStatusView state={state} onRetry={() => setRetryNonce((value) => value + 1)} onEditProse={onEditProse} />;
+    return <AVStatusView state={state} onRetry={() => setRetryNonce((value) => value + 1)} onEditProse={onEditProse} onRefreshContract={() => void refreshProductionContract()} refreshing={refreshing} refreshError={refreshError} />;
   }
   if (state.status === "available") {
     return <AVPresentationBody presentation={state.presentation} onEditProse={onEditProse} />;
