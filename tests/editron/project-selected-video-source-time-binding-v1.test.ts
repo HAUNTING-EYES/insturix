@@ -68,6 +68,7 @@ describe('project selected video source time binding v1', () => {
       sourceRole: 'PROXY',
       storageKey: fixture.proxySource.storageVersion.locator.objectKey,
       sourceVersionEvidenceSha256: null,
+      sourceVersion: fixture.proxySource,
       binding: { sourceVersionSha256: proxy.sourceVersionSha256 },
     });
     expect(loadSourceVersionEvidence).not.toHaveBeenCalled();
@@ -105,6 +106,7 @@ describe('project selected video source time binding v1', () => {
         sourceVersionEvidenceSha256: evidence.evidenceSha256,
         activeMappingStateSha256:
           fixture.activeMappingState.proxyMasterActiveMappingStateSha256V1,
+        sourceVersion: source,
         binding: {
           sourceVersionSha256: source.sourceVersionSha256,
           sourcePtsCadenceMapStateSha256V3:

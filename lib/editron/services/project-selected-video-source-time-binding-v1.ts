@@ -51,6 +51,7 @@ export type ProjectSelectedVideoSourceTimeBindingResultV1 = Readonly<
       sourcePinSha256: string | null;
       activeMappingStateSha256: string | null;
       sourceVersionEvidenceSha256: string | null;
+      sourceVersion: Readonly<MediaSourceVersionV1>;
       binding: VerifiedVideoSourceEpochTimeBindingV3;
     }
   | {
@@ -130,7 +131,7 @@ export async function resolveProjectSelectedVideoSourceTimeBindingV1(
     if (!bindingMatchesSource(binding, selectedSource, input.assetId)) {
       return unverifiable('SELECTED_SOURCE_SCOPE_MISMATCH');
     }
-    return resolved(selection, sourceRole, binding, null);
+    return resolved(selection, sourceRole, selectedSource, binding, null);
   }
 
   if (selection.disposition === 'DIRECT_SOURCE'
@@ -180,6 +181,7 @@ export async function resolveProjectSelectedVideoSourceTimeBindingV1(
   return resolved(
     selection,
     sourceRole,
+    selectedSource,
     binding,
     evidence.evidenceSha256,
   );
@@ -270,6 +272,7 @@ function bindingMatchesTimeMap(
 function resolved(
   selection: SelectedResolutionV1,
   sourceRole: 'PROXY' | 'MASTER',
+  sourceVersion: Readonly<MediaSourceVersionV1>,
   binding: VerifiedVideoSourceEpochTimeBindingV3,
   sourceVersionEvidenceSha256: string | null,
 ): ProjectSelectedVideoSourceTimeBindingResultV1 {
@@ -283,6 +286,7 @@ function resolved(
     activeMappingStateSha256: selection.disposition === 'DIRECT_SOURCE'
       ? null : selection.activeMappingStateSha256,
     sourceVersionEvidenceSha256,
+    sourceVersion,
     binding,
   });
 }
