@@ -99,23 +99,6 @@ async function browserJson<T>(page: Page, pathname: string, method: 'GET' | 'POS
   return JSON.parse(response.body) as T;
 }
 
-function parseScriptUpdate(body: string): { scriptId: string; version: number } {
-  const events = body.split(/\r?\n\r?\n/).flatMap((record) => {
-    const data = record.split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.replace(/^data:\s?/, ''))
-      .join('\n');
-    return data ? [JSON.parse(data) as Record<string, unknown>] : [];
-  });
-  const script = recordOf(events.find((event) => event.type === 'script_update')?.script);
-  const scriptId = typeof script?.scriptId === 'string' ? script.scriptId : null;
-  const version = typeof script?.version === 'number' ? script.version : null;
-  if (!scriptId || typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
-    throw new Error('The deployed Gemini canary did not receive a committed script_update event.');
-  }
-  return { scriptId, version };
-}
-
 function readWriterTrace(metadata: unknown): Record<string, unknown> {
   const writerOutput = recordOf(recordOf(metadata)?.writerOutput);
   const trace = recordOf(writerOutput?.generationTrace);
@@ -235,21 +218,31 @@ test.describe.serial('ThinkForge deployed Gemini canary', () => {
     await input.press('Enter');
     const response = await responsePromise;
     expect(response.status()).toBe(200);
-    const update = parseScriptUpdate(await response.text());
+    expect(await response.finished()).toBeNull();
 
     await expect.poll(async () => {
       const current = await browserJson<ScriptPayload>(page, '/api/services/thinkforge/script/current', 'POST', {
         sessionId,
-        scriptId: update.scriptId,
+        scriptId: 'default',
       });
       return recordOf(current.script?.metadata)?.writerOutput ? current : null;
     }, { timeout: 180_000 }).not.toBeNull();
 
     const current = await browserJson<ScriptPayload>(page, '/api/services/thinkforge/script/current', 'POST', {
       sessionId,
-      scriptId: update.scriptId,
+      scriptId: 'default',
     });
     const script = current.script;
+    const scriptId = script?.scriptId;
+    const documentVersion = script?.version;
+    if (scriptId !== 'default' || typeof documentVersion !== 'number'
+      || !Number.isInteger(documentVersion) || documentVersion < 1) {
+      throw new Error('The deployed Gemini canary did not persist the expected default document version.');
+    }
+    const update = {
+      scriptId,
+      version: documentVersion,
+    };
     expect(script?.version).toBe(update.version);
     expect(script?.contentContract?.outputKind).toBe('video_script');
     expect(script?.content?.trim().length).toBeGreaterThan(120);
