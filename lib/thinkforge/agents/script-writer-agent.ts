@@ -2111,24 +2111,33 @@ ${treatmentRuntimeDataRule}`;
         ?? executionInput.retrievedContext?.brandSignalProfile,
     );
     const materialize = (candidate: AnyScriptWriterModelOutput): ScriptWriterResult => {
+      const canonicalCandidate: AnyScriptWriterModelOutput = executionInput.productionBrief?.output.platform
+        ? {
+            ...candidate,
+            metadata: {
+              ...candidate.metadata,
+              platform: executionInput.productionBrief.output.platform,
+            },
+          }
+        : candidate;
       if (usesSemanticVideoTreatment) {
         const treatment = executionInput.videoTreatment;
-        if (!treatment || !isScriptWriterV3ModelOutput(candidate)) {
+        if (!treatment || !isScriptWriterV3ModelOutput(canonicalCandidate)) {
           throw new ScriptWriterContractError(['missing_video_treatment_for_v3']);
         }
         return materializeScriptWriterV3Result(
-          candidate,
+          canonicalCandidate,
           treatment,
           identityPolicy,
           executionInput.sourceLedger,
           treatmentEventIds,
         );
       }
-      if (isScriptWriterV3ModelOutput(candidate)) {
+      if (isScriptWriterV3ModelOutput(canonicalCandidate)) {
         throw new ScriptWriterContractError(['unexpected_v3_writer_output_without_treatment']);
       }
       return materializeScriptWriterResult(
-        withCanonicalModelOwnedSidecarIds(candidate, identityPolicy),
+        withCanonicalModelOwnedSidecarIds(canonicalCandidate, identityPolicy),
         executionInput.sourceLedger,
       );
     };

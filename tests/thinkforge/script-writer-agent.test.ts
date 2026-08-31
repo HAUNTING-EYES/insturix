@@ -381,6 +381,25 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(output.result).toEqual(materializeScriptWriterResult(modelOutput));
   });
 
+  it('uses the canonical brief platform instead of repairing a model display label', async () => {
+    const modelOutput = makeModelOutput({ metadata: { platform: 'General video' } });
+    generateStructuredWithWritingContextCacheMock.mockResolvedValue({
+      result: modelOutput,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'A platform-neutral product explainer.' },
+      userPrompt: 'Create a general video script.',
+      productionBrief: brief({ platform: 'unspecified' }),
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(output.result.metadata.platform).toBe('unspecified');
+    expect(output.metadata?.notes).toBe('writing_context_cache:hit');
+  });
+
   it('derives aggregate provenance from directly supported user-facing claims', async () => {
     const userPrompt = 'Adobe raised prices by 12 percent.';
     const sourceLedger = buildThinkForgeSourceLedger({
