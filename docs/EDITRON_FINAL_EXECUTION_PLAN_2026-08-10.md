@@ -11724,6 +11724,48 @@ transcription is next in the local queue, but cannot be called production-ready
 until those live and primary-issuance gaps close. Stage 2.5 remains
 `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Source-bound transcription core Phase 3F-C8ck (2026-08-31):** commits
+`70fcb23b1`, `369bc043f`, `561899cc8`, `0739bc893`, `26c2537ac`,
+`062493efd`, `a2c535ddd`, `adf90ec46` and `e68de6b3b` establish the bounded
+local owner chain without claiming production cutover. Transcription timing is
+now explicitly measured rather than inferred from billing/runtime telemetry.
+The immutable source binding owns the exact source content/storage/version,
+source role, language request, precision and transcriber contract. External
+processing records the exact egress request and authorization, while local
+processing records no egress. Cache identity was advanced so older V2 records
+cannot collide with or be promoted into this stronger evidence contract.
+
+The orchestration owner reads and validates the exact cache first, then checks
+current source rights and ProjectService revision before allowing a cache hit.
+A miss additionally requires the privacy-egress policy owner, its approved
+provider set, an exact qualified source lease and a source-bound provider
+result. It revalidates the lease, rights and revision before immutable cache
+write, and rechecks revision after the write before releasing evidence for
+current-project consumption. Corrupt cache evidence, denied egress,
+unapproved-provider output, stale leases, lost rights, pre-write revision
+drift and post-write revision drift all stop. Provider or resource failures
+remain blocked/unverifiable and cannot be rewritten as `no-speech`. Source
+URLs never appear in the returned evidence. The focused source-bound cache,
+egress, provider-timing and orchestration battery passes 24/24; repository
+TypeScript, repository-wide quiet ESLint and `git diff --check` pass.
+
+This result is
+`SOURCE_BOUND_TRANSCRIPTION_CORE_LOCALLY_VERIFIED_PRODUCTION_COMPOSITION_AND_LIVE_PROVIDER_OPEN`.
+There is no non-test production caller yet, and no live Atlas ledger, private
+R2 source, provider call or customer project was exercised. The upload route
+still dispatches the legacy asset-transcription worker independently of source
+qualification, sends an asset-scoped URL payload, and can begin provider work
+before the source is qualified. That legacy worker catches transcription
+exceptions and records `no-speech`; the qualification worker currently
+dispatches only V3 cadence and selected-source audio materialization. The next
+bounded slice must compose the source-bound owner after qualification using
+the exact selected proxy/master pin, current ProjectService revision, durable
+rights ledger and real egress-policy issuer; only then may downstream analysis
+consume the evidence. The legacy asset-only path must not remain an alternate
+success route. Live Atlas/R2/provider proof and primary binding-time rights
+issuance remain open. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
