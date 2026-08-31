@@ -11618,6 +11618,42 @@ and exact visual transform without duplicating time-conformance authority,
 then binds source-version transcription and the remaining timestamp-native
 audio consumers. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project-selected PCM-window composition Phase 3F-C8ch (2026-08-31):**
+commits `dd8606fbd`, `8ec7aed5e`, `ed67a9129`, `b31c37e16` and
+`3a88cfbde` compose the exact PCM verifier with the real ProjectService-
+selected source evidence and the completed timestamp-native visual analysis.
+The project owner now requires the current project/sequence/overlay revision,
+canonical V3 epoch conform, exact visual-transform-hash parity and exact audio-
+mapping identity before it reads PCM. The five-track owner runs visual analysis
+first and passes that owner's exact project rate, source range, sample queries
+and transform hash into the audio owner. The production default shares the
+existing private R2 PTS and PCM readers rather than constructing a second media
+or time-conformance authority.
+
+The public analysis summary may now state
+`EXACT_SOURCE_AUDIO_PCM_WINDOW_BOUND`. It exposes only project-coordinate
+sample positions, aggregate byte/segment counts and proof hashes; it retains
+`playbackAuthority: NOT_PROVEN` and exposes no PCM bytes, private object keys or
+browser handles. The composed focused battery passes 26/26. It covers forged
+range/hash rejection before surface writes, visual-transform mismatch before a
+PCM read, visual-before-audio ordering and route redaction. Repository
+TypeScript, targeted quiet ESLint, repository-wide quiet ESLint and
+`git diff --check` pass. No live private R2 object, browser/device playback,
+customer project, paid provider or mutation was exercised.
+
+This result is
+`PROJECT_SELECTED_SOURCE_PCM_WINDOW_LOCALLY_VERIFIED_PLAYBACK_RIGHTS_TRANSCRIPTION_AND_LONG_WINDOW_CHUNKING_OPEN`.
+It proves exact bounded PCM-byte integrity for the current ProjectService-
+selected source/version/revision and already-completed visual transform. It
+does **not** prove browser scheduling or audible playback, current source-media
+rights, source-version transcription, speech/music interpretation or mutation
+preservation. The proof owner currently accepts at most 1,024 project frames;
+larger windows stop explicitly and are never truncated or approximately
+sampled. Queue item 3 next binds current source-media rights and source-version
+transcription, then supplies a chunked aggregate proof for longer windows and
+the remaining timestamp-native audio consumers. Stage 2.5 remains
+`FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
