@@ -11258,6 +11258,34 @@ still contain `isProxy`-based decisions and must not be described as cut over.
 Queue item 4 next wires and proves those remaining consumers and visible
 failure boundaries. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
 
+**Project source-pin visible load boundary Phase 3F-C8bx (2026-08-31):**
+code commit `36b5c9af7` removes the remaining project-load API inference from
+global `MediaAsset.isProxy`. A successful ProjectService load has already
+authenticated every versioned overlay, so the route now reports proxy status
+only from each overlay's valid `sourceVersionPinV1`. Filename lookup is optional
+display enrichment and cannot erase or change that source selection. A shared
+asset with proxy-pinned and master-pinned overlays is reported by exact proxy-
+pinned overlay IDs; master or unpinned overlays are never inferred to be proxy
+from the media row.
+
+The project GET boundary now preserves
+`PROJECT_VIDEO_SOURCE_UNVERIFIABLE` as a structured HTTP 409. The formerly
+duplicated live/V2 boot checks were replaced by one abort-aware bounded-retry
+guard: 404 is “Project Not Found,” transient service failures may retry, and the
+source-integrity 409 stops immediately as “Project media needs attention” with
+the safe-stop reason. Neither page mounts the editor after this block. Focused
+route/classifier proof passes 6/6; repository TypeScript, targeted quiet ESLint
+and repository-wide quiet ESLint pass. The five Editron files are pushed while
+the unrelated dirty ThinkForge test remains unstaged and untouched.
+
+This result is
+`PROJECT_SOURCE_PIN_BROWSER_LOAD_BOUNDARY_LOCALLY_VERIFIED_AUTHENTICATED_BROWSER_MEDIA_PROOF_OPEN`.
+It proves the API contract, shared client classification and compiled page
+behavior, not a signed-in browser session, real project media playback, screen
+capture or operator recovery. Analysis, checkpoint/undo, delivery/finalization,
+writer issuance, migration, rollback, invalidation, recovery and live Atlas/R2
+proof remain open. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 The same-day provider-off browser QA probe successfully served this worktree on
 isolated port 3002, loaded the public product surface and verified that
 `/dashboard/editron` redirects to the Clerk sign-in boundary. Port 3001 was a
