@@ -38,6 +38,43 @@ export interface EvalRunResult {
   privacyAudit: ProviderPrivacyAuditRecord;
 }
 
+export async function assertEvalProviderCredentialHealthy(
+  config: Pick<EvalProviderConfig, 'provider' | 'model' | 'apiKey'>,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const normalizedModel = config.model.replace(/^models\//u, '');
+    const request: { url: string; headers?: Record<string, string> } = config.provider === 'gemini'
+      ? {
+          url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(normalizedModel)}?key=${encodeURIComponent(config.apiKey)}`,
+          headers: undefined,
+        }
+      : config.provider === 'anthropic'
+        ? {
+            url: `${(process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/$/u, '')}/v1/models`,
+            headers: { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' },
+          }
+        : {
+            url: `${(config.provider === 'deepseek'
+              ? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
+              : process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/u, '')}/models`,
+            headers: { Authorization: `Bearer ${config.apiKey}` },
+          };
+    const response = await fetch(request.url, { headers: request.headers, signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`${config.provider} credential preflight failed (${response.status})`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`${config.provider} credential preflight timed out`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 type RawEvalRunResult = Omit<
   EvalRunResult,
   'latencyMs' | 'estimatedCostUsd' | 'costEstimateNote' | 'privacyAudit'

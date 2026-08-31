@@ -7,6 +7,7 @@ import {
   ThinkForgeEvalProviderBudget,
 } from '../../lib/thinkforge/eval/provider-budget';
 import {
+  assertEvalProviderCredentialHealthy,
   runEvalPrompt,
   type EvalProviderConfig,
 } from '../../scripts/prompt-optimization/thinkforge-eval-provider-adapter';
@@ -44,10 +45,37 @@ function createBudget(overrides: Partial<ConstructorParameters<typeof ThinkForge
 describe('ThinkForge eval provider budget', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS;
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_BASE_MS;
     delete process.env.EVAL_PRICE_OPENROUTER_INPUT_PER_1M;
     delete process.env.EVAL_PRICE_OPENROUTER_OUTPUT_PER_1M;
+  });
+
+  it('fails provider credential preflight before a paid cohort can loop', async () => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response('', { status: 401 }));
+    vi.stubGlobal('fetch', providerFetch);
+
+    await expect(assertEvalProviderCredentialHealthy({
+      provider: 'gemini',
+      model: 'models/gemini-3.6-flash',
+      apiKey: 'invalid-key',
+    })).rejects.toThrow('gemini credential preflight failed (401)');
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks independent judge credentials without generating content', async () => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', providerFetch);
+
+    await expect(assertEvalProviderCredentialHealthy(deepSeekConfig)).resolves.toBeUndefined();
+    expect(providerFetch).toHaveBeenCalledWith(
+      'https://api.deepseek.com/models',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer test-key' },
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it('rejects a role overrun before recording or dispatching the next request', async () => {
