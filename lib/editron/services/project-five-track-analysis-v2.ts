@@ -18,6 +18,12 @@ import type {
   MediaSourceVersionEvidenceScopeV1,
   MediaSourceVersionEvidenceStorePortsV1,
 } from './media-source-version-evidence-owner-v1';
+import type { MediaSourceAudioPrivateArtifactReaderV1 }
+  from './media-source-audio-private-artifact-port-v1';
+import {
+  resolveProjectSelectedSourceAudioEvidenceV1,
+  type ProjectSelectedSourceAudioEvidenceResultV1,
+} from './project-selected-source-audio-evidence-v1';
 import {
   resolveProjectSelectedVideoSourceTimeBindingV1,
   type ProjectSelectedVideoSourceTimeBindingResultV1,
@@ -70,9 +76,15 @@ type ProjectFiveTrackTimelineBlockReasonV2 =
   | 'SINGLE_OVERLAY_SOURCE_REQUIRED'
   | 'PROJECT_COORDINATE_FIVE_TRACK_CONSUMER_REQUIRED';
 
-type ProjectCoordinateAnalysisV1 = Extract<
+type ProjectCoordinateVisionAnalysisV1 = Extract<
   ProjectTimestampVideoAnalysisResultV1,
   Readonly<{ disposition: 'ANALYZED' }>
+>;
+
+type ProjectCoordinateAnalysisV1 = Readonly<
+  ProjectCoordinateVisionAnalysisV1 & {
+    audioEvidence: ProjectSelectedSourceAudioEvidenceResultV1;
+  }
 >;
 
 type ProjectFiveTrackOverlayResultV2 = Readonly<{
@@ -128,7 +140,8 @@ type TimestampPreparedOverlayV2 = Readonly<{
   selectedSource: Extract<
     ProjectSelectedVideoSourceTimeBindingResultV1,
     Readonly<{ disposition: 'RESOLVED' }>
-  >['binding'];
+  >;
+  sourceVersionCandidates: readonly unknown[];
 }>;
 
 type PreparedOverlayV2 =
@@ -149,6 +162,7 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
   }>): Promise<AssetAnalysis>;
   materializeTimestampAnalysis?:
     ProjectTimestampVideoAnalysisPortsV1['materialize'];
+  audioArtifactReader: MediaSourceAudioPrivateArtifactReaderV1;
   nowMs(): number;
 }>;
 
@@ -276,19 +290,37 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       blocked.set(candidate.overlay.id, 'TIMESTAMP_ANALYSIS_PORT_REQUIRED');
       continue;
     }
-    const result = await analyzeProjectTimestampVideoV1({
-      userId: input.userId,
-      projectId,
-      sequenceId: 'main',
-      overlayId: candidate.overlay.id,
-      projectRevision: input.projectRevisionV1,
-      overlayFromFrame: candidate.overlay.from,
-      overlayDurationInFrames: candidate.overlay.durationInFrames,
-      selectedSource: candidate.selectedSource,
-      ports: { materialize: ports.materializeTimestampAnalysis },
-    });
+    const [result, audioEvidence] = await Promise.all([
+      analyzeProjectTimestampVideoV1({
+        userId: input.userId,
+        projectId,
+        sequenceId: 'main',
+        overlayId: candidate.overlay.id,
+        projectRevision: input.projectRevisionV1,
+        overlayFromFrame: candidate.overlay.from,
+        overlayDurationInFrames: candidate.overlay.durationInFrames,
+        selectedSource: candidate.selectedSource.binding,
+        ports: { materialize: ports.materializeTimestampAnalysis },
+      }),
+      resolveProjectSelectedSourceAudioEvidenceV1({
+        projectId,
+        sequenceId: 'main',
+        overlayId: candidate.overlay.id,
+        projectRevision: input.projectRevisionV1,
+        assetId: candidate.selectedSource.binding.assetId,
+        selectedSource: candidate.selectedSource,
+        sourceVersionCandidates: candidate.sourceVersionCandidates,
+        ports: {
+          loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
+          audioArtifactReader: ports.audioArtifactReader,
+        },
+      }),
+    ]);
     if (result.disposition === 'ANALYZED') {
-      timestampAnalyses.set(candidate.overlay.id, result);
+      timestampAnalyses.set(candidate.overlay.id, Object.freeze({
+        ...result,
+        audioEvidence,
+      }));
       analyzed += 1;
     } else {
       failed += 1;
@@ -390,7 +422,11 @@ async function prepareOverlay(input: Readonly<{
     return Object.freeze({
       kind: 'PROJECT_TIMESTAMP' as const,
       overlay: input.overlay,
-      selectedSource: timing,
+      selectedSource: selected,
+      sourceVersionCandidates: Object.freeze([
+        asset.sourceVersionV1,
+        asset.proxySourceVersionV1,
+      ]),
     });
   }
   const videoUrl = exactHttpUrl(input.overlay.src ?? input.overlay.content);
@@ -485,6 +521,8 @@ function timestampCandidates(
 function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
   let evidenceStorePromise:
     Promise<MediaSourceVersionEvidenceStorePortsV1> | null = null;
+  let audioArtifactReaderPromise:
+    Promise<MediaSourceAudioPrivateArtifactReaderV1> | null = null;
   return {
     async loadAssets(assetIds) {
       if (assetIds.length === 0) return [];
@@ -508,6 +546,16 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       const { materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1 } =
         await import('./native-media-timestamp-preview-materializer-v1');
       return materializeNativeMediaTimestampPreviewWindowUsingRuntimeV1(input);
+    },
+    audioArtifactReader: {
+      async readArtifactSet(reference) {
+        audioArtifactReaderPromise ??= import(
+          './media-source-pts-cadence-r2-runtime-v1'
+        ).then(({ createMediaSourcePtsCadenceR2RuntimePortsV1 }) =>
+          createMediaSourcePtsCadenceR2RuntimePortsV1(process.env)
+            .audioArtifact);
+        return (await audioArtifactReaderPromise).readArtifactSet(reference);
+      },
     },
     nowMs: () => Date.now(),
   };

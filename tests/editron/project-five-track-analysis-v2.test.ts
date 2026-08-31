@@ -155,6 +155,10 @@ describe('project five-track analysis v2', () => {
       projectCoordinateAnalysis: {
         disposition: 'ANALYZED',
         vision: { sceneChanges: ['30'] },
+        audioEvidence: {
+          disposition: 'UNVERIFIABLE',
+          reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED',
+        },
       },
       timelineAdmission: {
         disposition: 'BLOCKED',
@@ -164,6 +168,8 @@ describe('project five-track analysis v2', () => {
     expect(readAnalysis).not.toHaveBeenCalled();
     expect(runAnalysis).not.toHaveBeenCalled();
     expect(materializeTimestampAnalysis).toHaveBeenCalledTimes(1);
+    expect(result.overlays[0]?.projectCoordinateAnalysis?.audioEvidence)
+      .toMatchObject({ reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' });
   });
 
   it('does not materialize timestamp analysis in cache-only mode', async () => {
@@ -310,12 +316,14 @@ function ports(
     ProjectFiveTrackAnalysisPortsV2['materializeTimestampAnalysis']
   >,
 ): ProjectFiveTrackAnalysisPortsV2 {
+  const readArtifactSet = vi.fn();
   return {
     loadAssets: vi.fn(async (_assetIds: readonly string[]) => [asset]),
     loadSourceVersionEvidence: vi.fn(async () => null),
     readAnalysis,
     runAnalysis,
     ...(materializeTimestampAnalysis ? { materializeTimestampAnalysis } : {}),
+    audioArtifactReader: { readArtifactSet },
     nowMs: () => 0,
   };
 }
