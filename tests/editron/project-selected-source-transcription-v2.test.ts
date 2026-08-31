@@ -75,6 +75,31 @@ describe('project selected source transcription V2', () => {
     );
   });
 
+  it('reuses an authenticated caller selection without resolving a second source', async () => {
+    const sourceVersion = source();
+    const selection = resolvedSelection(sourceVersion, 'MASTER');
+    const resolveSelectedSource = vi.fn();
+    const resolveTranscription = vi.fn(async () => transcriptionSuccess(sourceVersion));
+
+    const result = await resolveProjectSelectedSourceTranscriptionV2(
+      { ...request(), selectedSource: selection },
+      ports({ resolveSelectedSource, resolveTranscription }),
+    );
+
+    expect(result).toMatchObject({
+      disposition: 'CACHE_HIT',
+      selectedSource: selection,
+    });
+    expect(resolveSelectedSource).not.toHaveBeenCalled();
+    expect(resolveTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceVersion,
+        sourceRole: 'MASTER',
+      }),
+      expect.any(Object),
+    );
+  });
+
   it('stops before transcription when selected source proof is unavailable', async () => {
     const resolveSelectedSource = vi.fn(async () => ({
       disposition: 'UNVERIFIABLE' as const,

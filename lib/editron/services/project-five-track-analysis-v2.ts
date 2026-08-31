@@ -1,6 +1,9 @@
 import type { ClipOverlay } from '@/components/editron/editor/version-7.0.0/types';
 
 import type { MediaAsset } from './asset-resolver';
+import type {
+  AssetTranscriptionPrecisionV2,
+} from './asset-transcription-source-binding-v2';
 import {
   createAssetAnalysisSourceBindingV2,
   getSourceBoundAnalysisV2,
@@ -13,7 +16,19 @@ import {
   type FullAnalysisOptions,
 } from './five-track-analysis';
 import type { PipelineWarningCollector } from './pipeline-warnings';
-import type { Project, ProjectRevisionV1 } from './project-service';
+import {
+  projectService,
+  type Project,
+  type ProjectRevisionV1,
+} from './project-service';
+import type { EditorialPlanArtifactRefV1 } from './editorial-plan-v1';
+import {
+  getSourceBoundTranscriptionV2,
+  saveSourceBoundTranscriptionV2,
+  type AssetTranscriptionEvidenceV2,
+} from './asset-transcription-source-cache-v2';
+import type { SourceBoundAssetTranscriptionPortsV2 }
+  from './source-bound-asset-transcription-v2';
 import type {
   MediaSourceVersionEvidenceScopeV1,
   MediaSourceVersionEvidenceStorePortsV1,
@@ -35,6 +50,20 @@ import {
   type ProjectSelectedVideoSourceTimeBindingResultV1,
 }
   from './project-selected-video-source-time-binding-v1';
+import {
+  resolveProjectSelectedSourceTranscriptionV2,
+  type ProjectSelectedSourceTranscriptionResultV2,
+} from './project-selected-source-transcription-v2';
+import type { SourceTranscriptionProviderIdV1 }
+  from './source-transcription-egress-authorization-v1';
+import { createSourceTranscriptionEgressPolicyOwnerV1 }
+  from './source-transcription-egress-policy-v1';
+import { createSourceTranscriptionEgressPolicyMongoReaderV1 }
+  from './source-transcription-egress-policy-mongo-v1';
+import { transcribeLeasedMediaSourceWithProviderV2 }
+  from './media/transcription-service';
+import { createProjectSelectedMediaSourceLeasePortV1 }
+  from './project-selected-media-source-lease-v1';
 import {
   analyzeProjectTimestampVideoV1,
   type ProjectTimestampVideoAnalysisPortsV1,
@@ -58,6 +87,35 @@ const PROJECT_FIVE_TRACK_ANALYSIS_CONTRACT_V2 =
 
 type ProjectFiveTrackAnalysisModeV2 = 'FULL' | 'CACHE_ONLY';
 
+export type ProjectFiveTrackTranscriptionOptionsV2 = Readonly<{
+  requestedLanguage?: string | null;
+  precision: AssetTranscriptionPrecisionV2;
+  eligibleProviderIds: readonly SourceTranscriptionProviderIdV1[];
+  privacyEgressPolicyRef: Readonly<EditorialPlanArtifactRefV1>;
+}>;
+
+type ProjectFiveTrackTranscriptionSummaryV2 = Readonly<
+  | { disposition: 'NOT_REQUESTED' }
+  | {
+      disposition: 'CACHE_HIT' | 'GENERATED';
+      sourceBindingSha256: string;
+      sourceVersionSha256: string;
+      storageVersionSha256: string;
+      transcriptionSha256: string;
+      timingBasis: AssetTranscriptionEvidenceV2['timingEvidence']['timingBasis'];
+      wordCount: number;
+      analysisConsumption:
+        | 'SAME_RATE_FIVE_TRACK_INPUT'
+        | 'TIMESTAMP_EVIDENCE_ONLY';
+    }
+  | { disposition: 'BLOCKED'; diagnosticCode: string }
+>;
+
+type ProjectSelectedSourceTranscriptionSuccessV2 = Extract<
+  ProjectSelectedSourceTranscriptionResultV2,
+  Readonly<{ disposition: 'CACHE_HIT' | 'GENERATED' }>
+>;
+
 type SelectedSourceTimeBlockReasonV1 = Extract<
   ProjectSelectedVideoSourceTimeBindingResultV1,
   Readonly<{ disposition: 'UNVERIFIABLE' }>
@@ -75,6 +133,10 @@ type ProjectFiveTrackAnalysisBlockReasonV2 =
   | 'SELECTED_SOURCE_URL_UNAVAILABLE'
   | 'SOURCE_FRAME_COUNT_INVALID'
   | `SELECTED_SOURCE_RIGHTS_${string}`
+  | 'SELECTED_SOURCE_TRANSCRIPTION_PROJECT_REVISION_REQUIRED'
+  | 'SELECTED_SOURCE_TRANSCRIPTION_PORTS_REQUIRED'
+  | 'SELECTED_SOURCE_TRANSCRIPTION_MEASURED_WORD_REQUIRED'
+  | `SELECTED_SOURCE_TRANSCRIPTION_${string}`
   | 'TIMESTAMP_ANALYSIS_PROJECT_REVISION_REQUIRED'
   | 'TIMESTAMP_ANALYSIS_PORT_REQUIRED'
   | 'TIMESTAMP_ANALYSIS_CACHE_MISS'
@@ -100,6 +162,7 @@ type ProjectCoordinateVisionAnalysisV1 = Extract<
 type ProjectCoordinateAnalysisV1 = Readonly<
   ProjectCoordinateVisionAnalysisV1 & {
     audioEvidence: ProjectSelectedSourceAudioEvidenceResultV1;
+    transcription: ProjectFiveTrackTranscriptionSummaryV2;
   }
 >;
 
@@ -114,6 +177,7 @@ type ProjectFiveTrackOverlayResultV2 = Readonly<{
     | 'PROJECT_COORDINATE_ANALYZED'
     | 'UNAVAILABLE';
   analysisBlockReason: ProjectFiveTrackAnalysisBlockReasonV2 | null;
+  transcription: ProjectFiveTrackTranscriptionSummaryV2;
   sourceMediaRightsAuthorizationReceiptSha256: string | null;
   timelineAdmission: Readonly<
     | { disposition: 'ADMITTED'; timelineOffsetFrames: number }
@@ -149,6 +213,8 @@ type SourceBoundPreparedOverlayV2 = Readonly<{
   options: FullAnalysisOptions & Readonly<{
     sourceBindingV2: AssetAnalysisSourceBindingV2;
   }>;
+  transcription: ProjectSelectedSourceTranscriptionSuccessV2 | null;
+  transcriptionSummary: ProjectFiveTrackTranscriptionSummaryV2;
   sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
 }>;
 
@@ -160,6 +226,8 @@ type TimestampPreparedOverlayV2 = Readonly<{
     Readonly<{ disposition: 'RESOLVED' }>
   >;
   sourceVersionCandidates: readonly unknown[];
+  transcription: ProjectSelectedSourceTranscriptionSuccessV2 | null;
+  transcriptionSummary: ProjectFiveTrackTranscriptionSummaryV2;
   sourceMediaRightsAuthorization: SourceMediaRightsAuthorizationReceiptV1;
 }>;
 
@@ -192,6 +260,9 @@ export type ProjectFiveTrackAnalysisPortsV2 = Readonly<{
     typeof createVideoSourceTimestampConformFromVerifiedEpochOrdinalV3;
   resolveSelectedSourceAudioEvidence?:
     typeof resolveProjectSelectedSourceAudioEvidenceV1;
+  transcription?: SourceBoundAssetTranscriptionPortsV2;
+  resolveSelectedSourceTranscription?:
+    typeof resolveProjectSelectedSourceTranscriptionV2;
   rightsReader: Readonly<SourceMediaRightsLedgerReaderV1>;
   rightsStore?: Readonly<SourceMediaRightsLedgerStorePortsV1>;
   authorizeCurrentSourceRights?:
@@ -207,6 +278,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   projectRevisionV1?: ProjectRevisionV1;
   timeBudgetMs?: number;
   pipelineWarnings?: PipelineWarningCollector;
+  transcription?: ProjectFiveTrackTranscriptionOptionsV2;
   ports?: ProjectFiveTrackAnalysisPortsV2;
 }>): Promise<ProjectFiveTrackAnalysisResultV2> {
   const projectId = input.project.projectId;
@@ -227,6 +299,10 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
   );
   const prepared = new Map<number, PreparedOverlayV2>();
   const blocked = new Map<number, ProjectFiveTrackAnalysisBlockReasonV2>();
+  const transcriptionSummaries = new Map<
+    number,
+    ProjectFiveTrackTranscriptionSummaryV2
+  >();
 
   for (const overlay of videoOverlays) {
     const result = await prepareOverlay({
@@ -234,6 +310,10 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       userId: input.userId,
       mode: input.mode,
       projectRevisionV1: input.projectRevisionV1,
+      transcription: input.transcription,
+      transcriptionPorts: ports.transcription,
+      resolveSelectedSourceTranscription:
+        ports.resolveSelectedSourceTranscription,
       overlay,
       assets,
       loadSourceVersionEvidence: ports.loadSourceVersionEvidence,
@@ -242,8 +322,18 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       authorizeCurrentSourceRights: ports.authorizeCurrentSourceRights,
       rightsNow: ports.rightsNow,
     });
-    if ('reason' in result) blocked.set(overlay.id, result.reason);
-    else prepared.set(overlay.id, result);
+    if ('reason' in result) {
+      blocked.set(overlay.id, result.reason);
+      if (result.transcriptionSummary) {
+        transcriptionSummaries.set(overlay.id, result.transcriptionSummary);
+      }
+    } else {
+      prepared.set(overlay.id, result);
+      transcriptionSummaries.set(
+        overlay.id,
+        result.transcriptionSummary,
+      );
+    }
   }
 
   const sourceUseCount = new Map<string, number>();
@@ -371,6 +461,7 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
       timestampAnalyses.set(candidate.overlay.id, Object.freeze({
         ...result,
         audioEvidence,
+        transcription: candidate.transcriptionSummary,
       }));
       analyzed += 1;
     } else {
@@ -416,6 +507,8 @@ export async function analyzeProjectFiveTrackV2(input: Readonly<{
         ? 'PROJECT_COORDINATE_ANALYZED' as const
         : sourceAnalysis?.disposition ?? 'UNAVAILABLE',
       analysisBlockReason,
+      transcription: transcriptionSummaries.get(overlay.id)
+        ?? { disposition: 'NOT_REQUESTED' as const },
       sourceMediaRightsAuthorizationReceiptSha256:
         candidate?.sourceMediaRightsAuthorization.receiptSha256 ?? null,
       timelineAdmission,
@@ -441,6 +534,10 @@ async function prepareOverlay(input: Readonly<{
   userId: string;
   mode: ProjectFiveTrackAnalysisModeV2;
   projectRevisionV1?: ProjectRevisionV1;
+  transcription?: ProjectFiveTrackTranscriptionOptionsV2;
+  transcriptionPorts?: SourceBoundAssetTranscriptionPortsV2;
+  resolveSelectedSourceTranscription?:
+    typeof resolveProjectSelectedSourceTranscriptionV2;
   overlay: ClipOverlay;
   assets: ReadonlyMap<string, AnalysisAssetV2>;
   loadSourceVersionEvidence:
@@ -452,7 +549,10 @@ async function prepareOverlay(input: Readonly<{
   rightsNow: ProjectFiveTrackAnalysisPortsV2['rightsNow'];
 }>): Promise<
   PreparedOverlayV2
-  | Readonly<{ reason: ProjectFiveTrackAnalysisBlockReasonV2 }>
+  | Readonly<{
+      reason: ProjectFiveTrackAnalysisBlockReasonV2;
+      transcriptionSummary?: ProjectFiveTrackTranscriptionSummaryV2;
+    }>
 > {
   const assetId = typeof input.overlay.assetId === 'string'
     ? input.overlay.assetId.trim()
@@ -520,6 +620,85 @@ async function prepareOverlay(input: Readonly<{
     }
     sourceMediaRightsAuthorization = sourceMediaRights.authorization;
   }
+  let transcription: ProjectSelectedSourceTranscriptionSuccessV2 | null = null;
+  let transcriptionSummary: ProjectFiveTrackTranscriptionSummaryV2 = {
+    disposition: 'NOT_REQUESTED',
+  };
+  if (input.transcription) {
+    if (!input.projectRevisionV1) {
+      return {
+        reason: 'SELECTED_SOURCE_TRANSCRIPTION_PROJECT_REVISION_REQUIRED',
+        transcriptionSummary: {
+          disposition: 'BLOCKED',
+          diagnosticCode: 'PROJECT_REVISION_REQUIRED',
+        },
+      };
+    }
+    if (!input.transcriptionPorts) {
+      return {
+        reason: 'SELECTED_SOURCE_TRANSCRIPTION_PORTS_REQUIRED',
+        transcriptionSummary: {
+          disposition: 'BLOCKED',
+          diagnosticCode: 'TRANSCRIPTION_PORTS_REQUIRED',
+        },
+      };
+    }
+    let resolvedTranscription: ProjectSelectedSourceTranscriptionResultV2;
+    try {
+      const sourceLeasePort = input.transcriptionPorts.sourceLeasePort
+        ?? createProjectSelectedMediaSourceLeasePortV1({
+          asset,
+          evidenceReader: {
+            load: input.loadSourceVersionEvidence,
+          },
+        });
+      resolvedTranscription = await (
+        input.resolveSelectedSourceTranscription
+          ?? resolveProjectSelectedSourceTranscriptionV2
+      )({
+        mode: input.mode,
+        project: input.project,
+        projectRevision: input.projectRevisionV1,
+        userId: input.userId,
+        overlay: input.overlay,
+        asset,
+        requestedLanguage: input.transcription.requestedLanguage ?? null,
+        precision: input.transcription.precision,
+        eligibleProviderIds: input.transcription.eligibleProviderIds,
+        privacyEgressPolicyRef: input.transcription.privacyEgressPolicyRef,
+        selectedSource: selected,
+      }, {
+        transcription: {
+          ...input.transcriptionPorts,
+          sourceLeasePort,
+        },
+      });
+    } catch (error) {
+      const diagnosticCode = transcriptionDiagnostic(error);
+      return {
+        reason: `SELECTED_SOURCE_TRANSCRIPTION_${diagnosticCode}`,
+        transcriptionSummary: {
+          disposition: 'BLOCKED',
+          diagnosticCode,
+        },
+      };
+    }
+    if (resolvedTranscription.disposition === 'BLOCKED') {
+      return {
+        reason:
+          `SELECTED_SOURCE_TRANSCRIPTION_${resolvedTranscription.diagnosticCode}`,
+        transcriptionSummary: {
+          disposition: 'BLOCKED',
+          diagnosticCode: resolvedTranscription.diagnosticCode,
+        },
+      };
+    }
+    transcription = resolvedTranscription;
+    transcriptionSummary = summarizeTranscription(
+      resolvedTranscription,
+      'TIMESTAMP_EVIDENCE_ONLY',
+    );
+  }
   const timing = selected.binding;
   const compatibility = classifyVerifiedVideoSourceEpochRateCompatibilityV3(
     timing,
@@ -531,6 +710,8 @@ async function prepareOverlay(input: Readonly<{
       overlay: input.overlay,
       selectedSource: selected,
       sourceVersionCandidates: Object.freeze([sourceVersion]),
+      transcription,
+      transcriptionSummary,
       sourceMediaRightsAuthorization,
     });
   }
@@ -540,10 +721,26 @@ async function prepareOverlay(input: Readonly<{
   if (totalSourceFrameCount === null) {
     return { reason: 'SOURCE_FRAME_COUNT_INVALID' };
   }
+  let transcriptionInput:
+    Readonly<Pick<FullAnalysisOptions, 'transcript' | 'words'>> = {};
+  if (transcription) {
+    try {
+      transcriptionInput = measuredTranscriptionInput(transcription);
+    } catch {
+      return {
+        reason: 'SELECTED_SOURCE_TRANSCRIPTION_MEASURED_WORD_REQUIRED',
+        transcriptionSummary: {
+          disposition: 'BLOCKED',
+          diagnosticCode: 'MEASURED_WORD_REQUIRED',
+        },
+      };
+    }
+  }
   const baseOptions = {
     videoUrl,
     durationMs: totalSourceFrameCount / 30 * 1000,
     sourceType: 'real-footage' as const,
+    ...transcriptionInput,
   };
   const sourceBinding = createAssetAnalysisSourceBindingV2({
     userId: input.userId,
@@ -560,8 +757,61 @@ async function prepareOverlay(input: Readonly<{
     totalSourceFrameCount,
     sourceBinding,
     options: Object.freeze({ ...baseOptions, sourceBindingV2: sourceBinding }),
+    transcription,
+    transcriptionSummary: transcription
+      ? summarizeTranscription(transcription, 'SAME_RATE_FIVE_TRACK_INPUT')
+      : transcriptionSummary,
     sourceMediaRightsAuthorization,
   });
+}
+
+function summarizeTranscription(
+  value: ProjectSelectedSourceTranscriptionSuccessV2,
+  analysisConsumption:
+    | 'SAME_RATE_FIVE_TRACK_INPUT'
+    | 'TIMESTAMP_EVIDENCE_ONLY',
+): ProjectFiveTrackTranscriptionSummaryV2 {
+  const evidence = value.evidence;
+  return Object.freeze({
+    disposition: value.disposition,
+    sourceBindingSha256: evidence.sourceBindingV2.bindingSha256,
+    sourceVersionSha256: evidence.sourceBindingV2.source.sourceVersionSha256,
+    storageVersionSha256:
+      evidence.sourceBindingV2.source.storageVersionSha256,
+    transcriptionSha256: evidence.transcriptionSha256,
+    timingBasis: evidence.timingEvidence.timingBasis,
+    wordCount: evidence.transcription.words.length,
+    analysisConsumption,
+  });
+}
+
+function measuredTranscriptionInput(
+  value: ProjectSelectedSourceTranscriptionSuccessV2,
+): Readonly<Pick<FullAnalysisOptions, 'transcript' | 'words'>> {
+  const { evidence } = value;
+  if (evidence.timingEvidence.timingBasis === 'NO_SPEECH') {
+    return Object.freeze({ transcript: '', words: [] });
+  }
+  if (evidence.timingEvidence.timingBasis !== 'MEASURED_WORD') {
+    throw new Error('SELECTED_SOURCE_TRANSCRIPTION_MEASURED_WORD_REQUIRED');
+  }
+  return Object.freeze({
+    transcript: evidence.transcription.transcript,
+    words: evidence.transcription.words.map((word) => ({
+      word: word.word,
+      startMs: word.startMs,
+      endMs: word.endMs,
+    })),
+  });
+}
+
+function transcriptionDiagnostic(error: unknown): string {
+  const value = error instanceof Error ? error.message : '';
+  return /^(?:PROJECT_SELECTED_TRANSCRIPTION|ASSET_TRANSCRIPTION|SOURCE_TRANSCRIPTION_EGRESS|SOURCE_MEDIA_RIGHTS)_[A-Z0-9_]{1,180}$/.test(
+    value,
+  )
+    ? value
+    : 'UNAVAILABLE';
 }
 
 function projectRightsScope(project: Project, userId: string) {
@@ -677,6 +927,9 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       'createSourceMediaRightsLedgerMongoPortsV1'
     ]
   > | null = null;
+  let transcriptionPolicyOwnerInstance: ReturnType<
+    typeof createSourceTranscriptionEgressPolicyOwnerV1
+  > | null = null;
   const mediaRuntime = () => {
     mediaRuntimePromise ??= import(
       './media-source-pts-cadence-r2-runtime-v1'
@@ -698,6 +951,31 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
       ).then(({ createSourceMediaRightsLedgerMongoPortsV1 }) =>
         createSourceMediaRightsLedgerMongoPortsV1());
       return (await store).commit(input);
+    },
+  };
+  const transcriptionPolicyOwner = Object.freeze({
+    authorize: async (request: Parameters<
+      NonNullable<SourceBoundAssetTranscriptionPortsV2['egressPolicyOwner']>['authorize']
+    >[0]) => {
+      transcriptionPolicyOwnerInstance ??= createSourceTranscriptionEgressPolicyOwnerV1({
+        reader: createSourceTranscriptionEgressPolicyMongoReaderV1(),
+      });
+      return transcriptionPolicyOwnerInstance.authorize(request);
+    },
+  });
+  const transcriptionPorts: SourceBoundAssetTranscriptionPortsV2 = {
+    cache: {
+      get: getSourceBoundTranscriptionV2,
+      save: saveSourceBoundTranscriptionV2,
+    },
+    rightsReader: rightsStore,
+    projectRevisionReader: {
+      getProjectRevision: (userId, projectId) =>
+        projectService.getProjectRevision(userId, projectId),
+    },
+    egressPolicyOwner: transcriptionPolicyOwner,
+    providerTranscriber: {
+      transcribe: transcribeLeasedMediaSourceWithProviderV2,
     },
   };
   return {
@@ -739,6 +1017,7 @@ function createMongoPorts(): ProjectFiveTrackAnalysisPortsV2 {
         return (await mediaRuntime()).audioArtifact.readPcmSampleRange(range);
       },
     },
+    transcription: transcriptionPorts,
     rightsReader: rightsStore,
     rightsStore,
     rightsNow: () => new Date(),

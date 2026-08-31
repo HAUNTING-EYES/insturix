@@ -23,7 +23,7 @@ import type { SourceTranscriptionProviderIdV1 }
 type SelectedVideoAssetV2 = MediaAsset
   & Parameters<typeof resolveProjectSelectedVideoSourceTimeBindingV1>[0]['asset'];
 
-type ResolvedSelectedVideoSourceV1 = Extract<
+export type ResolvedSelectedVideoSourceV1 = Extract<
   ProjectSelectedVideoSourceTimeBindingResultV1,
   Readonly<{ disposition: 'RESOLVED' }>
 >;
@@ -59,6 +59,8 @@ export async function resolveProjectSelectedSourceTranscriptionV2(
     precision: AssetTranscriptionPrecisionV2;
     eligibleProviderIds: readonly SourceTranscriptionProviderIdV1[];
     privacyEgressPolicyRef: Readonly<EditorialPlanArtifactRefV1>;
+    /** Reuse the caller's already-authenticated selection when available. */
+    selectedSource?: ResolvedSelectedVideoSourceV1;
   }>,
   ports: ProjectSelectedSourceTranscriptionPortsV2,
 ): Promise<ProjectSelectedSourceTranscriptionResultV2> {
@@ -86,17 +88,19 @@ export async function resolveProjectSelectedSourceTranscriptionV2(
       return blocked('PROJECT_SELECTED_TRANSCRIPTION_PORTS_INVALID');
     }
 
-    const selection = await (
-      ports.resolveSelectedSource
-        ?? resolveProjectSelectedVideoSourceTimeBindingV1
-    )({
-      projectId,
-      overlayId: input.overlay.id,
-      assetId,
-      sourcePin: input.overlay.sourceVersionPinV1,
-      asset: input.asset,
-      ...(ports.selectedSource ? { ports: ports.selectedSource } : {}),
-    });
+    const selection = input.selectedSource
+      ? assertProvidedSelection(input.selectedSource, assetId)
+      : await (
+          ports.resolveSelectedSource
+            ?? resolveProjectSelectedVideoSourceTimeBindingV1
+        )({
+          projectId,
+          overlayId: input.overlay.id,
+          assetId,
+          sourcePin: input.overlay.sourceVersionPinV1,
+          asset: input.asset,
+          ...(ports.selectedSource ? { ports: ports.selectedSource } : {}),
+        });
     if (selection.disposition === 'UNVERIFIABLE') {
       return blocked(
         `PROJECT_SELECTED_TRANSCRIPTION_SOURCE_${selection.reason}`,
@@ -130,6 +134,18 @@ export async function resolveProjectSelectedSourceTranscriptionV2(
   } catch (error) {
     return blocked(diagnostic(error));
   }
+}
+
+function assertProvidedSelection(
+  value: ResolvedSelectedVideoSourceV1,
+  assetId: string,
+): ResolvedSelectedVideoSourceV1 {
+  if (value.disposition !== 'RESOLVED'
+    || value.sourceVersion?.assetId !== assetId
+    || (value.sourceRole !== 'PROXY' && value.sourceRole !== 'MASTER')) {
+    throw new Error('PROJECT_SELECTED_TRANSCRIPTION_SOURCE_SELECTION_INVALID');
+  }
+  return value;
 }
 
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;

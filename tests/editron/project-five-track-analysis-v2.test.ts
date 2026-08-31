@@ -7,6 +7,12 @@ import type { ProjectFiveTrackAnalysisPortsV2 }
   from '@/lib/editron/services/project-five-track-analysis-v2';
 import type { AssetAnalysisSourceBindingV2 }
   from '@/lib/editron/services/asset-analysis-source-cache-v2';
+import { createAssetTranscriptionSourceBindingV2 }
+  from '@/lib/editron/services/asset-transcription-source-binding-v2';
+import type {
+  SourceBoundAssetTranscriptionPortsV2,
+  SourceBoundAssetTranscriptionSuccessV2,
+} from '@/lib/editron/services/source-bound-asset-transcription-v2';
 import type { AssetAnalysis }
   from '@/lib/editron/services/five-track-analysis';
 import {
@@ -148,18 +154,30 @@ describe('project five-track analysis v2', () => {
       reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' as const,
       diagnostic: null,
     }));
+    const transcription = transcriptionSuccess(fixture);
+    const resolveSelectedSourceTranscription = vi.fn(async (input: Parameters<
+      NonNullable<ProjectFiveTrackAnalysisPortsV2['resolveSelectedSourceTranscription']>
+    >[0]) => ({
+      ...transcription,
+      selectedSource: input.selectedSource!,
+    }));
 
     const result = await analyzeProjectFiveTrackV2({
       project,
       userId: fixture.userId,
       mode: 'FULL',
       projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      transcription: transcriptionOptions(),
       ports: ports(
         fixture.asset,
         readAnalysis,
         runAnalysis,
         materializeTimestampAnalysis,
         resolveSelectedSourceAudioEvidence,
+        undefined,
+        undefined,
+        transcriptionPorts(),
+        resolveSelectedSourceTranscription,
       ),
     });
 
@@ -173,6 +191,12 @@ describe('project five-track analysis v2', () => {
         audioEvidence: {
           disposition: 'UNVERIFIABLE',
           reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED',
+        },
+        transcription: {
+          disposition: 'GENERATED',
+          timingBasis: 'MEASURED_WORD',
+          wordCount: 2,
+          analysisConsumption: 'TIMESTAMP_EVIDENCE_ONLY',
         },
       },
       timelineAdmission: {
@@ -211,6 +235,141 @@ describe('project five-track analysis v2', () => {
       );
     expect(result.overlays[0]?.projectCoordinateAnalysis?.audioEvidence)
       .toMatchObject({ reason: 'SOURCE_VERSION_EVIDENCE_REQUIRED' });
+  });
+
+  it('feeds measured selected-source words into same-rate five-track analysis', async () => {
+    const fixture = await sourceFixture(
+      'transcription-bound',
+      ['3000', '3000', '3000'],
+    );
+    const project = projectFixture(fixture, 3);
+    const analysis = completedAnalysis(fixture.assetId, fixture.userId, 100);
+    const readAnalysis = vi.fn(async (
+      _binding: AssetAnalysisSourceBindingV2,
+    ): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (input: Parameters<
+      ProjectFiveTrackAnalysisPortsV2['runAnalysis']
+    >[0]): Promise<AssetAnalysis> => {
+      expect(input.options).toMatchObject({
+        transcript: 'hello world',
+        words: [
+          { word: 'hello', startMs: 100, endMs: 300 },
+          { word: 'world', startMs: 350, endMs: 700 },
+        ],
+      });
+      return analysis;
+    });
+    const transcription = transcriptionSuccess(fixture);
+    const resolveSelectedSourceTranscription = vi.fn(async (input: Parameters<
+      NonNullable<ProjectFiveTrackAnalysisPortsV2['resolveSelectedSourceTranscription']>
+    >[0]) => ({
+      ...transcription,
+      selectedSource: input.selectedSource!,
+    }));
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'FULL',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      transcription: transcriptionOptions(),
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        transcriptionPorts(),
+        resolveSelectedSourceTranscription,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysisDisposition: 'ANALYZED',
+      analysisBlockReason: null,
+      transcription: {
+        disposition: 'GENERATED',
+        timingBasis: 'MEASURED_WORD',
+        wordCount: 2,
+        analysisConsumption: 'SAME_RATE_FIVE_TRACK_INPUT',
+      },
+    });
+    expect(resolveSelectedSourceTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRevision: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+        selectedSource: expect.objectContaining({
+          sourceRole: 'PROXY',
+          sourceVersion: expect.objectContaining({
+            sourceVersionSha256: fixture.verifiedBinding.sourceVersionSha256,
+          }),
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(readAnalysis).toHaveBeenCalledTimes(1);
+    expect(runAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cache-only transcription misses provider-free and analysis-free', async () => {
+    const fixture = await sourceFixture(
+      'transcription-cache-miss',
+      ['3000', '3000', '3000'],
+    );
+    const project = projectFixture(fixture, 3);
+    const readAnalysis = vi.fn(async (
+      _binding: AssetAnalysisSourceBindingV2,
+    ): Promise<AssetAnalysis | null> => null);
+    const runAnalysis = vi.fn(async (
+      _input: Parameters<ProjectFiveTrackAnalysisPortsV2['runAnalysis']>[0],
+    ): Promise<AssetAnalysis> => completedAnalysis(
+      fixture.assetId,
+      fixture.userId,
+      100,
+    ));
+    const resolveSelectedSourceTranscription = vi.fn(async () => ({
+      disposition: 'BLOCKED' as const,
+      diagnosticCode: 'ASSET_TRANSCRIPTION_CACHE_MISS',
+    }));
+    const providerTranscriber = { transcribe: vi.fn() };
+
+    const result = await analyzeProjectFiveTrackV2({
+      project,
+      userId: fixture.userId,
+      mode: 'CACHE_ONLY',
+      projectRevisionV1: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+      transcription: transcriptionOptions(),
+      ports: ports(
+        fixture.asset,
+        readAnalysis,
+        runAnalysis,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        transcriptionPorts({ providerTranscriber }),
+        resolveSelectedSourceTranscription,
+      ),
+    });
+
+    expect(result.overlays[0]).toMatchObject({
+      analysis: null,
+      analysisDisposition: 'UNAVAILABLE',
+      analysisBlockReason:
+        'SELECTED_SOURCE_TRANSCRIPTION_ASSET_TRANSCRIPTION_CACHE_MISS',
+      transcription: {
+        disposition: 'BLOCKED',
+        diagnosticCode: 'ASSET_TRANSCRIPTION_CACHE_MISS',
+      },
+    });
+    expect(resolveSelectedSourceTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'CACHE_ONLY' }),
+      expect.any(Object),
+    );
+    expect(readAnalysis).not.toHaveBeenCalled();
+    expect(runAnalysis).not.toHaveBeenCalled();
+    expect(providerTranscriber.transcribe).not.toHaveBeenCalled();
   });
 
   it('blocks before visual or provider analysis when current source rights fail', async () => {
@@ -516,6 +675,10 @@ function ports(
     ProjectFiveTrackAnalysisPortsV2['authorizeCurrentSourceRights']
   > | null,
   rightsStore?: Readonly<SourceMediaRightsLedgerStorePortsV1>,
+  transcription?: SourceBoundAssetTranscriptionPortsV2,
+  resolveSelectedSourceTranscription?: NonNullable<
+    ProjectFiveTrackAnalysisPortsV2['resolveSelectedSourceTranscription']
+  >,
 ): ProjectFiveTrackAnalysisPortsV2 {
   const readArtifactSet = vi.fn();
   const authorizeRights = authorizeCurrentSourceRights === null
@@ -539,8 +702,86 @@ function ports(
     rightsReader: rightsStore ?? { read: vi.fn() },
     ...(rightsStore ? { rightsStore } : {}),
     ...(authorizeRights ? { authorizeCurrentSourceRights: authorizeRights } : {}),
+    ...(transcription ? { transcription } : {}),
+    ...(resolveSelectedSourceTranscription
+      ? { resolveSelectedSourceTranscription }
+      : {}),
     rightsNow: () => new Date('2026-08-31T12:00:00.000Z'),
     nowMs: () => 0,
+  };
+}
+
+function transcriptionPorts(
+  overrides: Partial<SourceBoundAssetTranscriptionPortsV2> = {},
+): SourceBoundAssetTranscriptionPortsV2 {
+  return {
+    cache: {
+      get: vi.fn(async () => null),
+      save: vi.fn(),
+    },
+    rightsReader: { read: vi.fn(async () => null) },
+    projectRevisionReader: {
+      getProjectRevision: vi.fn(async () =>
+        TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1),
+    },
+    ...overrides,
+  } as SourceBoundAssetTranscriptionPortsV2;
+}
+
+function transcriptionOptions() {
+  return {
+    requestedLanguage: null,
+    precision: 'MEASURED_WORD_REQUIRED' as const,
+    eligibleProviderIds: ['deepgram'] as const,
+    privacyEgressPolicyRef: {
+      ownerId: 'POLICY_SERVICE',
+      artifactId: 'privacy-policy',
+      artifactVersion: '1',
+      artifactSha256: 'f'.repeat(64),
+    },
+  };
+}
+
+function transcriptionSuccess(
+  fixture: Awaited<ReturnType<typeof sourceFixture>>,
+): SourceBoundAssetTranscriptionSuccessV2 {
+  const sourceVersion = fixture.asset.sourceVersionV1;
+  if (!sourceVersion) throw new Error('TRANSCRIPTION_FIXTURE_SOURCE_MISSING');
+  const sourceBindingV2 = createAssetTranscriptionSourceBindingV2({
+    userId: fixture.userId,
+    assetId: fixture.assetId,
+    sourceRole: 'PROXY',
+    sourceVersion,
+    precision: 'MEASURED_WORD_REQUIRED',
+  });
+  return {
+    disposition: 'GENERATED',
+    projectRevision: TIMESTAMP_ANALYSIS_PROJECT_REVISION_FIXTURE_V1,
+    sourceBindingV2,
+    sourceRightsAuthorization: { receiptSha256: 'e'.repeat(64) } as never,
+    evidence: {
+      sourceBindingV2,
+      transcription: {
+        words: [
+          { word: 'hello', startMs: 100, endMs: 300, confidence: 0.95 },
+          { word: 'world', startMs: 350, endMs: 700, confidence: 0.9 },
+        ],
+        transcript: 'hello world',
+        language: 'en',
+        confidence: 0.95,
+        generatedAt: new Date('2026-08-31T12:00:00.000Z'),
+      },
+      timingEvidence: {
+        timingBasis: 'MEASURED_WORD',
+        providerId: 'deepgram',
+        modelId: 'nova-2',
+        strategy: 'measured-stt',
+        providerContractVersion: 'word-v1',
+      },
+      processingEvidence: {} as never,
+      transcriptionSha256: 'd'.repeat(64),
+      recordSha256: 'e'.repeat(64),
+    },
   };
 }
 

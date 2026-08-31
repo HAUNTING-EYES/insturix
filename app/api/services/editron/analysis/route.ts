@@ -14,10 +14,16 @@ import { detectCinematicMoments }
   from '@/lib/editron/services/cinematic-moment-detector';
 import { getAnalysis, type AssetAnalysis }
   from '@/lib/editron/services/five-track-analysis';
-import { analyzeProjectFiveTrackV2 }
-  from '@/lib/editron/services/project-five-track-analysis-v2';
+import {
+  analyzeProjectFiveTrackV2,
+  type ProjectFiveTrackTranscriptionOptionsV2,
+} from '@/lib/editron/services/project-five-track-analysis-v2';
 import type { ProjectSelectedSourceAudioEvidenceResultV1 }
   from '@/lib/editron/services/project-selected-source-audio-evidence-v1';
+import { EditorialPlanArtifactRefSchemaV1 }
+  from '@/lib/editron/services/editorial-plan-v1';
+import type { SourceTranscriptionProviderIdV1 }
+  from '@/lib/editron/services/source-transcription-egress-authorization-v1';
 import { analysisSameRevision }
   from '@/lib/editron/services/native-media-timestamp-analysis-validation-v1';
 import {
@@ -46,6 +52,17 @@ export async function POST(req: NextRequest) {
     const mode: AnalysisRequestMode = body?.mode === 'cached-suggestions'
       ? 'cached-suggestions'
       : 'full';
+    const parsedTranscription = parseTranscriptionOptions(body?.transcription);
+    if (!parsedTranscription.ok) {
+      return NextResponse.json(
+        {
+          error: 'invalid transcription options',
+          diagnostic: parsedTranscription.diagnostic,
+        },
+        { status: 400 },
+      );
+    }
+    const transcription = parsedTranscription.value;
 
     // Project access and exact per-overlay source selection precede cost.
     const initialSnapshot = await projectService.loadProjectForMutation(
@@ -71,6 +88,7 @@ export async function POST(req: NextRequest) {
         userId,
         mode: 'FULL',
         projectRevisionV1: initialSnapshot.revision,
+        transcription,
       });
     }
 
@@ -85,6 +103,7 @@ export async function POST(req: NextRequest) {
       userId,
       mode: 'CACHE_ONLY',
       projectRevisionV1: currentSnapshot.revision,
+      transcription,
     });
     const freshFullCoordinateEvidence = fullRun
       && analysisSameRevision(initialSnapshot.revision, currentSnapshot.revision)
@@ -203,6 +222,7 @@ export async function POST(req: NextRequest) {
         subjects: entry.analysis?.subjectTracks?.length ?? 0,
         speechSegments: entry.analysis?.speechSegments?.length ?? 0,
         musicSections: entry.analysis?.musicStructure?.sections?.length ?? 0,
+        transcription: entry.transcription,
       })),
       projectCoordinateAnalysisSummaries: projectCoordinateAvailable.map(
         (entry) => ({
@@ -225,10 +245,17 @@ export async function POST(req: NextRequest) {
                 entry.projectCoordinateAnalysis.audioEvidence,
               )
             : null,
+          transcription: entry.projectCoordinateAnalysis?.transcription
+            ?? entry.transcription,
           mutationAuthority:
             'REQUIRES_DEDICATED_PROJECT_COORDINATE_FIVE_TRACK_CONSUMER',
         }),
       ),
+      transcriptionSummaries: effectiveOverlays.map((entry) => ({
+        overlayId: entry.overlayId,
+        assetId: entry.assetId,
+        transcription: entry.transcription,
+      })),
       analysisBlocks,
       videoOverlayCount: effectiveOverlays.length,
       analyzedCount: available.length + projectCoordinateAvailable.length,
@@ -298,6 +325,81 @@ function identifier(value: unknown): string | null {
   return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/.test(normalized)
     ? normalized
     : null;
+}
+
+type ParsedTranscriptionOptionsV2 = Readonly<
+  | { ok: true; value?: ProjectFiveTrackTranscriptionOptionsV2 }
+  | { ok: false; diagnostic: string }
+>;
+
+const SOURCE_TRANSCRIPTION_PROVIDER_IDS: readonly SourceTranscriptionProviderIdV1[] = [
+  'xai',
+  'deepgram',
+  'fal-ai',
+  'google-gemini',
+];
+
+function parseTranscriptionOptions(
+  value: unknown,
+): ParsedTranscriptionOptionsV2 {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value)) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_OBJECT_REQUIRED' };
+  }
+  const allowedKeys = new Set([
+    'requestedLanguage',
+    'precision',
+    'eligibleProviderIds',
+    'privacyEgressPolicyRef',
+  ]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_FIELDS_INVALID' };
+  }
+
+  const precision = value.precision;
+  if (precision !== 'TEXT_ALLOWED' && precision !== 'MEASURED_WORD_REQUIRED') {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_PRECISION_INVALID' };
+  }
+  const providers = value.eligibleProviderIds;
+  if (!Array.isArray(providers) || providers.length < 1 || providers.length > 4) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_PROVIDERS_INVALID' };
+  }
+  if (providers.some((provider) =>
+    !SOURCE_TRANSCRIPTION_PROVIDER_IDS.includes(
+      provider as SourceTranscriptionProviderIdV1,
+    ))) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_PROVIDERS_INVALID' };
+  }
+  if (new Set(providers).size !== providers.length) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_PROVIDERS_DUPLICATE' };
+  }
+  const requestedLanguage = value.requestedLanguage;
+  if (requestedLanguage !== undefined
+    && requestedLanguage !== null
+    && (typeof requestedLanguage !== 'string'
+      || requestedLanguage.length > 64)) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_LANGUAGE_INVALID' };
+  }
+  const privacyEgressPolicyRef = EditorialPlanArtifactRefSchemaV1.safeParse(
+    value.privacyEgressPolicyRef,
+  );
+  if (!privacyEgressPolicyRef.success) {
+    return { ok: false, diagnostic: 'TRANSCRIPTION_OPTIONS_POLICY_REF_INVALID' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(requestedLanguage === undefined ? {} : { requestedLanguage }),
+      precision,
+      eligibleProviderIds: providers as SourceTranscriptionProviderIdV1[],
+      privacyEgressPolicyRef: privacyEgressPolicyRef.data,
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function exactProjectDurationMs(project: Readonly<{
