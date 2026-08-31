@@ -14156,11 +14156,26 @@ runtime editing failure and it must not be hidden by weakening the assertion.
 Queue item 7 must issue a separately identified CAP-2 V11 reconciliation before
 any new "current source" or certification claim.
 
-### Founder priority decision required before further scope expansion
+### Founder market declaration and remaining release-order decision
 
-The founder must now declare the first supported project class and the
-capabilities required in its first robust milestone. The decision changes
-sequence only; it does not remove the rest of the Adobe-plus-LLM plan. Record:
+The founder declared on 2026-08-31 that Insturix/Editron must ultimately be
+sellable to all three target groups: content agencies, filmmakers and
+production houses. The resulting destination requires the complete
+professional capability programme rather than a permanently narrowed creator
+editor. No CAP family or Stage 3-8 outcome is removed by this declaration.
+
+The founder also declared limited remaining runway and excessive elapsed time
+in the current remediation programme as material product constraints. Progress
+must therefore be measured by sellable end-to-end project classes and visible
+user journeys, not by an indefinitely growing count of isolated infrastructure
+owners. Correctness, rights, mutation safety and truthful certification remain
+mandatory; the runway constraint does not authorize false success or unsafe
+shortcuts.
+
+The unresolved decision is release order, not destination. The founder must now
+declare the first supported project class and the capabilities required in its
+first robust milestone. That decision changes sequence only; it does not remove
+the rest of the Adobe-plus-LLM plan. Record:
 
 - target work: short social/YouTube/agency, interview/podcast/documentary,
   long-form film/TV, or a declared combination;
@@ -14174,7 +14189,18 @@ sequence only; it does not remove the rest of the Adobe-plus-LLM plan. Record:
 - required LLM authority: suggest-only, preview-and-approve, bounded autonomous
   edits, or a staged combination.
 
-Until that answer is frozen, preserve the queue order and continue only work
-already explicitly selected by the plan or necessary to correct a verified
-safety defect. Do not invent a narrower product class and do not declare broad
-Adobe/Resolve parity.
+The twelve-item queue is the successor-GO remediation created because the
+original Stage 2.5 experiment issued `MODIFY`; it is not the original experiment
+itself. Items 1-6 and 10-12 are direct decision/safety/acceptance machinery.
+Items 7-9 contain both successor-GO evidence and the broader capability,
+long-form and delivery programmes assigned to Stages 4-8. Preserve every item,
+but do not silently force the complete final breadth of Stages 4-8 to execute as
+one serial pre-Stage-3 block. The supported-project declaration must identify
+the exact item 7-9 blocker subset for its successor receipt; the remaining rows
+retain their later-stage owners and are still mandatory for the full three-
+market destination.
+
+Until that release-order answer is frozen, preserve the queue order and
+continue only work already explicitly selected by the plan or necessary to
+correct a verified safety defect. Do not invent a narrower product class and do
+not declare broad Adobe/Resolve parity.
