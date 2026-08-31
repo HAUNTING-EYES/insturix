@@ -114,7 +114,6 @@ export type NativeMediaTimestampAudioPcmWindowProofV1 = Readonly<{
   windowProjectEndExclusiveFrame: number;
   canonicalWindowStartSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
   canonicalWindowEndExclusiveSamplePosition: NativeMediaTimestampPreviewAudioSamplePositionV1;
-  lease: NativeMediaTimestampPreviewWindowLeaseV2;
   readOperations: number;
   totalPcmBytes: number;
   pcmSegmentCount: number;
@@ -137,18 +136,21 @@ export type NativeMediaTimestampAudioPcmWindowProofResultV1 = Readonly<
     }
 >;
 
+export type NativeMediaTimestampAudioPcmWindowInputV1 = Readonly<{
+  leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
+  mapping: AudioMappingV3;
+  projectRate: VideoSourceTimestampConformV3['projectRate'];
+  overlayFromFrame: number;
+  windowLocalStartFrame: number;
+  windowDurationInFrames: number;
+  expectedAssetId: string;
+  manifestSha256: string;
+  manifestReference: MediaSourceAudioPrivateObjectReferenceV1;
+}>;
+
 export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
-  input: Readonly<{
-    leaseScope: NativeMediaTimestampPreviewSurfaceLeaseScopeV1;
+  input: NativeMediaTimestampAudioPcmWindowInputV1 & Readonly<{
     lease: NativeMediaTimestampPreviewWindowLeaseV2;
-    mapping: AudioMappingV3;
-    projectRate: VideoSourceTimestampConformV3['projectRate'];
-    overlayFromFrame: number;
-    windowLocalStartFrame: number;
-    windowDurationInFrames: number;
-    expectedAssetId: string;
-    manifestSha256: string;
-    manifestReference: MediaSourceAudioPrivateObjectReferenceV1;
   }>,
   ports: Readonly<{
     pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
@@ -157,11 +159,16 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
   policyInput: NativeMediaTimestampPreviewAudioMaterializerPolicyV1 =
     NATIVE_MEDIA_TIMESTAMP_PREVIEW_AUDIO_MATERIALIZER_DEFAULT_POLICY_V1,
 ): Promise<NativeMediaTimestampPreviewAudioMaterializerResultV1> {
-  let normalized: ReturnType<typeof normalizeInput>;
+  let normalized: ReturnType<typeof normalizeInput> & Readonly<{
+    lease: NativeMediaTimestampPreviewWindowLeaseV2;
+  }>;
   try {
     const policy = normalizePolicy(policyInput);
     assertPorts(ports);
-    normalized = normalizeInput(input, policy);
+    normalized = Object.freeze({
+      ...normalizeInput(input, policy),
+      lease: normalizeLease(input.lease),
+    });
   } catch (error) {
     return unverifiable('INPUT_INVALID', diagnostic(error));
   }
@@ -271,7 +278,7 @@ export async function materializeNativeMediaTimestampPreviewAudioWindowV1(
 }
 
 export async function verifyNativeMediaTimestampAudioPcmWindowV1(
-  input: Parameters<typeof materializeNativeMediaTimestampPreviewAudioWindowV1>[0],
+  input: NativeMediaTimestampAudioPcmWindowInputV1,
   ports: Readonly<{
     pcmReader: Pick<MediaSourceAudioPrivateArtifactStoreV1, 'readPcmSampleRange'>;
   }>,
@@ -331,7 +338,6 @@ export async function verifyNativeMediaTimestampAudioPcmWindowV1(
       normalized.windowProjectEndExclusiveFrame,
     canonicalWindowStartSamplePosition: position(normalized.windowStart),
     canonicalWindowEndExclusiveSamplePosition: position(normalized.windowEnd),
-    lease: normalized.lease,
     readOperations: read.readOperations,
     totalPcmBytes: read.totalPcmBytes,
     pcmSegmentCount: segments.filter(({ kind }) => kind === 'PCM').length,
@@ -515,10 +521,10 @@ async function readWindowPcmSegments(
 }
 
 function normalizeInput(
-  input: Parameters<typeof materializeNativeMediaTimestampPreviewAudioWindowV1>[0],
+  input: NativeMediaTimestampAudioPcmWindowInputV1,
   policy: NativeMediaTimestampPreviewAudioMaterializerPolicyV1,
 ) {
-  if (!input || !input.leaseScope || !input.lease || !input.manifestReference) {
+  if (!input || !input.leaseScope || !input.manifestReference) {
     throw new Error('NATIVE_MEDIA_PREVIEW_AUDIO_INPUT_INVALID');
   }
   const overlayFromFrame = nonNegativeSafeInteger(
@@ -562,7 +568,6 @@ function normalizeInput(
     projectRate.numerator,
   ));
   const leaseScope = normalizeLeaseScope(input.leaseScope);
-  const lease = normalizeLease(input.lease);
   const manifestReference = assertMediaSourceAudioPrivateObjectReferenceV1(
     input.manifestReference,
   );
@@ -573,7 +578,6 @@ function normalizeInput(
     policy,
     mapping,
     leaseScope,
-    lease,
     manifestSha256: sha256(
       input.manifestSha256,
       'NATIVE_MEDIA_PREVIEW_AUDIO_MANIFEST_INVALID',

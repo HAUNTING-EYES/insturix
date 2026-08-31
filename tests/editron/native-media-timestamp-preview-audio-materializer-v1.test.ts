@@ -144,6 +144,12 @@ function input(overrides: Partial<Parameters<
   };
 }
 
+function pcmProofInput() {
+  const { lease, ...proofInput } = input();
+  void lease;
+  return proofInput;
+}
+
 function digest(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -217,7 +223,7 @@ describe('native media timestamp preview audio materializer V1', () => {
     const runtime = createPorts();
 
     const result = await verifyNativeMediaTimestampAudioPcmWindowV1(
-      input(),
+      pcmProofInput(),
       { pcmReader: runtime.ports.pcmReader },
     );
 
@@ -265,6 +271,7 @@ describe('native media timestamp preview audio materializer V1', () => {
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain(MANIFEST_REFERENCE.objectKey);
     expect(serialized).not.toContain('"pcmBytes"');
+    expect(serialized).not.toContain('"lease"');
   });
 
   it('rejects a forged PCM range hash without writing browser surfaces', async () => {
@@ -273,7 +280,7 @@ describe('native media timestamp preview audio materializer V1', () => {
     });
 
     await expect(verifyNativeMediaTimestampAudioPcmWindowV1(
-      input(),
+      pcmProofInput(),
       { pcmReader: runtime.ports.pcmReader },
     )).resolves.toEqual({
       disposition: 'UNVERIFIABLE',
