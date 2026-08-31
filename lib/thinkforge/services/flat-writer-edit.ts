@@ -22,6 +22,7 @@ import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import { normalizeCanonicalThinkForgeDocumentState } from '../canonical-document-state';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
+import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import {
   buildThinkForgeDocumentGenerationTrace,
@@ -52,6 +53,7 @@ import {
 import { applyCommand } from './command-service';
 import * as db from './db';
 import { retryOnceOnOverload } from './retry-on-overload';
+import { extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import {
   planVideoTreatment,
   type VideoTreatmentPlanResult,
@@ -104,6 +106,26 @@ const PRODUCTION_CONTRACT_REFRESH_INSTRUCTION = [
   'Do not add, remove, paraphrase, summarize, or reorder any visible script content.',
   'Only synchronize semantic treatment bindings, source references, characters, beats, and production metadata.',
 ].join(' ');
+
+function normalizedSceneNarration(blocks: readonly ThinkForgeBlock[]): string[] {
+  return blocks
+    .filter((block) => block.kind === 'scene')
+    .map((block) => extractTextFromRichText(block.content).replace(/\s+/gu, ' ').trim());
+}
+
+function assertProductionRefreshSpokenAlignment(
+  canonicalBlocks: readonly ThinkForgeBlock[],
+  generatedBlocks: readonly ThinkForgeBlock[],
+): void {
+  const canonicalScenes = normalizedSceneNarration(canonicalBlocks);
+  const generatedScenes = normalizedSceneNarration(generatedBlocks);
+  if (canonicalScenes.length === 0 || canonicalScenes.length !== generatedScenes.length) {
+    throw new Error('Production contract refresh changed visible spoken content');
+  }
+  if (canonicalScenes.some((narration, index) => narration !== generatedScenes[index])) {
+    throw new Error('Production contract refresh changed visible spoken content');
+  }
+}
 
 function requireExactIdentity(value: unknown, label: 'session' | 'document'): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -438,13 +460,12 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   if (writerContent.trim().length < 30) {
     throw new Error('flat-writer edit returned empty/too-short content');
   }
-  if (refreshesProductionContract && writerContent !== existingContent) {
-    throw new Error('Production contract refresh changed visible content');
-  }
-
   const parsedBlocks = parseMarkdownToBlocks(writerContent);
   if (!Array.isArray(parsedBlocks) || parsedBlocks.length === 0) {
     throw new Error('flat-writer edit produced no parseable blocks');
+  }
+  if (refreshesProductionContract) {
+    assertProductionRefreshSpokenAlignment(persistedCanonicalState!.blocks, parsedBlocks);
   }
   const generatedCanonicalState = normalizeCanonicalThinkForgeDocumentState({
     content: writerContent,

@@ -6,6 +6,9 @@ import {
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
+import { serializeThinkForgeBlocksToMarkdown } from '@/lib/thinkforge/canonical-document-state';
+import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
+import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
 import {
   abstractExplainerTreatment,
   mixedPresenterCutawayTreatment,
@@ -531,12 +534,22 @@ describe('flat writer edit authoring context', () => {
         contentContract: scriptAuthoringRequest.contentContract,
       },
     };
-    const exactContent = scriptResult().content;
+    const exactBlocks = [
+      ...parseMarkdownToBlocks(scriptResult().content),
+      {
+        id: 'manual_closing',
+        kind: 'paragraph' as const,
+        content: [{ type: 'text' as const, text: 'QA-MANUAL-REFRESH-2026', styles: {} }],
+      },
+    ];
+    const exactContent = serializeThinkForgeBlocksToMarkdown(exactBlocks);
     const stored = {
       sessionId: 'session_1',
       scriptId: 'script_refresh',
       title: 'Manually edited script',
       content: exactContent,
+      blocks: exactBlocks,
+      richText: thinkForgeBlocksToTiptapJSON(exactBlocks),
       version: 6,
       documentType: 'video_script',
       contentContract: scriptAuthoringRequest.contentContract,
@@ -601,7 +614,7 @@ describe('flat writer edit authoring context', () => {
     }), 'user_1', 'org_1');
   });
 
-  it('rejects a production-contract refresh if the writer changes visible prose', async () => {
+  it('rejects a production-contract refresh if the writer changes visible spoken prose', async () => {
     const exactContent = scriptResult().content;
     mocks.getSession.mockResolvedValueOnce({
       _id: 'session_1',
@@ -634,7 +647,13 @@ describe('flat writer edit authoring context', () => {
       },
     });
     mocks.scriptRun.mockResolvedValueOnce({
-      result: { ...scriptResult(), content: `${exactContent}\n\nUnrequested rewrite.` },
+      result: {
+        ...scriptResult(),
+        content: scriptResult().content.replace(
+          'Name one owner before launch.',
+          'Name several owners after launch.',
+        ),
+      },
       metadata: { writerTrace: writerTrace('script') },
     });
 
@@ -645,7 +664,7 @@ describe('flat writer edit authoring context', () => {
       sessionId: 'session_1',
       scriptId: 'script_refresh',
       expectedVersion: 6,
-    })).rejects.toThrow(/changed visible content/i);
+    })).rejects.toThrow(/changed visible spoken content/i);
     expect(mocks.applyCommand).not.toHaveBeenCalled();
   });
 
