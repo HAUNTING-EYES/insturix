@@ -17,12 +17,17 @@ import {
   getSourceBoundTranscriptionV2,
   isAssetTranscriptionFrameAddressableV2,
   saveSourceBoundTranscriptionV2,
+  type AssetTranscriptionProcessingEvidenceV2,
   type AssetTranscriptionTimingEvidenceV2,
 } from '@/lib/editron/services/asset-transcription-source-cache-v2';
 import { createMediaSourceStorageVersionV1 }
   from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 }
   from '@/lib/editron/services/media-source-version-v1';
+import {
+  createSourceTranscriptionEgressAuthorizationV1,
+  createSourceTranscriptionEgressRequestV1,
+} from '@/lib/editron/services/source-transcription-egress-authorization-v1';
 
 describe('source-bound asset transcription cache V2', () => {
   beforeEach(() => {
@@ -71,6 +76,7 @@ describe('source-bound asset transcription cache V2', () => {
     const stored = await saveSourceBoundTranscriptionV2(source, {
       transcription: transcription(),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source),
     });
     const read = await getSourceBoundTranscriptionV2(source);
 
@@ -79,13 +85,18 @@ describe('source-bound asset transcription cache V2', () => {
       sourceBindingV2: { bindingSha256: source.bindingSha256 },
       transcription: { transcript: 'hello', language: 'en' },
       timingEvidence: { timingBasis: 'MEASURED_WORD' },
+      processingEvidence: {
+        mode: 'EXTERNAL_PROVIDER',
+        request: { projectId: 'project-1' },
+        authorization: { approvedProviderIds: ['xai'] },
+      },
       transcriptionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       recordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(isAssetTranscriptionFrameAddressableV2(stored)).toBe(true);
     expect(persistence.updateOne).toHaveBeenCalledWith(
       expect.objectContaining({
-        _id: `asset_transcription_v2_${source.bindingSha256}`,
+        _id: `asset_transcription_v2_1_${source.bindingSha256}`,
       }),
       expect.objectContaining({ $setOnInsert: expect.any(Object) }),
       { upsert: true, writeConcern: { w: 'majority' } },
@@ -97,6 +108,7 @@ describe('source-bound asset transcription cache V2', () => {
     const first = await saveSourceBoundTranscriptionV2(source, {
       transcription: transcription(),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source),
     });
     const second = await saveSourceBoundTranscriptionV2(source, {
       transcription: transcription({
@@ -106,6 +118,7 @@ describe('source-bound asset transcription cache V2', () => {
         }],
       }),
       timingEvidence: measuredTiming({ modelId: 'replacement-model' }),
+      processingEvidence: externalProcessing(source),
     });
 
     expect(first.recordSha256).toBe(second.recordSha256);
@@ -119,6 +132,7 @@ describe('source-bound asset transcription cache V2', () => {
     await saveSourceBoundTranscriptionV2(selected, {
       transcription: transcription(),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(selected),
     });
 
     expect(await getSourceBoundTranscriptionV2(otherSource)).toBeNull();
@@ -130,6 +144,7 @@ describe('source-bound asset transcription cache V2', () => {
     await saveSourceBoundTranscriptionV2(source, {
       transcription: transcription(),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source),
     });
     const [id, stored] = [...persistence.documents.entries()][0]!;
     persistence.documents.set(id, {
@@ -150,6 +165,7 @@ describe('source-bound asset transcription cache V2', () => {
     const evidence = await saveSourceBoundTranscriptionV2(source, {
       transcription: transcription(),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source),
     });
     const forged = structuredClone(evidence);
     forged.transcription.transcript = 'tampered';
@@ -165,6 +181,7 @@ describe('source-bound asset transcription cache V2', () => {
     await expect(saveSourceBoundTranscriptionV2(source, {
       transcription: transcription(),
       timingEvidence: measuredTiming({ timingBasis: 'SEGMENT_ESTIMATED' }),
+      processingEvidence: externalProcessing(source),
     })).rejects.toThrow('ASSET_TRANSCRIPTION_PRECISION_UNSATISFIED');
     await expect(saveSourceBoundTranscriptionV2(source, {
       transcription: transcription({
@@ -173,6 +190,7 @@ describe('source-bound asset transcription cache V2', () => {
         }],
       }),
       timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source),
     })).rejects.toThrow('ASSET_TRANSCRIPTION_WORD_TIMING_INVALID');
     expect(persistence.updateOne).not.toHaveBeenCalled();
   });
@@ -185,10 +203,69 @@ describe('source-bound asset transcription cache V2', () => {
         timingBasis: 'NO_SPEECH',
         modelId: 'silence-classifier-v1',
       }),
+      processingEvidence: externalProcessing(source),
     });
 
     expect(evidence.transcription.words).toEqual([]);
     expect(isAssetTranscriptionFrameAddressableV2(evidence)).toBe(false);
+  });
+
+  it('rejects wrong-source, unapproved, expired, and forged-local provenance', async () => {
+    const source = binding();
+    const otherSource = binding({ sourceVersion: sourceVersion('other') });
+
+    await expect(saveSourceBoundTranscriptionV2(source, {
+      transcription: transcription(),
+      timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(otherSource),
+    })).rejects.toThrow('ASSET_TRANSCRIPTION_PROCESSING_SOURCE_SCOPE_MISMATCH');
+    await expect(saveSourceBoundTranscriptionV2(source, {
+      transcription: transcription(),
+      timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source, {
+        approvedProviderIds: ['deepgram'],
+      }),
+    })).rejects.toThrow('SOURCE_TRANSCRIPTION_EGRESS_PROVIDER_NOT_APPROVED');
+    await expect(saveSourceBoundTranscriptionV2(source, {
+      transcription: transcription(),
+      timingEvidence: measuredTiming(),
+      processingEvidence: externalProcessing(source, {
+        expiresAt: '2026-08-31T12:00:00.000Z',
+      }),
+    })).rejects.toThrow('ASSET_TRANSCRIPTION_PROCESSING_AUTHORIZATION_NOT_CURRENT');
+    await expect(saveSourceBoundTranscriptionV2(source, {
+      transcription: transcription(),
+      timingEvidence: measuredTiming(),
+      processingEvidence: localProcessing('xai'),
+    })).rejects.toThrow(
+      'ASSET_TRANSCRIPTION_LOCAL_PROCESSING_EXTERNAL_PROVIDER_INVALID',
+    );
+    expect(persistence.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('accepts explicit local processing and never promotes the old record identity', async () => {
+    const source = binding();
+    const oldId = `asset_transcription_v2_${source.bindingSha256}`;
+    persistence.documents.set(oldId, {
+      _id: oldId,
+      schemaVersion: 2,
+      kind: 'EDITRON_ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_V2',
+    });
+
+    expect(await getSourceBoundTranscriptionV2(source)).toBeNull();
+    const evidence = await saveSourceBoundTranscriptionV2(source, {
+      transcription: transcription(),
+      timingEvidence: measuredTiming({ providerId: 'editron-local-stt' }),
+      processingEvidence: localProcessing('editron-local-stt'),
+    });
+
+    expect(evidence.processingEvidence).toEqual({
+      mode: 'LOCAL_NO_EGRESS',
+      processorId: 'editron-local-stt',
+      processorVersion: 'local-stt-v1',
+      processingContractVersion: 'private-runtime-v1',
+    });
+    expect(persistence.documents).toHaveLength(2);
   });
 });
 
@@ -246,5 +323,61 @@ function measuredTiming(
     strategy: 'grok-stt-word-timing',
     providerContractVersion: '2026-08-31',
     ...overrides,
+  };
+}
+
+function externalProcessing(
+  sourceBindingV2: ReturnType<typeof binding>,
+  overrides: Partial<{
+    approvedProviderIds: readonly ('xai' | 'deepgram')[];
+    issuedAt: string;
+    expiresAt: string;
+  }> = {},
+): AssetTranscriptionProcessingEvidenceV2 {
+  const request = createSourceTranscriptionEgressRequestV1({
+    tenantId: 'user-1',
+    userId: 'user-1',
+    orgId: null,
+    projectId: 'project-1',
+    projectRevision: {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-31T11:50:00.000Z',
+    },
+    sourceBindingV2,
+    eligibleProviderIds: ['xai', 'deepgram'],
+    sourceRightsAuthorizationReceiptSha256: 'd'.repeat(64),
+    privacyEgressPolicyRef: artifact('privacy-policy'),
+  });
+  return {
+    mode: 'EXTERNAL_PROVIDER',
+    request,
+    authorization: createSourceTranscriptionEgressAuthorizationV1({
+      request,
+      approvedProviderIds: overrides.approvedProviderIds ?? ['xai'],
+      authorizationDecisionRef: artifact('decision'),
+      issuedAt: overrides.issuedAt ?? '2026-08-31T11:55:00.000Z',
+      expiresAt: overrides.expiresAt ?? '2026-08-31T12:05:00.000Z',
+    }),
+  };
+}
+
+function localProcessing(
+  processorId: string,
+): AssetTranscriptionProcessingEvidenceV2 {
+  return {
+    mode: 'LOCAL_NO_EGRESS',
+    processorId,
+    processorVersion: 'local-stt-v1',
+    processingContractVersion: 'private-runtime-v1',
+  };
+}
+
+function artifact(tag: string) {
+  return {
+    ownerId: 'POLICY_SERVICE',
+    artifactId: tag,
+    artifactVersion: '1',
+    artifactSha256: tag === 'decision' ? 'b'.repeat(64) : 'c'.repeat(64),
   };
 }

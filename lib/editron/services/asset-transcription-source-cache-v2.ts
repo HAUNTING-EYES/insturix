@@ -6,6 +6,14 @@ import {
   assertAssetTranscriptionSourceBindingV2,
   type AssetTranscriptionSourceBindingV2,
 } from './asset-transcription-source-binding-v2';
+import {
+  assertSourceTranscriptionEgressAuthorizationV1,
+  assertSourceTranscriptionEgressRequestV1,
+  assertSourceTranscriptionProviderApprovedV1,
+  type SourceTranscriptionEgressAuthorizationV1,
+  type SourceTranscriptionEgressRequestV1,
+  type SourceTranscriptionProviderIdV1,
+} from './source-transcription-egress-authorization-v1';
 import type {
   TranscriptionData,
   TranscriptionWord,
@@ -13,8 +21,14 @@ import type {
 
 const ASSET_TRANSCRIPTION_SOURCE_CACHE_COLLECTION_V2 =
   'asset_transcriptions_v2' as const;
-const ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2 =
-  'EDITRON_ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_V2' as const;
+const ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1 =
+  'EDITRON_ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_V2_1' as const;
+const EXTERNAL_PROVIDER_IDS = Object.freeze([
+  'xai',
+  'deepgram',
+  'fal-ai',
+  'google-gemini',
+] satisfies readonly SourceTranscriptionProviderIdV1[]);
 
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -46,6 +60,20 @@ export type AssetTranscriptionTimingEvidenceV2 = Readonly<{
   providerContractVersion: string;
 }>;
 
+export type AssetTranscriptionProcessingEvidenceV2 = Readonly<
+  | {
+      mode: 'LOCAL_NO_EGRESS';
+      processorId: string;
+      processorVersion: string;
+      processingContractVersion: string;
+    }
+  | {
+      mode: 'EXTERNAL_PROVIDER';
+      request: SourceTranscriptionEgressRequestV1;
+      authorization: SourceTranscriptionEgressAuthorizationV1;
+    }
+>;
+
 type CanonicalTranscriptionWordV2 = Readonly<{
   word: string;
   startMs: number;
@@ -66,10 +94,11 @@ type CanonicalTranscriptionDataV2 = Readonly<{
 type AssetTranscriptionSourceCacheRecordV2 = Readonly<{
   _id: string;
   schemaVersion: 2;
-  kind: typeof ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2;
+  kind: typeof ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1;
   sourceBindingV2: AssetTranscriptionSourceBindingV2;
   transcription: CanonicalTranscriptionDataV2;
   timingEvidence: AssetTranscriptionTimingEvidenceV2;
+  processingEvidence: AssetTranscriptionProcessingEvidenceV2;
   transcriptionSha256: string;
   recordSha256: string;
 }>;
@@ -82,6 +111,7 @@ export type AssetTranscriptionEvidenceV2 = Readonly<{
   sourceBindingV2: AssetTranscriptionSourceBindingV2;
   transcription: TranscriptionData;
   timingEvidence: AssetTranscriptionTimingEvidenceV2;
+  processingEvidence: AssetTranscriptionProcessingEvidenceV2;
   transcriptionSha256: string;
   recordSha256: string;
 }>;
@@ -118,23 +148,32 @@ export async function saveSourceBoundTranscriptionV2(
   input: Readonly<{
     transcription: TranscriptionData;
     timingEvidence: AssetTranscriptionTimingEvidenceV2;
+    processingEvidence: AssetTranscriptionProcessingEvidenceV2;
   }>,
 ): Promise<AssetTranscriptionEvidenceV2> {
   const binding = assertAssetTranscriptionSourceBindingV2(bindingInput);
   const transcription = normalizeTranscription(input.transcription);
   const timingEvidence = normalizeTimingEvidence(input.timingEvidence);
   assertTimingCompatibility(binding, transcription, timingEvidence);
+  const processingEvidence = normalizeProcessingEvidence(
+    input.processingEvidence,
+    binding,
+    transcription,
+    timingEvidence,
+  );
   const transcriptionSha256 = hashEditronCanonicalJsonV1({
     transcription,
     timingEvidence,
+    processingEvidence,
   });
   const material: AssetTranscriptionSourceCacheRecordMaterialV2 = {
     _id: recordId(binding),
     schemaVersion: 2,
-    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2,
+    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1,
     sourceBindingV2: binding,
     transcription,
     timingEvidence,
+    processingEvidence,
     transcriptionSha256,
   };
   const candidate = frozen({
@@ -159,7 +198,7 @@ function normalizeEvidence(value: unknown): AssetTranscriptionEvidenceV2 {
   const record = plainObject(value, 'ASSET_TRANSCRIPTION_EVIDENCE_INVALID');
   exactKeys(record, [
     'sourceBindingV2', 'transcription', 'timingEvidence',
-    'transcriptionSha256', 'recordSha256',
+    'processingEvidence', 'transcriptionSha256', 'recordSha256',
   ], 'ASSET_TRANSCRIPTION_EVIDENCE_FIELDS_INVALID');
   const sourceBindingV2 = assertAssetTranscriptionSourceBindingV2(
     record.sourceBindingV2,
@@ -167,9 +206,16 @@ function normalizeEvidence(value: unknown): AssetTranscriptionEvidenceV2 {
   const transcription = normalizeTranscription(record.transcription);
   const timingEvidence = normalizeTimingEvidence(record.timingEvidence);
   assertTimingCompatibility(sourceBindingV2, transcription, timingEvidence);
+  const processingEvidence = normalizeProcessingEvidence(
+    record.processingEvidence,
+    sourceBindingV2,
+    transcription,
+    timingEvidence,
+  );
   const expectedTranscriptionSha256 = hashEditronCanonicalJsonV1({
     transcription,
     timingEvidence,
+    processingEvidence,
   });
   const transcriptionSha256 = sha256(
     record.transcriptionSha256,
@@ -181,10 +227,11 @@ function normalizeEvidence(value: unknown): AssetTranscriptionEvidenceV2 {
   const material: AssetTranscriptionSourceCacheRecordMaterialV2 = {
     _id: recordId(sourceBindingV2),
     schemaVersion: 2,
-    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2,
+    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1,
     sourceBindingV2,
     transcription,
     timingEvidence,
+    processingEvidence,
     transcriptionSha256,
   };
   const recordSha256 = sha256(
@@ -198,6 +245,7 @@ function normalizeEvidence(value: unknown): AssetTranscriptionEvidenceV2 {
     sourceBindingV2,
     transcription: hydrateTranscription(transcription),
     timingEvidence,
+    processingEvidence,
     transcriptionSha256,
     recordSha256,
   });
@@ -239,6 +287,81 @@ function normalizeTimingEvidence(
       evidence.providerContractVersion,
       'ASSET_TRANSCRIPTION_PROVIDER_CONTRACT_INVALID',
     ),
+  });
+}
+
+function normalizeProcessingEvidence(
+  value: unknown,
+  binding: AssetTranscriptionSourceBindingV2,
+  transcription: CanonicalTranscriptionDataV2,
+  timing: AssetTranscriptionTimingEvidenceV2,
+): AssetTranscriptionProcessingEvidenceV2 {
+  const evidence = plainObject(
+    value,
+    'ASSET_TRANSCRIPTION_PROCESSING_EVIDENCE_INVALID',
+  );
+  if (evidence.mode === 'LOCAL_NO_EGRESS') {
+    exactKeys(evidence, [
+      'mode', 'processorId', 'processorVersion', 'processingContractVersion',
+    ], 'ASSET_TRANSCRIPTION_LOCAL_PROCESSING_FIELDS_INVALID');
+    const processorId = identifier(
+      evidence.processorId,
+      'ASSET_TRANSCRIPTION_LOCAL_PROCESSOR_INVALID',
+    );
+    if (EXTERNAL_PROVIDER_IDS.includes(
+      processorId as SourceTranscriptionProviderIdV1,
+    )) {
+      fail('ASSET_TRANSCRIPTION_LOCAL_PROCESSING_EXTERNAL_PROVIDER_INVALID');
+    }
+    if (processorId !== timing.providerId) {
+      fail('ASSET_TRANSCRIPTION_LOCAL_PROCESSOR_TIMING_MISMATCH');
+    }
+    return frozen({
+      mode: 'LOCAL_NO_EGRESS' as const,
+      processorId,
+      processorVersion: identifier(
+        evidence.processorVersion,
+        'ASSET_TRANSCRIPTION_LOCAL_PROCESSOR_VERSION_INVALID',
+      ),
+      processingContractVersion: identifier(
+        evidence.processingContractVersion,
+        'ASSET_TRANSCRIPTION_LOCAL_PROCESSING_CONTRACT_INVALID',
+      ),
+    });
+  }
+  if (evidence.mode !== 'EXTERNAL_PROVIDER') {
+    fail('ASSET_TRANSCRIPTION_PROCESSING_MODE_INVALID');
+  }
+  exactKeys(evidence, [
+    'mode', 'request', 'authorization',
+  ], 'ASSET_TRANSCRIPTION_EXTERNAL_PROCESSING_FIELDS_INVALID');
+  const request = assertSourceTranscriptionEgressRequestV1(evidence.request);
+  if (request.sourceBindingV2.bindingSha256 !== binding.bindingSha256
+    || request.sourceBindingV2.userId !== binding.userId
+    || request.sourceBindingV2.assetId !== binding.assetId) {
+    fail('ASSET_TRANSCRIPTION_PROCESSING_SOURCE_SCOPE_MISMATCH');
+  }
+  const authorization = assertSourceTranscriptionEgressAuthorizationV1(
+    evidence.authorization,
+    request,
+  );
+  assertSourceTranscriptionProviderApprovedV1(
+    authorization,
+    request,
+    timing.providerId as SourceTranscriptionProviderIdV1,
+  );
+  if (timing.timingBasis === 'SYNTHETIC_NARRATION') {
+    fail('ASSET_TRANSCRIPTION_EXTERNAL_SYNTHETIC_TIMING_INVALID');
+  }
+  const generatedAt = Date.parse(transcription.generatedAt);
+  if (generatedAt < Date.parse(authorization.issuedAt)
+    || generatedAt >= Date.parse(authorization.expiresAt)) {
+    fail('ASSET_TRANSCRIPTION_PROCESSING_AUTHORIZATION_NOT_CURRENT');
+  }
+  return frozen({
+    mode: 'EXTERNAL_PROVIDER' as const,
+    request,
+    authorization,
   });
 }
 
@@ -363,10 +486,11 @@ function assertStoredRecord(
   );
   exactKeys(record, [
     '_id', 'schemaVersion', 'kind', 'sourceBindingV2', 'transcription',
-    'timingEvidence', 'transcriptionSha256', 'recordSha256',
+    'timingEvidence', 'processingEvidence', 'transcriptionSha256',
+    'recordSha256',
   ], 'ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_FIELDS_INVALID');
   if (record.schemaVersion !== 2
-    || record.kind !== ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2) {
+    || record.kind !== ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1) {
     fail('ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_CONTRACT_INVALID');
   }
   const sourceBindingV2 = assertAssetTranscriptionSourceBindingV2(
@@ -380,6 +504,12 @@ function assertStoredRecord(
   const transcription = normalizeTranscription(record.transcription);
   const timingEvidence = normalizeTimingEvidence(record.timingEvidence);
   assertTimingCompatibility(sourceBindingV2, transcription, timingEvidence);
+  const processingEvidence = normalizeProcessingEvidence(
+    record.processingEvidence,
+    sourceBindingV2,
+    transcription,
+    timingEvidence,
+  );
   const transcriptionSha256 = sha256(
     record.transcriptionSha256,
     'ASSET_TRANSCRIPTION_SOURCE_CACHE_TRANSCRIPTION_HASH_INVALID',
@@ -387,6 +517,7 @@ function assertStoredRecord(
   if (transcriptionSha256 !== hashEditronCanonicalJsonV1({
     transcription,
     timingEvidence,
+    processingEvidence,
   })) {
     fail('ASSET_TRANSCRIPTION_SOURCE_CACHE_TRANSCRIPTION_HASH_MISMATCH');
   }
@@ -400,10 +531,11 @@ function assertStoredRecord(
   const material: AssetTranscriptionSourceCacheRecordMaterialV2 = {
     _id,
     schemaVersion: 2,
-    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2,
+    kind: ASSET_TRANSCRIPTION_SOURCE_CACHE_RECORD_KIND_V2_1,
     sourceBindingV2,
     transcription,
     timingEvidence,
+    processingEvidence,
     transcriptionSha256,
   };
   const recordSha256 = sha256(
@@ -423,6 +555,7 @@ function hydrateEvidence(
     sourceBindingV2: record.sourceBindingV2,
     transcription: hydrateTranscription(record.transcription),
     timingEvidence: record.timingEvidence,
+    processingEvidence: record.processingEvidence,
     transcriptionSha256: record.transcriptionSha256,
     recordSha256: record.recordSha256,
   });
@@ -446,7 +579,7 @@ function hydrateTranscription(
 }
 
 function recordId(binding: AssetTranscriptionSourceBindingV2): string {
-  return `asset_transcription_v2_${binding.bindingSha256}`;
+  return `asset_transcription_v2_1_${binding.bindingSha256}`;
 }
 
 async function collection() {
