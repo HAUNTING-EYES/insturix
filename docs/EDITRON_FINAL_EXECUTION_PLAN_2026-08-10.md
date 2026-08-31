@@ -11294,6 +11294,37 @@ rights-cleared project fixture was available, no visible edit/playback/
 correction/undo/reload evidence bundle or exact browser A/V pass is claimed;
 that Q0/Q1 setup remains deferred to the end-of-queue human/setup lane.
 
+**Project-source-bound durable deep analysis Phase 3F-C8by (2026-08-31):**
+code commit `e087b879a` closes one real project-analysis consumer without
+claiming analysis-wide cutover. Durable chat deep-analysis jobs now use a V2
+contract whose immutable target records the current per-overlay proxy/master
+pin identity, or explicitly records that a single-version direct asset is
+unversioned. Before any audio/video provider call, the worker reloads through
+ProjectService, revalidates project, overlay, asset, rate, timeline/source
+range and source selection, and passes the exact AssetResolver-hydrated URL to
+the existing sampler. A changed/forged pin or missing resolved URL stops before
+provider use. Timestamp-managed video still never downgrades after exact V3
+materialization failure; ordinary rate sampling remains explicitly
+non-mutation-authoritative.
+
+The persisted schema receives the new `editron-chat-deep-analysis-job-v2`
+identity rather than silently reinterpreting V1. A delayed/forged V1 queue or
+worker delivery is marked failed as `analysis-job-version-unsupported` before
+provider execution. Source selections are compared field-by-field so JSON key
+order cannot alter meaning. Focused durable-job/tool/sampler proof passes 30/30;
+repository TypeScript and repository-wide quiet ESLint pass.
+
+This result is
+`DURABLE_CHAT_ANALYSIS_PROJECT_SOURCE_SELECTION_LOCALLY_VERIFIED_OTHER_ANALYSIS_CONSUMERS_OPEN`.
+It proves the durable chat audio/video provider admission path, not the
+project `/analyze` route's asset-level transcription cache, synchronous legacy
+chat analysis callers, source-version-bound transcription persistence,
+checkpoint/undo hydration, delivery/finalization, writer migration, browser
+playback, live Atlas/R2 media or semantic-retrieval accuracy. Ingest analysis
+remains intentionally asset-owned before a project exists. Queue item 4 next
+separates/fixes the remaining project analysis consumers without making ingest
+depend on project pins. Stage 2.5 remains `FROZEN_MODIFY_DECISION_ISSUED`.
+
 **Founder-review clarification and V2 RHC repair contract (2026-08-28):** the
 programme owner clarified the remaining V1 questions. For RHC-01, “full-screen
 continuity” means that after the filmstrip releases, the surviving source
