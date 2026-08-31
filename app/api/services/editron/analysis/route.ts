@@ -1,201 +1,266 @@
 /**
- * POST /api/services/editron/analysis
- *
- * Run 5-track analysis on a project's video assets.
- * Returns analysis results + edit decisions + cinematic moments.
- *
- * This is the intelligence entry point — triggered by:
- * 1. Director Agent (auto-analyze before editing)
- * 2. Quality Review panel refresh
- * 3. User clicking "Analyze" in the editor
+ * Project-scoped five-track analysis and read-only suggestion admission.
+ * Source evidence may be cached even when legacy 30-fps timeline consumers are
+ * blocked; no route fallback is allowed to bypass that distinction.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { analyzeProjectAssets, getAnalysis, type AssetAnalysis } from '@/lib/editron/services/five-track-analysis';
-import { generateEditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
-import { detectCinematicMoments } from '@/lib/editron/services/cinematic-moment-detector';
-// Content-to-graphic mapping is now handled by Track A (speech semantic classification)
-// in the Reactive Edit Engine. The EDL contains graphic decisions directly.
+import { NextRequest, NextResponse } from 'next/server';
+
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { ProjectAssetSourceUnverifiableErrorV1 }
+  from '@/lib/editron/services/asset-resolver';
+import { detectCinematicMoments }
+  from '@/lib/editron/services/cinematic-moment-detector';
+import { getAnalysis, type AssetAnalysis }
+  from '@/lib/editron/services/five-track-analysis';
+import { analyzeProjectFiveTrackV2 }
+  from '@/lib/editron/services/project-five-track-analysis-v2';
+import { projectService } from '@/lib/editron/services/project-service';
+import { generateEditDecisionList }
+  from '@/lib/editron/services/reactive-edit-engine';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
-// Unified Intelligence (mode 'full') runs gemini-3.1-pro-preview, which editron-config budgets at 300s.
-// At 120 the function died before the model returned → guaranteed 504. Raised to 300 to match the sibling
-// AI routes that run the same model class (director, asset-analysis = 300). If pro-preview still overruns,
-// the robust fix is moving 'full' analysis to a QStash worker (the plan already supports 800s).
 export const maxDuration = 300;
 type AnalysisRequestMode = 'full' | 'cached-suggestions';
 
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await req.json();
-    const { projectId, tracks } = body;
-    if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
+    const projectId = identifier(body?.projectId);
+    if (!projectId) {
+      return NextResponse.json({ error: 'projectId required' }, { status: 400 });
+    }
+    const mode: AnalysisRequestMode = body?.mode === 'cached-suggestions'
+      ? 'cached-suggestions'
+      : 'full';
 
-    const mode: AnalysisRequestMode = body?.mode === 'cached-suggestions' ? 'cached-suggestions' : 'full';
+    // Project access and exact per-overlay source selection precede cost.
+    const initialProject = await projectService.loadProject(userId, projectId);
+    if (!initialProject) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
 
+    let fullRun = null;
     if (mode === 'full') {
-      // Rate limit: 5 per hour per user. Cached editor suggestions are read-only and cheap.
       const rl = await checkExpensiveRateLimit(userId);
       if (!rl.success) {
         return NextResponse.json(
           { error: 'Rate limit exceeded. Please wait before running another analysis.' },
-          { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
+          {
+            status: 429,
+            headers: { 'X-RateLimit-Reset': String(rl.reset) },
+          },
         );
       }
+      fullRun = await analyzeProjectFiveTrackV2({
+        project: initialProject,
+        userId,
+        mode: 'FULL',
+      });
     }
 
-    console.log(`[Analysis] Starting ${mode} analysis request for project ${projectId}`);
-
-    // Step 1: Run or reuse 5-track analysis on all video assets.
-    const assetResults = mode === 'full'
-      ? await analyzeProjectAssets(projectId, userId)
-      : { analyzed: 0, cached: 0, failed: 0, timedOut: false, skipped: true };
-    console.log(`[Analysis] Assets: ${assetResults.analyzed} analyzed, ${assetResults.cached} cached, ${assetResults.failed} failed`);
-
-    // Step 2: Gather all cached analyses
-    const db = await getDatabase();
-    const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId }) as any;
-    if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-
-    const videoOverlays = (project.overlays || []).filter((o: any) => o.type === 'video');
-    const analyses: AssetAnalysis[] = [];
-    const analysisErrors: string[] = [];
-
-    for (const overlay of videoOverlays) {
-      if (!overlay.assetId) {
-        analysisErrors.push(`Overlay #${overlay.id} (row ${overlay.row}, from ${overlay.from}): no assetId — cannot analyze`);
-        continue;
+    // Long provider calls may race editor writes. Only consume analyses rebound
+    // to a freshly loaded ProjectService snapshot.
+    const currentProject = mode === 'full'
+      ? await projectService.loadProject(userId, projectId)
+      : initialProject;
+    if (!currentProject) {
+      return NextResponse.json(
+        { error: 'Project became unavailable during analysis' },
+        { status: 409 },
+      );
+    }
+    const evidence = await analyzeProjectFiveTrackV2({
+      project: currentProject,
+      userId,
+      mode: 'CACHE_ONLY',
+    });
+    const admitted = evidence.overlays.flatMap((entry) => {
+      if (!entry.analysis || entry.timelineAdmission.disposition !== 'ADMITTED') {
+        return [];
       }
-      const analysis = await getAnalysis(overlay.assetId);
-      if (analysis) {
-        // Attach timeline offset so EDL decisions use absolute frames, not clip-relative
-        (analysis as any)._timelineOffsetFrames = overlay.from || 0;
-        analyses.push(analysis);
-      } else {
-        analysisErrors.push(`Asset ${overlay.assetId}: no cached analysis found (analysis may have failed during generation)`);
-      }
-    }
-
-    if (analyses.length === 0 && videoOverlays.length > 0) {
-      console.warn(`[Analysis] 0 analyses for ${videoOverlays.length} videos. Errors: ${analysisErrors.join('; ')}`);
-    }
-
-    // Step 3: Generate Edit Plan. Editor suggestion cards must stay cheap/cached-only;
-    // full legacy Unified Intelligence can exceed Vercel's request ceiling on long projects.
-    let edl: any;
-    if (mode === 'cached-suggestions') {
-      const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
-      edl = generateEditDecisionList(analyses, totalDurationMs, {
+      return [{
+        overlayId: entry.overlayId,
+        offset: entry.timelineAdmission.timelineOffsetFrames,
+        analysis: {
+          ...entry.analysis,
+          _timelineOffsetFrames:
+            entry.timelineAdmission.timelineOffsetFrames,
+        } as AssetAnalysis,
+      }];
+    });
+    const projectDurationMs = exactProjectDurationMs(currentProject);
+    const edl = generateEditDecisionList(
+      admitted.map((entry) => entry.analysis),
+      projectDurationMs,
+      {
         targetCutsPerMinute: 6,
         transitionStyle: 'mixed',
         graphicDensity: 'moderate',
         pacing: 'medium',
-      });
-      edl.projectId = projectId;
-      console.log(`[Analysis] Cached suggestions: ${edl.totalDecisions} reactive decisions`);
-    } else {
-      try {
-        const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
-        const context = await assembleUnifiedContext(projectId, userId);
-        const plan = await generateUnifiedEditPlan(context);
-
-        // Convert to EDL format for backward compatibility
-        edl = {
-          projectId,
-          generatedAt: plan.generatedAt,
-          totalDecisions: plan.stats.totalDecisions,
-          decisions: plan.decisions.map(d => ({
-            type: d.type,
-            frame: d.frame,
-            durationFrames: d.durationFrames,
-            priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
-            source: d.sources.join('+'),
-            signal: d.type,
-            reason: d.reason,
-            params: d.params,
-            confidence: d.confidence,
-          })),
-          stats: plan.stats,
-        };
-        console.log(`[Analysis] Unified Intelligence: ${plan.stats.totalDecisions} decisions`);
-      } catch (unifiedErr: any) {
-        console.warn(`[Analysis] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
-        const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
-        edl = generateEditDecisionList(analyses, totalDurationMs, {
-          targetCutsPerMinute: 6,
-          transitionStyle: 'mixed',
-          graphicDensity: 'moderate',
-          pacing: 'medium',
-        });
-        edl.projectId = projectId;
-      }
-    }
-
-    // Step 4: Detect cinematic moments
-    const allMoments = analyses.flatMap(a => detectCinematicMoments(a));
-    allMoments.sort((a, b) => b.intensity - a.intensity);
-    const topMoments = allMoments.slice(0, 10); // Top 10
-
-    // Step 5: Extract graphic suggestions from EDL (Track A generates them directly)
-    const graphicDecisions = edl.decisions.filter((d: any) => d.type === 'graphic');
-
-    console.log(`[Analysis] Complete: ${edl.totalDecisions} edit decisions, ${topMoments.length} cinematic moments, ${graphicDecisions.length} graphic suggestions`);
+      },
+    );
+    edl.projectId = projectId;
+    const topMoments = admitted.flatMap((entry) =>
+      detectCinematicMoments(entry.analysis).map((moment) => ({
+        ...moment,
+        frame: moment.frame + entry.offset,
+        timestampMs: (moment.frame + entry.offset) / 30 * 1000,
+        overlayId: entry.overlayId,
+      })))
+      .sort((left, right) => right.intensity - left.intensity)
+      .slice(0, 10);
+    const graphicDecisions = edl.decisions.filter(
+      (decision) => decision.type === 'graphic',
+    );
+    const available = evidence.overlays.filter((entry) => entry.analysis);
+    const analysisBlocks = evidence.overlays.flatMap((entry) =>
+      entry.analysisBlockReason
+        ? [{
+            overlayId: entry.overlayId,
+            assetId: entry.assetId,
+            reason: entry.analysisBlockReason,
+          }]
+        : []);
+    const timelineBlocks = evidence.overlays.flatMap((entry) =>
+      entry.timelineAdmission.disposition === 'BLOCKED'
+        ? [{
+            overlayId: entry.overlayId,
+            assetId: entry.assetId,
+            reason: entry.timelineAdmission.reason,
+          }]
+        : []);
 
     return NextResponse.json({
       success: true,
       mode,
-      assets: assetResults,
+      projectRevision: evidence.projectRevision,
+      assets: mode === 'full'
+        ? {
+            analyzed: fullRun?.analyzed ?? 0,
+            cached: fullRun?.cached ?? 0,
+            failed: fullRun?.failed ?? 0,
+            timedOut: fullRun?.timedOut ?? false,
+          }
+        : {
+            analyzed: 0,
+            cached: evidence.cached,
+            failed: 0,
+            timedOut: false,
+            skipped: true,
+          },
+      timelineSuggestionAdmission: {
+        disposition: timelineBlocks.length === 0
+          ? 'ALL_AVAILABLE_ANALYSES_ADMITTED'
+          : admitted.length > 0
+            ? 'PARTIALLY_ADMITTED'
+            : 'BLOCKED',
+        admittedOverlayIds: admitted.map((entry) => entry.overlayId),
+        blocks: timelineBlocks,
+      },
       editDecisionList: edl,
       cinematicMoments: topMoments,
       graphicSuggestions: graphicDecisions,
-      // Per-asset analysis summaries
-      analysisSummaries: analyses.map(a => ({
-        assetId: a.assetId,
-        shots: a.shots?.length || 0,
-        motionSegments: a.motionSegments?.length || 0,
-        keyframes: a.keyframeAnalyses?.length || 0,
-        subjects: a.subjectTracks?.length || 0,
-        speechSegments: a.speechSegments?.length || 0,
-        musicSections: a.musicStructure?.sections?.length || 0,
+      analysisSummaries: available.map((entry) => ({
+        overlayId: entry.overlayId,
+        assetId: entry.assetId,
+        shots: entry.analysis?.shots?.length ?? 0,
+        motionSegments: entry.analysis?.motionSegments?.length ?? 0,
+        keyframes: entry.analysis?.keyframeAnalyses?.length ?? 0,
+        subjects: entry.analysis?.subjectTracks?.length ?? 0,
+        speechSegments: entry.analysis?.speechSegments?.length ?? 0,
+        musicSections: entry.analysis?.musicStructure?.sections?.length ?? 0,
       })),
-      // Debug info: why some assets may have failed
-      ...(analysisErrors.length > 0 && {
-        analysisErrors,
-        videoOverlayCount: videoOverlays.length,
-        analyzedCount: analyses.length,
-      }),
+      analysisBlocks,
+      videoOverlayCount: evidence.overlays.length,
+      analyzedCount: available.length,
     });
-  } catch (error: any) {
-    console.error('[Analysis] Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof ProjectTimelineInvalidError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof ProjectAssetSourceUnverifiableErrorV1) {
+      return NextResponse.json(
+        { error: error.code, diagnostic: error.diagnostic },
+        { status: 409 },
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Analysis failed';
+    console.error('[Analysis] Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-/**
- * GET /api/services/editron/analysis?assetId=xxx
- * Retrieve cached analysis for a specific asset (debug panel).
- */
+/** Legacy debug read. Direct asset ownership is mandatory until a project- and
+ * source-binding-aware debug contract replaces this endpoint. */
 export async function GET(req: NextRequest) {
   try {
     const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const assetId = req.nextUrl.searchParams.get('assetId');
-    if (!assetId) return NextResponse.json({ error: 'assetId required' }, { status: 400 });
-
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const assetId = identifier(req.nextUrl.searchParams.get('assetId'));
+    if (!assetId) {
+      return NextResponse.json({ error: 'assetId required' }, { status: 400 });
+    }
+    const db = await getDatabase();
+    const owned = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+      { assetId, userId },
+      { projection: { _id: 1 } },
+    );
+    if (!owned) {
+      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    }
     const analysis = await getAnalysis(assetId);
     if (!analysis) {
-      return NextResponse.json({ error: 'No analysis found for this asset', assetId }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No legacy analysis found for this asset', assetId },
+        { status: 404 },
+      );
     }
+    return NextResponse.json({
+      assetId,
+      analysis,
+      cacheContract: 'LEGACY_ASSET_ONLY',
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Analysis lookup failed' },
+      { status: 500 },
+    );
+  }
+}
 
-    return NextResponse.json({ assetId, analysis });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+function identifier(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function exactProjectDurationMs(project: Readonly<{
+  durationInFrames: number;
+  fps: number;
+}>): number {
+  if (!Number.isSafeInteger(project.durationInFrames)
+    || project.durationInFrames < 0
+    || !Number.isFinite(project.fps)
+    || project.fps <= 0) {
+    throw new ProjectTimelineInvalidError();
+  }
+  return project.durationInFrames / project.fps * 1000;
+}
+
+class ProjectTimelineInvalidError extends Error {
+  constructor() {
+    super('PROJECT_TIMELINE_INVALID');
+    this.name = 'ProjectTimelineInvalidError';
   }
 }

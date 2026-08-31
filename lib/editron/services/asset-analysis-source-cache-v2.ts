@@ -1,4 +1,3 @@
-import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
   canonicalizeEditronJsonV1,
   deepFreezeEditronJsonV1,
@@ -52,6 +51,11 @@ export type AssetAnalysisSourceCacheRecordV2 = Readonly<{
 type AssetAnalysisSourceCacheRecordMaterialV2 = Readonly<
 Omit<AssetAnalysisSourceCacheRecordV2, 'recordSha256'>
 >;
+
+type AssetAnalysisSourceCacheMongoDocumentV2 = {
+  _id: string;
+  [key: string]: unknown;
+};
 
 export function createAssetAnalysisSourceBindingV2(input: Readonly<{
   userId: string;
@@ -334,8 +338,9 @@ function recordId(binding: AssetAnalysisSourceBindingV2): string {
 }
 
 async function collection() {
+  const { getDatabase } = await import('../db/mongodb');
   const db = await getDatabase();
-  return db.collection<Record<string, unknown>>(
+  return db.collection<AssetAnalysisSourceCacheMongoDocumentV2>(
     ASSET_ANALYSIS_SOURCE_CACHE_COLLECTION_V2,
   );
 }
