@@ -14707,3 +14707,109 @@ proxy/master timestamp consumer slice. Durable invalidation ownership and the
 remaining Queue 5 writers remain mandatory subsequent blockers; no
 declaration-only CAP artifact authorizes downstream certification or production
 mutation.
+
+## 2026-09-01 vertical-convergence Phase 3C checkpoint
+
+This append-only checkpoint reissues CAP-2 current truth as V13 against
+committed source `2e11e18e3032649a973b128c6bb06ab21b36a9d2`. V10, V11 and V12
+remain immutable historical artifacts. V13 is an incremental, research-only
+delta over V12: it re-hashes the inherited observation surface and binds the
+landed duration-authority correction and selected pinned-source timestamp
+consumer phase. It is not a new universal owner census.
+
+### CAP-2 V13 current-source truth
+
+The artifact is
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v13.ts`
+with focused coverage in
+`tests/editron/cap2-current-truth-reissue-v13.test.ts`. V13 chains the
+immutable V12 manifest
+`cc600656aaa78e3f28e684a7c8b2068c18dcc6c7583c44dae5d29ad08ae3421d` and its
+historical source snapshot
+`f0c5137c263b9f89d9d106a93af12835d6e13b6d6be54407a846090e732f4cf6`.
+
+The inherited current-source surface remains 351 normalized paths across 11
+observation families and 636 identifier occurrences. Rehashing those exact
+paths at V13 source gives
+`05ea0e563a6611463de7227f1af6c62c7866f092a5f3ac50c777861d7402d00a`; the
+observation shape is unchanged and this does not claim universal source
+coverage. The audit verifies this exact-path hash against the declared
+`2e11e18e3032649a973b128c6bb06ab21b36a9d2` commit tree, so unrelated
+shared-worktree edits cannot alter the checkpoint's bound source truth. The
+V13 manifest is
+`ff5803ede99bb3b3770b79ce1f1f3151dfe3ee58a62611f06195194125beb61a`.
+
+### Landed duration-authority correction
+
+The five-file duration phase is bound to commit
+`8a786eb43e448c043aa1a385785d455c2f59e03a` with snapshot
+`c088847bb6b4e6e29d4d3bcccdc1ce32102ceac908d167035c3bd9c930b75625`.
+It makes a loaded positive persisted duration authoritative in the editor,
+preserves that value through generic manual/autosave payloads when omitted,
+and records Fast User-QA `PASS` through the visible edit, correction, undo,
+redo and reload stages: persisted 300 frames / visible `00:10.00`. Generic
+save-preservation tests also pass. This is exact visible QA for the declared
+fixture, not agency resource-envelope or production certification evidence.
+
+### Selected pinned-source timestamp consumer phase
+
+The five-file consumer phase is bound to commit
+`2e11e18e3032649a973b128c6bb06ab21b36a9d2` with snapshot
+`c9c73588960e32a4a05f3a71c1149a44b454ce9496942c6e32a52b8d3ecdfacc`:
+
+```text
+lib/editron/services/native-media-timestamp-preview-materializer-v1.ts
+lib/editron/services/project-timestamp-video-analysis-v1.ts
+tests/editron/native-media-timestamp-consumer-v1.test.ts
+tests/editron/native-media-timestamp-preview-paired-materializer-v1.test.ts
+tests/editron/project-five-track-analysis-v2.test.ts
+```
+
+The verified path is:
+
+```text
+ProjectService-selected source pin/time-binding owner
+-> timestamp preview materializer
+-> project timestamp analysis
+-> project five-track analysis caller
+-> authenticated read-only analysis response
+```
+
+Managed overlays without a valid source pin fail before decoder admission.
+Selected source-version evidence and exact V3 binding hashes are revalidated,
+and post-decode selected-source, audio-artifact-state and project-revision
+drift checks remain fail-closed with cleanup. The five affected suites passed
+43/43 tests (15 + 4 + 8 + 10 + 6). Project-coordinate timestamp analysis is
+read-only here; its legacy timeline admission remains blocked and no mutation
+authority is added.
+
+### Queue and authority limits
+
+- Queue 3 remains `ACTIVE_PARTIAL` for other downstream/live/browser/R2,
+  mixed-rate/VFR and delivery consumers.
+- Queue 4 remains `ACTIVE_PARTIAL` for other proxy/master, live private
+  storage, invalidation, rerender, delivery and recovery consumers.
+- Queue 5 remains `OPEN`: no durable current-target/current-revision
+  invalidation admission owner exists, and the remaining authoritative
+  project-collection writers are not covered by these slices.
+- `AGENCY_100GB_4H_V1` remains the V11 declaration-only supported subclass
+  boundary; implementation and certification remain open. CAP catalog counts
+  remain 37 declared, 0 certified and 0 production eligible. Stage 2.5 remains
+  frozen and Stage 3 remains blocked.
+- V13 performed no model inference, paid cohort rerun, provider call, live
+  Atlas/R2 proof or production mutation. It does not certify the agency class,
+  close Queue 5, authorize Stage 2.5/Stage 3, or establish universal
+  enforcement.
+
+### Phase 3C verification and next dependency
+
+The selected pinned-source consumer suites passed 43/43, and the V13
+reconciliation suite passed 3/3. `pnpm exec eslint . --quiet` and
+`git diff --check` passed, and `pnpm exec tsc --noEmit` completed with exit 0
+and no diagnostics after the concurrent ThinkForge edit settled. No ThinkForge
+file was changed by this phase.
+The next bounded order is the durable current-target/current-revision
+invalidation admission owner, followed by the remaining Queue 5 writers and
+the still-open Queue 3/4 downstream/live/browser/R2/mixed-rate/delivery
+consumers. No declaration-only CAP artifact authorizes downstream
+certification or production mutation.
