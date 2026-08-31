@@ -15,6 +15,8 @@ import {
 import {
   PROJECT_PROXY_SOURCE_BINDING_OWNER_V1,
 } from '@/lib/editron/services/project-proxy-master-relink-contract-v1';
+import { PROJECT_VIDEO_SOURCE_VERSION_PIN_OWNER_V1 }
+  from '@/lib/editron/services/project-video-source-version-pin-v1';
 import {
   ProjectMutationWriteError,
   ProjectProxySourceBindingBlockedErrorV1,
@@ -191,7 +193,28 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       updatedAt: new Date(REVISION.compatibilityUpdatedAt),
     });
     expect(update.$inc).toEqual({ projectRevision: 1 });
-    expect(update.$set).not.toHaveProperty('overlays');
+    expect(update.$set.overlays).toHaveLength(2);
+    for (const overlay of update.$set.overlays as ClipOverlay[]) {
+      expect(overlay.sourceVersionPinV1).toMatchObject({
+        writerAuthority: PROJECT_VIDEO_SOURCE_VERSION_PIN_OWNER_V1,
+        projectId: PROJECT_ID,
+        overlayId: overlay.id,
+        assetId: fixture.assetId,
+        sourceRole: 'PROXY',
+        sourceVersionSha256:
+          fixture.verifiedBinding.sourceVersionSha256,
+        storageVersionSha256:
+          fixture.verifiedBinding.storageVersionSha256,
+        authority: {
+          kind: 'PROJECT_PROXY_SOURCE_BINDING',
+          bindingSha256:
+            captured.value.commitReceipt.binding.bindingSha256,
+          proxyTimeMapReferenceSha256:
+            fixture.proxyTimeMapReferenceSha256,
+        },
+        issuedAt: '2026-08-31T09:05:00.000Z',
+      });
+    }
     expect(update.$set.proxySourceBindingsV1).toEqual([
       captured.value.commitReceipt.binding,
     ]);
@@ -355,6 +378,71 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
     });
     expect(unavailable).not.toHaveProperty('admissionReceipt');
     expect(persistence.projectUpdateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps source pins immutable across generic client or worker-style saves', async () => {
+    const before = project();
+    useStablePersistence(before);
+    const binding = await projectService
+      .bindProjectOverlaysToVerifiedProxySourceV1(
+        fixture.userId,
+        PROJECT_ID,
+        command(),
+      );
+    if (binding.disposition !== 'APPLIED') {
+      throw new Error('TEST_EXPECTED_BINDING_APPLIED');
+    }
+    const committedSet = persistence.projectUpdateOne.mock.calls[0]![1].$set;
+    const storedProject: Project = {
+      ...before,
+      ...committedSet,
+      projectRevision: 5,
+      updatedAt: committedSet.updatedAt,
+    };
+    const incoming = structuredClone(storedProject.overlays);
+    const originalPin = (incoming[0] as ClipOverlay).sourceVersionPinV1;
+    if (!originalPin) throw new Error('TEST_PROXY_PIN_MISSING');
+    (incoming[0] as ClipOverlay).sourceVersionPinV1 = {
+      ...originalPin,
+      sourceRole: 'MASTER',
+    } as ClipOverlay['sourceVersionPinV1'];
+    delete (incoming[1] as ClipOverlay).sourceVersionPinV1;
+    const injected = clip(30, 4, 0, 1);
+    injected.sourceVersionPinV1 = originalPin;
+    incoming.push(injected);
+
+    persistence.projectFindOne.mockResolvedValue(
+      structuredClone(storedProject),
+    );
+    persistence.projectUpdateOne.mockClear();
+    await projectService.saveProjectWithReceipt(
+      fixture.userId,
+      PROJECT_ID,
+      {
+        overlays: incoming,
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 6,
+      },
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 5,
+          compatibilityUpdatedAt: committedSet.updatedAt.toISOString(),
+        },
+        overlayAuthority: 'server',
+      },
+    );
+
+    const saved = persistence.projectUpdateOne.mock.calls[0]![1]
+      .$set.overlays as ClipOverlay[];
+    expect(saved.find((overlay) => overlay.id === 10)?.sourceVersionPinV1)
+      .toEqual(originalPin);
+    expect(saved.find((overlay) => overlay.id === 20)?.sourceVersionPinV1)
+      .toEqual((storedProject.overlays[1] as ClipOverlay).sourceVersionPinV1);
+    expect(saved.find((overlay) => overlay.id === 30)?.sourceVersionPinV1)
+      .toBeUndefined();
   });
 
   it('keeps generic project updates outside the protected binding field', async () => {

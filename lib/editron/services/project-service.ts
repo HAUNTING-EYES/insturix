@@ -120,6 +120,12 @@ import {
   type ProjectProxySourceBindingOverlayV1,
   type ProjectProxySourceBindingV1,
 } from "./project-proxy-master-relink-contract-v1";
+import {
+  assertProjectVideoSourceVersionPinV1,
+  createProjectVideoSourceVersionPinV1,
+  type ProjectVideoSourceVersionPinAuthorityV1,
+  type ProjectVideoSourceVersionPinV1,
+} from "./project-video-source-version-pin-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -210,6 +216,7 @@ export type ProjectProxyMasterRelinkBlockReasonV1 =
   | "AUDIO_RIGHTS_REQUIRED_OR_INVALID"
   | "SOURCE_BINDING_NOT_FOUND"
   | "SOURCE_BINDING_STALE_OR_MISMATCHED"
+  | "SOURCE_PIN_MISSING_OR_INVALID"
   | "RELINK_HISTORY_INVALID"
   | "EXISTING_MASTER_BINDING_REBASE_REQUIRED"
   | "EXISTING_MASTER_BINDING_DRIFTED"
@@ -1819,6 +1826,26 @@ export class ProjectService {
         currentRevision,
         evidence: initialAssetEvidence,
         overlays,
+      })
+      && projectOverlaysMatchSourceVersionPinsV1({
+        projectId,
+        overlays: project.overlays,
+        assetId: input.assetId,
+        targetOverlayIds: existingBinding.overlays.map(
+          (overlay) => overlay.overlayId,
+        ),
+        sourceRole: "PROXY",
+        sourceVersionSha256:
+          initialAssetEvidence.verifiedBinding.sourceVersionSha256,
+        storageVersionSha256:
+          initialAssetEvidence.verifiedBinding.storageVersionSha256,
+        authority: {
+          kind: "PROJECT_PROXY_SOURCE_BINDING",
+          bindingSha256: existingBinding.bindingSha256,
+          proxyTimeMapReferenceSha256:
+            existingBinding.proxyTimeMapReferenceSha256,
+        },
+        issuedAt: new Date(existingBinding.boundAt),
       })) {
       const commitReceipt = createProjectProxySourceBindingCommitReceiptV1({
         binding: existingBinding,
@@ -1893,6 +1920,27 @@ export class ProjectService {
       projectId,
       PROJECT_PROXY_MASTER_RELINK_POLICY_V1.maxProjectRelinkStates,
     );
+    const persistedOverlays = assetResolver.stripUrlsForLLM(
+      applyProjectVideoSourceVersionPinsV1({
+        projectId,
+        overlays: project.overlays,
+        assetId: input.assetId,
+        targetOverlayIds: binding.overlays.map(
+          (overlay) => overlay.overlayId,
+        ),
+        sourceRole: "PROXY",
+        sourceVersionSha256: binding.proxySourceVersionSha256,
+        storageVersionSha256:
+          initialAssetEvidence.verifiedBinding.storageVersionSha256,
+        authority: {
+          kind: "PROJECT_PROXY_SOURCE_BINDING",
+          bindingSha256: binding.bindingSha256,
+          proxyTimeMapReferenceSha256:
+            binding.proxyTimeMapReferenceSha256,
+        },
+        issuedAt: committedAt,
+      }),
+    );
     const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
@@ -1901,6 +1949,7 @@ export class ProjectService {
       },
       {
         $set: {
+          overlays: persistedOverlays,
           proxySourceBindingsV1: nextBindings,
           updatedAt: committedAt,
         },
@@ -2077,6 +2126,7 @@ export class ProjectService {
       if (!projectMatchesCommittedProxyMasterRelinkStateV1(
         project,
         validatedState,
+        initialAssetEvidence.activeMappingState,
       )) {
         throw block(
           "EXISTING_MASTER_BINDING_DRIFTED",
@@ -2206,8 +2256,27 @@ export class ProjectService {
       );
     }
 
+    const activeRelation = initialAssetEvidence.activeMappingState
+      .proxyMasterActiveMappingV1.qualification.relation;
     const persistedOverlays = assetResolver.stripUrlsForLLM(
-      prepared.overlays,
+      applyProjectVideoSourceVersionPinsV1({
+        projectId,
+        overlays: prepared.overlays,
+        assetId: input.assetId,
+        targetOverlayIds: relinkState.overlayChanges.map(
+          (change) => change.overlayId,
+        ),
+        sourceRole: "MASTER",
+        sourceVersionSha256: activeRelation.master.sourceVersionSha256,
+        storageVersionSha256: activeRelation.master.storageVersionSha256,
+        authority: {
+          kind: "PROJECT_PROXY_MASTER_RELINK",
+          relinkStateSha256: relinkState.stateSha256,
+          relationSha256: relinkState.relationSha256,
+          activeMappingStateSha256: relinkState.activeMappingStateSha256,
+        },
+        issuedAt: committedAt,
+      }),
     );
     const update = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -8168,6 +8237,111 @@ function projectProxySourceBindingMutationReceiptFromBindingV1(
   };
 }
 
+type ProjectVideoSourceVersionPinAssignmentV1 = Readonly<{
+  projectId: string;
+  assetId: string;
+  targetOverlayIds: readonly number[];
+  sourceRole: ProjectVideoSourceVersionPinV1["sourceRole"];
+  sourceVersionSha256: string;
+  storageVersionSha256: string;
+  authority: ProjectVideoSourceVersionPinAuthorityV1;
+  issuedAt: Date;
+}>;
+
+function applyProjectVideoSourceVersionPinsV1(
+  input: ProjectVideoSourceVersionPinAssignmentV1
+    & Readonly<{ overlays: readonly Overlay[] }>,
+): Overlay[] {
+  const targetIds = projectVideoSourceVersionPinTargetIdsV1(
+    input.targetOverlayIds,
+  );
+  if (!targetIds) {
+    throw new ProjectMutationWriteError(
+      "Project video source pins require unique numeric target overlays.",
+    );
+  }
+  let appliedCount = 0;
+  const overlays = input.overlays.map((overlay) => {
+    if (overlay.type !== "video" || overlay.assetId !== input.assetId
+      || !targetIds.has(overlay.id)) return overlay;
+    appliedCount += 1;
+    return {
+      ...overlay,
+      sourceVersionPinV1: createProjectVideoSourceVersionPinV1({
+        projectId: input.projectId,
+        overlayId: overlay.id,
+        assetId: input.assetId,
+        sourceRole: input.sourceRole,
+        sourceVersionSha256: input.sourceVersionSha256,
+        storageVersionSha256: input.storageVersionSha256,
+        authority: input.authority,
+        issuedAt: input.issuedAt,
+      }),
+    };
+  });
+  if (appliedCount !== targetIds.size) {
+    throw new ProjectMutationWriteError(
+      "Project video source pin targets changed before persistence.",
+    );
+  }
+  return overlays;
+}
+
+function projectOverlaysMatchSourceVersionPinsV1(
+  input: ProjectVideoSourceVersionPinAssignmentV1
+    & Readonly<{ overlays: readonly Overlay[] }>,
+): boolean {
+  const targetIds = projectVideoSourceVersionPinTargetIdsV1(
+    input.targetOverlayIds,
+  );
+  if (!targetIds) return false;
+  let matchedCount = 0;
+  for (const overlay of input.overlays) {
+    if (overlay.type !== "video" || overlay.assetId !== input.assetId) {
+      continue;
+    }
+    if (!targetIds.has(overlay.id)) return false;
+    matchedCount += 1;
+    const expected = createProjectVideoSourceVersionPinV1({
+      projectId: input.projectId,
+      overlayId: overlay.id,
+      assetId: input.assetId,
+      sourceRole: input.sourceRole,
+      sourceVersionSha256: input.sourceVersionSha256,
+      storageVersionSha256: input.storageVersionSha256,
+      authority: input.authority,
+      issuedAt: input.issuedAt,
+    });
+    if (!projectVideoSourceVersionPinMatchesV1(
+      overlay.sourceVersionPinV1,
+      expected,
+    )) return false;
+  }
+  return matchedCount === targetIds.size;
+}
+
+function projectVideoSourceVersionPinMatchesV1(
+  value: unknown,
+  expected: ProjectVideoSourceVersionPinV1,
+): boolean {
+  try {
+    return assertProjectVideoSourceVersionPinV1(value).pinSha256
+      === expected.pinSha256;
+  } catch {
+    return false;
+  }
+}
+
+function projectVideoSourceVersionPinTargetIdsV1(
+  value: readonly number[],
+): ReadonlySet<number> | null {
+  if (value.length === 0
+    || value.some((overlayId) =>
+      !Number.isSafeInteger(overlayId) || overlayId < 0)) return null;
+  const ids = new Set(value);
+  return ids.size === value.length ? ids : null;
+}
+
 type ProjectProxyMasterRelinkAssetRecordV1 =
   MediaProxyMasterActiveMappingAssetInputV1 & Readonly<{
     audioRights?: unknown;
@@ -8364,6 +8538,30 @@ function prepareProjectProxyMasterRelinkV1(input: Readonly<{
         "A current overlay no longer matches its proxy source-binding receipt.",
       );
     }
+    const expectedProxyPin = createProjectVideoSourceVersionPinV1({
+      projectId: input.project.projectId,
+      overlayId: overlay.id,
+      assetId: relation.assetId,
+      sourceRole: "PROXY",
+      sourceVersionSha256: relation.proxy.sourceVersionSha256,
+      storageVersionSha256: relation.proxy.storageVersionSha256,
+      authority: {
+        kind: "PROJECT_PROXY_SOURCE_BINDING",
+        bindingSha256: binding.bindingSha256,
+        proxyTimeMapReferenceSha256:
+          binding.proxyTimeMapReferenceSha256,
+      },
+      issuedAt: new Date(binding.boundAt),
+    });
+    if (!projectVideoSourceVersionPinMatchesV1(
+      overlay.sourceVersionPinV1,
+      expectedProxyPin,
+    )) {
+      throw new ProjectProxyMasterRelinkPreparationErrorV1(
+        "SOURCE_PIN_MISSING_OR_INVALID",
+        "Every relink target must carry its current ProjectService proxy source pin.",
+      );
+    }
     const masterStartText = masterByProxyBoundary.get(
       String(sourceStartFrame),
     );
@@ -8425,7 +8623,10 @@ function prepareProjectProxyMasterRelinkV1(input: Readonly<{
 function projectMatchesCommittedProxyMasterRelinkStateV1(
   project: Project,
   state: ProjectProxyMasterRelinkStateV1,
+  activeMappingState: MediaProxyMasterActiveMappingAssetStateV1,
 ): boolean {
+  const relation = activeMappingState.proxyMasterActiveMappingV1
+    .qualification.relation;
   const targets = project.overlays.filter((overlay): overlay is ClipOverlay =>
     overlay.type === "video" && overlay.assetId === state.assetId);
   if (targets.length !== state.overlayChanges.length) return false;
@@ -8436,6 +8637,21 @@ function projectMatchesCommittedProxyMasterRelinkStateV1(
   }
   return state.overlayChanges.every((change) => {
     const overlay = targetsById.get(change.overlayId);
+    const expectedMasterPin = createProjectVideoSourceVersionPinV1({
+      projectId: state.projectId,
+      overlayId: change.overlayId,
+      assetId: state.assetId,
+      sourceRole: "MASTER",
+      sourceVersionSha256: relation.master.sourceVersionSha256,
+      storageVersionSha256: relation.master.storageVersionSha256,
+      authority: {
+        kind: "PROJECT_PROXY_MASTER_RELINK",
+        relinkStateSha256: state.stateSha256,
+        relationSha256: state.relationSha256,
+        activeMappingStateSha256: state.activeMappingStateSha256,
+      },
+      issuedAt: new Date(state.relinkedAt),
+    });
     return Boolean(overlay
       && overlay.from === change.timelineStartFrame
       && overlay.from + overlay.durationInFrames
@@ -8444,7 +8660,11 @@ function projectMatchesCommittedProxyMasterRelinkStateV1(
       && overlay.sourceEndFrame === change.masterSourceEndFrameExclusive
       && (change.videoStartTimeWasExplicit
         ? overlay.videoStartTime === change.masterSourceStartFrame
-        : overlay.videoStartTime === undefined));
+        : overlay.videoStartTime === undefined)
+      && projectVideoSourceVersionPinMatchesV1(
+        overlay.sourceVersionPinV1,
+        expectedMasterPin,
+      ));
   });
 }
 

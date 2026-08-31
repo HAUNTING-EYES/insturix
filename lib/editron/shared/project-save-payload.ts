@@ -7,6 +7,10 @@ type EditorSaveStateLike = {
 
 export type OverlaySaveAuthority = 'client' | 'server';
 
+const PROJECT_SERVICE_OWNED_ROOT_KEYS = [
+  'sourceVersionPinV1',
+] as const;
+
 const SERVER_OWNED_ROOT_KEYS = [
   'atomicMomentBundle',
   'atomicMomentBundles',
@@ -82,7 +86,10 @@ function compactOverlayForSave<T extends Overlay>(overlay: T): T {
     delete compact.src;
   }
 
-  for (const key of SERVER_OWNED_ROOT_KEYS) {
+  for (const key of [
+    ...PROJECT_SERVICE_OWNED_ROOT_KEYS,
+    ...SERVER_OWNED_ROOT_KEYS,
+  ]) {
     delete compact[key];
   }
 
@@ -109,6 +116,16 @@ function mergeOverlayServerOwnedData<T extends Overlay>(
   incomingAuthority: OverlaySaveAuthority,
 ): T {
   const merged = { ...incoming } as Record<string, unknown>;
+
+  // A generic "server" caller may carry licensed/render evidence, but it is
+  // not the ProjectService source-cutover owner. Only the dedicated binding
+  // and relink CAS commands may add, replace, or remove these fields.
+  for (const key of PROJECT_SERVICE_OWNED_ROOT_KEYS) {
+    delete merged[key];
+    if (current && (current as Record<string, unknown>)[key] !== undefined) {
+      merged[key] = (current as Record<string, unknown>)[key];
+    }
+  }
 
   for (const key of SERVER_OWNED_ROOT_KEYS) {
     const incomingValue = merged[key];

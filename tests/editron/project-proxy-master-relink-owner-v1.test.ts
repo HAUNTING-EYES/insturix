@@ -25,6 +25,10 @@ import {
   type ProjectProxySourceBindingOverlayV1,
 } from '@/lib/editron/services/project-proxy-master-relink-contract-v1';
 import {
+  createProjectVideoSourceVersionPinV1,
+  PROJECT_VIDEO_SOURCE_VERSION_PIN_OWNER_V1,
+} from '@/lib/editron/services/project-video-source-version-pin-v1';
+import {
   ProjectMutationWriteError,
   ProjectProxyMasterRelinkBlockedErrorV1,
   projectService,
@@ -222,6 +226,29 @@ describe('ProjectService proxy/master relink owner V1', () => {
       sourceEndFrame: 4,
       videoStartTime: 1,
     });
+    for (const overlay of update.$set.overlays as ClipOverlay[]) {
+      expect(overlay.sourceVersionPinV1).toMatchObject({
+        writerAuthority: PROJECT_VIDEO_SOURCE_VERSION_PIN_OWNER_V1,
+        projectId: PROJECT_ID,
+        overlayId: overlay.id,
+        assetId,
+        sourceRole: 'MASTER',
+        sourceVersionSha256:
+          fixture.qualification.relation.master.sourceVersionSha256,
+        storageVersionSha256:
+          fixture.qualification.relation.master.storageVersionSha256,
+        authority: {
+          kind: 'PROJECT_PROXY_MASTER_RELINK',
+          relinkStateSha256:
+            captured.value.commitReceipt.state.stateSha256,
+          relationSha256:
+            captured.value.commitReceipt.state.relationSha256,
+          activeMappingStateSha256:
+            captured.value.commitReceipt.state.activeMappingStateSha256,
+        },
+        issuedAt: '2026-08-31T10:07:00.000Z',
+      });
+    }
     expect(update.$set.proxyMasterRelinkStatesV1).toEqual([
       captured.value.commitReceipt.state,
     ]);
@@ -318,6 +345,24 @@ describe('ProjectService proxy/master relink owner V1', () => {
     (aliasesConflict.overlays[0] as ClipOverlay).videoStartTime = 1;
     useStablePersistence(aliasesConflict);
     await expectRelinkBlock('SOURCE_COORDINATE_CONFLICT');
+    expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('blocks missing or tampered proxy source pins before relink', async () => {
+    const missing = project();
+    delete (missing.overlays[0] as ClipOverlay).sourceVersionPinV1;
+    useStablePersistence(missing);
+    await expectRelinkBlock('SOURCE_PIN_MISSING_OR_INVALID');
+
+    const tampered = project();
+    const pin = (tampered.overlays[0] as ClipOverlay).sourceVersionPinV1;
+    if (!pin) throw new Error('TEST_PROXY_PIN_MISSING');
+    (tampered.overlays[0] as ClipOverlay).sourceVersionPinV1 = {
+      ...pin,
+      assetId: 'asset-tampered',
+    };
+    useStablePersistence(tampered);
+    await expectRelinkBlock('SOURCE_PIN_MISSING_OR_INVALID');
     expect(persistence.projectUpdateOne).not.toHaveBeenCalled();
   });
 
@@ -457,8 +502,51 @@ function project(options: Readonly<{
   locks?: ProjectTimelineRangeCutLockV1[];
 }> = {}): Project {
   const revision = options.revision ?? REVISION;
-  const overlays = clips();
   const bindingRevision = options.bindingRevision ?? revision;
+  const baseOverlays = clips();
+  const sourceBinding = options.includeBinding === false
+    ? null
+    : createProjectProxySourceBindingV1({
+        projectId: PROJECT_ID,
+        assetId,
+        actorKind: 'SYSTEM',
+        proxySourceVersionSha256:
+          fixture.qualification.relation.proxy.sourceVersionSha256,
+        verifiedSourceBindingSha256: hashEditronCanonicalJsonV1({
+          kind: 'TEST_VERIFIED_PROXY_SOURCE_BINDING',
+          proxyTimeMap: fixture.qualification.mapping.proxyTimeMap,
+        }),
+        proxyTimeMapReferenceSha256:
+          options.bindingTimeMapReferenceSha256
+            ?? hashEditronCanonicalJsonV1(
+              fixture.qualification.mapping.proxyTimeMap,
+            ),
+        projectRevision: bindingRevision,
+        overlays: bindingOverlays(baseOverlays),
+        boundAt: new Date(bindingRevision.compatibilityUpdatedAt),
+      });
+  const overlays = sourceBinding
+    ? baseOverlays.map((overlay) => ({
+        ...overlay,
+        sourceVersionPinV1: createProjectVideoSourceVersionPinV1({
+          projectId: PROJECT_ID,
+          overlayId: overlay.id,
+          assetId,
+          sourceRole: 'PROXY',
+          sourceVersionSha256:
+            fixture.qualification.relation.proxy.sourceVersionSha256,
+          storageVersionSha256:
+            fixture.qualification.relation.proxy.storageVersionSha256,
+          authority: {
+            kind: 'PROJECT_PROXY_SOURCE_BINDING',
+            bindingSha256: sourceBinding.bindingSha256,
+            proxyTimeMapReferenceSha256:
+              sourceBinding.proxyTimeMapReferenceSha256,
+          },
+          issuedAt: new Date(sourceBinding.boundAt),
+        }),
+      }))
+    : baseOverlays;
   return {
     projectId: PROJECT_ID,
     userId,
@@ -471,29 +559,9 @@ function project(options: Readonly<{
     createdAt: new Date('2026-08-31T10:00:00.000Z'),
     updatedAt: new Date(revision.compatibilityUpdatedAt),
     projectRevision: revision.value,
-    ...(options.includeBinding === false
-      ? {}
-      : {
-          proxySourceBindingsV1: [createProjectProxySourceBindingV1({
-            projectId: PROJECT_ID,
-            assetId,
-            actorKind: 'SYSTEM',
-            proxySourceVersionSha256:
-              fixture.qualification.relation.proxy.sourceVersionSha256,
-            verifiedSourceBindingSha256: hashEditronCanonicalJsonV1({
-              kind: 'TEST_VERIFIED_PROXY_SOURCE_BINDING',
-              proxyTimeMap: fixture.qualification.mapping.proxyTimeMap,
-            }),
-            proxyTimeMapReferenceSha256:
-              options.bindingTimeMapReferenceSha256
-                ?? hashEditronCanonicalJsonV1(
-                  fixture.qualification.mapping.proxyTimeMap,
-                ),
-            projectRevision: bindingRevision,
-            overlays: bindingOverlays(clips()),
-            boundAt: new Date(bindingRevision.compatibilityUpdatedAt),
-          })],
-        }),
+    ...(sourceBinding
+      ? { proxySourceBindingsV1: [sourceBinding] }
+      : {}),
     ...(options.locks ? { timelineRangeCutLocks: options.locks } : {}),
     visibility: 'private',
   };
