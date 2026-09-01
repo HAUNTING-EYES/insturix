@@ -103,6 +103,7 @@ import type {
 } from "@/components/editron/editor/version-7.0.0/types";
 import {
   ensureAtomicOverlayReceipt,
+  ensureLiveAtomicOverlayReceipt,
   withAtomicOverlayUpdateReceipt,
 } from "../engine/overlay-atomic-receipts";
 import { nanoid } from "nanoid";
@@ -349,6 +350,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "AUTO_EDIT_ASSEMBLY"
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
+  | "REPLACE_CAPTION_FAMILY"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -480,6 +482,20 @@ export interface ProjectOverlayDeleteCommandV1 {
   actorKind: ProjectTimelineChangeActorKindV1;
   overlayId: ProjectOverlayIdentityV1;
 }
+
+export interface ProjectCaptionFamilyReplaceCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  candidateOverlays: readonly Overlay[];
+}
+
+export type ProjectCaptionFamilyReplaceResultV1 =
+  | ({ disposition: "APPLIED" } & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "UNCHANGED";
+      mutationReceipt: null;
+      timelineChangeReceipt: null;
+    };
 
 export interface ProjectAutoEditAssemblyCutV1 {
   clipId: ProjectOverlayIdentityV1;
@@ -11142,6 +11158,192 @@ export class ProjectService {
   }
 
   /**
+   * Replace only the caption family at one exact project revision. The caller
+   * may submit the complete ordered overlay array so caption z-order remains
+   * expressible, but every non-caption entry must match the stored sequence and
+   * canonical value. ProjectService reuses the stored non-caption objects in
+   * the write, so this command cannot smuggle an unrelated track mutation.
+   */
+  async replaceCaptionFamilyAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectCaptionFamilyReplaceCommandV1,
+  ): Promise<ProjectCaptionFamilyReplaceResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (
+      !Array.isArray(input.candidateOverlays)
+      || input.candidateOverlays.length > 100_000
+    ) {
+      throw new ProjectMutationWriteError(
+        "Caption-family replacement requires a bounded overlay array.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Caption-family replacement requires a supported project frame rate.",
+      );
+    }
+    if (!Array.isArray(project.overlays) || project.overlays.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Stored overlay state is invalid or exceeds the caption-family owner bound.",
+      );
+    }
+
+    const currentOverlays = project.overlays;
+    const cleanCandidateOverlays = assetResolver.stripUrlsForLLM([
+      ...input.candidateOverlays,
+    ]);
+    const comparableCurrentOverlays = assetResolver.stripUrlsForLLM([
+      ...currentOverlays,
+    ]);
+    const currentByIdentity = indexOverlaySetForCaptionFamilyV1(
+      currentOverlays,
+      "stored",
+    );
+    indexOverlaySetForCaptionFamilyV1(cleanCandidateOverlays, "candidate");
+
+    const currentNonCaption = comparableCurrentOverlays.filter(
+      (overlay) => overlay.type !== "caption",
+    );
+    const candidateNonCaption = cleanCandidateOverlays.filter(
+      (overlay) => overlay.type !== "caption",
+    );
+    if (
+      canonicalProjectMutationValueHashV1(currentNonCaption)
+      !== canonicalProjectMutationValueHashV1(candidateNonCaption)
+    ) {
+      throw new ProjectMutationWriteError(
+        "Caption-family replacement cannot alter or reorder non-caption overlays.",
+      );
+    }
+
+    const beforeCaptions = currentOverlays.filter(
+      (overlay) => overlay.type === "caption",
+    );
+    const candidateCaptions = cleanCandidateOverlays.filter(
+      (overlay) => overlay.type === "caption",
+    );
+    const beforeFrameRanges = captionFamilyFrameRangesV1(beforeCaptions, "stored");
+    const afterFrameRanges = captionFamilyFrameRangesV1(candidateCaptions, "candidate");
+    const persistedOverlays = cleanCandidateOverlays.map((overlay) => {
+      if (overlay.type === "caption") {
+        return ensureLiveAtomicOverlayReceipt(overlay, {
+          source: "project-service-replace-caption-family-at-revision-v1",
+          intent: "persist-caption",
+          reason: "caption family persisted through a caller-bound ProjectService command",
+        });
+      }
+      const stored = currentByIdentity.get(overlayIdentityKeyForCaptionFamilyV1(overlay));
+      if (!stored) {
+        throw new ProjectMutationWriteError(
+          "Caption-family replacement lost a stored non-caption overlay identity.",
+        );
+      }
+      return stored;
+    });
+
+    if (
+      canonicalProjectMutationValueHashV1(currentOverlays)
+      === canonicalProjectMutationValueHashV1(persistedOverlays)
+    ) {
+      return {
+        disposition: "UNCHANGED",
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before replacing captions.",
+      );
+    }
+    const writeFrameRanges = canonicalTimelineFrameRangesV1([
+      ...beforeFrameRanges,
+      ...afterFrameRanges,
+    ]);
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => writeFrameRanges.some((frameRange) => (
+      frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+    )));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the caption-family replacement.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createCaptionFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-caption-family_${nanoid(18)}`,
+      projectId,
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeCaptions,
+      afterCaptions: persistedOverlays.filter((overlay) => overlay.type === "caption"),
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: { overlays: persistedOverlays, updatedAt: committedAt },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      mutationReceipt,
+      timelineChangeReceipt,
+    };
+  }
+
+  /**
    * Replace a complete overlay family and related project evidence in one
    * compare-and-swap write. A concurrent editor save wins; callers must retry
    * from fresh project state instead of overwriting it.
@@ -15214,6 +15416,79 @@ function overlayTimelineFrameRangeV1(
   return { startFrame: rawStartFrame, endFrame };
 }
 
+function overlayIdentityKeyForCaptionFamilyV1(overlay: Overlay): string {
+  const identity = (overlay as { id?: unknown }).id;
+  const validNumber = typeof identity === "number"
+    && Number.isSafeInteger(identity)
+    && identity >= 0;
+  const validString = typeof identity === "string"
+    && identity === identity.trim()
+    && identity.length > 0
+    && identity.length <= 256;
+  if (!validNumber && !validString) {
+    throw new ProjectMutationWriteError(
+      "Caption-family replacement requires exact stable overlay identities.",
+    );
+  }
+  return `${typeof identity}:${identity}`;
+}
+
+function indexOverlaySetForCaptionFamilyV1(
+  overlays: readonly Overlay[],
+  label: "stored" | "candidate",
+): ReadonlyMap<string, Overlay> {
+  const indexed = new Map<string, Overlay>();
+  for (const overlay of overlays) {
+    const key = overlayIdentityKeyForCaptionFamilyV1(overlay);
+    if (indexed.has(key)) {
+      throw new ProjectMutationWriteError(
+        `Caption-family replacement requires unique ${label} overlay identities.`,
+      );
+    }
+    indexed.set(key, overlay);
+  }
+  return indexed;
+}
+
+function captionFamilyFrameRangesV1(
+  captions: readonly Overlay[],
+  label: "stored" | "candidate",
+): readonly TimelineFrameRangeV1[] {
+  return canonicalTimelineFrameRangesV1(captions.map((caption) => {
+    const frameRange = overlayTimelineFrameRangeV1(caption);
+    if (!frameRange) {
+      throw new ProjectMutationWriteError(
+        `Caption-family replacement requires exact positive ${label} caption frame ranges.`,
+      );
+    }
+    return frameRange;
+  }));
+}
+
+function canonicalTimelineFrameRangesV1(
+  ranges: readonly TimelineFrameRangeV1[],
+): readonly TimelineFrameRangeV1[] {
+  const unique = new Map<string, TimelineFrameRangeV1>();
+  for (const frameRange of ranges) {
+    unique.set(`${frameRange.startFrame}:${frameRange.endFrame}`, frameRange);
+  }
+  return [...unique.values()].sort((left, right) => (
+    left.startFrame - right.startFrame || left.endFrame - right.endFrame
+  ));
+}
+
+function canonicalProjectMutationValueHashV1(value: unknown): string {
+  try {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new Error("NOT_JSON");
+    return hashEditronCanonicalJsonV1(JSON.parse(encoded));
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Caption-family replacement material must be canonical JSON.",
+    );
+  }
+}
+
 function unionTimelineFrameRangesV1(
   beforeFrameRange: TimelineFrameRangeV1 | null,
   afterFrameRange: TimelineFrameRangeV1 | null,
@@ -15253,6 +15528,56 @@ function projectVideoSourceStartFrameV1(overlay: Overlay): number {
     );
   }
   return (sourceStartFrame ?? videoStartTime ?? 0) as number;
+}
+
+function createCaptionFamilyTimelineChangeReceiptV1(input: {
+  receiptId: string;
+  projectId: string;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  fps: number;
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  committedAt: string;
+  beforeCaptions: readonly Overlay[];
+  afterCaptions: readonly Overlay[];
+}): ProjectTimelineRangeChangeReceiptV1 {
+  const beforeFrameRanges = captionFamilyFrameRangesV1(input.beforeCaptions, "stored");
+  const afterFrameRanges = captionFamilyFrameRangesV1(input.afterCaptions, "candidate");
+  const writeFrameRanges = canonicalTimelineFrameRangesV1([
+    ...beforeFrameRanges,
+    ...afterFrameRanges,
+  ]);
+  const affectedOverlayRefs = [...new Set([
+    ...input.beforeCaptions,
+    ...input.afterCaptions,
+  ].map(overlayReferenceForTimelineChangeV1))].sort();
+  return {
+    schemaVersion: 1,
+    receiptId: input.receiptId,
+    projectId: input.projectId,
+    operation: "REPLACE_CAPTION_FAMILY",
+    actorKind: input.actorKind,
+    coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+    fps: input.fps,
+    beforeProjectRevision: input.beforeProjectRevision,
+    afterProjectRevision: input.afterProjectRevision,
+    committedAt: input.committedAt,
+    readFrameRangesBefore: beforeFrameRanges,
+    writeFrameRangesBefore: writeFrameRanges,
+    affectedFrameRangesAfter: afterFrameRanges,
+    affectedOverlayRefs,
+    changedPaths: ["overlays", "timelineRangeChangeReceipts"],
+    rangeObservation: "EXACT",
+    overlayTemporalChange: null,
+    timelineCoordinateTransform: null,
+    sourceTimeTransform: null,
+    splitChildren: [],
+    ripple: null,
+    downstreamInvalidation: {
+      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+      affectedFrameRangesBefore: writeFrameRanges,
+    },
+  };
 }
 
 function createDirectOverlayTimelineChangeReceiptV1(input: {
