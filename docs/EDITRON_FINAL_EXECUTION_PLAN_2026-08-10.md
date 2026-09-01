@@ -15360,3 +15360,72 @@ chapter ambiguous-dispatch recovery without blind provider retry, then
 Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
 remains `BLOCKED_NOT_AUTHORIZED`. No render-chain convergence, agency-class
 completion, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3S checkpoint
+
+Commits `d313c69de` and `3b9bdb314` add the isolated concat-output cleanup
+owner required by Phase 3Q. The immutable cleanup descriptor binds the full
+`PROJECT_SNAPSHOT`, parent admission, concat generation/source-manifest hash,
+exact S3 bucket, region and deterministic object key, optional version ID,
+and output URL/size as audit data. Descriptor identity and outbox ID are
+deterministic across retry time. The URL is never deletion authority.
+
+The runtime leases pending or expired-running rows before any provider call,
+uses only cleanup-specific AWS credential variables, issues exact S3
+`DeleteObject(Bucket, Key, VersionId?)`, treats an already-absent key as an
+idempotent success and commits completion only for the exact claim token and
+descriptor hash. Provider errors are sanitized and rescheduled with bounded
+exponential backoff. A Bearer-`CRON_SECRET` route runs a bounded batch every
+five minutes and Mongo indexes cover ready and expired-lease discovery. It
+does not reuse the Remotion `deleteRender` owner or its direct-credential
+fallback.
+
+The dedicated concat cleanup suite passed 6/6 tests and the adjacent standard
+and child cleanup suite passed 7/7. Full TypeScript, targeted/full lint and
+`git diff --check` passed across the verified worktree. No S3 object was
+deleted and no deployed credential or IAM authority was changed.
+
+This is cleanup capability, not cleanup authorization convergence. No
+production finalization/stale/terminal decision yet materializes the concat
+or child outboxes. The current shell also has none of the cleanup-specific
+AWS credential variables or fixed concat destination variables configured,
+so deployed least-privilege `s3:DeleteObject` authority and one live
+idempotent deletion receipt remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3T checkpoint
+
+Commits `00818ea97`, `a382d3209` and `0ba6026fd` add proof-based standard
+dispatch reconciliation on top of the Phase 3R ledger. A bounded classifier
+distinguishes exact persisted provider tuples from `ATTEMPTING`/`UNKNOWN`
+rows that still lack provider identity. Only the former can enter the live
+ProjectService revision-fenced CAS. The mutation owner independently binds
+the admission, binding hash, attempt token, credit idempotency key, recorded
+credit transaction, attempt timestamp, reserved region and exact provider
+tuple. It never calls the provider, refunds credits, rerenders or promotes a
+render to success.
+
+New standard renders now carry the same deterministic attempt token in signed
+webhook custom data as well as render metadata. A signed terminal callback can
+bind a lost provider tuple exactly; a stale signed success is routed through
+the existing transactional stale-output cleanup owner instead of returning
+before cleanup materialization. Genuine pre-ledger callback compatibility is
+kept explicit. A protected five-minute recovery sweep and matching Mongo
+attempt-order index are deployed in configuration; rows without a tuple
+remain quarantined for signed callback/operator evidence.
+
+The recovery/startup/render-owner closure passed 67/67 tests, the direct
+ProjectService transaction suite passed 12/12, and the final focused recovery
+and route closure passed 46/46. Full 8-GB TypeScript, full quiet ESLint and
+`git diff --check` passed before the commits were pushed. No provider call,
+wallet mutation, refund, rerender, deletion, historical cohort run, model
+inference or project-content mutation occurred.
+
+The installed provider API still offers no lookup/idempotent dispatch receipt,
+so a row with no provider tuple cannot be recovered automatically and must not
+be retried or refunded. Chapter children still lack an equivalent per-child
+attempt ledger and signed callback path. Transactional chapter child/concat
+cleanup materialization, stale-before-concat fencing, invalidation/retention
+recovery and deployed IAM/live deletion proof remain open. Queue 5 remains
+`ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains
+`MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No convergence,
+agency-class completion, successor receipt or `GO` is claimed.
