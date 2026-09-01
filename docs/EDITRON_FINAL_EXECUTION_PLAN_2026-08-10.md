@@ -14857,3 +14857,22 @@ test-harness debt and is not attributed to Phase 3E.
 The next bounded dependency is coherent render route/progress/history binding
 with stale-current gates. Queue 5 remains open, and this checkpoint does not
 authorize a route/provider migration, certification, Stage 2.5 or Stage 3.
+
+## 2026-09-01 vertical-convergence Phase 3F checkpoint
+
+At committed contract `0f931520e` and Step 0 cleanup `610440a38`, a separate
+`PROJECT_SNAPSHOT` whole-project binding exists. It binds the exact project
+revision, render-input fingerprint and contained video targets; URL
+normalization and dual-scope owner/project checks fail closed. Existing
+Overlay V1 contracts and invalidation outboxes are unchanged. No render-route,
+progress, history, finalization or invalidation-outbox consumer migration has
+landed.
+
+The focused source-truth run passed 37/37 tests; full TypeScript, ESLint
+(`--quiet`) and `git diff --check` passed. Queue 5 remains `OPEN`; Queues 3
+and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY` and Stage 3 remains
+blocked. This checkpoint does not authorize production/render/provider
+mutation, certification or convergence.
+
+The next bounded dependency is the strict render-job owner, followed by
+route/progress/history/finalization/invalidation consumer migration.
