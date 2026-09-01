@@ -23,8 +23,14 @@ import {
 } from '@/lib/editron/services/render-job-service';
 import {
   beginChapterParentOrchestrationRunningV1,
+  beginChapterParentOrchestrationConcatenatingV1,
+  beginChapterParentOrchestrationFinalizingV1,
+  completeChapterParentOrchestrationV1,
+  failChapterParentOrchestrationV1,
+  markChapterParentOrchestrationReadyForFinalizationV1,
   quarantineChapterParentOrchestrationV1,
   startChapterParentOrchestrationV1,
+  updateChapterParentOrchestrationProgressV1,
 } from '@/lib/editron/services/chapter-parent-orchestration-v1';
 import type { ProjectArtifactProjectRevisionV1 } from '@/lib/editron/services/project-artifact-invalidation-v1';
 import type { RenderDeliveryManifest } from '@/lib/editron/services/render-delivery-manifest';
@@ -43,7 +49,16 @@ const RESERVED_AT = new Date('2026-09-01T00:00:00.000Z');
 const STARTED_AT = new Date('2026-09-01T00:01:00.000Z');
 const RUNNING_AT = new Date('2026-09-01T00:02:00.000Z');
 const UNKNOWN_AT = new Date('2026-09-01T00:03:00.000Z');
-const MANIFEST_HASH = 'a'.repeat(64);
+const CONCATENATING_AT = new Date('2026-09-01T00:04:00.000Z');
+const READY_AT = new Date('2026-09-01T00:05:00.000Z');
+const FINALIZING_AT = new Date('2026-09-01T00:06:00.000Z');
+const COMPLETED_AT = new Date('2026-09-01T00:07:00.000Z');
+const FAILED_AFTER_FINALIZING_AT = new Date('2026-09-01T00:08:00.000Z');
+const CHAPTER_LAYOUT_MANIFEST_HASH = 'a'.repeat(64);
+const CHAPTER_OUTPUT = {
+  url: 'https://concat.example.test/chapter-parent.mp4',
+  sizeBytes: 42_000,
+};
 
 const DELIVERY_MANIFEST: RenderDeliveryManifest = {
   version: 'editron-render-delivery-manifest-v1',
@@ -140,7 +155,76 @@ function makeRunningOrchestration(): RenderJobChapterOrchestrationV1 {
     runningAt: RUNNING_AT,
     chapterCount: 2,
     progress: 0,
-    manifestHash: MANIFEST_HASH,
+    completedChapterCount: 0,
+    chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+  });
+}
+
+function makeCompletedRunningOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeRunningOrchestration(),
+    progress: 1,
+    completedChapterCount: 2,
+  });
+}
+
+function makeConcatenatingOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeCompletedRunningOrchestration(),
+    state: 'CONCATENATING',
+    concatenatingAt: CONCATENATING_AT,
+  });
+}
+
+function makeReadyOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeConcatenatingOrchestration(),
+    state: 'READY_FOR_FINALIZATION',
+    readyForFinalizationAt: READY_AT,
+    progress: 1,
+    completedChapterCount: 2,
+    aggregateOutput: CHAPTER_OUTPUT,
+  });
+}
+
+function makeFinalizingOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeReadyOrchestration(),
+    state: 'FINALIZING',
+    finalizingAt: FINALIZING_AT,
+  });
+}
+
+function makeCompletedOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeFinalizingOrchestration(),
+    state: 'COMPLETED',
+    completedAt: COMPLETED_AT,
+  });
+}
+
+function makeFailedOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeRunningOrchestration(),
+    state: 'FAILED',
+    failedAt: UNKNOWN_AT,
+    failure: {
+      code: 'CHAPTER_ORCHESTRATION_FAILED',
+      message: 'chapter provider became unavailable',
+    },
+  });
+}
+
+function makeFailedWithAggregateOutputOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeFinalizingOrchestration(),
+    state: 'FAILED',
+    failedAt: FAILED_AFTER_FINALIZING_AT,
+    failure: {
+      code: 'CHAPTER_ORCHESTRATION_FAILED',
+      message: 'chapter provider became unavailable',
+    },
+    aggregateOutput: CHAPTER_OUTPUT,
   });
 }
 
@@ -273,6 +357,34 @@ describe('chapter parent orchestration V1', () => {
       state: 'RUNNING',
       startingAt: STARTED_AT,
       runningAt: RUNNING_AT,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeInitialOrchestration(),
+      completedChapterCount: 0,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeStartingOrchestration(),
+      completedChapterCount: 0,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeInitialOrchestration(),
+      aggregateOutput: CHAPTER_OUTPUT,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeStartingOrchestration(),
+      aggregateOutput: CHAPTER_OUTPUT,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeFailedOrchestration(),
+      chapterCount: undefined,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeFailedWithAggregateOutputOrchestration(),
+      completedChapterCount: 1,
+    }).success).toBe(false);
+    expect(RenderJobChapterOrchestrationSchema.safeParse({
+      ...makeFailedWithAggregateOutputOrchestration(),
+      aggregateOutput: { url: 'http://insecure.example.test/video.mp4', sizeBytes: 1 },
     }).success).toBe(false);
     expect(RenderJobChapterOrchestrationSchema.safeParse({
       ...makeInitialOrchestration(),
@@ -494,13 +606,13 @@ describe('chapter parent orchestration V1', () => {
     expect(replayCollection.findOne).toHaveBeenCalledTimes(1);
   });
 
-  it('CAS-transitions STARTING to RUNNING with an exact chapter manifest identity', async () => {
+  it('CAS-transitions STARTING to RUNNING with an exact chapter layout manifest identity', async () => {
     const collection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     const input = {
       ...commonInput(collection),
       now: RUNNING_AT,
       chapterCount: 2,
-      manifestHash: MANIFEST_HASH,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
     };
     await expect(beginChapterParentOrchestrationRunningV1(input)).resolves.toMatchObject({
       ok: true,
@@ -513,12 +625,13 @@ describe('chapter parent orchestration V1', () => {
         'chapterOrchestration.runningAt': RUNNING_AT,
         'chapterOrchestration.chapterCount': 2,
         'chapterOrchestration.progress': 0,
-        'chapterOrchestration.manifestHash': MANIFEST_HASH,
+        'chapterOrchestration.completedChapterCount': 0,
+        'chapterOrchestration.chapterLayoutManifestHash': CHAPTER_LAYOUT_MANIFEST_HASH,
       },
     });
   });
 
-  it('allows only exact RUNNING replay and rejects a changed manifest without mutation', async () => {
+  it('allows only exact RUNNING replay and rejects a changed chapter layout manifest without mutation', async () => {
     const replayCollection = makeCollection(
       { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
       makeJob(makeRunningOrchestration()),
@@ -527,7 +640,7 @@ describe('chapter parent orchestration V1', () => {
       ...commonInput(replayCollection),
       now: new Date('2026-09-01T00:05:00.000Z'),
       chapterCount: 2,
-      manifestHash: MANIFEST_HASH,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
     })).resolves.toMatchObject({ ok: true, state: 'RUNNING', replayed: true });
 
     const conflictCollection = makeCollection(
@@ -538,7 +651,7 @@ describe('chapter parent orchestration V1', () => {
       ...commonInput(conflictCollection),
       now: RUNNING_AT,
       chapterCount: 3,
-      manifestHash: 'b'.repeat(64),
+      chapterLayoutManifestHash: 'b'.repeat(64),
     })).resolves.toMatchObject({ ok: false, reason: 'ORCHESTRATION_NOT_READY' });
     expect(conflictCollection.updateOne).toHaveBeenCalledTimes(1);
   });
@@ -572,6 +685,254 @@ describe('chapter parent orchestration V1', () => {
     })).resolves.toMatchObject({ ok: true, state: 'UNKNOWN', replayed: true });
   });
 
+  it('advances RUNNING progress monotonically with immutable chapter identity', async () => {
+    const collection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(updateChapterParentOrchestrationProgressV1({
+      ...commonInput(collection),
+      now: RUNNING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 1,
+      progress: 0.5,
+    })).resolves.toMatchObject({ ok: true, state: 'RUNNING' });
+    expect(collection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: {
+        'chapterOrchestration.progress': 0.5,
+        'chapterOrchestration.completedChapterCount': 1,
+      },
+    });
+    const filter = collection.updateOne.mock.calls[0]![0] as { $and?: unknown[] };
+    expect(JSON.stringify(filter)).toContain(`"chapterOrchestration.chapterCount":2`);
+    expect(JSON.stringify(filter)).toContain(`"chapterOrchestration.chapterLayoutManifestHash":"${CHAPTER_LAYOUT_MANIFEST_HASH}"`);
+    expect(JSON.stringify(filter)).toContain('"$lte":0.5');
+    expect(JSON.stringify(filter)).toContain('"$lte":1');
+
+    const replayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(RenderJobChapterOrchestrationSchema.parse({
+        ...makeRunningOrchestration(),
+        progress: 0.5,
+        completedChapterCount: 1,
+      })),
+    );
+    await expect(updateChapterParentOrchestrationProgressV1({
+      ...commonInput(replayCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 1,
+      progress: 0.5,
+    })).resolves.toMatchObject({ ok: true, state: 'RUNNING', replayed: true });
+
+    const decreasingCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(RenderJobChapterOrchestrationSchema.parse({
+        ...makeRunningOrchestration(),
+        progress: 0.5,
+        completedChapterCount: 1,
+      })),
+    );
+    await expect(updateChapterParentOrchestrationProgressV1({
+      ...commonInput(decreasingCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 0,
+      progress: 0.25,
+    })).resolves.toMatchObject({ ok: false, reason: 'CAS_CONFLICT' });
+  });
+
+  it('requires complete RUNNING progress for concat and then reaches exact ready output', async () => {
+    const incompleteCountCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(RenderJobChapterOrchestrationSchema.parse({
+        ...makeRunningOrchestration(),
+        progress: 1,
+      })),
+    );
+    await expect(beginChapterParentOrchestrationConcatenatingV1({
+      ...commonInput(incompleteCountCollection),
+      now: CONCATENATING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: false, reason: 'CAS_CONFLICT' });
+    expect(JSON.stringify(incompleteCountCollection.updateOne.mock.calls[0]![0]))
+      .toContain('"chapterOrchestration.completedChapterCount":2');
+
+    const incompleteProgressCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(RenderJobChapterOrchestrationSchema.parse({
+        ...makeRunningOrchestration(),
+        completedChapterCount: 2,
+      })),
+    );
+    await expect(beginChapterParentOrchestrationConcatenatingV1({
+      ...commonInput(incompleteProgressCollection),
+      now: CONCATENATING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: false, reason: 'CAS_CONFLICT' });
+    expect(JSON.stringify(incompleteProgressCollection.updateOne.mock.calls[0]![0]))
+      .toContain('"chapterOrchestration.progress":1');
+
+    const concatenatingCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(beginChapterParentOrchestrationConcatenatingV1({
+      ...commonInput(concatenatingCollection),
+      now: CONCATENATING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'CONCATENATING' });
+    expect(concatenatingCollection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: {
+        'chapterOrchestration.state': 'CONCATENATING',
+        'chapterOrchestration.concatenatingAt': CONCATENATING_AT,
+      },
+    });
+
+    const readyCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(markChapterParentOrchestrationReadyForFinalizationV1({
+      ...commonInput(readyCollection),
+      now: READY_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 2,
+      aggregateOutput: CHAPTER_OUTPUT,
+    })).resolves.toMatchObject({ ok: true, state: 'READY_FOR_FINALIZATION' });
+    expect(JSON.stringify(readyCollection.updateOne.mock.calls[0]![0]))
+      .toContain('"chapterOrchestration.state":"CONCATENATING"');
+    expect(readyCollection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: {
+        'chapterOrchestration.state': 'READY_FOR_FINALIZATION',
+        'chapterOrchestration.readyForFinalizationAt': READY_AT,
+        'chapterOrchestration.progress': 1,
+        'chapterOrchestration.completedChapterCount': 2,
+        'chapterOrchestration.aggregateOutput': CHAPTER_OUTPUT,
+      },
+    });
+
+    const invalidOutputCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(markChapterParentOrchestrationReadyForFinalizationV1({
+      ...commonInput(invalidOutputCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 2,
+      aggregateOutput: { url: 'http://insecure.example.test/video.mp4', sizeBytes: 1 },
+    })).resolves.toMatchObject({ ok: false, reason: 'ORCHESTRATION_NOT_READY' });
+    expect(invalidOutputCollection.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('fences finalization/completion and replays only the exact ready output', async () => {
+    const finalizingCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(beginChapterParentOrchestrationFinalizingV1({
+      ...commonInput(finalizingCollection),
+      now: FINALIZING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'FINALIZING' });
+
+    const completedCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(completeChapterParentOrchestrationV1({
+      ...commonInput(completedCollection),
+      now: COMPLETED_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'COMPLETED' });
+
+    const finalizingReplayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeFinalizingOrchestration()),
+    );
+    await expect(beginChapterParentOrchestrationFinalizingV1({
+      ...commonInput(finalizingReplayCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'FINALIZING', replayed: true });
+
+    const completedReplayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeCompletedOrchestration()),
+    );
+    await expect(completeChapterParentOrchestrationV1({
+      ...commonInput(completedReplayCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'COMPLETED', replayed: true });
+
+    const changedOutputCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeReadyOrchestration()),
+    );
+    await expect(markChapterParentOrchestrationReadyForFinalizationV1({
+      ...commonInput(changedOutputCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      completedChapterCount: 2,
+      aggregateOutput: { url: CHAPTER_OUTPUT.url, sizeBytes: CHAPTER_OUTPUT.sizeBytes + 1 },
+    })).resolves.toMatchObject({ ok: false, reason: 'ORCHESTRATION_NOT_READY' });
+  });
+
+  it('quarantines active post-running states to FAILED and retains exact aggregate output', async () => {
+    const collection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(failChapterParentOrchestrationV1({
+      ...commonInput(collection),
+      now: UNKNOWN_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      error: 'chapter provider became unavailable',
+    })).resolves.toMatchObject({ ok: true, state: 'FAILED' });
+    expect(collection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: {
+        'chapterOrchestration.state': 'FAILED',
+        'chapterOrchestration.failedAt': UNKNOWN_AT,
+        'chapterOrchestration.failure': {
+          code: 'CHAPTER_ORCHESTRATION_FAILED',
+          message: 'chapter provider became unavailable',
+        },
+      },
+    });
+
+    const finalizingCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(failChapterParentOrchestrationV1({
+      ...commonInput(finalizingCollection),
+      now: FAILED_AFTER_FINALIZING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      error: 'chapter provider became unavailable',
+    })).resolves.toMatchObject({ ok: true, state: 'FAILED' });
+    expect(finalizingCollection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: {
+        'chapterOrchestration.state': 'FAILED',
+        'chapterOrchestration.failedAt': FAILED_AFTER_FINALIZING_AT,
+        'chapterOrchestration.failure': {
+          code: 'CHAPTER_ORCHESTRATION_FAILED',
+          message: 'chapter provider became unavailable',
+        },
+      },
+    });
+    expect(JSON.stringify(finalizingCollection.updateOne.mock.calls[0]![0])).toContain(CHAPTER_OUTPUT.url);
+
+    const replayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeFailedWithAggregateOutputOrchestration()),
+    );
+    await expect(failChapterParentOrchestrationV1({
+      ...commonInput(replayCollection),
+      aggregateOutput: CHAPTER_OUTPUT,
+      error: 'chapter provider became unavailable',
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+    })).resolves.toMatchObject({ ok: true, state: 'FAILED', replayed: true });
+
+    const malformedOutputCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    await expect(failChapterParentOrchestrationV1({
+      ...commonInput(malformedOutputCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: { url: 'http://insecure.example.test/video.mp4', sizeBytes: 1 },
+      error: 'chapter provider became unavailable',
+    })).resolves.toMatchObject({ ok: false, reason: 'INPUT_INVALID' });
+    expect(malformedOutputCollection.updateOne).not.toHaveBeenCalled();
+  });
+
   it('fails closed for stale revision, wrong source state, provider-bearing rows, and unproved writes', async () => {
     const staleCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     await expect(startChapterParentOrchestrationV1({
@@ -588,7 +949,7 @@ describe('chapter parent orchestration V1', () => {
       ...commonInput(wrongStateCollection),
       now: RUNNING_AT,
       chapterCount: 2,
-      manifestHash: MANIFEST_HASH,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
     })).resolves.toMatchObject({ ok: false, reason: 'ORCHESTRATION_NOT_READY' });
 
     const providerRow = { ...makeJob(), providerRenderId: 'provider-parent' };
@@ -604,5 +965,9 @@ describe('chapter parent orchestration V1', () => {
     const unprovedCollection = makeCollection({ acknowledged: false, matchedCount: 1, modifiedCount: 1 });
     await expect(startChapterParentOrchestrationV1(commonInput(unprovedCollection)))
       .rejects.toThrow('CHAPTER_PARENT_ORCHESTRATION_WRITE_UNPROVED');
+
+    const ambiguousCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 2 });
+    await expect(startChapterParentOrchestrationV1(commonInput(ambiguousCollection)))
+      .rejects.toThrow('CHAPTER_PARENT_ORCHESTRATION_WRITE_CARDINALITY_UNPROVED');
   });
 });

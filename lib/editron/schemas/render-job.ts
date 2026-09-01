@@ -305,9 +305,10 @@ const RenderJobChapterBindingHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const RenderJobChapterRegionSchema = z.string()
   .regex(/^[a-z]{2}(?:-[a-z0-9]+)+-\d+$/);
 const RenderJobChapterCountSchema = z.number().int().positive().max(100_000);
+export const RenderJobChapterCompletedCountSchema = z.number().int().nonnegative().max(100_000);
 const RenderJobChapterProgressSchema = z.number().finite().min(0).max(1);
-const RenderJobChapterManifestHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const RenderJobChapterOutputSchema = z.object({
+const RenderJobChapterLayoutManifestHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const RenderJobChapterOutputSchema = z.object({
   url: z.string().url().refine(
     (value) => value.startsWith('https://'),
     'Chapter orchestration output must use HTTPS.',
@@ -347,8 +348,9 @@ export const RenderJobChapterOrchestrationSchema = z.object({
   unknownAt: z.date().optional(),
   chapterCount: RenderJobChapterCountSchema.optional(),
   progress: RenderJobChapterProgressSchema.optional(),
-  manifestHash: RenderJobChapterManifestHashSchema.optional(),
-  output: RenderJobChapterOutputSchema.optional(),
+  completedChapterCount: RenderJobChapterCompletedCountSchema.optional(),
+  chapterLayoutManifestHash: RenderJobChapterLayoutManifestHashSchema.optional(),
+  aggregateOutput: RenderJobChapterOutputSchema.optional(),
   failure: RenderJobChapterFailureSchema.optional(),
 }).strict().superRefine((orchestration, context) => {
   const successfulStateIndex: Partial<Record<RenderJobChapterOrchestrationStateV1, number>> = {
@@ -503,8 +505,9 @@ export const RenderJobChapterOrchestrationSchema = z.object({
     for (const field of [
       'chapterCount',
       'progress',
-      'manifestHash',
-      'output',
+      'completedChapterCount',
+      'chapterLayoutManifestHash',
+      'aggregateOutput',
       'failure',
     ] as const) {
       if (orchestration[field] !== undefined) {
@@ -522,8 +525,9 @@ export const RenderJobChapterOrchestrationSchema = z.object({
     for (const field of [
       'chapterCount',
       'progress',
-      'manifestHash',
-      'output',
+      'completedChapterCount',
+      'chapterLayoutManifestHash',
+      'aggregateOutput',
       'failure',
     ] as const) {
       if (orchestration[field] !== undefined) {
@@ -554,12 +558,20 @@ export const RenderJobChapterOrchestrationSchema = z.object({
         params: { code: 'CHAPTER_ORCHESTRATION_PROGRESS_REQUIRED' },
       });
     }
-    if (orchestration.manifestHash === undefined) {
+    if (orchestration.completedChapterCount === undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['manifestHash'],
-        message: `${orchestration.state} requires an exact chapter manifest hash.`,
-        params: { code: 'CHAPTER_ORCHESTRATION_MANIFEST_HASH_REQUIRED' },
+        path: ['completedChapterCount'],
+        message: `${orchestration.state} requires a completed chapter count.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_COMPLETED_CHAPTER_COUNT_REQUIRED' },
+      });
+    }
+    if (orchestration.chapterLayoutManifestHash === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterLayoutManifestHash'],
+        message: `${orchestration.state} requires an exact chapter layout manifest hash.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_CHAPTER_LAYOUT_MANIFEST_HASH_REQUIRED' },
       });
     }
     if (orchestration.failure !== undefined) {
@@ -570,6 +582,41 @@ export const RenderJobChapterOrchestrationSchema = z.object({
         params: { code: 'CHAPTER_ORCHESTRATION_HEALTHY_STATE_HAS_FAILURE' },
       });
     }
+  }
+
+  if ((orchestration.state === 'RUNNING' || orchestration.state === 'CONCATENATING')
+    && orchestration.aggregateOutput !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['aggregateOutput'],
+      message: `${orchestration.state} cannot claim an aggregate output before readiness.`,
+      params: { code: 'CHAPTER_ORCHESTRATION_EARLY_AGGREGATE_OUTPUT' },
+    });
+  }
+
+  if (
+    orchestration.completedChapterCount !== undefined
+    && orchestration.chapterCount === undefined
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['completedChapterCount'],
+      message: 'Completed chapters require an immutable total chapter count.',
+      params: { code: 'CHAPTER_ORCHESTRATION_COMPLETED_CHAPTER_COUNT_WITHOUT_TOTAL' },
+    });
+  }
+
+  if (
+    orchestration.completedChapterCount !== undefined
+    && orchestration.chapterCount !== undefined
+    && orchestration.completedChapterCount > orchestration.chapterCount
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['completedChapterCount'],
+      message: 'Completed chapters cannot exceed the immutable chapter count.',
+      params: { code: 'CHAPTER_ORCHESTRATION_COMPLETED_CHAPTER_COUNT_OUT_OF_RANGE' },
+    });
   }
 
   if (orchestration.state === 'READY_FOR_FINALIZATION'
@@ -583,12 +630,20 @@ export const RenderJobChapterOrchestrationSchema = z.object({
         params: { code: 'CHAPTER_ORCHESTRATION_FINAL_PROGRESS_REQUIRED' },
       });
     }
-    if (orchestration.output === undefined) {
+    if (orchestration.aggregateOutput === undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['output'],
+        path: ['aggregateOutput'],
         message: `${orchestration.state} requires a materialized output.`,
         params: { code: 'CHAPTER_ORCHESTRATION_OUTPUT_REQUIRED' },
+      });
+    }
+    if (orchestration.completedChapterCount !== orchestration.chapterCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['completedChapterCount'],
+        message: `${orchestration.state} requires every chapter to be complete.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_COMPLETED_CHAPTERS_REQUIRED' },
       });
     }
   }
@@ -602,20 +657,53 @@ export const RenderJobChapterOrchestrationSchema = z.object({
         params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_REQUIRED' },
       });
     }
-    if (orchestration.output !== undefined) {
+    if (orchestration.state === 'UNKNOWN' && orchestration.aggregateOutput !== undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['output'],
-        message: `${orchestration.state} cannot claim a successful output.`,
-        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_HAS_OUTPUT' },
+        path: ['aggregateOutput'],
+        message: 'An unknown chapter orchestration cannot retain aggregate output.',
+        params: { code: 'CHAPTER_ORCHESTRATION_UNKNOWN_HAS_OUTPUT' },
       });
     }
-    if ((orchestration.chapterCount === undefined) !== (orchestration.manifestHash === undefined)) {
+    if ((orchestration.state === 'FAILED' || orchestration.state === 'STALE')
+      && orchestration.aggregateOutput !== undefined) {
+      if (
+        orchestration.chapterCount === undefined
+        || orchestration.chapterLayoutManifestHash === undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['aggregateOutput'],
+          message: 'A retained aggregate output requires the immutable chapter layout manifest identity.',
+          params: { code: 'CHAPTER_ORCHESTRATION_RETAINED_OUTPUT_IDENTITY_REQUIRED' },
+        });
+      }
+      if (orchestration.completedChapterCount !== orchestration.chapterCount) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['completedChapterCount'],
+          message: 'A retained aggregate output requires every chapter to be complete.',
+          params: { code: 'CHAPTER_ORCHESTRATION_RETAINED_OUTPUT_COMPLETION_REQUIRED' },
+        });
+      }
+      if (orchestration.progress !== 1) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['progress'],
+          message: 'A retained aggregate output requires progress 1.',
+          params: { code: 'CHAPTER_ORCHESTRATION_RETAINED_OUTPUT_PROGRESS_REQUIRED' },
+        });
+      }
+    }
+    if (
+      (orchestration.chapterCount === undefined)
+      !== (orchestration.chapterLayoutManifestHash === undefined)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['manifestHash'],
-        message: 'Failure states must retain chapter count and manifest hash together when present.',
-        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_MANIFEST_INCOMPLETE' },
+        path: ['chapterLayoutManifestHash'],
+        message: 'Failure states must retain chapter count and chapter layout manifest hash together when present.',
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_CHAPTER_LAYOUT_MANIFEST_INCOMPLETE' },
       });
     }
   }

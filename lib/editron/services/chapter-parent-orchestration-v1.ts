@@ -1,6 +1,7 @@
 import type { ClientSession, Collection, Filter } from 'mongodb';
 
 import {
+  RenderJobChapterOutputSchema,
   RenderJobSchema,
   type RenderJob,
   type RenderJobChapterOrchestrationStateV1,
@@ -66,6 +67,27 @@ type PreparedInput = {
   session?: ClientSession;
 };
 
+type ChapterLayoutManifestIdentityV1 = {
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+};
+
+type ChapterParentStateSelectorV1 =
+  | RenderJobChapterOrchestrationStateV1
+  | readonly RenderJobChapterOrchestrationStateV1[];
+
+type ChapterOutputV1 = {
+  url: string;
+  sizeBytes: number;
+};
+
+const POST_STARTING_ACTIVE_STATES: readonly RenderJobChapterOrchestrationStateV1[] = [
+  'RUNNING',
+  'CONCATENATING',
+  'READY_FOR_FINALIZATION',
+  'FINALIZING',
+];
+
 function notCurrent(
   reason: ChapterParentOrchestrationNotCurrentReasonV1,
 ): ChapterParentOrchestrationMutationResultV1 {
@@ -86,6 +108,64 @@ function validDate(value: Date): boolean {
 function boundedMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return (message.trim() || 'Chapter parent orchestration became unknown.').slice(0, 10_000);
+}
+
+function parseChapterLayoutManifestIdentity(input: {
+  chapterCount: unknown;
+  chapterLayoutManifestHash: unknown;
+}): ChapterLayoutManifestIdentityV1 | null {
+  if (
+    typeof input.chapterCount !== 'number'
+    || !Number.isSafeInteger(input.chapterCount)
+    || input.chapterCount <= 0
+    || input.chapterCount > 100_000
+    || typeof input.chapterLayoutManifestHash !== 'string'
+    || !SHA256.test(input.chapterLayoutManifestHash.trim())
+  ) {
+    return null;
+  }
+  return {
+    chapterCount: input.chapterCount,
+    chapterLayoutManifestHash: input.chapterLayoutManifestHash.trim(),
+  };
+}
+
+function validCompletedChapterCount(value: unknown, chapterCount: number): value is number {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    && value <= chapterCount;
+}
+
+function parseChapterOutput(value: unknown): ChapterOutputV1 | null {
+  const parsed = RenderJobChapterOutputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function sameChapterOutput(value: unknown, expected: ChapterOutputV1): boolean {
+  const output = parseChapterOutput(value);
+  return output !== null
+    && output.url === expected.url
+    && output.sizeBytes === expected.sizeBytes;
+}
+
+function hasChapterOutput(value: unknown): value is ChapterOutputV1 {
+  return parseChapterOutput(value) !== null;
+}
+
+function chapterLayoutManifestFilter(identity: ChapterLayoutManifestIdentityV1): Filter<RenderJob> {
+  return {
+    'chapterOrchestration.chapterCount': identity.chapterCount,
+    'chapterOrchestration.chapterLayoutManifestHash': identity.chapterLayoutManifestHash,
+  } as Filter<RenderJob>;
+}
+
+function sameChapterLayoutManifest(
+  orchestration: NonNullable<RenderJob['chapterOrchestration']>,
+  identity: ChapterLayoutManifestIdentityV1,
+): boolean {
+  return orchestration.chapterCount === identity.chapterCount
+    && orchestration.chapterLayoutManifestHash === identity.chapterLayoutManifestHash;
 }
 
 async function prepareInput(
@@ -173,10 +253,12 @@ function parentScopeFilter(input: PreparedInput): Filter<RenderJob> {
 
 function stateFilter(
   input: PreparedInput,
-  state: RenderJobChapterOrchestrationStateV1,
+  state: ChapterParentStateSelectorV1,
+  conditions: Filter<RenderJob> = {},
 ): Filter<RenderJob> {
   const parent = parentScopeFilter(input);
   const parentConditions = (parent.$and ?? [parent]) as Filter<RenderJob>[];
+  const sourceStates = Array.isArray(state) ? state : [state];
   const priorTimestampField = state === 'NOT_STARTED'
     ? 'chapterOrchestration.reservedAt'
     : state === 'STARTING'
@@ -185,10 +267,15 @@ function stateFilter(
   return {
     $and: [
       ...parentConditions,
-      { 'chapterOrchestration.state': state },
+      {
+        'chapterOrchestration.state': sourceStates.length === 1
+          ? sourceStates[0]
+          : { $in: sourceStates },
+      },
       ...(priorTimestampField
         ? [{ [priorTimestampField]: { $lte: input.now } } as Filter<RenderJob>]
         : []),
+      conditions,
     ],
   } as Filter<RenderJob>;
 }
@@ -235,7 +322,7 @@ function currentParentRow(
     || job.artifactState !== 'ACTIVE'
     || job.artifactInvalidation !== undefined
     || job.artifactBinding !== undefined
-    || !['pending', 'queued', 'rendering', 'finalizing'].includes(job.status)
+    || !['pending', 'queued', 'rendering', 'finalizing', 'done', 'error'].includes(job.status)
     || job.deliveryManifest?.primaryArtifact.renderId !== input.authorization.jobId
   ) {
     return null;
@@ -245,7 +332,7 @@ function currentParentRow(
 
 async function afterConflict(
   input: PreparedInput,
-  sourceState: RenderJobChapterOrchestrationStateV1,
+  sourceState: ChapterParentStateSelectorV1,
   targetState: RenderJobChapterOrchestrationStateV1,
   replay: (orchestration: NonNullable<RenderJob['chapterOrchestration']>) => boolean,
 ): Promise<ChapterParentOrchestrationMutationResultV1> {
@@ -258,7 +345,8 @@ async function afterConflict(
   if (job.chapterOrchestration.state === targetState && replay(job.chapterOrchestration)) {
     return current(targetState, true);
   }
-  if (job.chapterOrchestration.state !== sourceState) {
+  const sourceStates = Array.isArray(sourceState) ? sourceState : [sourceState];
+  if (!sourceStates.includes(job.chapterOrchestration.state)) {
     return notCurrent('ORCHESTRATION_NOT_READY');
   }
   return notCurrent('CAS_CONFLICT');
@@ -272,14 +360,17 @@ function writeProved(result: unknown): boolean {
 
 async function transition(
   input: PreparedInput,
-  sourceState: RenderJobChapterOrchestrationStateV1,
+  sourceState: ChapterParentStateSelectorV1,
   targetState: RenderJobChapterOrchestrationStateV1,
   update: Record<string, unknown>,
   replay: (orchestration: NonNullable<RenderJob['chapterOrchestration']>) => boolean,
+  conditions: Filter<RenderJob> = {},
 ): Promise<ChapterParentOrchestrationMutationResultV1> {
   const result = await input.collection.updateOne(
-    stateFilter(input, sourceState),
-    { $set: update },
+    stateFilter(input, sourceState, conditions),
+    {
+      $set: update,
+    },
     { session: input.session },
   );
   if ((result as { acknowledged?: unknown }).acknowledged === false) {
@@ -312,17 +403,20 @@ export async function startChapterParentOrchestrationV1(
 
 export async function beginChapterParentOrchestrationRunningV1(input: CommonInput & {
   chapterCount: number;
-  manifestHash: string;
+  chapterLayoutManifestHash: string;
 }): Promise<ChapterParentOrchestrationMutationResultV1> {
   if (!Number.isSafeInteger(input.chapterCount) || input.chapterCount <= 0 || input.chapterCount > 100_000) {
     return notCurrent('INPUT_INVALID');
   }
-  if (typeof input.manifestHash !== 'string' || !SHA256.test(input.manifestHash.trim())) {
+  if (
+    typeof input.chapterLayoutManifestHash !== 'string'
+    || !SHA256.test(input.chapterLayoutManifestHash.trim())
+  ) {
     return notCurrent('INPUT_INVALID');
   }
   const prepared = await prepareInput(input);
   if ('ok' in prepared) return prepared;
-  const manifestHash = input.manifestHash.trim();
+  const chapterLayoutManifestHash = input.chapterLayoutManifestHash.trim();
   return transition(
     prepared,
     'STARTING',
@@ -332,16 +426,257 @@ export async function beginChapterParentOrchestrationRunningV1(input: CommonInpu
       'chapterOrchestration.runningAt': prepared.now,
       'chapterOrchestration.chapterCount': input.chapterCount,
       'chapterOrchestration.progress': 0,
-      'chapterOrchestration.manifestHash': manifestHash,
+      'chapterOrchestration.completedChapterCount': 0,
+      'chapterOrchestration.chapterLayoutManifestHash': chapterLayoutManifestHash,
     },
     (orchestration) => orchestration.chapterCount === input.chapterCount
-      && orchestration.manifestHash === manifestHash,
+      && orchestration.chapterLayoutManifestHash === chapterLayoutManifestHash,
+  );
+}
+
+export async function updateChapterParentOrchestrationProgressV1(input: CommonInput & {
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+  completedChapterCount: number;
+  progress: number;
+}): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  if (
+    !identity
+    || !Number.isFinite(input.progress)
+    || input.progress < 0
+    || input.progress > 1
+    || !validCompletedChapterCount(input.completedChapterCount, identity.chapterCount)
+  ) {
+    return notCurrent('INPUT_INVALID');
+  }
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  return transition(
+    prepared,
+    'RUNNING',
+    'RUNNING',
+    {
+      'chapterOrchestration.progress': input.progress,
+      'chapterOrchestration.completedChapterCount': input.completedChapterCount,
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.progress === input.progress
+      && orchestration.completedChapterCount === input.completedChapterCount,
+    {
+      ...chapterLayoutManifestFilter(identity),
+      'chapterOrchestration.progress': { $lte: input.progress },
+      'chapterOrchestration.completedChapterCount': { $lte: input.completedChapterCount },
+    } as Filter<RenderJob>,
+  );
+}
+
+export async function beginChapterParentOrchestrationConcatenatingV1(
+  input: CommonInput & { chapterCount: number; chapterLayoutManifestHash: string },
+): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  if (!identity) return notCurrent('INPUT_INVALID');
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  return transition(
+    prepared,
+    'RUNNING',
+    'CONCATENATING',
+    {
+      'chapterOrchestration.state': 'CONCATENATING',
+      'chapterOrchestration.concatenatingAt': prepared.now,
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.completedChapterCount === identity.chapterCount
+      && orchestration.progress === 1,
+    {
+      ...chapterLayoutManifestFilter(identity),
+      'chapterOrchestration.completedChapterCount': identity.chapterCount,
+      'chapterOrchestration.progress': 1,
+    } as Filter<RenderJob>,
+  );
+}
+
+export async function markChapterParentOrchestrationReadyForFinalizationV1(input: CommonInput & {
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+  completedChapterCount?: number;
+  aggregateOutput: unknown;
+}): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  const aggregateOutput = parseChapterOutput(input.aggregateOutput);
+  const completedChapterCount = input.completedChapterCount ?? input.chapterCount;
+  if (
+    !identity
+    || aggregateOutput === null
+    || !validCompletedChapterCount(completedChapterCount, identity.chapterCount)
+    || completedChapterCount !== identity.chapterCount
+  ) {
+    return notCurrent('ORCHESTRATION_NOT_READY');
+  }
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  return transition(
+    prepared,
+    'CONCATENATING',
+    'READY_FOR_FINALIZATION',
+    {
+      'chapterOrchestration.state': 'READY_FOR_FINALIZATION',
+      'chapterOrchestration.readyForFinalizationAt': prepared.now,
+      'chapterOrchestration.progress': 1,
+      'chapterOrchestration.completedChapterCount': identity.chapterCount,
+      'chapterOrchestration.aggregateOutput': aggregateOutput,
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.progress === 1
+      && orchestration.completedChapterCount === identity.chapterCount
+      && sameChapterOutput(orchestration.aggregateOutput, aggregateOutput),
+    {
+      ...chapterLayoutManifestFilter(identity),
+      'chapterOrchestration.completedChapterCount': identity.chapterCount,
+    } as Filter<RenderJob>,
+  );
+}
+
+export async function beginChapterParentOrchestrationFinalizingV1(
+  input: CommonInput & { chapterCount: number; chapterLayoutManifestHash: string },
+): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  if (!identity) return notCurrent('INPUT_INVALID');
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  const readyConditions = {
+    ...chapterLayoutManifestFilter(identity),
+    'chapterOrchestration.completedChapterCount': identity.chapterCount,
+    'chapterOrchestration.progress': 1,
+    'chapterOrchestration.aggregateOutput.url': { $regex: /^https:\/\// },
+    'chapterOrchestration.aggregateOutput.sizeBytes': { $gt: 0 },
+  } as Filter<RenderJob>;
+  return transition(
+    prepared,
+    'READY_FOR_FINALIZATION',
+    'FINALIZING',
+    {
+      'chapterOrchestration.state': 'FINALIZING',
+      'chapterOrchestration.finalizingAt': prepared.now,
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.progress === 1
+      && orchestration.completedChapterCount === identity.chapterCount
+      && hasChapterOutput(orchestration.aggregateOutput),
+    readyConditions,
+  );
+}
+
+export async function completeChapterParentOrchestrationV1(
+  input: CommonInput & { chapterCount: number; chapterLayoutManifestHash: string },
+): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  if (!identity) return notCurrent('INPUT_INVALID');
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  const finalizingConditions = {
+    ...chapterLayoutManifestFilter(identity),
+    'chapterOrchestration.completedChapterCount': identity.chapterCount,
+    'chapterOrchestration.progress': 1,
+    'chapterOrchestration.aggregateOutput.url': { $regex: /^https:\/\// },
+    'chapterOrchestration.aggregateOutput.sizeBytes': { $gt: 0 },
+  } as Filter<RenderJob>;
+  return transition(
+    prepared,
+    'FINALIZING',
+    'COMPLETED',
+    {
+      'chapterOrchestration.state': 'COMPLETED',
+      'chapterOrchestration.completedAt': prepared.now,
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.progress === 1
+      && orchestration.completedChapterCount === identity.chapterCount
+      && hasChapterOutput(orchestration.aggregateOutput),
+    finalizingConditions,
+  );
+}
+
+export async function failChapterParentOrchestrationV1(input: CommonInput & {
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+  error: unknown;
+  aggregateOutput?: unknown;
+}): Promise<ChapterParentOrchestrationMutationResultV1> {
+  const identity = parseChapterLayoutManifestIdentity(input);
+  if (!identity) return notCurrent('INPUT_INVALID');
+  const aggregateOutput = input.aggregateOutput === undefined
+    ? undefined
+    : parseChapterOutput(input.aggregateOutput);
+  if (aggregateOutput === null) return notCurrent('INPUT_INVALID');
+  const prepared = await prepareInput(input);
+  if ('ok' in prepared) return prepared;
+  const message = boundedMessage(input.error);
+  const failureConditions = aggregateOutput === undefined
+    ? {
+        ...chapterLayoutManifestFilter(identity),
+        $or: [
+          {
+            'chapterOrchestration.state': { $in: ['RUNNING', 'CONCATENATING'] },
+            'chapterOrchestration.aggregateOutput': { $exists: false },
+          },
+          {
+            'chapterOrchestration.state': { $in: ['READY_FOR_FINALIZATION', 'FINALIZING'] },
+            'chapterOrchestration.completedChapterCount': identity.chapterCount,
+            'chapterOrchestration.progress': 1,
+            'chapterOrchestration.aggregateOutput.url': { $regex: /^https:\/\// },
+            'chapterOrchestration.aggregateOutput.sizeBytes': { $gt: 0 },
+          },
+        ],
+      } as Filter<RenderJob>
+    : {
+        ...chapterLayoutManifestFilter(identity),
+        'chapterOrchestration.state': { $in: ['READY_FOR_FINALIZATION', 'FINALIZING'] },
+        'chapterOrchestration.completedChapterCount': identity.chapterCount,
+        'chapterOrchestration.progress': 1,
+        'chapterOrchestration.aggregateOutput.url': aggregateOutput.url,
+        'chapterOrchestration.aggregateOutput.sizeBytes': aggregateOutput.sizeBytes,
+      } as Filter<RenderJob>;
+  return transition(
+    prepared,
+    POST_STARTING_ACTIVE_STATES,
+    'FAILED',
+    {
+      'chapterOrchestration.state': 'FAILED',
+      'chapterOrchestration.failedAt': prepared.now,
+      'chapterOrchestration.failure': {
+        code: 'CHAPTER_ORCHESTRATION_FAILED',
+        message,
+      },
+    },
+    (orchestration) => sameChapterLayoutManifest(orchestration, identity)
+      && orchestration.failure?.code === 'CHAPTER_ORCHESTRATION_FAILED'
+      && orchestration.failure.message === message
+      && (aggregateOutput === undefined
+        ? orchestration.aggregateOutput === undefined || hasChapterOutput(orchestration.aggregateOutput)
+        : sameChapterOutput(orchestration.aggregateOutput, aggregateOutput)),
+    failureConditions,
   );
 }
 
 export async function quarantineChapterParentOrchestrationV1(input: CommonInput & {
   error: unknown;
+  chapterCount?: number;
+  chapterLayoutManifestHash?: string;
+  aggregateOutput?: unknown;
 }): Promise<ChapterParentOrchestrationMutationResultV1> {
+  if (input.chapterCount !== undefined || input.chapterLayoutManifestHash !== undefined) {
+    if (input.chapterCount === undefined || input.chapterLayoutManifestHash === undefined) {
+      return notCurrent('INPUT_INVALID');
+    }
+    return failChapterParentOrchestrationV1({
+      ...input,
+      chapterCount: input.chapterCount,
+      chapterLayoutManifestHash: input.chapterLayoutManifestHash,
+    });
+  }
+  if (input.aggregateOutput !== undefined) return notCurrent('INPUT_INVALID');
   const prepared = await prepareInput(input);
   if ('ok' in prepared) return prepared;
   const message = boundedMessage(input.error);
