@@ -188,6 +188,9 @@ function createFixture(childCount: 1 | 2): MaterializerFixture {
     userId: REQUESTER_ID,
     ownerId: OWNER_ID,
     status: "completed",
+    artifactLifecycleVersion: 1,
+    artifactState: "ACTIVE",
+    retentionState: "RETAINED",
     chapters: children,
     projectRenderSnapshotBinding: binding,
     ...(target
@@ -222,6 +225,11 @@ function createFixture(childCount: 1 | 2): MaterializerFixture {
       chapterUpdates.push({ filter, update });
       const materialization = update.$set?.cleanupMaterialization;
       if (materialization !== undefined) chapter.cleanupMaterialization = clone(materialization);
+      if (update.$set?.artifactState !== undefined) chapter.artifactState = update.$set.artifactState;
+      if (update.$set?.retentionState !== undefined) chapter.retentionState = update.$set.retentionState;
+      if (update.$set?.artifactInvalidatedAt !== undefined) {
+        chapter.artifactInvalidatedAt = clone(update.$set.artifactInvalidatedAt);
+      }
       return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
     }),
   };
@@ -356,6 +364,12 @@ describe("chapter render cleanup materializer V1", () => {
       concatOutboxId: result.concatOutboxId,
       materializedAt: FIRST_MATERIALIZED_AT,
     });
+    expect(fixture.chapter).toMatchObject({
+      artifactLifecycleVersion: 1,
+      artifactState: "STALE",
+      retentionState: "CLEANUP_PENDING",
+      artifactInvalidatedAt: FIRST_MATERIALIZED_AT,
+    });
   });
 
   it("materializes one child without creating a concat cleanup outbox", async () => {
@@ -470,5 +484,19 @@ describe("chapter render cleanup materializer V1", () => {
       expect(fixture.parentUpdates, testCase.name).toHaveLength(0);
       expect(fixture.chapter.cleanupMaterialization, testCase.name).toBeUndefined();
     }
+  });
+
+  it("fails closed when a legacy chapter row has no explicit lifecycle", async () => {
+    const fixture = createFixture(1);
+    delete fixture.chapter.artifactLifecycleVersion;
+    delete fixture.chapter.artifactState;
+    delete fixture.chapter.retentionState;
+
+    await expect(materialize(fixture)).rejects.toThrow(
+      "CHAPTER_RENDER_CLEANUP_CHAPTER_LIFECYCLE_MIGRATION_REQUIRED",
+    );
+    expect(fixture.childUpdates).toHaveLength(0);
+    expect(fixture.concatUpdates).toHaveLength(0);
+    expect(fixture.chapterUpdates).toHaveLength(0);
   });
 });

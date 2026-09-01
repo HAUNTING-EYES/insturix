@@ -164,6 +164,13 @@ interface ChapterRenderJob {
   };
   concatStatus?: 'queued' | 'running' | 'done' | 'failed';
   concatError?: string;
+  /** Explicit lifecycle fence; rows without it require the legacy migration owner. */
+  artifactLifecycleVersion: 1;
+  /** Transient chapter outputs may be mutated only while this row is active. */
+  artifactState: 'ACTIVE' | 'STALE';
+  /** Cleanup must finish before the later retention owner may delete this row. */
+  retentionState: 'RETAINED' | 'CLEANUP_PENDING';
+  artifactInvalidatedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
   /** Plan-based auto-expiry (base 7d / mid 30d / top 90d). A TTL index on this field deletes the job. */
@@ -1348,6 +1355,9 @@ export async function startChapterRender(
     ...(projectRenderSnapshotBinding && options?.chapterWebhook
       ? { chapterWebhookUrl: options.chapterWebhook.url }
       : {}),
+    artifactLifecycleVersion: 1,
+    artifactState: 'ACTIVE',
+    retentionState: 'RETAINED',
     createdAt,
     updatedAt: createdAt,
     expiresAt: renderChapterExpiresAt(createdAt, planType),

@@ -80,6 +80,9 @@ function callbackParent() {
     dispatch,
     row: {
       _id: PARENT_ADMISSION_ID,
+      artifactLifecycleVersion: 1,
+      artifactState: "ACTIVE",
+      retentionState: "RETAINED",
       projectRenderSnapshotBinding: binding,
       chapters: [{
         index: 0,
@@ -338,11 +341,48 @@ describe("chapter child dispatch ledger v1", () => {
     expect(updateOne).toHaveBeenCalledTimes(2);
     const terminalFilter = updateOne.mock.calls[1]![0];
     expect(terminalFilter).toMatchObject({
+      artifactLifecycleVersion: 1,
+      artifactState: "ACTIVE",
+      retentionState: "RETAINED",
+      artifactInvalidatedAt: { $exists: false },
+      cleanupMaterialization: { $exists: false },
       "projectRenderSnapshotBinding.ownerId": OWNER_ID,
       "projectRenderSnapshotBinding.projectId": PROJECT_ID,
       "projectRenderSnapshotBinding.projectRevision.value": PROJECT_REVISION.value,
       "projectRenderSnapshotBinding.bindingHash": fixture.binding.bindingHash,
     });
+  });
+
+  it("rejects callbacks after cleanup invalidates the chapter row", async () => {
+    const fixture = callbackParent();
+    fixture.row.artifactState = "STALE";
+    fixture.row.retentionState = "CLEANUP_PENDING";
+    fixture.row.artifactInvalidatedAt = new Date("2026-09-01T00:00:04.000Z");
+    fixture.row.cleanupMaterialization = { schemaVersion: 1 };
+    const projectRevisionReader = vi.fn();
+    const updateOne = vi.fn();
+
+    const result = await reconcileChapterChildTerminalCallbackV1({
+      parentAdmissionId: PARENT_ADMISSION_ID,
+      childIndex: 0,
+      bindingHash: fixture.binding.bindingHash,
+      attemptToken: fixture.dispatch.attemptToken,
+      ...PROVIDER_TUPLE,
+      event: { type: "error", error: "late provider callback" },
+      projectRevisionReader,
+      collection: {
+        findOne: vi.fn().mockResolvedValue(fixture.row),
+        updateOne,
+      } as any,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: "REJECTED",
+      reason: "CHAPTER_CHILD_CALLBACK_ARTIFACT_NOT_ACTIVE",
+    });
+    expect(projectRevisionReader).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a stale callback before binding provider evidence", async () => {

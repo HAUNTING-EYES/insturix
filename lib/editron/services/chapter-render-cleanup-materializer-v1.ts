@@ -73,6 +73,10 @@ export type ChapterRenderCleanupChapterDocumentV1 = {
   projectRenderSnapshotBinding?: unknown;
   concatTarget?: unknown;
   concatResult?: unknown;
+  artifactLifecycleVersion?: unknown;
+  artifactState?: unknown;
+  retentionState?: unknown;
+  artifactInvalidatedAt?: unknown;
   cleanupMaterialization?: ChapterRenderCleanupMaterializationRecordV1;
   outputUrl?: unknown;
 };
@@ -687,6 +691,23 @@ export async function materializeChapterRenderCleanupV1(
   if (chapterJob._id !== binding.artifactId) fail("PARENT_ADMISSION_MISMATCH");
   const children = parseChildren(chapterJob.chapters, authorization.jobId);
   const existing = chapterJob.cleanupMaterialization;
+  if (existing) {
+    if (
+      chapterJob.artifactLifecycleVersion !== 1
+      || chapterJob.artifactState !== "STALE"
+      || chapterJob.retentionState !== "CLEANUP_PENDING"
+      || !validDate(chapterJob.artifactInvalidatedAt)
+    ) {
+      fail("MATERIALIZATION_LIFECYCLE_INVALID");
+    }
+  } else if (
+    chapterJob.artifactLifecycleVersion !== 1
+    || chapterJob.artifactState !== "ACTIVE"
+    || chapterJob.retentionState !== "RETAINED"
+    || chapterJob.artifactInvalidatedAt !== undefined
+  ) {
+    fail("CHAPTER_LIFECYCLE_MIGRATION_REQUIRED");
+  }
   let materializationAt = now;
   if (existing) {
     if (
@@ -845,6 +866,10 @@ export async function materializeChapterRenderCleanupV1(
       {
         _id: authorization.jobId,
         "projectRenderSnapshotBinding.bindingHash": authorization.bindingHash,
+        artifactLifecycleVersion: 1,
+        artifactState: "ACTIVE",
+        retentionState: "RETAINED",
+        artifactInvalidatedAt: { $exists: false },
         cleanupMaterialization: { $exists: false },
       },
       {
@@ -856,6 +881,9 @@ export async function materializeChapterRenderCleanupV1(
             ...(concatOutboxId ? { concatOutboxId } : {}),
             materializedAt: materializationAt,
           },
+          artifactState: "STALE",
+          retentionState: "CLEANUP_PENDING",
+          artifactInvalidatedAt: materializationAt,
         },
       },
       { session: input.session },
@@ -867,6 +895,10 @@ export async function materializeChapterRenderCleanupV1(
       );
       if (
         !latest?.cleanupMaterialization
+        || latest.artifactLifecycleVersion !== 1
+        || latest.artifactState !== "STALE"
+        || latest.retentionState !== "CLEANUP_PENDING"
+        || !validDate(latest.artifactInvalidatedAt)
         || !Array.isArray(latest.cleanupMaterialization.childOutboxIds)
       ) fail("MATERIALIZATION_LINK_UNPROVED");
       if (

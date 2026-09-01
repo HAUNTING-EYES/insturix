@@ -486,6 +486,11 @@ function parentBindingFilter(
 ): Record<string, unknown> {
   return {
     _id: parentAdmissionId,
+    artifactLifecycleVersion: 1,
+    artifactState: "ACTIVE",
+    retentionState: "RETAINED",
+    artifactInvalidatedAt: { $exists: false },
+    cleanupMaterialization: { $exists: false },
     "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
     "projectRenderSnapshotBinding.artifactId": parentAdmissionId,
     "projectRenderSnapshotBinding.ownerId": binding.ownerId,
@@ -1138,6 +1143,15 @@ export async function reconcileChapterChildTerminalCallbackV1(input: {
     return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PARENT_NOT_FOUND");
   }
   const storedRecord = stored as Record<string, unknown>;
+  if (
+    storedRecord.artifactLifecycleVersion !== 1
+    || storedRecord.artifactState !== "ACTIVE"
+    || storedRecord.retentionState !== "RETAINED"
+    || storedRecord.artifactInvalidatedAt !== undefined
+    || storedRecord.cleanupMaterialization !== undefined
+  ) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_ARTIFACT_NOT_ACTIVE");
+  }
   const binding = bindingForParent(
     storedRecord.projectRenderSnapshotBinding,
     parentAdmissionId,
