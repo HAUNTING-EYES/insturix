@@ -8775,20 +8775,6 @@ export class ProjectService {
   }
 
   /**
-   * Fail-closed compatibility tombstone for test doubles that have not yet
-   * migrated to `addOverlayAtRevisionV1`. It is not a mutation path.
-   */
-  async addOverlay(
-    _userId: string,
-    _projectId: string,
-    _overlay: Overlay,
-  ): Promise<void> {
-    throw new ProjectMutationWriteError(
-      "ProjectService.addOverlay is retired; supply an expected revision through addOverlayAtRevisionV1.",
-    );
-  }
-
-  /**
    * Attach one stable overlay identity only if the project is still at the
    * caller's snapshot revision. A repeat delivery of the same command returns
    * without a second write or a manufactured receipt.

@@ -365,7 +365,10 @@ describe('chat speech and caption tool contracts', () => {
     });
     const replace = vi.spyOn(projectService, 'replaceOverlayFamilyAtomic').mockResolvedValue(true);
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {},
+      timelineChangeReceipt: {},
+    } as any);
 
     const result = parseEnvelope(await toolNamed('refresh_captions').invoke({
       captionOverlayId: 31,

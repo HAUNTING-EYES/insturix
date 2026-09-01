@@ -375,7 +375,10 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 200,
       headers: { 'content-type': 'audio/wav' },
     })));
-    const addOverlay = vi.spyOn(projectService, 'addOverlay').mockResolvedValue(undefined as any);
+    const addOverlay = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {},
+      timelineChangeReceipt: {},
+    } as any);
 
     const result = parseResult(await toolNamed('add_sfx').invoke({
       query: 'directional paper whoosh',
@@ -436,13 +439,17 @@ describe('chat provider and user-asset tool contracts', () => {
       'user_provider_asset',
       'proj_provider_asset',
       expect.objectContaining({
-        assetId: generatedAssetId,
-        content: 'https://cdn.example.com/chat-sfx.wav',
-        src: 'https://cdn.example.com/chat-sfx.wav',
-        audioRights,
-        metadata: expect.objectContaining({
-          source: 'chat-add-sfx',
-          provider: 'cassetteai',
+        actorKind: 'AGENT',
+        expectedRevision: expect.objectContaining({ value: 0 }),
+        overlay: expect.objectContaining({
+          assetId: generatedAssetId,
+          content: 'https://cdn.example.com/chat-sfx.wav',
+          src: 'https://cdn.example.com/chat-sfx.wav',
+          audioRights,
+          metadata: expect.objectContaining({
+            source: 'chat-add-sfx',
+            provider: 'cassetteai',
+          }),
         }),
       }),
     );
@@ -483,7 +490,10 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 200,
       headers: { 'content-type': 'audio/wav' },
     })));
-    vi.spyOn(projectService, 'addOverlay').mockResolvedValue(undefined as any);
+    vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {},
+      timelineChangeReceipt: {},
+    } as any);
 
     const result = parseResult(await toolNamed('add_sfx').invoke({
       query: 'subtle textile movement',

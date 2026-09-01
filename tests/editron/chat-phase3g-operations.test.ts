@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   generateBackgroundMusic: vi.fn(),
   mediaAssetUpdateOne: vi.fn(),
   modelInvoke: vi.fn(),
+  projectFindOne: vi.fn(),
   projectUpdateOne: vi.fn(),
 }));
 
@@ -45,6 +46,7 @@ vi.mock('@/lib/editron/db/mongodb', async (importOriginal) => {
     ...actual,
     getDatabase: vi.fn(async () => ({
       collection: vi.fn((name: string) => ({
+        findOne: mocks.projectFindOne,
         updateOne: name === 'projects' ? mocks.projectUpdateOne : mocks.mediaAssetUpdateOne,
       })),
     })),
@@ -169,6 +171,7 @@ describe('chat Phase 3G operation contracts', () => {
     mocks.generateBackgroundMusic.mockReset();
     mocks.mediaAssetUpdateOne.mockReset().mockResolvedValue({ acknowledged: true, upsertedCount: 1 });
     mocks.modelInvoke.mockReset();
+    mocks.projectFindOne.mockReset().mockResolvedValue({ ...BASE_PROJECT, projectRevision: 0 });
     mocks.projectUpdateOne.mockReset().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   });
 
@@ -315,7 +318,9 @@ describe('chat Phase 3G operation contracts', () => {
         ...BASE_PROJECT,
         overlays: [{ ...scene, content: (update.mock.calls[0]![3] as any).content }],
       }) as any);
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {}, timelineChangeReceipt: {},
+    } as any);
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
     mocks.modelInvoke.mockResolvedValue({
       content: '<div style="color:#FFD166;font-family:Inter">Revised headline</div>',
@@ -387,7 +392,9 @@ describe('chat Phase 3G operation contracts', () => {
       overlays: [currentBgm],
     } as any);
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {}, timelineChangeReceipt: {},
+    } as any);
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
     mocks.generateBackgroundMusic.mockRejectedValue(new Error('provider unavailable'));
 
@@ -419,7 +426,9 @@ describe('chat Phase 3G operation contracts', () => {
       overlays: [currentBgm],
     } as any);
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {}, timelineChangeReceipt: {},
+    } as any);
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
     mocks.generateBackgroundMusic.mockResolvedValue({
       audioUrl: 'https://cdn.example.com/unconditioned.mp3',
@@ -462,7 +471,9 @@ describe('chat Phase 3G operation contracts', () => {
         }],
       } as any);
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
-    vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {}, timelineChangeReceipt: {},
+    } as any);
     vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
     mocks.generateBackgroundMusic.mockResolvedValue(conditionedBgmResult('bgm_r2', {
       gcsPath: null, // R2-primary shape — must NOT be rejected
@@ -534,7 +545,9 @@ describe('chat Phase 3G operation contracts', () => {
         ],
       } as any);
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
-    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
+      mutationReceipt: {}, timelineChangeReceipt: {},
+    } as any);
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
     mocks.generateBackgroundMusic.mockResolvedValue(conditionedBgmResult('bgm_new', {
       platform: 'tiktok',
@@ -599,6 +612,10 @@ describe('chat Phase 3G operation contracts', () => {
     expect(mocks.projectUpdateOne.mock.calls[0][0]).toEqual({
       projectId: 'proj_phase3g',
       userId: 'user_1',
+      $or: [
+        { projectRevision: 0 },
+        { projectRevision: { $exists: false } },
+      ],
       updatedAt: BASE_PROJECT.updatedAt,
     });
     const projectMutation = mocks.projectUpdateOne.mock.calls[0][1];

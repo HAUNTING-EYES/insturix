@@ -121,9 +121,31 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(overlay, structuredClone(patch));
     },
   );
-  const addOverlay = vi.spyOn(projectService, 'addOverlay').mockImplementation(
-    async (_userId, _projectId, overlay) => {
-      project.overlays.push(structuredClone(overlay) as Record<string, any>);
+  const addOverlay = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.overlays.push(structuredClone(command.overlay) as Record<string, any>);
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
   const deleteOverlay = vi.spyOn(projectService, 'deleteOverlay').mockImplementation(
