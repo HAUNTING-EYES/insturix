@@ -1503,6 +1503,7 @@ export type ProjectBatchAutoEditLifecycleEventV1 =
 export interface ProjectBatchAutoEditLifecycleCommandV1 {
   expectedRevision: ProjectRevisionV1;
   uploadBatchId: string;
+  transitionId: string;
   event: ProjectBatchAutoEditLifecycleEventV1;
 }
 
@@ -7779,6 +7780,7 @@ export class ProjectService {
     const committedAt = new Date();
     const transition = batchAutoEditLifecycleUpdateV1(
       input.uploadBatchId,
+      input.transitionId,
       currentStatus,
       input.event,
       committedAt,
@@ -13528,8 +13530,13 @@ function assertProjectBatchAutoEditLifecycleCommandV1(
   input: ProjectBatchAutoEditLifecycleCommandV1,
 ): void {
   assertProjectRevision(input.expectedRevision);
-  if (!isBoundedNonEmptyStringV1(input.uploadBatchId, 256)) {
-    throw new ProjectMutationWriteError("Batch auto-edit lifecycle requires an upload-batch identity.");
+  if (
+    !isBoundedNonEmptyStringV1(input.uploadBatchId, 256)
+    || !isBoundedNonEmptyStringV1(input.transitionId, 256)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Batch auto-edit lifecycle requires upload-batch and transition identities.",
+    );
   }
   if (input.event.kind === "COVERAGE_RESUME_STARTED") {
     if (
@@ -13597,6 +13604,7 @@ function batchAutoEditLifecycleEligibleStatusesV1(
 
 function batchAutoEditLifecycleUpdateV1(
   uploadBatchId: string,
+  transitionId: string,
   previousStatus: string,
   event: ProjectBatchAutoEditLifecycleEventV1,
   committedAt: Date,
@@ -13607,6 +13615,7 @@ function batchAutoEditLifecycleUpdateV1(
   const audit = {
     schemaVersion: 1,
     uploadBatchId,
+    transitionId,
     event: event.kind,
     previousStatus,
     committedAt: committedAt.toISOString(),

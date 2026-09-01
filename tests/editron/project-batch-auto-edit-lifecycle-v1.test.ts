@@ -29,6 +29,7 @@ vi.mock("@/lib/shared/project-links", () => ({ removeProjectFromLinks: vi.fn() }
 const USER_ID = "user_batch_lifecycle";
 const PROJECT_ID = "proj_batch_lifecycle";
 const BATCH_ID = "batch_lifecycle";
+const TRANSITION_ID = "batch_lifecycle_transition_1";
 const UPDATED_AT = "2026-09-01T12:00:00.000Z";
 const REVISION = {
   schemaVersion: 1 as const,
@@ -75,6 +76,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
         projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
           expectedRevision: REVISION,
           uploadBatchId: BATCH_ID,
+          transitionId: TRANSITION_ID,
           event: {
             kind: "COVERAGE_RESUME_STARTED",
             sourceAssetIds: ["asset_a", "asset_b"],
@@ -111,6 +113,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
             "intelligence.batchAutoEditLifecycle": expect.objectContaining({
               event: "COVERAGE_RESUME_STARTED",
               previousStatus: "needs_input",
+              transitionId: TRANSITION_ID,
             }),
           }),
           $unset: {
@@ -139,6 +142,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     const result = await projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
+      transitionId: TRANSITION_ID,
       event: { kind, errorMessage: "terminal fixture" },
     });
 
@@ -164,6 +168,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     const result = await projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
+      transitionId: TRANSITION_ID,
       event: {
         kind: "PRE_DIRECTOR_REFUND_RECORDED",
         creditTransactionId: "credit_tx_exact",
@@ -199,6 +204,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
       projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
         expectedRevision: REVISION,
         uploadBatchId: BATCH_ID,
+        transitionId: TRANSITION_ID,
         event: { kind: "ORCHESTRATION_FAILED", errorMessage: "failure" },
       })
     ));
@@ -219,6 +225,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     await expect(projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
+      transitionId: TRANSITION_ID,
       event: { kind: "ORCHESTRATION_FAILED", errorMessage: "failure" },
     })).resolves.toMatchObject({ disposition: "PROJECT_STATE_CHANGED", currentRevision: { value: 8 } });
     expect(persistence.updateOne).not.toHaveBeenCalled();
@@ -226,6 +233,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     await expect(projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
+      transitionId: TRANSITION_ID,
       event: { kind: "ORCHESTRATION_FAILED", errorMessage: "failure" },
     })).resolves.toMatchObject({ disposition: "PROJECT_STATE_CHANGED", currentRevision: { value: 8 } });
     expect(persistence.updateOne).toHaveBeenCalledOnce();
@@ -239,6 +247,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     await expect(projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
+      transitionId: TRANSITION_ID,
       event: {
         kind: "COVERAGE_RESUME_STARTED",
         sourceAssetIds: ["asset_a", "asset_a"],
