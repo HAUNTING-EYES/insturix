@@ -2667,6 +2667,7 @@ export class ProjectService {
       expectedRevision?: ProjectRevisionV1;
       overlayAuthority?: OverlaySaveAuthority;
       projectUpdates?: Record<string, unknown>;
+      projectUnsets?: readonly string[];
       directorLeaseId?: string;
     } = {},
   ): Promise<ProjectMutationReceiptV1> {
@@ -2677,6 +2678,7 @@ export class ProjectService {
       expectedRevision: options.expectedRevision,
       overlayAuthority: options.overlayAuthority ?? "server",
       projectUpdates: options.projectUpdates,
+      projectUnsets: options.projectUnsets,
       directorLeaseId: options.directorLeaseId,
       mode: "manual",
     });
@@ -8122,6 +8124,7 @@ export class ProjectService {
     expectedRevision?: ProjectRevisionV1;
     overlayAuthority: OverlaySaveAuthority;
     projectUpdates?: Record<string, unknown>;
+    projectUnsets?: readonly string[];
     directorLeaseId?: string;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
@@ -8131,7 +8134,10 @@ export class ProjectService {
       input.state.markers,
       input.state.durationInFrames,
     );
-    assertGenericProjectUpdateFields(input.projectUpdates ?? {}, []);
+    assertGenericProjectUpdateFields(
+      input.projectUpdates ?? {},
+      [...(input.projectUnsets ?? [])],
+    );
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
     const dimensions = validDimensions(input.state.playerDimensions)
       ? input.state.playerDimensions
@@ -8221,7 +8227,9 @@ export class ProjectService {
       },
       $inc: { projectRevision: 1 },
     };
-    const unsetFields: Record<string, ""> = {};
+    const unsetFields = Object.fromEntries(
+      (input.projectUnsets ?? []).map((field) => [field, ""]),
+    ) as Record<string, "">;
     if (input.mode === "autosave" && lock.directorLock === true) {
       unsetFields.directorLock = "";
       unsetFields.directorLockAt = "";
@@ -13347,6 +13355,16 @@ function assertGenericProjectUpdateFields(
 ): void {
   assertCheckpointRestoreFields(setFields, unsetFields);
   const fields = [...Object.keys(setFields), ...unsetFields];
+  if (fields.some((field) => (
+    typeof field !== "string"
+    || field.length === 0
+    || field.length > 500
+    || field.trim() !== field
+    || field.startsWith("$")
+    || field.includes("\0")
+  ))) {
+    throw new ProjectMutationWriteError("Project metadata field path is invalid.");
+  }
   if (fields.some((field) =>
     field === "generatedCompositions"
     || field.startsWith("generatedCompositions."))) {

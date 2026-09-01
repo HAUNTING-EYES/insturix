@@ -759,6 +759,22 @@ describe('from-batch storyline route handoff', () => {
       projectRevision: 2,
       updatedAt: new Date('2026-09-01T00:00:01.000Z'),
     });
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 15,
+      },
+      revision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+    });
 
     const response = await POST(request({
       uploadBatchId: 'batch_1',
@@ -776,8 +792,9 @@ describe('from-batch storyline route handoff', () => {
     }));
 
     // Zero-edit invariant: both assets laid down in uploadedAt order, video untrimmed at full 8s.
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    const overlays = mocks.saveProject.mock.calls[0][2].overlays as Array<Record<string, unknown>>;
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    const overlays = mocks.saveProjectWithReceipt.mock.calls[0][2].overlays as Array<Record<string, unknown>>;
     expect(overlays.map((o) => o.assetId)).toEqual(['video_1', 'image_1']);
     expect(overlays[0]).toMatchObject({ type: 'video', sourceStartFrame: 0, videoStartTime: 0, durationInFrames: 240 });
 
@@ -787,26 +804,23 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.synthesizeImageScenes).not.toHaveBeenCalled();
     expect(mocks.embedScenes).not.toHaveBeenCalled();
 
-    // Hydration wrote the project-level evidence fields chat grounds in + the lane status.
-    // Filter carries the cancel-wins guard: a cancelled project is never resurrected.
+    // Hydration, timeline and ready status share one revision-bound ProjectService write.
     expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledOnce();
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: 'proj_batch_1',
-        userId: 'user_1',
-        editMode: 'assist',
-        assistCreditTransactionId: 'credit_tx_1',
-      }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      expectedRevision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+      overlayAuthority: 'server',
+      projectUpdates: expect.objectContaining({
           autoEditStatus: 'ready_for_chat',
           assistDegradedAssetIds: [],
           rawFootageAnalysis: expect.anything(),
           segmentAnalysis: expect.anything(),
           multiAssetDirectorContext: expect.anything(),
-        }),
       }),
-    );
+      projectUnsets: expect.arrayContaining(['autoEditError', 'autoEditFailedAt']),
+    }));
+    expect(mocks.updateProject.mock.calls.some(([, update]) => (
+      update?.$set?.autoEditStatus === 'ready_for_chat'
+    ))).toBe(false);
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       expect.objectContaining({ uploadBatchId: 'batch_1' }),
       expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'assist_ready' }) }),
@@ -840,12 +854,28 @@ describe('from-batch storyline route handoff', () => {
         editMode: 'assist',
         autoEditStatus: 'composing',
         assistCreditTransactionId: 'credit_tx_1',
-        assistChargedCredits: 10,
+        assistChargedCredits: 15,
         userId: 'user_1',
         projectRevision: 4,
         updatedAt: new Date('2026-09-01T00:00:03.000Z'),
       });
-    mocks.saveProject.mockRejectedValue(new Error('storage write exploded'));
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 15,
+      },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:03.000Z' },
+    });
+    mocks.saveProjectWithReceipt.mockRejectedValueOnce(new Error('storage write exploded'));
 
     await POST(request({
       uploadBatchId: 'batch_1',

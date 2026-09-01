@@ -1699,51 +1699,69 @@ export async function POST(request: NextRequest) {
         fps: FPS,
         durationInFrames: timeline.durationInFrames,
       });
-      await projectService.saveProject(userId, activeProjectId, {
-        overlays: timeline.overlays as any,
-        aspectRatio: brief.output.aspectRatio ?? '16:9',
-        playerDimensions: dims,
-        fps: FPS,
-        durationInFrames: timeline.durationInFrames,
-      });
       const degradedAssetIds = Array.from(new Set([
         ...excludedNoDurationAssetIds,
         ...hydration.degradedVideoAssetIds,
       ])).sort();
-      const readyWrite = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        {
-          projectId: activeProjectId,
-          userId,
-          editMode: 'assist',
-          assistCreditTransactionId: assistCharge.transactionId,
-          assistChargedCredits: assistCharge.chargedCredits,
-          autoEditStatus: { $nin: ['scan_failed', ASSIST_STATUS_READY, 'complete'] },
-        },
-        {
-          $set: {
-            ...hydration.set,
-            autoEditStatus: ASSIST_STATUS_READY,
-            assistDegradedAssetIds: degradedAssetIds,
-            updatedAt: new Date(),
-          },
-          ...(Object.keys(hydration.unset).length > 0 ? { $unset: hydration.unset } : {}),
-        },
-      );
-      if (readyWrite.matchedCount === 0) {
+      const assistProjectId = activeProjectId;
+      const registeredAssistCharge = assistCharge;
+      const settleLaydownCancellation = async () => {
         const settlement = await settleAssistScanFailure(db, {
-          projectId: activeProjectId,
+          projectId: assistProjectId,
           userId,
           reason: 'Director Mode scan cancelled during lay-down — full refund',
-          creditTransactionId: assistCharge.transactionId,
+          creditTransactionId: registeredAssistCharge.transactionId,
         });
-        console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${activeProjectId}).`);
+        console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${assistProjectId}).`);
         return NextResponse.json({
           success: true,
-          projectId: activeProjectId,
+          projectId: assistProjectId,
           status: 'scan_failed',
           cancelledDuringLaydown: true,
           refundPending: settlement !== 'refunded' && settlement !== 'unverifiable-run',
         });
+      };
+      const readySnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+      const readyProject = readySnapshot.project as unknown as Record<string, unknown>;
+      if (readyProject.autoEditStatus === 'scan_failed') {
+        return settleLaydownCancellation();
+      }
+      if (
+        !isAssistProject(readyProject)
+        || readyProject.assistCreditTransactionId !== assistCharge.transactionId
+        || readyProject.assistChargedCredits !== assistCharge.chargedCredits
+        || readyProject.autoEditStatus === ASSIST_STATUS_READY
+        || readyProject.autoEditStatus === 'complete'
+      ) {
+        throw new Error('Assist ready finalization lost its exact lane or charge ownership.');
+      }
+      try {
+        await projectService.saveProjectWithReceipt(userId, activeProjectId, {
+          overlays: timeline.overlays as any,
+          aspectRatio: brief.output.aspectRatio ?? '16:9',
+          playerDimensions: dims,
+          fps: FPS,
+          durationInFrames: timeline.durationInFrames,
+        }, {
+          expectedRevision: readySnapshot.revision,
+          overlayAuthority: 'server',
+          projectUpdates: {
+            ...hydration.set,
+            autoEditStatus: ASSIST_STATUS_READY,
+            assistDegradedAssetIds: degradedAssetIds,
+          },
+          projectUnsets: [
+            ...Object.keys(hydration.unset),
+            'autoEditError',
+            'autoEditFailedAt',
+          ],
+        });
+      } catch (readyError) {
+        const latest = await projectService.loadProjectForMutation(userId, activeProjectId);
+        if ((latest.project as unknown as Record<string, unknown>).autoEditStatus === 'scan_failed') {
+          return settleLaydownCancellation();
+        }
+        throw readyError;
       }
       assistReadyCommitted = true;
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(

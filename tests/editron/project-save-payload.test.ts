@@ -537,6 +537,56 @@ describe("Editron project save payload compaction", () => {
     );
   });
 
+  it("commits metadata clears with editor state under one revision predicate", async () => {
+    const updatedAt = "2026-09-01T04:00:00.000Z";
+    const currentProject = {
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      aspectRatio: "16:9" as const,
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 300,
+      updatedAt: new Date(updatedAt),
+      projectRevision: 9,
+    };
+    persistenceMocks.findOne.mockResolvedValue(currentProject);
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+    const state = {
+      overlays: [],
+      aspectRatio: "16:9" as const,
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 300,
+    };
+
+    await projectService.saveProjectWithReceipt("user_1", "proj_1", state, {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 9,
+        compatibilityUpdatedAt: updatedAt,
+      },
+      projectUpdates: { rawFootageAnalysis: { version: 1 } },
+      projectUnsets: ["segmentAnalysis", "autoEditError"],
+    });
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRevision: 9, updatedAt: new Date(updatedAt) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ rawFootageAnalysis: { version: 1 }, overlays: [] }),
+        $unset: { segmentAnalysis: "", autoEditError: "" },
+        $inc: { projectRevision: 1 },
+      }),
+    );
+
+    await expect(projectService.saveProjectWithReceipt("user_1", "proj_1", state, {
+      projectUpdates: { segmentAnalysis: {} },
+      projectUnsets: ["segmentAnalysis", "$where"],
+    })).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
   it("acquires a Director lease with the paired snapshot revision and a writer receipt", async () => {
     const acquiredAt = "2026-08-11T04:00:00.000Z";
     persistenceMocks.findOneAndUpdate.mockResolvedValueOnce({
