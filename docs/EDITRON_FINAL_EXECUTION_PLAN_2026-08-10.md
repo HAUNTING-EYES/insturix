@@ -15501,3 +15501,71 @@ Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
 Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
 chapter-path convergence, agency-class completion, deployed cleanup proof,
 successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3W checkpoint
+
+Commit `cd8060d5c` adds authenticated terminal evidence ingress for strict
+chapter children. Each child render now receives a Remotion webhook whose
+signed custom data binds the parent admission, child index, deterministic
+attempt token, project-snapshot binding hash and fixed region. The webhook
+route validates production mode, the configured Remotion signature and the
+installed provider payload contract before calling the child dispatch owner.
+The owner accepts only the exact child attempt and provider tuple, can bind a
+retained `ATTEMPTING`/`UNKNOWN` tuple, performs a fenced terminal CAS and makes
+an exact replay read-only. It cannot call the provider, charge/refund,
+rerender, enqueue concat or complete the parent aggregate.
+
+The installed Remotion 4.0.509 success callback contains the output URL but no
+byte-size field. Therefore a signed success without size now proves/binds only
+the provider tuple and returns `BOUND_AWAITING_OUTPUT_PROOF`; it does not mark
+the chapter complete or invent a size. The existing progress owner must still
+prove a positive `outputSizeInBytes` before terminal output identity is
+persisted. Provider-shaped structured errors, including frame/chunk/retry and
+diagnostic fields, are accepted under the strict installed contract. Forged,
+malformed, wrong-token, wrong-binding, wrong-tuple and conflicting-terminal
+callbacks fail closed.
+
+This closes signed child ingress, not parent orchestration. The parent render
+admission still carries the synthetic `(jobId, "chapter-render", region)` tuple
+and must be separated from genuine provider evidence. Live project revision
+and invalidation are still not rechecked throughout child polling and concat.
+
+## 2026-09-01 vertical-convergence Phase 3X checkpoint
+
+Commits `0a58f4dbb`, `4754b7ea4` and `700855538` add billing-only recovery for
+the Phase 3R `UNKNOWN` credit boundary. A read-only credit owner searches only
+the persisted user/organization wallet for one exact existing Editron render
+usage transaction bound to the idempotency key, task and actor. It never calls
+balance initialization, deduction or refund. Missing/evicted history remains
+unverifiable; duplicates, malformed entries, wrong task/actor/wallet and
+identity conflicts remain `UNKNOWN`.
+
+The render-job CAS changes only an exact current `UNKNOWN` admission to
+`RECORDED` while preserving `NOT_ATTEMPTED`. It rechecks the project revision,
+admission/binding, deterministic attempt/key, wallet, transaction and absence
+of provider identity. Exact replay and a proved concurrent winner are
+read-only. A bounded Bearer-`CRON_SECRET` sweep is registered every five
+minutes with a dedicated `billing_recovery_unknown_job_v1` query index. The
+sweep cannot dispatch, rerender, refund, charge, mutate project content or
+promote render success.
+
+The focused signed-ingress/billing/renderer closure passed 72/72 tests. The
+broader adjacent render, cleanup, concat, progress, finalization and recovery
+closure passed 153/153. Schedule/index proof passed 11/11. The full 8-GB
+TypeScript check, full `npx eslint . --quiet` and `git diff --check` passed on
+the final pushed code. No provider call, wallet mutation, refund, rerender,
+deletion, historical cohort run, model inference, project-content mutation or
+external spend occurred.
+
+Repo configuration now schedules billing recovery, but a live deployment and
+real ambiguous-wallet recovery receipt are not yet proved. The next bounded
+order is: (1) separate parent chapter orchestration from provider identity and
+exclude it from standard recovery, (2) add live revision/invalidation fences
+through child polling and concat, (3) recover concat publish/expired leases,
+(4) fence retention and post-invalidation writes, then (5) migration/backfill
+and deployed IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, live recovery proof,
+successor receipt or `GO` is claimed.
