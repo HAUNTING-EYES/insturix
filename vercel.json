@@ -41,6 +41,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/retire-editron-render-chapters",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/cron/recover-editron-render-dispatch",
       "schedule": "*/5 * * * *"
     },
