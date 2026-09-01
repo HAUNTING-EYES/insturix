@@ -66,4 +66,3 @@ export async function handleProjectRenderBillingRecoveryCronV1(
 export async function GET(request: Request): Promise<NextResponse> {
   return handleProjectRenderBillingRecoveryCronV1(request);
 }
-
