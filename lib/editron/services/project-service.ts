@@ -5044,12 +5044,44 @@ export class ProjectService {
   ): Promise<ProjectMutationReceiptV1> {
     assertProjectDirectorAuditFactCommandV1(input);
 
-    const targetPath = input.fact.kind === "UNIFIED_DECISION_BUNDLE"
-      ? "intelligence.unifiedDecisionBundle"
-      : "intelligence.postBundleProfileActionPolicy";
-    const bindingPath = input.fact.kind === "UNIFIED_DECISION_BUNDLE"
-      ? "intelligence.directorAuditFactBindings.unifiedDecisionBundle"
-      : "intelligence.directorAuditFactBindings.postBundleProfileActionPolicy";
+    const payload = structuredClone(input.fact.payload);
+    let bindingPath: string;
+    let factSet: Record<string, unknown>;
+    switch (input.fact.kind) {
+      case "UNIFIED_DECISION_BUNDLE":
+        bindingPath = "intelligence.directorAuditFactBindings.unifiedDecisionBundle";
+        factSet = { "intelligence.unifiedDecisionBundle": payload };
+        break;
+      case "POST_BUNDLE_PROFILE_ACTION_POLICY":
+        bindingPath = "intelligence.directorAuditFactBindings.postBundleProfileActionPolicy";
+        factSet = { "intelligence.postBundleProfileActionPolicy": payload };
+        break;
+      case "INTELLIGENCE_RUN_SUMMARY":
+        bindingPath = "intelligence.directorAuditFactBindings.intelligenceRunSummary";
+        factSet = {
+          "intelligence.directorRunSummary": payload,
+          "intelligence.status": payload.status,
+          "intelligence.assetsAnalyzed": payload.assetsAnalyzed,
+          "intelligence.assetsFailed": payload.assetsFailed,
+          "intelligence.failedAssets": structuredClone(payload.failedAssets),
+          "intelligence.decisionsGenerated": payload.decisionsGenerated,
+          "intelligence.decisionsExecuted": payload.decisionsExecuted,
+          "intelligence.cinematicMoments": payload.cinematicMoments,
+          "intelligence.lastRun": new Date(String(payload.completedAt)),
+        };
+        break;
+      case "INTELLIGENCE_SKIP_SUMMARY":
+        bindingPath = "intelligence.directorAuditFactBindings.intelligenceSkipSummary";
+        factSet = {
+          "intelligence.directorSkipSummary": payload,
+          "intelligence.status": payload.status,
+          "intelligence.reason": payload.reason,
+          "intelligence.failedAssets": structuredClone(payload.failedAssets),
+          "intelligence.lastAttempt": new Date(String(payload.attemptedAt)),
+          "intelligence.message": payload.message,
+        };
+        break;
+    }
     const db = await getDatabase();
     const committedAt = new Date();
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -5063,7 +5095,7 @@ export class ProjectService {
       },
       {
         $set: {
-          [targetPath]: structuredClone(input.fact.payload),
+          ...factSet,
           [bindingPath]: {
             schemaVersion: 1,
             kind: input.fact.kind,
@@ -10227,6 +10259,11 @@ function assertProjectDirectorAutoBgmDecisionCommandV1(
 function assertProjectDirectorAuditFactCommandV1(
   input: ProjectDirectorAuditFactCommandV1,
 ): void {
+  if (!isPlainRecord(input)) {
+    throw new ProjectMutationWriteError(
+      "Director audit fact must carry one exact revision and active lease.",
+    );
+  }
   try {
     assertDirectorAuditFactV1(input.fact);
   } catch {
@@ -10235,8 +10272,7 @@ function assertProjectDirectorAuditFactCommandV1(
     );
   }
   if (
-    !isPlainRecord(input)
-    || !input.expectedRevision
+    !input.expectedRevision
     || !isBoundedNonEmptyStringV1(input.directorLeaseId, 200)
   ) {
     throw new ProjectMutationWriteError(

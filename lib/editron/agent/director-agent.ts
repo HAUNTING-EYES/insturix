@@ -2317,24 +2317,31 @@ export async function executeDirectorPlan(
 
           console.log(`[Director] 5-Track complete: ${edlSummary.assetsAnalyzed}/${videoOverlays.length} analyzed, ${edlSummary.totalDecisions} decisions (${edlSummary.executed} executed), ${moments.length} cinematic moments`);
 
-          // Store intelligence status on project for UI
-          try {
-            const db2 = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-            await db2.collection('projects').updateOne(
-              { projectId },
-              { $set: {
-                'intelligence.status': edlSummary.assetsFailed > 0 ? 'partial' : 'complete',
-                'intelligence.assetsAnalyzed': edlSummary.assetsAnalyzed,
-                'intelligence.assetsFailed': edlSummary.assetsFailed,
-                'intelligence.failedAssets': edlSummary.failedAssets,
-                'intelligence.decisionsGenerated': edlSummary.totalDecisions,
-                'intelligence.decisionsExecuted': edlSummary.executed,
-                'intelligence.cinematicMoments': moments.length,
-                'intelligence.lastRun': new Date(),
-              }},
-            );
-          } catch (err: unknown) { console.warn('[Director] non-fatal intelligence persistence:', err instanceof Error ? err.message : err); }
+          await recordDirectorAuditFact(createDirectorAuditFactV1({
+            kind: 'INTELLIGENCE_RUN_SUMMARY',
+            payload: {
+              version: 'director-intelligence-run-summary-v1',
+              status: edlSummary.assetsFailed > 0 ? 'partial' : 'complete',
+              assetsAnalyzed: edlSummary.assetsAnalyzed,
+              assetsFailed: Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length),
+              failedAssets: edlSummary.failedAssets
+                .map((value) => String(value).trim().slice(0, 500))
+                .filter(Boolean)
+                .slice(0, 100),
+              decisionsGenerated: edlSummary.totalDecisions,
+              decisionsExecuted: edlSummary.executed,
+              cinematicMoments: moments.length,
+              completedAt: new Date().toISOString(),
+            },
+          }));
         } catch (edlErr: any) {
+          if (
+            edlErr instanceof ProjectMutationConflictError
+            || edlErr instanceof ProjectMutationWriteError
+            || edlErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
+            throw edlErr;
+          }
           console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
@@ -2354,20 +2361,21 @@ export async function executeDirectorPlan(
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
 
-        // Store partial state on project for UI to display
-        try {
-          const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          await db.collection('projects').updateOne(
-            { projectId },
-            { $set: {
-              'intelligence.status': 'skipped_edl',
-              'intelligence.reason': intelligenceReason,
-              'intelligence.failedAssets': edlSummary.failedAssets,
-              'intelligence.lastAttempt': new Date(),
-              'intelligence.message': failMsg,
-            }},
-          );
-        } catch (err: unknown) { console.warn('[Director] non-fatal intelligence failure persistence:', err instanceof Error ? err.message : err); }
+        await recordDirectorAuditFact(createDirectorAuditFactV1({
+          kind: 'INTELLIGENCE_SKIP_SUMMARY',
+          payload: {
+            version: 'director-intelligence-skip-summary-v1',
+            status: 'skipped_edl',
+            reason: intelligenceReason,
+            failedAssetCount: Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length),
+            failedAssets: edlSummary.failedAssets
+              .map((value) => String(value).trim().slice(0, 500))
+              .filter(Boolean)
+              .slice(0, 100),
+            message: `Intelligence EDL skipped: ${intelligenceReason}; ${Math.max(edlSummary.assetsFailed, edlSummary.failedAssets.length)} asset failure(s).`,
+            attemptedAt: new Date().toISOString(),
+          },
+        }));
       }
     }
 
@@ -3773,22 +3781,8 @@ async function executeAction(
           report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
         }
 
-        // Persist quality review to project doc — consumed by bandit reward feedback
-        // (video-analysis worker Step 7.1 reads qualityReview.overallScore)
-        try {
-          const qrDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          const persistedQualityReview = buildPersistedQualityReview(report);
-          await qrDb.collection('projects').updateOne(
-            { projectId },
-            {
-              $set: {
-                qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
-              },
-            },
-          );
-        } catch (err: unknown) {
-          console.warn('[Director] non-fatal quality review storage:', err instanceof Error ? err.message : err);
-        }
+        // The authoritative quality review is recomputed from persistableOverlays
+        // and committed with recordPhase0ProofFacts after the final editor save.
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);
       }

@@ -69,13 +69,48 @@ function policyPayload(): Record<string, unknown> {
   };
 }
 
+function runSummaryPayload(): Record<string, unknown> {
+  return {
+    version: "director-intelligence-run-summary-v1",
+    status: "partial",
+    assetsAnalyzed: 8,
+    assetsFailed: 2,
+    failedAssets: ["asset-7", "asset-8"],
+    decisionsGenerated: 12,
+    decisionsExecuted: 10,
+    cinematicMoments: 3,
+    completedAt: "2026-09-01T12:00:00.000Z",
+  };
+}
+
+function skipSummaryPayload(): Record<string, unknown> {
+  return {
+    version: "director-intelligence-skip-summary-v1",
+    status: "skipped_edl",
+    reason: "asset-analysis-unavailable",
+    failedAssetCount: 1,
+    failedAssets: ["asset-1"],
+    message: "Intelligence EDL skipped: asset-analysis-unavailable; 1 asset failure(s).",
+    attemptedAt: "2026-09-01T12:00:00.000Z",
+  };
+}
+
+function payloadFor(kind: DirectorAuditFactKindV1): Record<string, unknown> {
+  switch (kind) {
+    case "UNIFIED_DECISION_BUNDLE": return unifiedPayload();
+    case "POST_BUNDLE_PROFILE_ACTION_POLICY": return policyPayload();
+    case "INTELLIGENCE_RUN_SUMMARY": return runSummaryPayload();
+    case "INTELLIGENCE_SKIP_SUMMARY": return skipSummaryPayload();
+  }
+}
+
 function command(kind: DirectorAuditFactKindV1) {
   return {
     expectedRevision: EXPECTED_REVISION,
     directorLeaseId: "director_lease_audit_fact",
     fact: createDirectorAuditFactV1({
       kind,
-      payload: kind === "UNIFIED_DECISION_BUNDLE" ? unifiedPayload() : policyPayload(),
+      payload: payloadFor(kind),
     }),
   };
 }
@@ -110,16 +145,46 @@ describe("ProjectService Director audit facts V1", () => {
       kind: "UNIFIED_DECISION_BUNDLE" as const,
       targetPath: "intelligence.unifiedDecisionBundle",
       bindingPath: "intelligence.directorAuditFactBindings.unifiedDecisionBundle",
+      compatibility: {},
     },
     {
       kind: "POST_BUNDLE_PROFILE_ACTION_POLICY" as const,
       targetPath: "intelligence.postBundleProfileActionPolicy",
       bindingPath: "intelligence.directorAuditFactBindings.postBundleProfileActionPolicy",
+      compatibility: {},
+    },
+    {
+      kind: "INTELLIGENCE_RUN_SUMMARY" as const,
+      targetPath: "intelligence.directorRunSummary",
+      bindingPath: "intelligence.directorAuditFactBindings.intelligenceRunSummary",
+      compatibility: {
+        "intelligence.status": "partial",
+        "intelligence.assetsAnalyzed": 8,
+        "intelligence.assetsFailed": 2,
+        "intelligence.failedAssets": ["asset-7", "asset-8"],
+        "intelligence.decisionsGenerated": 12,
+        "intelligence.decisionsExecuted": 10,
+        "intelligence.cinematicMoments": 3,
+        "intelligence.lastRun": new Date("2026-09-01T12:00:00.000Z"),
+      },
+    },
+    {
+      kind: "INTELLIGENCE_SKIP_SUMMARY" as const,
+      targetPath: "intelligence.directorSkipSummary",
+      bindingPath: "intelligence.directorAuditFactBindings.intelligenceSkipSummary",
+      compatibility: {
+        "intelligence.status": "skipped_edl",
+        "intelligence.reason": "asset-analysis-unavailable",
+        "intelligence.failedAssets": ["asset-1"],
+        "intelligence.lastAttempt": new Date("2026-09-01T12:00:00.000Z"),
+        "intelligence.message": "Intelligence EDL skipped: asset-analysis-unavailable; 1 asset failure(s).",
+      },
     },
   ])("commits $kind through the exact Director lease and revision", async ({
     kind,
     targetPath,
     bindingPath,
+    compatibility,
   }) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T12:00:01.000Z"));
@@ -154,6 +219,7 @@ describe("ProjectService Director audit facts V1", () => {
         {
           $set: expect.objectContaining({
             [targetPath]: input.fact.payload,
+            ...compatibility,
             [bindingPath]: expect.objectContaining({
               schemaVersion: 1,
               kind,
@@ -215,6 +281,10 @@ describe("ProjectService Director audit facts V1", () => {
     expect(() => createDirectorAuditFactV1({
       kind: "UNIFIED_DECISION_BUNDLE",
       payload: cyclic,
+    })).toThrow("DIRECTOR_AUDIT_FACT_INVALID");
+    expect(() => createDirectorAuditFactV1({
+      kind: "INTELLIGENCE_RUN_SUMMARY",
+      payload: { ...runSummaryPayload(), assetsFailed: 0 },
     })).toThrow("DIRECTOR_AUDIT_FACT_INVALID");
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();

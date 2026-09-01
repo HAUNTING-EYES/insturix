@@ -5,7 +5,9 @@ const MAX_AUDIT_STRING_V1 = 8_000;
 
 export type DirectorAuditFactKindV1 =
   | "UNIFIED_DECISION_BUNDLE"
-  | "POST_BUNDLE_PROFILE_ACTION_POLICY";
+  | "POST_BUNDLE_PROFILE_ACTION_POLICY"
+  | "INTELLIGENCE_RUN_SUMMARY"
+  | "INTELLIGENCE_SKIP_SUMMARY";
 
 export type PostBundleProfileActionPolicySummaryV1 = {
   version: "post-bundle-profile-action-policy-v1";
@@ -19,6 +21,28 @@ export type PostBundleProfileActionPolicySummaryV1 = {
     action: string;
     reason: string;
   }>;
+};
+
+export type DirectorIntelligenceRunSummaryV1 = {
+  version: "director-intelligence-run-summary-v1";
+  status: "partial" | "complete";
+  assetsAnalyzed: number;
+  assetsFailed: number;
+  failedAssets: string[];
+  decisionsGenerated: number;
+  decisionsExecuted: number;
+  cinematicMoments: number;
+  completedAt: string;
+};
+
+export type DirectorIntelligenceSkipSummaryV1 = {
+  version: "director-intelligence-skip-summary-v1";
+  status: "skipped_edl";
+  reason: string;
+  failedAssetCount: number;
+  failedAssets: string[];
+  message: string;
+  attemptedAt: string;
 };
 
 export type DirectorAuditFactV1 = Readonly<{
@@ -47,8 +71,7 @@ export function assertDirectorAuditFactV1(fact: DirectorAuditFactV1): void {
   if (
     !isPlainRecord(fact)
     || fact.schemaVersion !== 1
-    || (fact.kind !== "UNIFIED_DECISION_BUNDLE"
-      && fact.kind !== "POST_BUNDLE_PROFILE_ACTION_POLICY")
+    || !isDirectorAuditFactKindV1(fact.kind)
     || !isPlainRecord(fact.payload)
     || !/^[a-f0-9]{64}$/.test(fact.payloadHash)
   ) {
@@ -69,11 +92,20 @@ function assertDirectorAuditPayloadV1(
     fail();
   }
   if (Buffer.byteLength(serialized, "utf8") > MAX_AUDIT_FACT_BYTES_V1) fail();
-  if (kind === "UNIFIED_DECISION_BUNDLE") {
-    assertUnifiedDecisionBundleSummaryV1(payload);
-    return;
+  switch (kind) {
+    case "UNIFIED_DECISION_BUNDLE":
+      assertUnifiedDecisionBundleSummaryV1(payload);
+      return;
+    case "POST_BUNDLE_PROFILE_ACTION_POLICY":
+      assertPostBundleProfileActionPolicyV1(payload);
+      return;
+    case "INTELLIGENCE_RUN_SUMMARY":
+      assertDirectorIntelligenceRunSummaryV1(payload);
+      return;
+    case "INTELLIGENCE_SKIP_SUMMARY":
+      assertDirectorIntelligenceSkipSummaryV1(payload);
+      return;
   }
-  assertPostBundleProfileActionPolicyV1(payload);
 }
 
 function assertUnifiedDecisionBundleSummaryV1(payload: Record<string, unknown>): void {
@@ -143,6 +175,72 @@ function assertPostBundleProfileActionPolicyV1(payload: Record<string, unknown>)
   ) {
     fail();
   }
+}
+
+function assertDirectorIntelligenceRunSummaryV1(payload: Record<string, unknown>): void {
+  assertExactKeys(payload, [
+    "version",
+    "status",
+    "assetsAnalyzed",
+    "assetsFailed",
+    "failedAssets",
+    "decisionsGenerated",
+    "decisionsExecuted",
+    "cinematicMoments",
+    "completedAt",
+  ]);
+  if (
+    payload.version !== "director-intelligence-run-summary-v1"
+    || (payload.status !== "partial" && payload.status !== "complete")
+    || !nonNegativeInteger(payload.assetsAnalyzed)
+    || !nonNegativeInteger(payload.assetsFailed)
+    || !boundedStringArray(payload.failedAssets, 100, 500)
+    || (payload.assetsFailed as number) < (payload.failedAssets as string[]).length
+    || !nonNegativeInteger(payload.decisionsGenerated)
+    || !nonNegativeInteger(payload.decisionsExecuted)
+    || (payload.decisionsExecuted as number) > (payload.decisionsGenerated as number)
+    || !nonNegativeInteger(payload.cinematicMoments)
+    || !isoDate(payload.completedAt)
+  ) {
+    fail();
+  }
+}
+
+function assertDirectorIntelligenceSkipSummaryV1(payload: Record<string, unknown>): void {
+  assertExactKeys(payload, [
+    "version",
+    "status",
+    "reason",
+    "failedAssetCount",
+    "failedAssets",
+    "message",
+    "attemptedAt",
+  ]);
+  if (
+    payload.version !== "director-intelligence-skip-summary-v1"
+    || payload.status !== "skipped_edl"
+    || !boundedString(payload.reason)
+    || !nonNegativeInteger(payload.failedAssetCount)
+    || !boundedStringArray(payload.failedAssets, 100, 500)
+    || (payload.failedAssetCount as number) < (payload.failedAssets as string[]).length
+    || !boundedString(payload.message)
+    || !isoDate(payload.attemptedAt)
+  ) {
+    fail();
+  }
+}
+
+function boundedStringArray(value: unknown, maxItems: number, maxItemLength: number): boolean {
+  return Array.isArray(value)
+    && value.length <= maxItems
+    && value.every((item) => boundedString(item, maxItemLength));
+}
+
+function isDirectorAuditFactKindV1(value: unknown): value is DirectorAuditFactKindV1 {
+  return value === "UNIFIED_DECISION_BUNDLE"
+    || value === "POST_BUNDLE_PROFILE_ACTION_POLICY"
+    || value === "INTELLIGENCE_RUN_SUMMARY"
+    || value === "INTELLIGENCE_SKIP_SUMMARY";
 }
 
 function nonNegativeIntegerRecord(value: unknown): boolean {

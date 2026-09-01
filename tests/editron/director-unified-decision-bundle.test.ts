@@ -120,7 +120,20 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;');
     expect(source).not.toContain("const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';");
     expect(source).toContain("'creative-brief-per-asset-analysis-bypassed'");
-    expect(source).toContain("'intelligence.reason': intelligenceReason");
+    expect(source).toContain("kind: 'INTELLIGENCE_SKIP_SUMMARY'");
+    expect(source).toContain('reason: intelligenceReason');
+  });
+  it('receipts intelligence status and leaves only the two separately bounded raw facts', () => {
+    const source = directorSource();
+
+    expect(source).toContain("kind: 'INTELLIGENCE_RUN_SUMMARY'");
+    expect(source).toContain("kind: 'INTELLIGENCE_SKIP_SUMMARY'");
+    expect(source).toContain('edlErr instanceof ProjectMutationConflictError');
+    expect(source).not.toContain('non-fatal intelligence persistence');
+    expect(source).not.toContain('non-fatal intelligence failure persistence');
+    expect(source).not.toContain('const qrDb =');
+    expect(source).toContain('committed with recordPhase0ProofFacts after the final editor save');
+    expect(source.match(/collection\('projects'\)\.updateOne/g) ?? []).toHaveLength(2);
   });
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
     expect(shouldRunPostEdlUtilityScoring({
