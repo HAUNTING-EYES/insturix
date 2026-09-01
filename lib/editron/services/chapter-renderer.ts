@@ -173,7 +173,7 @@ interface ChapterRenderJob {
   artifactInvalidatedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
-  /** Plan-based auto-expiry (base 7d / mid 30d / top 90d). A TTL index on this field deletes the job. */
+  /** Earliest retirement time; cleanup receipts and a transactional tombstone are still required. */
   expiresAt?: Date;
 }
 
@@ -1324,9 +1324,9 @@ export async function startChapterRender(
         status: 'pending' as const,
       }));
 
-  // Plan-based retention: stamp when this render's transient chapter records auto-expire, so a TTL index
-  // on `expiresAt` (expireAfterSeconds: 0) deletes them after the owner's plan window (base 7d/mid 30d/top 90d).
-  // The plan read fails safe to the base tier.
+  // Plan-based retention: stamp the earliest retirement time. The retention
+  // owner still requires every provider-cleanup receipt before deleting the
+  // aggregate and atomically writes an audit tombstone. Unknown plan → base.
   let planType: string | undefined;
   try {
     const { getUserPlanWithServiceLimits } = await import('@/lib/services/planService');

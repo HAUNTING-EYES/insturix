@@ -17,6 +17,8 @@ import { PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/chapter-concat-cleanup-v1';
 import { CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1 }
   from '@/lib/editron/services/chapter-render-dispatch-v1';
+import { CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1 }
+  from '@/lib/editron/services/render-chapter-retention';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -84,6 +86,7 @@ export const COLLECTIONS = {
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   PROJECT_RENDER_JOBS: 'editron_render_jobs',
   CHAPTER_RENDER_CHAPTERS: CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1,
+  CHAPTER_RENDER_RETENTION_RECEIPTS: CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1,
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX: PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   STYLE_PROFILES: 'styleProfiles',
@@ -261,6 +264,23 @@ export async function initializeIndexes(): Promise<void> {
       },
       name: 'chapter_child_dispatch_recovery_provider_v1',
     },
+    {
+      key: {
+        artifactLifecycleVersion: 1,
+        artifactState: 1,
+        retentionState: 1,
+        expiresAt: 1,
+        _id: 1,
+      },
+      name: 'chapter_retention_due_v1',
+    },
+  ]);
+
+  // Audit tombstones survive deletion of the transient chapter aggregate. The
+  // retention owner writes one in the same transaction as the exact row delete.
+  await db.collection(COLLECTIONS.CHAPTER_RENDER_RETENTION_RECEIPTS).createIndexes([
+    { key: { chapterJobId: 1 }, name: 'chapter_job_id_unique_v1', unique: true },
+    { key: { deletedAt: 1, _id: 1 }, name: 'chapter_deleted_at_v1' },
   ]);
 
   // Concat output is a separate S3 object and has its own leased cleanup owner.
