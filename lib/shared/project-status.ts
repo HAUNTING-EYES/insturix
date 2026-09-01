@@ -7,6 +7,17 @@
 
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { emitBrandEvent } from './brand-events';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+  type EditorState,
+  type Project,
+  type ProjectMutationReceiptV1,
+} from '@/lib/editron/services/project-service';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-revision-v1';
+
+const MAX_STATUS_HISTORY = 200;
 
 // ==================== Types ====================
 
@@ -50,6 +61,59 @@ const VALID_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
   failed: ['draft', 'editing'],
 };
 
+export interface ProjectStatusMutationPortV1 {
+  loadProjectForMutation(
+    userId: string,
+    projectId: string,
+  ): Promise<{ project: Project; revision: ProjectRevisionV1 }>;
+  saveProjectWithReceipt(
+    userId: string,
+    projectId: string,
+    state: EditorState,
+    options: {
+      expectedRevision: ProjectRevisionV1;
+      projectUpdates: Record<string, unknown>;
+    },
+  ): Promise<ProjectMutationReceiptV1>;
+}
+
+function nonEmptyString(value: unknown, maximumLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= maximumLength ? normalized : null;
+}
+
+function isProjectStatus(value: unknown): value is ProjectStatus {
+  return typeof value === 'string' && Object.hasOwn(VALID_TRANSITIONS, value);
+}
+
+function readStatusHistory(value: unknown): StatusTransition[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_STATUS_HISTORY) return null;
+  const result: StatusTransition[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const candidate = item as Record<string, unknown>;
+    const trigger = nonEmptyString(candidate.trigger, 500);
+    const timestamp = candidate.timestamp instanceof Date
+      ? candidate.timestamp
+      : new Date(candidate.timestamp as string | number);
+    if (
+      !isProjectStatus(candidate.from)
+      || !isProjectStatus(candidate.to)
+      || !trigger
+      || Number.isNaN(timestamp.getTime())
+    ) return null;
+    result.push({
+      from: candidate.from,
+      to: candidate.to,
+      timestamp,
+      trigger,
+    });
+  }
+  return result;
+}
+
 // ==================== Transition ====================
 
 export async function transitionProjectStatus(
@@ -58,14 +122,43 @@ export async function transitionProjectStatus(
   newStatus: ProjectStatus,
   trigger: string,
   error?: { message: string; service: string },
-): Promise<{ success: boolean; previousStatus?: ProjectStatus; error?: string }> {
-  const db = await getDatabase();
-  const col = db.collection('projects');
+  projectStore: ProjectStatusMutationPortV1 = projectService,
+): Promise<{
+  success: boolean;
+  previousStatus?: ProjectStatus;
+  error?: string;
+  receipt?: ProjectMutationReceiptV1;
+}> {
+  const normalizedProjectId = nonEmptyString(projectId, 500);
+  const normalizedUserId = nonEmptyString(userId, 500);
+  const normalizedTrigger = nonEmptyString(trigger, 500);
+  if (!normalizedProjectId || !normalizedUserId || !isProjectStatus(newStatus) || !normalizedTrigger) {
+    return { success: false, error: 'Invalid project status transition input' };
+  }
+  const normalizedError = error
+    ? {
+        message: nonEmptyString(error.message, 2_000),
+        service: nonEmptyString(error.service, 200),
+      }
+    : null;
+  if (error && (!normalizedError?.message || !normalizedError.service)) {
+    return { success: false, error: 'Invalid project status error evidence' };
+  }
 
-  const project = await col.findOne({ projectId, userId });
-  if (!project) return { success: false, error: 'Project not found' };
+  let snapshot: Awaited<ReturnType<ProjectStatusMutationPortV1['loadProjectForMutation']>>;
+  try {
+    snapshot = await projectStore.loadProjectForMutation(normalizedUserId, normalizedProjectId);
+  } catch (loadError) {
+    if (loadError instanceof ProjectNotFoundOrForbiddenError) {
+      return { success: false, error: 'Project not found' };
+    }
+    throw loadError;
+  }
 
-  const currentStatus: ProjectStatus = project.status || 'draft';
+  const currentStatus = snapshot.project.status ?? 'draft';
+  if (!isProjectStatus(currentStatus)) {
+    return { success: false, error: 'Project has an invalid current status' };
+  }
   const allowed = VALID_TRANSITIONS[currentStatus];
 
   if (!allowed?.includes(newStatus)) {
@@ -76,65 +169,76 @@ export async function transitionProjectStatus(
     };
   }
 
+  const history = readStatusHistory(snapshot.project.statusHistory);
+  if (!history) {
+    return {
+      success: false,
+      previousStatus: currentStatus,
+      error: 'Project status history is malformed or unbounded',
+    };
+  }
+  const transitionedAt = new Date();
   const transition: StatusTransition = {
     from: currentStatus,
     to: newStatus,
-    timestamp: new Date(),
-    trigger,
+    timestamp: transitionedAt,
+    trigger: normalizedTrigger,
+  };
+  const projectUpdates: Record<string, unknown> = {
+    status: newStatus,
+    statusHistory: [...history, transition].slice(-MAX_STATUS_HISTORY),
   };
 
-  const updateDoc: Record<string, unknown> = {
-    $set: {
-      status: newStatus,
-      updatedAt: new Date(),
-    },
-    $push: {
-      statusHistory: transition,
-    },
-  };
-
-  if (newStatus === 'failed' && error) {
-    (updateDoc.$set as Record<string, unknown>).lastError = {
-      message: error.message,
-      service: error.service,
-      timestamp: new Date(),
+  if (newStatus === 'failed' && normalizedError?.message && normalizedError.service) {
+    projectUpdates.lastError = {
+      message: normalizedError.message,
+      service: normalizedError.service,
+      timestamp: transitionedAt,
     };
   }
-
   if (newStatus !== 'failed' && currentStatus === 'failed') {
-    (updateDoc.$set as Record<string, unknown>).lastError = null;
+    projectUpdates.lastError = null;
   }
 
-  // CAS: only update if status hasn't changed since we read it
-  // For 'draft', also match projects with no status field (pre-tracking projects)
-  const statusFilter = currentStatus === 'draft'
-    ? { $or: [{ status: 'draft' }, { status: { $exists: false } }, { status: null }] }
-    : { status: currentStatus };
-
-  const result = await col.findOneAndUpdate(
-    { projectId, userId, ...statusFilter },
-    updateDoc,
-    { returnDocument: 'after' },
-  );
-
-  if (!result) {
-    return { success: false, previousStatus: currentStatus, error: 'Status changed concurrently' };
+  let receipt: ProjectMutationReceiptV1;
+  try {
+    receipt = await projectStore.saveProjectWithReceipt(
+      normalizedUserId,
+      normalizedProjectId,
+      snapshot.project,
+      {
+        expectedRevision: snapshot.revision,
+        projectUpdates,
+      },
+    );
+  } catch (saveError) {
+    if (saveError instanceof ProjectMutationConflictError) {
+      return {
+        success: false,
+        previousStatus: currentStatus,
+        error: 'Status changed concurrently',
+      };
+    }
+    if (saveError instanceof ProjectNotFoundOrForbiddenError) {
+      return { success: false, previousStatus: currentStatus, error: 'Project not found' };
+    }
+    throw saveError;
   }
 
   emitBrandEvent({
-    userId,
-    projectId,
+    userId: normalizedUserId,
+    projectId: normalizedProjectId,
     service: 'editron',
     type: 'status_changed',
     payload: {
       from: currentStatus,
       to: newStatus,
-      trigger,
-      error: error || null,
+      trigger: normalizedTrigger,
+      error: normalizedError || null,
     },
   }).catch((err) => console.error('[ProjectStatus] Event emission failed:', err));
 
-  return { success: true, previousStatus: currentStatus };
+  return { success: true, previousStatus: currentStatus, receipt };
 }
 
 // ==================== Query ====================
