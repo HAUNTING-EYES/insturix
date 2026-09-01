@@ -18,6 +18,7 @@ import type {
 } from '@/lib/editron/services/checkpoint-service';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
+import { readProjectRevisionV1 } from '@/lib/editron/services/project-revision-v1';
 
 export const CHAT_EDITORIAL_INTENT_JOB_VERSION = 'editron-chat-editorial-intent-job-v1' as const;
 export const CHAT_EDITORIAL_INTENT_MAX_ATTEMPTS = 3;
@@ -274,6 +275,8 @@ export async function runChatEditorialIntentJob(
   try {
     const beforeProject = await deps.loadProject(job.userId, job.projectId);
     if (!beforeProject) throw new Error('project-not-found-before-editorial-intent');
+    const beforeProjectRevision = readProjectRevisionV1(beforeProject);
+    if (!beforeProjectRevision) throw new Error('project-revision-missing-before-editorial-intent');
 
     attemptOperationId = attemptOperationKey(job);
     const beforeCheckpointId = checkpointId(job, 'before');
@@ -286,6 +289,7 @@ export async function runChatEditorialIntentJob(
       userId: job.userId,
       overlays: Array.isArray(beforeProject.overlays) ? beforeProject.overlays as any[] : [],
       projectState: deps.captureProjectState(beforeProject),
+      capturedProjectRevision: beforeProjectRevision,
       description: `Before durable editorial intent ${job.operationId}`,
       type: 'before-llm',
       force: true,

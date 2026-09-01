@@ -1070,6 +1070,36 @@ describe('chat AI edit transaction runtime', () => {
     expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
   });
 
+  it('rejects missing or misclassified checkpoint capture provenance before project access', async () => {
+    const service = new CheckpointService();
+    const loadSnapshot = vi.spyOn(projectService, 'loadProjectForMutation');
+    const base = {
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      description: 'Invalid capture provenance',
+      force: true,
+    };
+
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'after-llm',
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one writer-issued receipt');
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'after-llm',
+      capturedProjectRevision: ORIGINAL_REVISION,
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one writer-issued receipt');
+    await expect(service.createCheckpoint({
+      ...base,
+      type: 'before-llm',
+      capturedWriterReceipt: writerReceipt(),
+    } as unknown as CheckpointInput)).rejects.toThrow('requires exactly one observed project revision');
+    expect(loadSnapshot).not.toHaveBeenCalled();
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
   it('rejects caller-supplied checkpoint state that differs from the authoritative snapshot', async () => {
     vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
       project: ORIGINAL_PROJECT as any,
@@ -1104,7 +1134,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(listResponse.status).toBe(404);
     await expect(service.createCheckpoint({
       sessionId: 'sess_b', projectId: 'proj_b', userId: 'user_1', overlays: [],
-      description: 'unauthorized', type: 'user-edit',
+      description: 'unauthorized', type: 'user-edit', capturedProjectRevision: ORIGINAL_REVISION,
     })).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
     await expect(service.clearCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
     await expect(service.pruneCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);

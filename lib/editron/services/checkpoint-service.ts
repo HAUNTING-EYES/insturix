@@ -101,7 +101,7 @@ export interface Checkpoint {
   updatedAt?: Date;
 }
 
-export interface CheckpointInput {
+interface CheckpointInputBase {
   sessionId: string;
   projectId: string;
   userId: string;
@@ -112,15 +112,22 @@ export interface CheckpointInput {
   checkpointId?: string;
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
-  /**
-   * The exact ProjectService receipt for the state supplied to this checkpoint.
-   * When present, checkpoint capture must not re-observe a newer project revision.
-   */
-  capturedWriterReceipt?: ProjectMutationReceiptV1;
-  /** The exact revision paired with a caller's pre-mutation project snapshot. */
-  capturedProjectRevision?: ProjectRevisionV1;
   force?: boolean;
 }
+
+export type CheckpointInput =
+  | (CheckpointInputBase & {
+      type: 'after-llm';
+      /** The writer receipt that produced this post-mutation project state. */
+      capturedWriterReceipt: ProjectMutationReceiptV1;
+      capturedProjectRevision?: never;
+    })
+  | (CheckpointInputBase & {
+      type: Exclude<CheckpointType, 'after-llm'>;
+      /** The exact revision paired with this pre/current-state observation. */
+      capturedProjectRevision: ProjectRevisionV1;
+      capturedWriterReceipt?: never;
+    });
 
 export interface ChatEditOperationUpdate {
   operationStatus: ChatEditOperationStatus;
@@ -181,17 +188,24 @@ export function projectStateFingerprint(state: RestorableProjectState): string {
 
 export class CheckpointService {
   async createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null> {
-    const expectedProjectRevision = input.capturedWriterReceipt
+    if (input.type === 'after-llm') {
+      if (!input.capturedWriterReceipt || input.capturedProjectRevision !== undefined) {
+        throw new Error('Post-mutation checkpoint capture requires exactly one writer-issued receipt.');
+      }
+    } else if (!input.capturedProjectRevision || input.capturedWriterReceipt !== undefined) {
+      throw new Error('Pre/current-state checkpoint capture requires exactly one observed project revision.');
+    }
+    const expectedProjectRevision = input.type === 'after-llm'
       ? revisionFromWriterReceipt(input.capturedWriterReceipt, input.projectId)
       : input.capturedProjectRevision;
-    if (expectedProjectRevision && !isProjectRevisionV1(expectedProjectRevision)) {
+    if (!isProjectRevisionV1(expectedProjectRevision)) {
       throw new Error('Checkpoint capture revision is invalid.');
     }
     const snapshot = await projectService.loadProjectForMutation(
       input.userId,
       input.projectId,
     );
-    if (expectedProjectRevision && !sameProjectRevision(
+    if (!sameProjectRevision(
       snapshot.revision,
       expectedProjectRevision,
     )) {
