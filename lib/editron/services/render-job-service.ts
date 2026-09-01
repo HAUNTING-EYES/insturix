@@ -562,6 +562,7 @@ export async function updateProjectRenderJobProgressV1(input: {
   currentProjectRevision: unknown;
   progress: number;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -577,6 +578,7 @@ export async function updateProjectRenderJobProgressV1(input: {
       ],
     },
     { $set: { progress: input.progress } },
+    { session: input.session },
   );
   return updated.matchedCount === 1
     ? currentProjectRenderJobMutationResult()
@@ -2300,6 +2302,7 @@ export async function claimProjectRenderCompletionEffectsV1(input: {
   leaseMs?: number;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderCompletionEffectsClaimV1 | ProjectRenderJobNotCurrentResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -2321,6 +2324,7 @@ export async function claimProjectRenderCompletionEffectsV1(input: {
   const jobs = input.collection ?? await getCollection();
   const current = await jobs.findOne(
     currentProjectRenderJobMutationFilter(validation.authorization, completionEffectsConditions),
+    { session: input.session },
   );
   if (!current) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
   const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
@@ -2355,7 +2359,7 @@ export async function claimProjectRenderCompletionEffectsV1(input: {
       $inc: { 'completionEffects.attempts': 1 },
       $unset: { 'completionEffects.completedAt': '' },
     },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session: input.session },
   );
   if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const claimedInvalidReason = validateCurrentProjectRenderJob(
@@ -2399,6 +2403,7 @@ export async function completeProjectRenderCompletionEffectsV1(input: {
   claimToken: string;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -2421,6 +2426,7 @@ export async function completeProjectRenderCompletionEffectsV1(input: {
   };
   const current = await jobs.findOne(
     currentProjectRenderJobMutationFilter(validation.authorization, conditions),
+    { session: input.session },
   );
   if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
@@ -2453,6 +2459,7 @@ export async function completeProjectRenderCompletionEffectsV1(input: {
         'completionEffects.leaseExpiresAt': '',
       },
     },
+    { session: input.session },
   );
   return completed.matchedCount === 1
     ? currentProjectRenderJobMutationResult()
@@ -2465,6 +2472,7 @@ export async function releaseProjectRenderCompletionEffectsV1(input: {
   currentProjectRevision: unknown;
   claimToken: string;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -2483,6 +2491,7 @@ export async function releaseProjectRenderCompletionEffectsV1(input: {
   };
   const current = await jobs.findOne(
     currentProjectRenderJobMutationFilter(validation.authorization, conditions),
+    { session: input.session },
   );
   if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
@@ -2506,6 +2515,7 @@ export async function releaseProjectRenderCompletionEffectsV1(input: {
       deliveryManifest,
     }),
     { $unset: { completionEffects: '' } },
+    { session: input.session },
   );
   return released.matchedCount === 1
     ? currentProjectRenderJobMutationResult()

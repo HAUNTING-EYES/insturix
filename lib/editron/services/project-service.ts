@@ -16,14 +16,19 @@ import {
   PROJECT_RENDER_JOBS_COLLECTION_V1,
   ProjectRenderJobAuthorizationSchema,
   claimFailedProjectRenderJobFinalizationRetryV1,
+  claimProjectRenderCompletionEffectsV1,
   claimProjectRenderJobFinalizationV1,
+  completeProjectRenderCompletionEffectsV1,
   completeProjectRenderJobFinalizationV1 as completeBoundProjectRenderJobFinalizationV1,
   failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1 as failBoundProjectRenderJobFinalizationV1,
   fenceStaleProjectRenderJobFinalizationWithCleanupV1,
   fenceStaleProjectRenderJobProviderOutputWithCleanupV1,
   releaseFailedProjectRenderJobFinalizationRetryClaimV1,
+  releaseProjectRenderCompletionEffectsV1,
   releaseProjectRenderJobFinalizationClaimV1,
+  updateProjectRenderJobProgressV1,
+  type ProjectRenderCompletionEffectsClaimV1,
   type ProjectRenderFinalizationClaimV1,
   type ProjectRenderJobAuthorizationV1,
   type ProjectRenderJobMutationResultV1,
@@ -1389,7 +1394,11 @@ type ProjectRenderJobTransactionKindV1 =
   | "initial-finalization-claim"
   | "initial-finalization-release"
   | "failed-finalization-retry-claim"
-  | "failed-finalization-retry-release";
+  | "failed-finalization-retry-release"
+  | "progress"
+  | "completion-effects-claim"
+  | "completion-effects-complete"
+  | "completion-effects-release";
 
 interface ProjectRenderJobTransactionContextV1 {
   authorization: ProjectRenderJobAuthorizationV1;
@@ -1929,6 +1938,86 @@ export class ProjectService {
           bucketName: input.bucketName,
           error: input.error,
           now: transactionAt,
+          collection: renderJobs,
+          session,
+        }),
+    );
+  }
+
+  /** Persist provider progress only while the bound project revision is current. */
+  async updateProjectRenderJobProgressTransactionV1(input: {
+    authorization: unknown;
+    progress: number;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: "progress", now: input.now },
+      ({ authorization, currentProjectRevision, renderJobs, session }) =>
+        updateProjectRenderJobProgressV1({
+          authorization,
+          currentProjectRevision,
+          progress: input.progress,
+          collection: renderJobs,
+          session,
+        }),
+    );
+  }
+
+  /** Lease verified post-render effects under the same project revision fence. */
+  async claimProjectRenderCompletionEffectsTransactionV1(input: {
+    authorization: unknown;
+    claimToken?: string;
+    leaseMs?: number;
+    now?: Date;
+  }): Promise<ProjectRenderCompletionEffectsClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: "completion-effects-claim", now: input.now },
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
+        claimProjectRenderCompletionEffectsV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
+          leaseMs: input.leaseMs,
+          now: transactionAt,
+          collection: renderJobs,
+          session,
+        }),
+    );
+  }
+
+  /** Complete only the exact current completion-effects lease. */
+  async completeProjectRenderCompletionEffectsTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: "completion-effects-complete", now: input.now },
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
+        completeProjectRenderCompletionEffectsV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
+          now: transactionAt,
+          collection: renderJobs,
+          session,
+        }),
+    );
+  }
+
+  /** Release only the exact current completion-effects lease. */
+  async releaseProjectRenderCompletionEffectsTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: "completion-effects-release", now: input.now },
+      ({ authorization, currentProjectRevision, renderJobs, session }) =>
+        releaseProjectRenderCompletionEffectsV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
           collection: renderJobs,
           session,
         }),

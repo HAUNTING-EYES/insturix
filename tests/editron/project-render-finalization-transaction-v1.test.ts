@@ -7,14 +7,18 @@ const databaseMocks = vi.hoisted(() => ({
 
 const renderJobMocks = vi.hoisted(() => ({
   claimFailedRetry: vi.fn(),
+  claimCompletionEffects: vi.fn(),
   claimInitial: vi.fn(),
+  completeCompletionEffects: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
   failFromProvider: vi.fn(),
   fenceStaleWithCleanup: vi.fn(),
   fenceStaleProviderOutputWithCleanup: vi.fn(),
   releaseFailedRetry: vi.fn(),
+  releaseCompletionEffects: vi.fn(),
   releaseInitial: vi.fn(),
+  updateProgress: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -44,7 +48,9 @@ vi.mock("@/lib/editron/services/render-job-service", async (importOriginal) => {
   return {
     ...actual,
     claimFailedProjectRenderJobFinalizationRetryV1: renderJobMocks.claimFailedRetry,
+    claimProjectRenderCompletionEffectsV1: renderJobMocks.claimCompletionEffects,
     claimProjectRenderJobFinalizationV1: renderJobMocks.claimInitial,
+    completeProjectRenderCompletionEffectsV1: renderJobMocks.completeCompletionEffects,
     completeProjectRenderJobFinalizationV1: renderJobMocks.complete,
     failProjectRenderJobFromProviderV1: renderJobMocks.failFromProvider,
     failProjectRenderJobFinalizationV1: renderJobMocks.fail,
@@ -54,7 +60,9 @@ vi.mock("@/lib/editron/services/render-job-service", async (importOriginal) => {
       renderJobMocks.fenceStaleProviderOutputWithCleanup,
     releaseFailedProjectRenderJobFinalizationRetryClaimV1:
       renderJobMocks.releaseFailedRetry,
+    releaseProjectRenderCompletionEffectsV1: renderJobMocks.releaseCompletionEffects,
     releaseProjectRenderJobFinalizationClaimV1: renderJobMocks.releaseInitial,
+    updateProjectRenderJobProgressV1: renderJobMocks.updateProgress,
   };
 });
 
@@ -158,7 +166,20 @@ describe("project render finalization transaction owner v1", () => {
     vi.clearAllMocks();
     databaseMocks.getDatabase.mockResolvedValue({ collection: vi.fn() });
     renderJobMocks.claimFailedRetry.mockResolvedValue(FINALIZATION_CLAIM);
+    renderJobMocks.claimCompletionEffects.mockResolvedValue({
+      ok: true,
+      status: "CURRENT",
+      jobId: AUTHORIZATION.jobId,
+      userId: AUTHORIZATION.ownerId,
+      projectId: AUTHORIZATION.projectId,
+      outputUrl: FINALIZER_RESULT.url,
+      outputSize: FINALIZER_RESULT.sizeBytes,
+      claimToken: "completion-effects-claim",
+      authorization: AUTHORIZATION,
+      binding: { scope: "PROJECT_SNAPSHOT" },
+    });
     renderJobMocks.claimInitial.mockResolvedValue(FINALIZATION_CLAIM);
+    renderJobMocks.completeCompletionEffects.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.complete.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.fail.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.failFromProvider.mockResolvedValue({ ok: true, status: "CURRENT" });
@@ -173,7 +194,9 @@ describe("project render finalization transaction owner v1", () => {
       cleanupOutboxId: `project-render-source-cleanup_${"b".repeat(64)}`,
     });
     renderJobMocks.releaseFailedRetry.mockResolvedValue({ ok: true, status: "CURRENT" });
+    renderJobMocks.releaseCompletionEffects.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.releaseInitial.mockResolvedValue({ ok: true, status: "CURRENT" });
+    renderJobMocks.updateProgress.mockResolvedValue({ ok: true, status: "CURRENT" });
   });
 
   it("serializes the exact project revision, final render publication, and fence release", async () => {
@@ -354,6 +377,70 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       currentProjectRevision: AUTHORIZATION.projectRevision,
       claimToken: FINALIZATION_CLAIM.claimToken,
+      collection: fixture.renderJobs,
+      session: fixture.session,
+    }));
+  });
+
+  it("serializes progress and completion effects under the live project revision fence", async () => {
+    const fixture = createTransactionFixture();
+    const now = new Date("2026-09-01T00:03:30.000Z");
+
+    await expect(projectService.updateProjectRenderJobProgressTransactionV1({
+      authorization: AUTHORIZATION,
+      progress: 0.42,
+      now,
+    })).resolves.toEqual({ ok: true, status: "CURRENT" });
+    const claim = await projectService.claimProjectRenderCompletionEffectsTransactionV1({
+      authorization: AUTHORIZATION,
+      claimToken: "completion-effects-claim",
+      leaseMs: 60_000,
+      now,
+    });
+    await expect(projectService.completeProjectRenderCompletionEffectsTransactionV1({
+      authorization: AUTHORIZATION,
+      claimToken: "completion-effects-claim",
+      now,
+    })).resolves.toEqual({ ok: true, status: "CURRENT" });
+    await expect(projectService.releaseProjectRenderCompletionEffectsTransactionV1({
+      authorization: AUTHORIZATION,
+      claimToken: "completion-effects-claim",
+      now,
+    })).resolves.toEqual({ ok: true, status: "CURRENT" });
+
+    expect(claim).toMatchObject({
+      ok: true,
+      status: "CURRENT",
+      claimToken: "completion-effects-claim",
+    });
+    expect(renderJobMocks.updateProgress).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      progress: 0.42,
+      collection: fixture.renderJobs,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.claimCompletionEffects).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: "completion-effects-claim",
+      leaseMs: 60_000,
+      now,
+      collection: fixture.renderJobs,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.completeCompletionEffects).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: "completion-effects-claim",
+      now,
+      collection: fixture.renderJobs,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.releaseCompletionEffects).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: "completion-effects-claim",
       collection: fixture.renderJobs,
       session: fixture.session,
     }));
