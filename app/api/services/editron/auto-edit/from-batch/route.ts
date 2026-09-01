@@ -30,7 +30,6 @@ import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
-import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
 import { buildMultiAssetDirectorContext } from '@/lib/editron/services/multi-asset-director-context';
 import { embedScenes, makeEmbeddingScorer } from '@/lib/editron/storyline/scene-embedding';
@@ -178,10 +177,6 @@ function normalizePlatform(value: unknown): Platform | undefined {
   return allowed.includes(v as Platform) ? v as Platform : undefined;
 }
 
-function normalizeDirectorEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  const v = cleanString(value, 128);
-  return v && allowed.includes(v as T) ? v as T : undefined;
-}
 const MULTI_OUTPUT_FIELDS = ['deliverableSpecs', 'requestedOutputs', 'outputs', 'deliverables'] as const;
 
 function hasMultiOutputRequest(source: unknown): boolean {
@@ -448,30 +443,6 @@ function directorNarrativeContext(intake: MediaUploadBatchIntake): string | unde
     script ? 'User-provided script or outline:\n' + script : undefined,
   ].filter((part): part is string => Boolean(part));
   return context.length > 0 ? context.join('\n\n') : undefined;
-}
-
-function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
-  const captionStyle = normalizeDirectorEnum<ProjectBrief['captionStyle'] & string>(intake.captionStyle, ['word_by_word', 'sentence', 'key_phrases', 'none']);
-  const transitionPreference = normalizeDirectorEnum<ProjectBrief['transitionPreference'] & string>(intake.transitionPreference, ['minimal', 'subtle', 'dynamic', 'energetic']);
-  const zoomBehavior = normalizeDirectorEnum<ProjectBrief['zoomBehavior'] & string>(intake.zoomBehavior, ['none', 'subtle', 'moderate', 'aggressive']);
-  const motionGraphics = normalizeDirectorEnum<ProjectBrief['motionGraphics'] & string>(intake.motionGraphics, ['none', 'stats_only', 'full']);
-  const pacingFeel = normalizeDirectorEnum<ProjectBrief['pacingFeel'] & string>(intake.pacingFeel, ['calm', 'balanced', 'energetic', 'fast']);
-  const musicPreference = normalizeDirectorEnum<ProjectBrief['musicPreference'] & string>(intake.musicPreference, ['none', 'subtle_bed', 'energetic', 'match_video']);
-  const narrativeContext = directorNarrativeContext(intake);
-  const editorialPreferences = normalizeEditorialPreferences(intake.editorialPreferences);
-
-  return {
-    modifiers: [],
-    ...(cleanString(intake.platform, 64) && { platform: cleanString(intake.platform, 64) }),
-    ...(narrativeContext && { intent: narrativeContext }),
-    ...(captionStyle && { captionStyle }),
-    ...(transitionPreference && { transitionPreference }),
-    ...(zoomBehavior && { zoomBehavior }),
-    ...(motionGraphics && { motionGraphics }),
-    ...(pacingFeel && { pacingFeel }),
-    ...(musicPreference && { musicPreference }),
-    ...(editorialPreferences && { editorialPreferences }),
-  };
 }
 
 function mergeIntake(batchIntake: MediaUploadBatchIntake | undefined, body: FromBatchRequest): MediaUploadBatchIntake {
@@ -934,6 +905,7 @@ async function dispatchDirector(params: {
   orgId?: string;
   title: string;
   intake: MediaUploadBatchIntake;
+  pipelineDirectorDispatchToken: string;
 }): Promise<{ queued: boolean; messageId?: string }> {
   const qstashToken = process.env.QSTASH_TOKEN;
   const workerUrl = `${params.baseUrl}/api/internal/workers/director`;
@@ -953,14 +925,18 @@ async function dispatchDirector(params: {
     pacingFeel: params.intake.pacingFeel,
     musicPreference: params.intake.musicPreference,
     editorialPreferences: normalizeEditorialPreferences(params.intake.editorialPreferences),
+    pipelineDirectorDispatchToken: params.pipelineDirectorDispatchToken,
   };
 
   if (!isInternalQStashDispatchConfigured()) {
     if (!isInternalWorkerInlineFallbackAllowed()) {
       throw new Error('QStash publisher token and signing keys are required to dispatch the Director outside development');
     }
-    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    await executeDirectorPlan(params.projectId, params.userId, 'A-01', buildDirectorBrief(params.intake));
+    const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+    const completion = await runCanonicalDirectorV1(payload);
+    if (completion.disposition !== 'COMPLETED' && completion.disposition !== 'ALREADY_PROCESSED') {
+      throw new Error(`Inline Director execution did not complete: ${completion.disposition}.`);
+    }
     return { queued: false };
   }
 
@@ -1857,8 +1833,7 @@ export async function POST(request: NextRequest) {
           durationInFrames: timeline.durationInFrames,
         })
       : null;
-    const directorAnalysisSet: Record<string, unknown> = {};
-    const directorAnalysisUnset: Record<string, ''> = { batchDeliverable: '' };
+    const directorAnalysisSet: Record<string, unknown> = { batchDeliverable: null };
     if (directorContext) {
       Object.assign(directorAnalysisSet, {
         rawFootageAnalysis: directorContext.rawFootageAnalysis,
@@ -1872,29 +1847,27 @@ export async function POST(request: NextRequest) {
         musicAnalysis: directorContext.musicAnalysis,
       };
       for (const [field, value] of Object.entries(optionalAnalyses)) {
-        if (value != null) directorAnalysisSet[field] = value;
-        else directorAnalysisUnset[field] = '';
+        directorAnalysisSet[field] = value ?? null;
       }
     } else {
       for (const field of ['rawFootageAnalysis', 'segmentAnalysis', 'multiAssetDirectorContext', 'vjepaAnalysis', 'wav2vecAnalysis', 'momentWeightMap', 'musicAnalysis']) {
-        directorAnalysisUnset[field] = '';
+        directorAnalysisSet[field] = null;
       }
     }
 
-
-    await projectService.saveProject(userId, activeProjectId, {
+    const compositionSnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+    const compositionReceipt = await projectService.saveProjectWithReceipt(userId, activeProjectId, {
       overlays: timeline.overlays as any,
       aspectRatio: brief.output.aspectRatio ?? '16:9',
       playerDimensions: dims,
       fps: FPS,
       durationInFrames: timeline.durationInFrames,
-    });
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: activeProjectId },
-      {
-        $set: {
+    }, {
+      expectedRevision: compositionSnapshot.revision,
+      overlayAuthority: 'server',
+      projectUpdates: {
           autoEditMode: 'batch',
-          autoEditStatus: 'directing_queued',
+          autoEditStatus: 'analysis_complete',
           // Fresh (re-)deduct happened this compose — clear any refund mark from a
           // prior failed dispatch so a re-charged edit stays rescuable if it fails.
           autoEditRefunded: false,
@@ -1913,11 +1886,27 @@ export async function POST(request: NextRequest) {
             analysisBridge,
             directorContext: directorContext?.provenance ?? null,
           },
-          updatedAt: new Date(),
-        },
-        $unset: directorAnalysisUnset,
       },
-    );
+    });
+    const intent = await projectService.recordPipelineDirectorIntentV1(userId, activeProjectId, {
+      expectedRevision: compositionReceipt.revision,
+      profileId: 'A-01',
+    });
+    const intentRevision = intent.disposition === 'RECORDED'
+      ? intent.receipt.revision
+      : intent.disposition === 'ALREADY_RECORDED'
+        ? intent.currentRevision
+        : null;
+    if (!intentRevision) {
+      throw new Error(`Batch Director intent was rejected: ${intent.disposition}.`);
+    }
+    const prepared = await projectService.preparePipelineDirectorDispatchV1(userId, activeProjectId, {
+      expectedRevision: intentRevision,
+      batchId: uploadBatchId,
+    });
+    if (prepared.disposition !== 'PREPARED' && prepared.disposition !== 'ALREADY_PREPARED') {
+      throw new Error(`Batch Director dispatch preparation was rejected: ${prepared.disposition}.`);
+    }
 
     const projectName = cleanString(body.title, 160)
       || cleanString(intake.userIntent, 80)
@@ -1933,6 +1922,7 @@ export async function POST(request: NextRequest) {
         platform: brief.output.platform,
         aspectRatio: brief.output.aspectRatio,
       },
+      pipelineDirectorDispatchToken: prepared.dispatch.dispatchToken,
     });
     queuedOrRanDirector = true;
     const directorQueuedAt = new Date();

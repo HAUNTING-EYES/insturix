@@ -52,6 +52,10 @@ const mocks = vi.hoisted(() => ({
   resolveProductionBrief: vi.fn(),
   resolveEffectiveBrandWithProfile: vi.fn(),
   recordDirectorDeliveryFailureV1: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
+  recordPipelineDirectorIntentV1: vi.fn(),
+  preparePipelineDirectorDispatchV1: vi.fn(),
   saveProject: vi.fn(),
   updateBatch: vi.fn(),
   updateProject: vi.fn(),
@@ -74,6 +78,10 @@ vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
     recordDirectorDeliveryFailureV1: mocks.recordDirectorDeliveryFailureV1,
+    loadProjectForMutation: mocks.loadProjectForMutation,
+    saveProjectWithReceipt: mocks.saveProjectWithReceipt,
+    recordPipelineDirectorIntentV1: mocks.recordPipelineDirectorIntentV1,
+    preparePipelineDirectorDispatchV1: mocks.preparePipelineDirectorDispatchV1,
     saveProject: mocks.saveProject,
   },
 }));
@@ -499,6 +507,43 @@ describe('from-batch storyline route handoff', () => {
     });
     mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
     mocks.saveProject.mockResolvedValue(undefined);
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        overlays: [],
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      },
+      revision: { schemaVersion: 1, value: 1, compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z' },
+    });
+    mocks.saveProjectWithReceipt.mockResolvedValue({
+      schemaVersion: 1,
+      projectId: 'proj_batch_1',
+      revision: { schemaVersion: 1, value: 2, compatibilityUpdatedAt: '2026-09-01T00:00:01.000Z' },
+      committedAt: '2026-09-01T00:00:01.000Z',
+    });
+    mocks.recordPipelineDirectorIntentV1.mockResolvedValue({
+      disposition: 'RECORDED',
+      receipt: {
+        schemaVersion: 1,
+        projectId: 'proj_batch_1',
+        revision: { schemaVersion: 1, value: 3, compatibilityUpdatedAt: '2026-09-01T00:00:02.000Z' },
+        committedAt: '2026-09-01T00:00:02.000Z',
+      },
+    });
+    mocks.preparePipelineDirectorDispatchV1.mockResolvedValue({
+      disposition: 'PREPARED',
+      dispatch: {
+        schemaVersion: 1,
+        batchId: 'batch_1',
+        profileId: 'A-01',
+        dispatchToken: 'pipeline_director_dispatch_batch_1',
+        preparedAt: '2026-09-01T00:00:03.000Z',
+      },
+    });
     mocks.updateProject.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     mocks.findProject.mockResolvedValue(null);
     mocks.updateBatch.mockResolvedValue({ acknowledged: true, matchedCount: 1 });
@@ -692,16 +737,13 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.fetch.mock.calls.filter(
       ([url]) => String(url).includes('/api/internal/workers/asset-deep-analysis'),
     )).toHaveLength(DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT);
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toEqual([
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toEqual([
       expect.objectContaining({ type: 'image', assetId: 'image_1' }),
     ]);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
+    }));
   });
 
   it('assist lane: chronological lay-down + evidence hydration, storyline and director never run', async () => {
@@ -909,8 +951,8 @@ describe('from-batch storyline route handoff', () => {
     );
     expect(mocks.resolveProductionBrief).toHaveBeenCalledWith(expect.objectContaining({ brandId: 'brand_1' }));
 
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    const savedState = mocks.saveProject.mock.calls[0][2];
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    const savedState = mocks.saveProjectWithReceipt.mock.calls[0][2];
     expect(savedState.durationInFrames).toBe(180);
     expect(savedState.playerDimensions).toEqual({ width: 1920, height: 1080 });
     expect(savedState.overlays).toHaveLength(2);
@@ -1013,12 +1055,16 @@ describe('from-batch storyline route handoff', () => {
       { taskType: 'RETRIEVAL_QUERY' },
     );
 
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      {
-        $set: expect.objectContaining({
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.any(Object),
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 1 }),
+        overlayAuthority: 'server',
+        projectUpdates: expect.objectContaining({
           autoEditMode: 'batch',
-          autoEditStatus: 'directing_queued',
+          autoEditStatus: 'analysis_complete',
           sourceUploadBatchId: 'batch_1',
           sourceAssetIds: ['video_1', 'image_1'],
           rawFootageAnalysis: expect.objectContaining({ timelineCoordinateSpace: 'canonical-edited-v1' }),
@@ -1036,9 +1082,16 @@ describe('from-batch storyline route handoff', () => {
             composerClipCount: 2,
           }),
         }),
-        $unset: { batchDeliverable: '' },
-      },
+      }),
     );
+    expect(mocks.recordPipelineDirectorIntentV1).toHaveBeenCalledWith('user_1', 'proj_batch_1', {
+      expectedRevision: expect.objectContaining({ value: 2 }),
+      profileId: 'A-01',
+    });
+    expect(mocks.preparePipelineDirectorDispatchV1).toHaveBeenCalledWith('user_1', 'proj_batch_1', {
+      expectedRevision: expect.objectContaining({ value: 3 }),
+      batchId: 'batch_1',
+    });
     expect(mocks.fetch).toHaveBeenCalledWith(
       'https://qstash.test/v2/publish/http://app.test/api/internal/workers/director',
       expect.objectContaining({ method: 'POST' }),
@@ -1067,6 +1120,7 @@ describe('from-batch storyline route handoff', () => {
       pacing: { mode: 'prefer', intensity: 0.35 },
       notes: 'Keep the proof sequence clear.',
     });
+    expect(directorPayload.pipelineDirectorDispatchToken).toBe('pipeline_director_dispatch_batch_1');
     expect(mocks.updateProject).toHaveBeenCalledWith(
       {
         projectId: 'proj_batch_1',
@@ -1527,14 +1581,11 @@ describe('from-batch storyline route handoff', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.bulkWriteAssets).not.toHaveBeenCalled();
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['video_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['video_1'] }),
+    }));
   });
 
   it('marks only wedged assets terminal at max-wait and composes from successful survivors', async () => {
@@ -1568,8 +1619,8 @@ describe('from-batch storyline route handoff', () => {
         }),
       }),
     ], { ordered: false });
-    expect(mocks.saveProject).toHaveBeenCalledOnce();
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(1);
     expect(mocks.checkCredits).toHaveBeenLastCalledWith(
       'user_1',
       'editron',
@@ -1611,13 +1662,10 @@ describe('from-batch storyline route handoff', () => {
     }, true) as never);
 
     expect(response.status).toBe(200);
-    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(2);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({ sourceAssetIds: ['video_1', 'image_1'] }),
-      }),
-    );
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][2].overlays).toHaveLength(2);
+    expect(mocks.saveProjectWithReceipt.mock.calls[0][3]).toEqual(expect.objectContaining({
+      projectUpdates: expect.objectContaining({ sourceAssetIds: ['video_1', 'image_1'] }),
+    }));
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
       expect.objectContaining({
