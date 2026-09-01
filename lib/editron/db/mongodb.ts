@@ -11,6 +11,8 @@ import { EDITORIAL_PLAN_EXECUTION_DEFINITION_COLLECTION_V1 }
   from '@/lib/editron/services/editorial-plan-execution-definition-v1';
 import { EDITORIAL_PLAN_REVISION_COLLECTION_V1 }
   from '@/lib/editron/services/editorial-plan-v1';
+import { PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/project-render-source-cleanup-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -76,6 +78,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOADS: 'mediaUploads',
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
+  PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
@@ -182,6 +185,13 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Provider render outputs that became stale after dispatch are deleted by a
+  // leased, idempotent cleanup consumer. Each query branch has its own index.
+  await db.collection(COLLECTIONS.PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX).createIndexes([
+    { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'status_available_createdAt' },
+    { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'status_leaseExpiresAt' },
   ]);
 
   // Project-scoped documents and public URLs attached to AI chat. The extracted content is persisted

@@ -33,6 +33,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/cleanup-editron-render-sources",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/recover-media-source-audio",
       "schedule": "*/5 * * * *"
     },
