@@ -11,7 +11,8 @@ const renderJobMocks = vi.hoisted(() => ({
   complete: vi.fn(),
   fail: vi.fn(),
   failFromProvider: vi.fn(),
-  fenceStale: vi.fn(),
+  fenceStaleWithCleanup: vi.fn(),
+  fenceStaleProviderOutputWithCleanup: vi.fn(),
   releaseFailedRetry: vi.fn(),
   releaseInitial: vi.fn(),
 }));
@@ -47,7 +48,10 @@ vi.mock("@/lib/editron/services/render-job-service", async (importOriginal) => {
     completeProjectRenderJobFinalizationV1: renderJobMocks.complete,
     failProjectRenderJobFromProviderV1: renderJobMocks.failFromProvider,
     failProjectRenderJobFinalizationV1: renderJobMocks.fail,
-    fenceStaleProjectRenderJobFinalizationV1: renderJobMocks.fenceStale,
+    fenceStaleProjectRenderJobFinalizationWithCleanupV1:
+      renderJobMocks.fenceStaleWithCleanup,
+    fenceStaleProjectRenderJobProviderOutputWithCleanupV1:
+      renderJobMocks.fenceStaleProviderOutputWithCleanup,
     releaseFailedProjectRenderJobFinalizationRetryClaimV1:
       renderJobMocks.releaseFailedRetry,
     releaseProjectRenderJobFinalizationClaimV1: renderJobMocks.releaseInitial,
@@ -121,14 +125,32 @@ function createTransactionFixture() {
     findOne: vi.fn(async (): Promise<ProjectRevisionRow | null> => null),
     updateOne: vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 })),
   };
+  const renderJobs = { collectionName: "editron_render_jobs" };
+  const renderSourceCleanupOutbox = {
+    collectionName: "editron_project_render_source_cleanup_outbox_v1",
+  };
   const db = {
-    collection: vi.fn(() => projects),
+    collection: vi.fn((name: string) => {
+      if (name === "projects") return projects;
+      if (name === "editron_render_jobs") return renderJobs;
+      if (name === "editron_project_render_source_cleanup_outbox_v1") {
+        return renderSourceCleanupOutbox;
+      }
+      throw new Error(`Unexpected collection: ${name}`);
+    }),
   };
   const client = {
     startSession: vi.fn(() => session),
   };
   databaseMocks.connectToDatabase.mockResolvedValue({ client, db });
-  return { client, db, projects, session };
+  return {
+    client,
+    db,
+    projects,
+    renderJobs,
+    renderSourceCleanupOutbox,
+    session,
+  };
 }
 
 describe("project render finalization transaction owner v1", () => {
@@ -140,7 +162,16 @@ describe("project render finalization transaction owner v1", () => {
     renderJobMocks.complete.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.fail.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.failFromProvider.mockResolvedValue({ ok: true, status: "CURRENT" });
-    renderJobMocks.fenceStale.mockResolvedValue({ ok: true, status: "STALE" });
+    renderJobMocks.fenceStaleWithCleanup.mockResolvedValue({
+      ok: true,
+      status: "STALE",
+      cleanupOutboxId: `project-render-source-cleanup_${"a".repeat(64)}`,
+    });
+    renderJobMocks.fenceStaleProviderOutputWithCleanup.mockResolvedValue({
+      ok: true,
+      status: "STALE",
+      cleanupOutboxId: `project-render-source-cleanup_${"b".repeat(64)}`,
+    });
     renderJobMocks.releaseFailedRetry.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.releaseInitial.mockResolvedValue({ ok: true, status: "CURRENT" });
   });
@@ -221,10 +252,10 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       claimToken: "claim-stale",
       result: FINALIZER_RESULT,
-    })).resolves.toEqual({ ok: true, status: "STALE" });
+    })).resolves.toMatchObject({ ok: true, status: "STALE" });
 
     expect(renderJobMocks.complete).not.toHaveBeenCalled();
-    expect(renderJobMocks.fenceStale).toHaveBeenCalledWith(expect.objectContaining({
+    expect(renderJobMocks.fenceStaleWithCleanup).toHaveBeenCalledWith(expect.objectContaining({
       authorization: AUTHORIZATION,
       observedProjectRevision: {
         schemaVersion: 1,
@@ -232,6 +263,8 @@ describe("project render finalization transaction owner v1", () => {
         compatibilityUpdatedAt: "2026-09-01T00:02:00.000Z",
       },
       claimToken: "claim-stale",
+      collection: fixture.renderJobs,
+      cleanupCollection: fixture.renderSourceCleanupOutbox,
       session: fixture.session,
     }));
     expect(fixture.projects.updateOne).not.toHaveBeenCalled();
@@ -245,10 +278,12 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       claimToken: "claim-deleted",
       result: FINALIZER_RESULT,
-    })).resolves.toEqual({ ok: true, status: "STALE" });
+    })).resolves.toMatchObject({ ok: true, status: "STALE" });
 
-    expect(renderJobMocks.fenceStale).toHaveBeenCalledWith(expect.objectContaining({
+    expect(renderJobMocks.fenceStaleWithCleanup).toHaveBeenCalledWith(expect.objectContaining({
       observedProjectRevision: null,
+      collection: fixture.renderJobs,
+      cleanupCollection: fixture.renderSourceCleanupOutbox,
       session: fixture.session,
     }));
     expect(renderJobMocks.complete).not.toHaveBeenCalled();
@@ -312,14 +347,58 @@ describe("project render finalization transaction owner v1", () => {
       currentProjectRevision: AUTHORIZATION.projectRevision,
       claimToken: FINALIZATION_CLAIM.claimToken,
       now,
+      collection: fixture.renderJobs,
       session: fixture.session,
     }));
     expect(renderJobMocks.releaseInitial).toHaveBeenCalledWith(expect.objectContaining({
       authorization: AUTHORIZATION,
       currentProjectRevision: AUTHORIZATION.projectRevision,
       claimToken: FINALIZATION_CLAIM.claimToken,
+      collection: fixture.renderJobs,
       session: fixture.session,
     }));
+  });
+
+  it("persists cleanup for stale provider output and never exposes an enqueueable claim", async () => {
+    const fixture = createTransactionFixture();
+    fixture.projects.findOneAndUpdate.mockResolvedValueOnce(null);
+    fixture.projects.findOne.mockResolvedValueOnce({
+      projectRevision: 8,
+      updatedAt: new Date("2026-09-01T00:05:00.000Z"),
+    });
+
+    await expect(projectService.claimProjectRenderJobFinalizationTransactionV1({
+      authorization: AUTHORIZATION,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
+      sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
+    })).resolves.toEqual({
+      ok: false,
+      status: "NON_CURRENT",
+      code: "PROJECT_ARTIFACT_NOT_CURRENT",
+      reason: "PROJECT_REVISION_STALE",
+    });
+
+    expect(renderJobMocks.claimInitial).not.toHaveBeenCalled();
+    expect(renderJobMocks.fenceStaleProviderOutputWithCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorization: AUTHORIZATION,
+        observedProjectRevision: {
+          schemaVersion: 1,
+          value: 8,
+          compatibilityUpdatedAt: "2026-09-01T00:05:00.000Z",
+        },
+        providerRenderId: "provider-render-1",
+        bucketName: "render-bucket",
+        sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
+        sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
+        collection: fixture.renderJobs,
+        cleanupCollection: fixture.renderSourceCleanupOutbox,
+        session: fixture.session,
+      }),
+    );
+    expect(fixture.projects.updateOne).not.toHaveBeenCalled();
   });
 
   it("serializes failed-finalization retry claim and release owners", async () => {

@@ -40,7 +40,7 @@ import {
   type ProjectRenderSourceCleanupOutboxV1,
 } from './project-render-source-cleanup-v1';
 
-const COLLECTION_NAME = 'editron_render_jobs';
+export const PROJECT_RENDER_JOBS_COLLECTION_V1 = 'editron_render_jobs' as const;
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
 const MAX_FINALIZATION_LEASE_MS = 60 * 60 * 1000;
 export const MAX_RENDER_FINALIZATION_ATTEMPTS = 3;
@@ -287,7 +287,7 @@ function resolveProjectRenderLease(input: {
 
 async function getCollection(): Promise<Collection<RenderJob>> {
   const db = await getDatabase();
-  return db.collection<RenderJob>(COLLECTION_NAME);
+  return db.collection<RenderJob>(PROJECT_RENDER_JOBS_COLLECTION_V1);
 }
 
 function renderJobSelector(renderId: string): Filter<RenderJob> {

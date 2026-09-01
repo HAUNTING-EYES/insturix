@@ -6,20 +6,22 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes } from "node:crypto";
-import type { ClientSession } from "mongodb";
+import type { ClientSession, Collection } from "mongodb";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 import {
   PROJECT_ARTIFACT_NOT_CURRENT,
+  PROJECT_RENDER_JOBS_COLLECTION_V1,
   ProjectRenderJobAuthorizationSchema,
   claimFailedProjectRenderJobFinalizationRetryV1,
   claimProjectRenderJobFinalizationV1,
   completeProjectRenderJobFinalizationV1 as completeBoundProjectRenderJobFinalizationV1,
   failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1 as failBoundProjectRenderJobFinalizationV1,
-  fenceStaleProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationWithCleanupV1,
+  fenceStaleProjectRenderJobProviderOutputWithCleanupV1,
   releaseFailedProjectRenderJobFinalizationRetryClaimV1,
   releaseProjectRenderJobFinalizationClaimV1,
   type ProjectRenderFinalizationClaimV1,
@@ -27,6 +29,11 @@ import {
   type ProjectRenderJobMutationResultV1,
   type ProjectRenderJobNotCurrentResultV1,
 } from "./render-job-service";
+import type { RenderJob } from "../schemas/render-job";
+import {
+  PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
+  type ProjectRenderSourceCleanupOutboxV1,
+} from "./project-render-source-cleanup-v1";
 import type {
   Keyframe,
   KeyframeTrack,
@@ -1387,6 +1394,8 @@ type ProjectRenderJobTransactionKindV1 =
 interface ProjectRenderJobTransactionContextV1 {
   authorization: ProjectRenderJobAuthorizationV1;
   currentProjectRevision: ProjectRevisionV1;
+  renderJobs: Collection<RenderJob>;
+  renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
   session: ClientSession;
   transactionAt: Date;
 }
@@ -1394,6 +1403,8 @@ interface ProjectRenderJobTransactionContextV1 {
 interface StaleProjectRenderJobTransactionContextV1 {
   authorization: ProjectRenderJobAuthorizationV1;
   observedProjectRevision: ProjectRevisionV1 | null;
+  renderJobs: Collection<RenderJob>;
+  renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
   session: ClientSession;
   transactionAt: Date;
 }
@@ -1910,7 +1921,7 @@ export class ProjectService {
         kind: "provider-failure",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
         failProjectRenderJobFromProviderV1({
           authorization,
           currentProjectRevision,
@@ -1918,6 +1929,7 @@ export class ProjectService {
           bucketName: input.bucketName,
           error: input.error,
           now: transactionAt,
+          collection: renderJobs,
           session,
         }),
     );
@@ -1940,7 +1952,7 @@ export class ProjectService {
         kind: "initial-finalization-claim",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
         claimProjectRenderJobFinalizationV1({
           authorization,
           currentProjectRevision,
@@ -1951,8 +1963,40 @@ export class ProjectService {
           claimToken: input.claimToken,
           leaseMs: input.leaseMs,
           now: transactionAt,
+          collection: renderJobs,
           session,
         }),
+      input.providerRenderId !== undefined && input.bucketName !== undefined
+        ? async ({
+            authorization,
+            observedProjectRevision,
+            renderJobs,
+            renderSourceCleanupOutbox,
+            session,
+            transactionAt,
+          }) => {
+            const stale = await fenceStaleProjectRenderJobProviderOutputWithCleanupV1({
+              authorization,
+              observedProjectRevision,
+              providerRenderId: input.providerRenderId!,
+              bucketName: input.bucketName!,
+              sourceOutputUrl: input.sourceOutputUrl,
+              sourceOutputSize: input.sourceOutputSize,
+              error: "Project changed before provider output finalization.",
+              now: transactionAt,
+              collection: renderJobs,
+              cleanupCollection: renderSourceCleanupOutbox,
+              session,
+            });
+            if (!stale.ok) return stale;
+            return {
+              ok: false as const,
+              status: "NON_CURRENT" as const,
+              code: PROJECT_ARTIFACT_NOT_CURRENT,
+              reason: "PROJECT_REVISION_STALE" as const,
+            };
+          }
+        : undefined,
     );
   }
 
@@ -1968,11 +2012,12 @@ export class ProjectService {
         kind: "initial-finalization-release",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, session }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session }) =>
         releaseProjectRenderJobFinalizationClaimV1({
           authorization,
           currentProjectRevision,
           claimToken: input.claimToken,
+          collection: renderJobs,
           session,
         }),
     );
@@ -1991,13 +2036,14 @@ export class ProjectService {
         kind: "failed-finalization-retry-claim",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
         claimFailedProjectRenderJobFinalizationRetryV1({
           authorization,
           currentProjectRevision,
           claimToken: input.claimToken,
           leaseMs: input.leaseMs,
           now: transactionAt,
+          collection: renderJobs,
           session,
         }),
     );
@@ -2016,13 +2062,14 @@ export class ProjectService {
         kind: "failed-finalization-retry-release",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
         releaseFailedProjectRenderJobFinalizationRetryClaimV1({
           authorization,
           currentProjectRevision,
           claimToken: input.claimToken,
           error: input.error,
           now: transactionAt,
+          collection: renderJobs,
           session,
         }),
     );
@@ -2033,7 +2080,7 @@ export class ProjectService {
   ): Promise<ProjectRenderFinalizationTransactionResultV1> {
     return this.runProjectRenderJobTransactionV1(
       { authorization: input.authorization, kind: input.kind, now: input.now },
-      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
         input.kind === "complete"
           ? completeBoundProjectRenderJobFinalizationV1({
               authorization,
@@ -2041,6 +2088,7 @@ export class ProjectService {
               claimToken: input.claimToken,
               result: input.result,
               now: transactionAt,
+              collection: renderJobs,
               session,
             })
           : failBoundProjectRenderJobFinalizationV1({
@@ -2049,10 +2097,18 @@ export class ProjectService {
               claimToken: input.claimToken,
               error: input.error,
               now: transactionAt,
+              collection: renderJobs,
               session,
             }),
-      ({ authorization, observedProjectRevision, session, transactionAt }) =>
-        fenceStaleProjectRenderJobFinalizationV1({
+      ({
+        authorization,
+        observedProjectRevision,
+        renderJobs,
+        renderSourceCleanupOutbox,
+        session,
+        transactionAt,
+      }) =>
+        fenceStaleProjectRenderJobFinalizationWithCleanupV1({
           authorization,
           observedProjectRevision,
           claimToken: input.claimToken,
@@ -2060,6 +2116,8 @@ export class ProjectService {
             ? input.error
             : "Project changed before final render publication.",
           now: transactionAt,
+          collection: renderJobs,
+          cleanupCollection: renderSourceCleanupOutbox,
           session,
         }),
     );
@@ -2097,6 +2155,10 @@ export class ProjectService {
     const transactionToken = randomBytes(16).toString("hex");
     const { client, db } = await connectToDatabase();
     const session = client.startSession();
+    const renderJobs = db.collection<RenderJob>(PROJECT_RENDER_JOBS_COLLECTION_V1);
+    const renderSourceCleanupOutbox = db.collection<ProjectRenderSourceCleanupOutboxV1>(
+      PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
+    );
     try {
       const result = await session.withTransaction(async () => {
         const projects = db.collection(COLLECTIONS.PROJECTS);
@@ -2142,6 +2204,8 @@ export class ProjectService {
             return staleOwner({
               authorization,
               observedProjectRevision,
+              renderJobs,
+              renderSourceCleanupOutbox,
               session,
               transactionAt,
             });
@@ -2158,6 +2222,8 @@ export class ProjectService {
         const jobResult = await currentOwner({
           authorization,
           currentProjectRevision,
+          renderJobs,
+          renderSourceCleanupOutbox,
           session,
           transactionAt,
         });
