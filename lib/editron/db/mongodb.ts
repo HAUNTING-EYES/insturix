@@ -274,6 +274,15 @@ export async function initializeIndexes(): Promise<void> {
       },
       name: 'chapter_retention_due_v1',
     },
+    {
+      key: {
+        artifactLifecycleVersion: 1,
+        'lifecycleMigration.schemaVersion': 1,
+        createdAt: 1,
+        _id: 1,
+      },
+      name: 'chapter_lifecycle_migration_candidates_v1',
+    },
   ]);
 
   // Audit tombstones survive deletion of the transient chapter aggregate. The
