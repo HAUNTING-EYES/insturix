@@ -389,7 +389,6 @@ export async function POST(
         (s: any) => s.independentGeneration && (s.videoUrl || s.imageUrl)
       );
       if (!hasIndependentSubShotsForCap && videoDurationSec && videoDurationSec > 0 && sceneDurationSec > videoDurationSec) {
-        console.log(`[Finalize] Scene ${scene.sceneIndex}: capping duration from ${sceneDurationSec.toFixed(1)}s to ${videoDurationSec.toFixed(1)}s (video shorter than script)`);
         sceneDurationSec = videoDurationSec;
       }
       const durationFrames = Math.round(sceneDurationSec * fps);
@@ -873,7 +872,7 @@ export async function POST(
       if (!globalDirs.defaultTransition) {
         globalDirs.defaultTransition = { type: 'soft-cut', durationMs: 500 };
       }
-      const result = await applyEditDirections(
+      await applyEditDirections(
         overlays,
         scenesWithDirections,
         sceneFrameMap,
@@ -882,7 +881,6 @@ export async function POST(
         height,
         fps,
       );
-      console.log(`[Finalize] Edit directions applied: ${overlays.length} overlays (${result.totalFrameShift} frame shift)`);
     } catch (editErr: any) {
       // Bundle 4 Toyota B.silent.1 fix: was swallowed before, now LOUDLY surfaced.
       // Previous behavior: caught the error, logged a warning, returned success:true
@@ -934,7 +932,6 @@ export async function POST(
       // Update total duration after closing gaps
       const maxEnd = overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0);
       currentFrame = maxEnd;
-      console.log(`[Finalize] Closed ${gapsClosed} gaps between scenes. New duration: ${(currentFrame / fps).toFixed(1)}s`);
     }
 
     // ─── Create Editron project FIRST, then dispatch audio workers ─────
@@ -991,27 +988,24 @@ export async function POST(
         { value: projectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
       ],
     });
-    if (!musicGenerationPolicy.allowed) {
-      console.log(`[Finalize] BGM disabled by ${musicGenerationPolicy.reason}`);
-    }
     const authoredMusicPrompt = nonEmptyString(storyboard.overallMusicPrompt);
-    const musicCoveragePlan = musicGenerationPolicy.allowed
-      ? resolveRuntimeMusicCoveragePlan({
-          totalFrames: currentFrame,
-          fps,
-          project: projectRecord,
-          overlays,
-          contentType: nonEmptyString((briefSnapshot as any)?.contentType),
-          musicPreference: musicGenerationPolicy.musicPreference,
-          authoredMusicIntent: authoredMusicPrompt
-            ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
-            : null,
-          storyboardScenes: storyboard.scenes,
-          sceneFrameMap,
-        })
-      : null;
-    if (musicCoveragePlan?.mode === 'none') {
-      console.log(`[Finalize] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+    let musicCoveragePlan = null;
+    if (!musicGenerationPolicy.allowed) {
+      musicCoveragePlan = null;
+    } else {
+      musicCoveragePlan = resolveRuntimeMusicCoveragePlan({
+        totalFrames: currentFrame,
+        fps,
+        project: projectRecord,
+        overlays,
+        contentType: nonEmptyString((briefSnapshot as any)?.contentType),
+        musicPreference: musicGenerationPolicy.musicPreference,
+        authoredMusicIntent: authoredMusicPrompt
+          ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
+          : null,
+        storyboardScenes: storyboard.scenes,
+        sceneFrameMap,
+      });
     }
 
     // Update name + stage on reused project (it was created with a possibly-different title)
@@ -1079,9 +1073,7 @@ export async function POST(
     // ─── Update project link with new projectId (fail-open) ────────
     try {
       const linked = await addProjectToLink(userId, id, project.projectId);
-      if (linked) {
-        console.log(`[finalize] Project link updated: storyboard ${id} → project ${project.projectId}`);
-      } else {
+      if (!linked) {
         console.warn(`[finalize] No project link found for storyboard ${id} — link may not have been created at generate time`);
       }
     } catch (linkErr: any) {
@@ -1134,8 +1126,6 @@ export async function POST(
           },
           retries: 3,
         });
-
-        console.log(`[Finalize] Graph sync dispatched: project + ${sceneInputs.length} scenes`);
       }
     } catch (graphErr: any) {
       console.warn(`[Finalize] Graph sync dispatch failed: ${graphErr.message}`);
@@ -1202,9 +1192,6 @@ export async function POST(
           const syncBgmPlanningTimelineBindingHash = projectPipelineAudioTimelineBindingHashV1(
             syncBgmPlanningSnapshot.project,
           );
-          console.log(
-            `[Finalize] Beat-sync ACTIVE — generating BGM synchronously for beat detection (${totalDurationSec}s, "${musicPrompt.substring(0, 60)}")`
-          );
           const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
           const bgm = await Promise.race([
             generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
@@ -1227,11 +1214,6 @@ export async function POST(
               fps,
               totalFrames: currentFrame,
             });
-            console.log(
-              `[Finalize] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
-              + `${beatEvidence.beatGrid.beats.length} beats, `
-              + `${beatEvidence.beatGrid.downbeats.length} downbeats`,
-            );
           } catch (beatErr: any) {
             console.warn(`[Finalize] Beat analysis failed without discarding conditioned BGM: ${beatErr.message}`);
             pipelineWarnings.degraded(
@@ -1326,7 +1308,7 @@ export async function POST(
             { upsert: true },
           );
 
-          const audioDelivery = await projectService.commitPipelineAudioDeliveryV1(
+          await projectService.commitPipelineAudioDeliveryV1(
             userId,
             project.projectId,
             {
@@ -1351,11 +1333,6 @@ export async function POST(
           overlays.push(...bgmOverlays);
 
           bgmSyncCompleted = true;
-          console.log(
-            beatEvidence
-              ? `[Finalize] Sync BGM ${audioDelivery.disposition} + analyzed beat grid ready for Director`
-              : `[Finalize] Sync BGM ${audioDelivery.disposition}; beat alignment unavailable and reported`,
-          );
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
           pipelineWarnings.degraded(
@@ -1398,7 +1375,6 @@ export async function POST(
         });
       }
       if (bgmCreditCharge) {
-        console.log(`[Finalize] Dispatching BGM worker: "${musicPrompt.substring(0, 80)}", ${totalDurationSec}s`);
         const bgmDispatch = await dispatchAudioJob({
           type: 'bgm',
           projectId: project.projectId,
@@ -1482,12 +1458,6 @@ export async function POST(
           };
         });
 
-      const hasSfxIntent = storyboard.scenes.filter(s => {
-        const desc = s.descriptor as any;
-        return (desc.sfxDescription?.trim() || desc.editDirections?.sfxCue?.trim());
-      }).length;
-      const nativeAudioSceneCount = storyboard.scenes.filter(s => (s as any).hasNativeAudio).length;
-
       if (sfxInputs.length > 0) {
         const sfxCreditCharge = await deductPipelineAudioCredits({
           userId,
@@ -1499,10 +1469,6 @@ export async function POST(
           pipelineWarnings,
         });
         if (sfxCreditCharge) {
-          console.log(
-            `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes ` +
-            `(from ${hasSfxIntent} with sfxDescription/sfxCue; ${nativeAudioSceneCount} skipped due to hasNativeAudio — those rely on the clip's own audio)`,
-          );
           const sfxDispatch = await dispatchAudioJob({
             type: 'sfx',
             projectId: project.projectId,
@@ -1517,20 +1483,7 @@ export async function POST(
             audioGenerationQueued = true;
           }
         }
-      } else if (hasSfxIntent > 0 && nativeAudioSceneCount > 0) {
-        console.log(
-          `[Finalize] SFX worker NOT dispatched — all ${hasSfxIntent} scene(s) with SFX intent have hasNativeAudio=true ` +
-          `(clip's own audio is the ambient bed; layering Freesound on top would over-mix). ` +
-          `If native audio is unreliable, fix that at the video-gen gate (C2 dialogue-intent work), not here.`,
-        );
-      } else {
-        console.log('[Finalize] SFX worker NOT dispatched — no scene has sfxDescription or sfxCue');
       }
-    }
-
-    // Log pipeline warning summary
-    if (pipelineWarnings.hasErrors() || pipelineWarnings.count().warnings > 0) {
-      console.log(`[Finalize] ${pipelineWarnings.getSummary()}`);
     }
 
     // ─── Brand Intelligence: emit project_created + set status to generating ───
@@ -1580,7 +1533,6 @@ export async function POST(
       ) {
         directorIntentQueued = true;
         directorQueueState = 'PENDING_PIPELINE_VIDEO_COMPLETION';
-        console.log(`[Finalize] Director intent ${directorIntent.disposition}: G-01.`);
       } else {
         const message = `Director intent was not recorded: ${directorIntent.disposition}.`;
         console.warn(`[Finalize] ${message}`);
