@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { transitionProjectStatus, type ProjectStatus } from '@/lib/shared/project-status';
+import { recoverAssistScanSettlements } from '@/lib/editron/services/assist-refund-recovery';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
     const stuckProjects = await db
       .collection(COLLECTIONS.PROJECTS)
       .find({
+        editMode: { $ne: 'assist' },
         status: { $in: ACTIVE_STATES },
         updatedAt: { $lt: cutoff },
       })
@@ -87,6 +89,17 @@ export async function GET(request: Request) {
       }
     }
 
+    const assistRecovery = await recoverAssistScanSettlements(db, {
+      staleBefore: new Date(Date.now() - AUTO_EDIT_STUCK_THRESHOLD_MS),
+      limit: 10,
+    });
+    recovered += assistRecovery.recovered;
+    details.push(...assistRecovery.details.map((detail) => ({
+      projectId: detail.projectId,
+      from: detail.outcome,
+      field: 'assistSettlement',
+    })));
+
     // ── Auto-edit pipeline recovery ──────────────────────────────
     // autoEditStatus is a separate field from status. Projects stuck in
     // analyzing/directing states are invisible to the status query above.
@@ -95,6 +108,7 @@ export async function GET(request: Request) {
     const stuckAutoEdits = await db
       .collection(COLLECTIONS.PROJECTS)
       .find({
+        editMode: { $ne: 'assist' },
         autoEditStatus: { $in: ACTIVE_AUTO_EDIT_STATES },
         updatedAt: { $lt: new Date(Date.now() - AUTO_EDIT_STUCK_THRESHOLD_MS) },
       })
@@ -121,7 +135,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       recovered,
-      found: stuckProjects.length + stuckAutoEdits.length,
+      found: stuckProjects.length + assistRecovery.found + stuckAutoEdits.length,
+      assistRefundPending: assistRecovery.pending,
       details,
     });
   } catch (error: unknown) {
