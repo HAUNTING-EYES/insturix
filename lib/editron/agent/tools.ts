@@ -2337,10 +2337,8 @@ Use this to understand what exists. Then decide what to do based on user intent.
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -2351,21 +2349,22 @@ Use this to understand what exists. Then decide what to do based on user intent.
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          {
-            expectedUpdatedAt: revision,
-            overlays: plan.overlays,
-          },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption generation once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption generation once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
@@ -2426,10 +2425,8 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -2440,18 +2437,22 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          { expectedUpdatedAt: revision, overlays: plan.overlays },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption refresh once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption refresh once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
@@ -5732,10 +5733,8 @@ Examples:
           });
         }
 
-        const revision = project.updatedAt instanceof Date
-          ? project.updatedAt
-          : new Date(project.updatedAt);
-        if (Number.isNaN(revision.getTime())) {
+        const expectedRevision = readProjectRevisionV1(project);
+        if (!expectedRevision) {
           return JSON.stringify({
             status: 'error',
             data: null,
@@ -5746,18 +5745,22 @@ Examples:
             nextAction: 'retry',
           });
         }
-        const replaced = await projectService.replaceOverlayFamilyAtomic(
-          userId,
-          projectId,
-          { expectedUpdatedAt: revision, overlays: plan.overlays },
-        );
-        if (!replaced) {
-          return JSON.stringify({
-            status: 'replan-required',
-            data: { reason: 'project-revision-changed' },
-            error: null,
-            nextAction: 'Re-read the current timeline and retry caption styling once.',
+        try {
+          await projectService.replaceCaptionFamilyAtRevisionV1(userId, projectId, {
+            expectedRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: plan.overlays,
           });
+        } catch (error) {
+          if (error instanceof ProjectMutationConflictError) {
+            return JSON.stringify({
+              status: 'replan-required',
+              data: { reason: 'project-revision-changed' },
+              error: null,
+              nextAction: 'Re-read the current timeline and retry caption styling once.',
+            });
+          }
+          throw error;
         }
 
         return successEnvelope({
