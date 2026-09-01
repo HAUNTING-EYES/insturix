@@ -121,6 +121,13 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).toContain('publishProjectAnalysisDeepDispatchV1');
     expect(source).toContain('activateProjectAnalysisDeepInlineV1');
     expect(source).toContain('resumeRun?.deepAnalysisDispatch');
+    expect(source).toContain("resumeRun?.state === 'analyzing_deep'");
+    expect(source).toContain('const resumeEvidence = readDeepDispatchEvidence(resumeSnapshot.project, assetId)');
+    expect(source).toContain('const assetKey = encodeProjectAnalysisAssetKey(sourceAssetId)');
+    expect(source).toContain('runPreparedVideoDeepAnalysisInline({');
+    expect(source.match(/runPreparedVideoDeepAnalysisInline\(\{/g)).toHaveLength(2);
+    expect(source).toContain("deepClaim.disposition === 'DEEP_DISPATCH_PENDING' || deepClaim.disposition === 'DUPLICATE_ACTIVE'");
+    expect(source).not.toContain('Prepared inline TRIBE work requires provider-free resume.');
     expect(source).toContain('prepareProjectAnalysisDirectorDispatchV1');
     expect(source).toContain('publishProjectAnalysisDirectorDispatchV1');
     expect(source).toContain("resumeRun?.state === 'directing_queued'");

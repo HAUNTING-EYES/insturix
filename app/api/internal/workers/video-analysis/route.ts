@@ -29,7 +29,10 @@ import {
   isInternalWorkerInlineFallbackAllowed,
   withInternalQStashWorkerAuth,
 } from '@/lib/editron/security/internal-worker-auth';
-import { persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import {
+  encodeProjectAnalysisAssetKey,
+  persistProjectAssetAnalysis,
+} from '@/lib/editron/services/project-analysis-storage';
 import {
   ProjectAnalysisDeepPublicationError,
   activateProjectAnalysisDeepInlineV1,
@@ -240,7 +243,7 @@ async function handler(request: NextRequest) {
     }
     const resumeDeepDispatch = resumeRun?.deepAnalysisDispatch;
     if (
-      resumeRun?.state === 'analysis_complete'
+      (resumeRun?.state === 'analysis_complete' || resumeRun?.state === 'analyzing_deep')
       && resumeRun.runId === analysisRunId
       && resumeRun.sourceAssetId === assetId
       && resumeDeepDispatch
@@ -248,16 +251,32 @@ async function handler(request: NextRequest) {
       if (resumeDeepDispatch.status === 'published') {
         return NextResponse.json({ success: true, totalMs: Date.now() - startMs, resumed: true, skipped: 'tribe-already-dispatched' });
       }
+      const resumeEvidence = readDeepDispatchEvidence(resumeSnapshot.project, assetId);
       if (resumeDeepDispatch.status === 'inline_ready' || !isInternalQStashDispatchConfigured()) {
-        return NextResponse.json(
-          { success: false, error: 'Prepared inline TRIBE work requires provider-free resume.' },
-          { status: 503 },
-        );
+        const preparedDispatch = await runPreparedVideoDeepAnalysisInline({
+          db,
+          projectId,
+          userId,
+          analysisRunId,
+          sourceAssetId: assetId,
+          videoUrl,
+          rawFootageAnalysis: resumeEvidence.rawFootageAnalysis,
+          syntheticStoryboard: resumeEvidence.syntheticStoryboard,
+          precutVjepaAnalysis: resumeEvidence.precutVjepaAnalysis,
+          dispatch: resumeDeepDispatch,
+        });
+        const directorResult = await runPreparedVideoDirectorInline({
+          directorPayload: resumeDirectorPayload,
+          analysisRunId,
+          sourceAssetId: assetId,
+          dispatch: preparedDispatch,
+          onClaimed: () => { directorDispatched = true; },
+        });
+        return videoDirectorResponse(directorResult, Date.now() - startMs);
       }
-      const resumeRawFootageAnalysis = readDeepDispatchRawFootageAnalysis(resumeSnapshot.project);
       const resumeTribePayload = await buildTribeAnalysisPayloadV1({
         payload,
-        rawFootageAnalysis: resumeRawFootageAnalysis,
+        rawFootageAnalysis: resumeEvidence.rawFootageAnalysis,
         directorPayload: resumeDirectorPayload,
       });
       await publishPreparedVideoDeepDispatch({
@@ -1130,137 +1149,23 @@ async function handler(request: NextRequest) {
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dev fallback: no QStash Ã¢â€ â€™ run TRIBE steps + Director inline Ã¢â€â‚¬Ã¢â€â‚¬
-    // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
-    let vjepaAnalysis: any = precutVjepaAnalysis;
-    let wav2vecAnalysis: any = null;
-    let musicAnalysis: any = null;
-    let momentWeightMap: any = null;
-    let segmentAnalysis: any = null;
     let preparedDispatch: ProjectAnalysisDirectorDispatchV1;
 
     if (hasSegments) {
       if (!preparedDeepDispatch) throw new Error('Inline TRIBE dispatch preparation returned no identity.');
-      await activateProjectAnalysisDeepInlineV1({
+      preparedDispatch = await runPreparedVideoDeepAnalysisInline({
+        db,
         projectId,
         userId,
         analysisRunId,
         sourceAssetId: assetId,
+        videoUrl,
+        rawFootageAnalysis,
+        syntheticStoryboard,
+        precutVjepaAnalysis,
         dispatch: preparedDeepDispatch,
       });
-      const { projectService } = await import('@/lib/editron/services/project-service');
-      const deepSnapshot = await projectService.loadProjectForMutation(userId, projectId);
-      const deepClaim = await projectService.claimProjectAnalysisDeepRunV1(userId, projectId, {
-        expectedRevision: deepSnapshot.revision,
-        runId: analysisRunId,
-        sourceAssetId: assetId,
-        deepAnalysisDispatchId: preparedDeepDispatch.deduplicationId,
-      });
-      if (deepClaim.disposition !== 'CLAIMED') {
-        throw new AnalysisRunOwnershipLostError(
-          `Inline deep-analysis claim lost current run ownership (${deepClaim.disposition}).`,
-        );
-      }
-      analysisState = 'analyzing_deep';
-      try {
-        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
-          startMs: seg.startMs,
-          endMs: seg.endMs,
-        }));
-        const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
-        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
-
-        const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          vjepaAnalysis
-            ? Promise.resolve(vjepaAnalysis)
-            : (async () => {
-                return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
-              })(),
-          (async () => {
-            const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
-            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
-          })(),
-          (async () => {
-            const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
-            return analyzeMusicContent(videoUrl);
-          })(),
-        ]);
-
-        if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
-          vjepaAnalysis = vjepaResult.value;
-        }
-        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
-          wav2vecAnalysis = wav2vecResult.value;
-        }
-        if (musicResult.status === 'fulfilled' && musicResult.value) {
-          musicAnalysis = musicResult.value;
-        }
-
-        // Build moment weight map
-        if (vjepaAnalysis || wav2vecAnalysis) {
-          try {
-            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
-              await import('@/lib/editron/services/moment-weight-service');
-            const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
-            const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
-            let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
-            if (vjepaAnalysis) weightMap = integrateVjepaScores(weightMap, toVjepaWeightFormat(vjepaAnalysis));
-            if (wav2vecAnalysis) weightMap = integrateWav2vecScores(weightMap, toWav2VecWeightFormat(wav2vecAnalysis));
-            momentWeightMap = weightMap;
-          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] moment weight map build failed:', err instanceof Error ? err.message : err); }
-        }
-
-        // Build segment analysis
-        try {
-          const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
-          segmentAnalysis = buildSegmentAnalysis(
-            rawFootageAnalysis, syntheticStoryboard,
-            vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
-          );
-        } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
-
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] TRIBE inline failed (non-fatal): ${msg}`);
-      }
-      const phase2Snapshot = await projectService.loadProjectForMutation(userId, projectId);
-      const phase2Commit = await projectService.commitProjectAnalysisPhase2V1(userId, projectId, {
-        expectedRevision: phase2Snapshot.revision,
-        runId: analysisRunId,
-        sourceAssetId: assetId,
-        leaseId: deepClaim.lease.leaseId,
-        evidence: {
-          ...(vjepaAnalysis ? { vjepaAnalysis } : {}),
-          ...(wav2vecAnalysis ? { wav2vecAnalysis } : {}),
-          ...(musicAnalysis ? { musicAnalysis } : {}),
-          ...(momentWeightMap ? { momentWeightMap } : {}),
-          ...(segmentAnalysis ? { segmentAnalysis } : {}),
-        },
-      });
-      if (phase2Commit.disposition !== 'ADVANCED' && phase2Commit.disposition !== 'ALREADY_ADVANCED') {
-        throw new AnalysisRunOwnershipLostError(
-          `Inline Phase-2 commit lost current run ownership (${phase2Commit.disposition}).`,
-        );
-      }
       analysisState = 'directing_queued';
-      if (!phase2Commit.run.directorDispatch) {
-        throw new Error('Inline Phase-2 commit did not prepare its Director dispatch.');
-      }
-      preparedDispatch = phase2Commit.run.directorDispatch;
-      const inlinePhase2UpdatedAt = new Date(
-        phase2Commit.run.phase2EvidenceCommittedAt ?? phase2Commit.run.updatedAt,
-      );
-      try {
-        await persistProjectAssetAnalysis(db, projectId, assetId, {
-          vjepaAnalysis,
-          wav2vecAnalysis,
-          musicAnalysis,
-          momentWeightMap,
-          segmentAnalysis,
-        }, inlinePhase2UpdatedAt);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal): ${msg}`);
-      }
     } else {
       preparedDispatch = await prepareAnalysisDirectorDispatch({
         projectId,
@@ -1329,6 +1234,209 @@ async function handler(request: NextRequest) {
       { status: retryable ? 503 : ownershipLost ? 409 : 500 },
     );
   }
+}
+
+type PreparedVideoDeepAnalysisInlineInput = {
+  db: Parameters<typeof persistProjectAssetAnalysis>[0];
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  videoUrl: string;
+  rawFootageAnalysis: DeepDispatchRawFootageAnalysis;
+  syntheticStoryboard: unknown;
+  precutVjepaAnalysis: unknown;
+  dispatch: ProjectAnalysisDeepDispatchV1;
+};
+
+async function runPreparedVideoDeepAnalysisInline(
+  input: PreparedVideoDeepAnalysisInlineInput,
+): Promise<ProjectAnalysisDirectorDispatchV1> {
+  try {
+    return await runPreparedVideoDeepAnalysisInlineAttempt(input);
+  } catch (error: unknown) {
+    if (error instanceof AnalysisRunOwnershipLostError || error instanceof AnalysisRunRetryableError) throw error;
+    throw new AnalysisRunRetryableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function runPreparedVideoDeepAnalysisInlineAttempt(
+  input: PreparedVideoDeepAnalysisInlineInput,
+): Promise<ProjectAnalysisDirectorDispatchV1> {
+  if (input.dispatch.status === 'pending') {
+    try {
+      await activateProjectAnalysisDeepInlineV1({
+        projectId: input.projectId,
+        userId: input.userId,
+        analysisRunId: input.analysisRunId,
+        sourceAssetId: input.sourceAssetId,
+        dispatch: input.dispatch,
+      });
+    } catch (error: unknown) {
+      throw new AnalysisRunRetryableError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const {
+    ProjectMutationConflictError,
+    projectService,
+  } = await import('@/lib/editron/services/project-service');
+  let deepClaim: Awaited<ReturnType<typeof projectService.claimProjectAnalysisDeepRunV1>> | undefined;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const deepSnapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+    try {
+      deepClaim = await projectService.claimProjectAnalysisDeepRunV1(input.userId, input.projectId, {
+        expectedRevision: deepSnapshot.revision,
+        runId: input.analysisRunId,
+        sourceAssetId: input.sourceAssetId,
+        deepAnalysisDispatchId: input.dispatch.deduplicationId,
+      });
+      break;
+    } catch (error: unknown) {
+      if (error instanceof ProjectMutationConflictError && attempt < 3) continue;
+      if (error instanceof ProjectMutationConflictError) {
+        throw new AnalysisRunRetryableError('Inline deep-analysis claim exhausted its bounded revision attempts.');
+      }
+      throw error;
+    }
+  }
+  if (!deepClaim) {
+    throw new AnalysisRunRetryableError('Inline deep-analysis claim returned no bounded result.');
+  }
+  if (
+    deepClaim.disposition === 'DIRECTOR_DISPATCH_PENDING'
+    || deepClaim.disposition === 'DIRECTOR_DISPATCH_PUBLISHED'
+  ) {
+    if (!deepClaim.run.directorDispatch) {
+      throw new AnalysisRunOwnershipLostError('Advanced deep-analysis run has no Director dispatch identity.');
+    }
+    return deepClaim.run.directorDispatch;
+  }
+  if (deepClaim.disposition === 'DEEP_DISPATCH_PENDING' || deepClaim.disposition === 'DUPLICATE_ACTIVE') {
+    throw new AnalysisRunRetryableError(
+      `Inline deep-analysis work is not currently claimable (${deepClaim.disposition}).`,
+    );
+  }
+  if (deepClaim.disposition !== 'CLAIMED') {
+    throw new AnalysisRunOwnershipLostError(
+      `Inline deep-analysis claim lost current run ownership (${deepClaim.disposition}).`,
+    );
+  }
+
+  const rawFootageAnalysis: any = input.rawFootageAnalysis;
+  const syntheticStoryboard: any = input.syntheticStoryboard;
+  let vjepaAnalysis: any = input.precutVjepaAnalysis;
+  let wav2vecAnalysis: any = null;
+  let musicAnalysis: any = null;
+  let momentWeightMap: any = null;
+  let segmentAnalysis: any = null;
+
+  try {
+    const segmentInputs = rawFootageAnalysis.segments.map((segment: any) => ({
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+    }));
+    const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+    const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
+    const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
+      vjepaAnalysis
+        ? Promise.resolve(vjepaAnalysis)
+        : analyzeVideoWithVjepa(input.videoUrl, visualSegmentInputs),
+      (async () => {
+        const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
+        return analyzeAudioWithWav2Vec(input.videoUrl, segmentInputs);
+      })(),
+      (async () => {
+        const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
+        return analyzeMusicContent(input.videoUrl);
+      })(),
+    ]);
+    if (vjepaResult.status === 'fulfilled' && vjepaResult.value) vjepaAnalysis = vjepaResult.value;
+    if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) wav2vecAnalysis = wav2vecResult.value;
+    if (musicResult.status === 'fulfilled' && musicResult.value) musicAnalysis = musicResult.value;
+
+    if (vjepaAnalysis || wav2vecAnalysis) {
+      try {
+        const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
+          await import('@/lib/editron/services/moment-weight-service');
+        const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+        const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+        let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
+        if (vjepaAnalysis) weightMap = integrateVjepaScores(weightMap, toVjepaWeightFormat(vjepaAnalysis));
+        if (wav2vecAnalysis) weightMap = integrateWav2vecScores(weightMap, toWav2VecWeightFormat(wav2vecAnalysis));
+        momentWeightMap = weightMap;
+      } catch (error: unknown) {
+        console.warn('[VideoAnalysisWorker] moment weight map build failed:', error instanceof Error ? error.message : error);
+      }
+    }
+    try {
+      const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
+      segmentAnalysis = buildSegmentAnalysis(
+        rawFootageAnalysis,
+        syntheticStoryboard,
+        vjepaAnalysis,
+        wav2vecAnalysis,
+        momentWeightMap,
+      );
+    } catch (error: unknown) {
+      console.warn('[VideoAnalysisWorker] segment analysis build failed:', error instanceof Error ? error.message : error);
+    }
+  } catch (error: unknown) {
+    console.warn(
+      '[VideoAnalysisWorker] TRIBE inline failed (non-fatal):',
+      error instanceof Error ? error.message : error,
+    );
+  }
+
+  const evidence = {
+    ...(vjepaAnalysis ? { vjepaAnalysis } : {}),
+    ...(wav2vecAnalysis ? { wav2vecAnalysis } : {}),
+    ...(musicAnalysis ? { musicAnalysis } : {}),
+    ...(momentWeightMap ? { momentWeightMap } : {}),
+    ...(segmentAnalysis ? { segmentAnalysis } : {}),
+  };
+  let phase2Commit: Awaited<ReturnType<typeof projectService.commitProjectAnalysisPhase2V1>> | undefined;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const phase2Snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+    try {
+      phase2Commit = await projectService.commitProjectAnalysisPhase2V1(input.userId, input.projectId, {
+        expectedRevision: phase2Snapshot.revision,
+        runId: input.analysisRunId,
+        sourceAssetId: input.sourceAssetId,
+        leaseId: deepClaim.lease.leaseId,
+        evidence,
+      });
+      break;
+    } catch (error: unknown) {
+      if (error instanceof ProjectMutationConflictError && attempt < 3) continue;
+      if (error instanceof ProjectMutationConflictError) {
+        throw new AnalysisRunRetryableError('Inline Phase-2 commit exhausted its bounded revision attempts.');
+      }
+      throw error;
+    }
+  }
+  if (!phase2Commit) throw new AnalysisRunRetryableError('Inline Phase-2 commit returned no bounded result.');
+  if (phase2Commit.disposition !== 'ADVANCED' && phase2Commit.disposition !== 'ALREADY_ADVANCED') {
+    throw new AnalysisRunOwnershipLostError(
+      `Inline Phase-2 commit lost current run ownership (${phase2Commit.disposition}).`,
+    );
+  }
+  if (!phase2Commit.run.directorDispatch) {
+    throw new AnalysisRunOwnershipLostError('Inline Phase-2 commit did not prepare its Director dispatch.');
+  }
+
+  const inlinePhase2UpdatedAt = new Date(
+    phase2Commit.run.phase2EvidenceCommittedAt ?? phase2Commit.run.updatedAt,
+  );
+  try {
+    await persistProjectAssetAnalysis(input.db, input.projectId, input.sourceAssetId, evidence, inlinePhase2UpdatedAt);
+  } catch (error: unknown) {
+    console.warn(
+      '[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal):',
+      error instanceof Error ? error.message : error,
+    );
+  }
+  return phase2Commit.run.directorDispatch;
 }
 
 async function prepareAnalysisDeepDispatch(input: {
@@ -1410,40 +1518,58 @@ async function publishPreparedVideoDeepDispatch(input: {
   }
 }
 
-type DeepDispatchRawFootageAnalysis = {
+type DeepDispatchRawFootageAnalysis = Record<string, unknown> & {
   originalDurationMs: number;
   segments: Array<{ startMs: number; endMs: number }>;
 };
 
-function readDeepDispatchRawFootageAnalysis(project: unknown): DeepDispatchRawFootageAnalysis {
+function readDeepDispatchEvidence(project: unknown, sourceAssetId: string): {
+  rawFootageAnalysis: DeepDispatchRawFootageAnalysis;
+  syntheticStoryboard: unknown;
+  precutVjepaAnalysis: unknown;
+} {
   const projectRecord = project && typeof project === 'object' && !Array.isArray(project)
     ? project as Record<string, unknown>
     : {};
-  const raw = projectRecord.rawFootageAnalysis;
+  const assetKey = encodeProjectAnalysisAssetKey(sourceAssetId);
+  const keyedRaw = readProjectAnalysisByAsset(projectRecord.rawFootageAnalysisByAsset, assetKey);
+  const raw = keyedRaw ?? projectRecord.rawFootageAnalysis;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new AnalysisRunOwnershipLostError('Prepared TRIBE dispatch has no committed raw-footage evidence.');
   }
   const rawRecord = raw as Record<string, unknown>;
   const originalDurationMs = rawRecord.originalDurationMs;
   const segments = Array.isArray(rawRecord.segments) ? rawRecord.segments : [];
-  const normalizedSegments = segments.flatMap((value) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const segmentsAreValid = segments.length > 0 && segments.every((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const segment = value as Record<string, unknown>;
     return typeof segment.startMs === 'number'
       && Number.isFinite(segment.startMs)
       && typeof segment.endMs === 'number'
       && Number.isFinite(segment.endMs)
-      && segment.endMs > segment.startMs
-      ? [{ startMs: segment.startMs, endMs: segment.endMs }]
-      : [];
+      && segment.endMs > segment.startMs;
   });
   if (
     typeof originalDurationMs !== 'number'
     || !Number.isFinite(originalDurationMs)
     || originalDurationMs <= 0
-    || normalizedSegments.length === 0
+    || !segmentsAreValid
   ) throw new AnalysisRunOwnershipLostError('Prepared TRIBE dispatch evidence is incomplete or invalid.');
-  return { originalDurationMs, segments: normalizedSegments };
+  const keyedVjepa = readProjectAnalysisByAsset(projectRecord.vjepaAnalysisByAsset, assetKey);
+  return {
+    rawFootageAnalysis: {
+      ...rawRecord,
+      originalDurationMs,
+      segments: segments as Array<{ startMs: number; endMs: number }>,
+    },
+    syntheticStoryboard: projectRecord.syntheticStoryboard,
+    precutVjepaAnalysis: keyedVjepa ?? projectRecord.vjepaAnalysis,
+  };
+}
+
+function readProjectAnalysisByAsset(value: unknown, assetKey: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[assetKey];
 }
 
 async function buildTribeAnalysisPayloadV1(input: {
