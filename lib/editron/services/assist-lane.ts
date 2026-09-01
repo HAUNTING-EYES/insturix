@@ -131,14 +131,6 @@ export async function settleAssistScanFailure(
     });
     return 'unverifiable-run';
   }
-  if (charged === null || !Number.isFinite(charged) || charged < 0) {
-    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan has an invalid persisted charge:', {
-      projectId,
-      charged,
-    });
-    return 'refund-pending';
-  }
-
   const alreadyPending = laneDoc.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
     && laneDoc.assistRefundPending === true;
   if (!alreadyPending) {
@@ -148,7 +140,6 @@ export async function settleAssistScanFailure(
         userId,
         editMode: 'assist',
         assistCreditTransactionId: txId,
-        assistChargedCredits: charged,
         autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
       },
       {
@@ -163,6 +154,14 @@ export async function settleAssistScanFailure(
       console.log(`[DirectorMode] Assist failure lost its exact terminal transition (project ${projectId}).`);
       return 'transition-lost';
     }
+  }
+
+  if (charged === null || !Number.isFinite(charged) || charged < 0) {
+    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan has an invalid persisted charge:', {
+      projectId,
+      charged,
+    });
+    return 'refund-pending';
   }
 
   try {
