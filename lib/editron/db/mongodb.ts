@@ -15,6 +15,8 @@ import { PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/project-render-source-cleanup-v1';
 import { PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/chapter-concat-cleanup-v1';
+import { CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1 }
+  from '@/lib/editron/services/chapter-render-dispatch-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -81,6 +83,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   PROJECT_RENDER_JOBS: 'editron_render_jobs',
+  CHAPTER_RENDER_CHAPTERS: CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1,
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX: PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
@@ -212,6 +215,39 @@ export async function initializeIndexes(): Promise<void> {
         _id: 1,
       },
       name: 'dispatch_recovery_attempt_job',
+    },
+  ]);
+
+  // Strict chapter children retain their own provider-call evidence inside the
+  // chapter aggregate. These indexes let the later recovery owner find
+  // uncertain attempts without treating a parent aggregate row as a provider
+  // child receipt.
+  await db.collection(COLLECTIONS.CHAPTER_RENDER_CHAPTERS).createIndexes([
+    {
+      key: {
+        'projectRenderSnapshotBinding.scope': 1,
+        'projectRenderSnapshotBinding.bindingHash': 1,
+        'chapters.dispatch.version': 1,
+        'chapters.dispatch.phase': 1,
+        'chapters.dispatch.childIndex': 1,
+        'chapters.dispatch.attemptStartedAt': 1,
+        _id: 1,
+      },
+      name: 'chapter_child_dispatch_recovery_attempt_v1',
+    },
+    {
+      key: {
+        'projectRenderSnapshotBinding.scope': 1,
+        'projectRenderSnapshotBinding.bindingHash': 1,
+        'chapters.dispatch.version': 1,
+        'chapters.dispatch.phase': 1,
+        'chapters.dispatch.childIndex': 1,
+        'chapters.dispatch.providerRenderId': 1,
+        'chapters.dispatch.providerBucketName': 1,
+        'chapters.dispatch.providerRegion': 1,
+        _id: 1,
+      },
+      name: 'chapter_child_dispatch_recovery_provider_v1',
     },
   ]);
 

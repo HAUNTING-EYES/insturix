@@ -42,6 +42,15 @@ import {
   type ProjectRenderSnapshotBindingV1,
 } from './project-render-snapshot-binding-v1';
 import { sameProjectArtifactRevisionV1 } from './project-artifact-invalidation-v1';
+import {
+  assertChapterChildDispatchV1,
+  ChapterChildProviderTupleSchemaV1,
+  createChapterChildDispatchV1,
+  markChapterChildDispatchAttemptingV1,
+  bindChapterChildDispatchV1,
+  quarantineChapterChildDispatchV1,
+  type ChapterChildDispatchV1,
+} from './chapter-render-dispatch-v1';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -85,6 +94,8 @@ interface Chapter {
   outputSize?: number;
   /** Deterministic handoff linkage for a later child-cleanup owner. */
   parentAdmissionId?: string;
+  /** Strict per-child provider dispatch ledger; absent only on legacy rows. */
+  dispatch?: ChapterChildDispatchV1;
   /** Render status */
   status: 'pending' | 'rendering' | 'completed' | 'failed';
   /** Output URL (set after render completes) */
@@ -283,6 +294,19 @@ function chapterProviderIdentityIsComplete(chapter: Partial<Chapter>): boolean {
     && chapter.region.trim().length > 0;
 }
 
+function chapterProviderTupleMatchesDispatch(
+  chapter: Partial<Chapter>,
+  dispatch: ChapterChildDispatchV1,
+): boolean {
+  return chapterProviderIdentityIsComplete(chapter)
+    && typeof dispatch.providerRenderId === 'string'
+    && typeof dispatch.providerBucketName === 'string'
+    && typeof dispatch.providerRegion === 'string'
+    && chapter.renderId!.trim() === dispatch.providerRenderId
+    && chapter.bucketName!.trim() === dispatch.providerBucketName
+    && chapter.region!.trim() === dispatch.providerRegion;
+}
+
 function readChapterOutputSize(value: unknown): number | undefined {
   return typeof value === 'number'
     && Number.isSafeInteger(value)
@@ -377,8 +401,152 @@ async function startSingleChapterRender(
     height: number;
     totalFrames: number;
     overlays: Overlay[];
+    binding?: ProjectRenderSnapshotBindingV1;
   },
 ): Promise<void> {
+  const strictBinding = ctx.binding;
+  if (strictBinding) {
+    const dispatch = chapter.dispatch;
+    try {
+      if (!dispatch) throw new Error('CHAPTER_RENDER_DISPATCH_LEDGER_MISSING');
+      assertChapterChildDispatchV1(dispatch);
+      if (
+        dispatch.parentAdmissionId !== jobId
+        || dispatch.childIndex !== chapter.index
+        || dispatch.bindingHash !== strictBinding.bindingHash
+      ) {
+        throw new Error('CHAPTER_RENDER_DISPATCH_LEDGER_SCOPE_MISMATCH');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      await failChapter(db, jobId, chapter, message);
+      return;
+    }
+
+    try {
+      const attempted = await markChapterChildDispatchAttemptingV1({
+        parentAdmissionId: jobId,
+        childIndex: chapter.index,
+        binding: strictBinding,
+        attemptToken: dispatch.attemptToken,
+        now: new Date(),
+        collection: db.collection(CHAPTERS_COLLECTION),
+      });
+      if (!attempted.ok) {
+        console.warn(
+          `[ChapterRenderer] Chapter ${chapter.index} dispatch was not claimed: ${attempted.reason}`,
+        );
+        return;
+      }
+    } catch (err: unknown) {
+      console.error(`[ChapterRenderer] Chapter ${chapter.index} attempt marker was uncertain:`, err);
+      try {
+        await quarantineChapterChildDispatchV1({
+          parentAdmissionId: jobId,
+          childIndex: chapter.index,
+          binding: strictBinding,
+          attemptToken: dispatch.attemptToken,
+          error: err,
+          now: new Date(),
+          collection: db.collection(CHAPTERS_COLLECTION),
+        });
+      } catch (quarantineError: unknown) {
+        console.error(
+          `[ChapterRenderer] Chapter ${chapter.index} could not be quarantined after marker uncertainty:`,
+          quarantineError,
+        );
+      }
+      return;
+    }
+
+    let providerTuple: {
+      providerRenderId: string;
+      bucketName: string;
+      region: string;
+    } | undefined;
+    try {
+      await setAWSCredentials();
+      const inputProps = buildLambdaRenderInputProps({
+        overlays: ctx.overlays,
+        durationInFrames: ctx.totalFrames,
+        fps: ctx.fps,
+        width: ctx.width,
+        height: ctx.height,
+        // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render -- without this flag the
+        // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender -> timeout.
+        isRendering: true,
+      });
+      const { renderId, bucketName } = await renderMediaOnLambda({
+        region: ctx.region as any,
+        functionName: ctx.functionName,
+        serveUrl: ctx.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps,
+        codec: 'h264',
+        maxRetries: 1,
+        framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
+        privacy: 'public',
+        timeoutInMilliseconds: 600000, // 10 min per chapter
+        audioCodec: REMOTION_AUDIO_CODEC,
+        frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
+        metadata: {
+          editronChapterParentAdmissionId: jobId,
+          editronChapterIndex: String(chapter.index),
+          editronChapterAttemptToken: dispatch.attemptToken,
+          editronChapterBindingHash: strictBinding.bindingHash,
+        },
+      });
+      const parsedTuple = ChapterChildProviderTupleSchemaV1.safeParse({
+        providerRenderId: typeof renderId === 'string' ? renderId.trim() : '',
+        bucketName: typeof bucketName === 'string' ? bucketName.trim() : '',
+        region: ctx.region,
+      });
+      if (!parsedTuple.success) throw new Error('CHAPTER_RENDER_PROVIDER_IDENTITY_INVALID');
+      providerTuple = parsedTuple.data;
+
+      const bound = await bindChapterChildDispatchV1({
+        parentAdmissionId: jobId,
+        childIndex: chapter.index,
+        binding: strictBinding,
+        attemptToken: dispatch.attemptToken,
+        ...providerTuple,
+        now: new Date(),
+        collection: db.collection(CHAPTERS_COLLECTION),
+      });
+      if (!bound.ok) {
+        throw new Error(`CHAPTER_RENDER_DISPATCH_BIND_NOT_CURRENT:${bound.reason}`);
+      }
+      console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${providerTuple.providerRenderId}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[ChapterRenderer] Chapter ${chapter.index} dispatch is uncertain: ${message}`);
+      try {
+        await quarantineChapterChildDispatchV1({
+          parentAdmissionId: jobId,
+          childIndex: chapter.index,
+          binding: strictBinding,
+          attemptToken: dispatch.attemptToken,
+          error: message,
+          ...(providerTuple
+            ? {
+                providerRenderId: providerTuple.providerRenderId,
+                bucketName: providerTuple.bucketName,
+                region: providerTuple.region,
+              }
+            : {}),
+          now: new Date(),
+          collection: db.collection(CHAPTERS_COLLECTION),
+        });
+      } catch (quarantineError: unknown) {
+        console.error(
+          `[ChapterRenderer] Chapter ${chapter.index} could not be quarantined after dispatch uncertainty:`,
+          quarantineError,
+        );
+      }
+    }
+    return;
+  }
+
   // Atomic claim: only proceed if this chapter is still pending (prevents a racing poll double-starting it).
   const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
     { _id: jobId, chapters: { $elemMatch: { index: chapter.index, status: 'pending' } } } as any,
@@ -517,6 +685,7 @@ export async function startPendingChapters(
     height: job.height,
     totalFrames: job.totalFrames,
     overlays: (job.overlays ?? []) as Overlay[],
+    ...(strictJob ? { binding: job.projectRenderSnapshotBinding } : {}),
   };
   for (const chapter of pending) {
     await startSingleChapterRender(db, jobId, chapter, ctx);
@@ -587,7 +756,16 @@ export async function startChapterRender(
     endFrame: b.endFrame,
     durationFrames: b.endFrame - b.startFrame,
     region: selectedRegion,
-    ...(projectRenderSnapshotBinding ? { parentAdmissionId: jobId } : {}),
+    ...(projectRenderSnapshotBinding
+      ? {
+          parentAdmissionId: jobId,
+          dispatch: createChapterChildDispatchV1({
+            parentAdmissionId: jobId,
+            childIndex: i,
+            bindingHash: projectRenderSnapshotBinding.bindingHash,
+          }),
+        }
+      : {}),
     status: 'pending' as const,
   }));
 
@@ -670,11 +848,103 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     let chapterOutputUrl = chapter.outputUrl;
     let chapterOutputSize = chapter.outputSize;
     let chapterError = chapter.error;
+    const strictJob = isStrictChapterRenderJob(job);
+    let strictDispatch: ChapterChildDispatchV1 | undefined;
+    let strictDispatchInvalid = false;
 
-    if (chapter.status === 'completed') {
-      progress = 1;
+    if (strictJob) {
+      try {
+        const binding = job.projectRenderSnapshotBinding;
+        if (!binding) throw new Error('CHAPTER_RENDER_PROJECT_SNAPSHOT_BINDING_MISSING');
+        if (!chapter.dispatch) throw new Error('CHAPTER_RENDER_DISPATCH_LEDGER_MISSING');
+        assertChapterChildDispatchV1(chapter.dispatch);
+        if (
+          chapter.dispatch.parentAdmissionId !== jobId
+          || chapter.dispatch.childIndex !== chapter.index
+          || chapter.dispatch.bindingHash !== binding.bindingHash
+        ) {
+          throw new Error('CHAPTER_RENDER_DISPATCH_LEDGER_SCOPE_MISMATCH');
+        }
+        strictDispatch = chapter.dispatch;
+      } catch (err: unknown) {
+        strictDispatchInvalid = true;
+        chapterStatus = 'failed';
+        chapterError = err instanceof Error ? err.message : String(err);
+        await failChapter(db, jobId, chapter, chapterError);
+      }
+    }
+
+    if (
+      strictJob
+      && !strictDispatchInvalid
+      && strictDispatch?.phase === 'UNKNOWN'
+      && chapterProviderTupleMatchesDispatch(chapter, strictDispatch)
+    ) {
+      const binding = job.projectRenderSnapshotBinding!;
+      const repairTime = new Date();
+      try {
+        const repaired = await bindChapterChildDispatchV1({
+          parentAdmissionId: jobId,
+          childIndex: chapter.index,
+          binding,
+          attemptToken: strictDispatch.attemptToken,
+          providerRenderId: chapter.renderId!.trim(),
+          bucketName: chapter.bucketName!.trim(),
+          region: chapter.region!.trim(),
+          now: repairTime,
+          collection: db.collection(CHAPTERS_COLLECTION),
+        });
+        if (repaired.ok) {
+          strictDispatch = {
+            ...strictDispatch,
+            phase: 'BOUND',
+            providerBoundAt: repairTime,
+            unknownAt: undefined,
+            unknownReason: undefined,
+          };
+          chapter.dispatch = strictDispatch;
+        } else {
+          console.warn(
+            `[ChapterRenderer] Chapter ${chapter.index} UNKNOWN tuple was not rebound: ${repaired.reason}`,
+          );
+        }
+      } catch (err: unknown) {
+        console.warn(
+          `[ChapterRenderer] Chapter ${chapter.index} UNKNOWN tuple recovery was uncertain:`,
+          err,
+        );
+      }
+    }
+
+    if (strictDispatchInvalid) {
+      progress = 0;
+    } else if (chapter.status === 'completed') {
+      if (
+        !strictJob
+        || (
+          strictDispatch?.phase === 'BOUND'
+          && chapterProviderTupleMatchesDispatch(chapter, strictDispatch)
+        )
+      ) {
+        progress = 1;
+      } else if (strictJob) {
+        chapterStatus = 'rendering';
+        chapterError = 'CHAPTER_RENDER_DISPATCH_NOT_BOUND';
+      }
     } else if (chapter.status === 'failed') {
       progress = 0;
+    } else if (
+      strictJob
+      && strictDispatch?.phase === 'BOUND'
+      && !chapterProviderTupleMatchesDispatch(chapter, strictDispatch)
+    ) {
+      chapterStatus = 'failed';
+      chapterError = 'CHAPTER_RENDER_DISPATCH_TUPLE_MISMATCH';
+      await failChapter(db, jobId, chapter, chapterError);
+    } else if (strictJob && strictDispatch && strictDispatch.phase !== 'BOUND') {
+      // ATTEMPTING and UNKNOWN are durable uncertainty, not provider failures.
+      // Leave them visible as in-progress; the recovery owner must resolve them.
+      chapterStatus = chapter.status === 'pending' ? 'pending' : 'rendering';
     } else if (
       isStrictChapterRenderJob(job)
       && chapter.status !== 'pending'
@@ -687,7 +957,6 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
       // Poll Lambda for this chapter's progress
       try {
         await setAWSCredentials();
-        const strictJob = isStrictChapterRenderJob(job);
         const chapterBucketName = strictJob
           ? chapter.bucketName!.trim()
           : typeof chapter.bucketName === 'string' && chapter.bucketName.trim()
