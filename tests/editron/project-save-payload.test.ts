@@ -18,7 +18,10 @@ const persistenceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "editron_prev.projects" },
+  COLLECTIONS: {
+    PROJECTS: "editron_prev.projects",
+    MG_DESIGN_JOBS: "editron_mg_design_jobs",
+  },
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
       findOne: persistenceMocks.findOne,
@@ -37,11 +40,69 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
     db: {
       collection: vi.fn(() => ({
         bulkWrite: persistenceMocks.bulkWrite,
+        findOne: persistenceMocks.findOne,
         updateOne: persistenceMocks.updateOne,
       })),
     },
   })),
 }));
+
+function mgDesignCompletionCommand() {
+  return {
+    expectedRevision: {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: "2026-08-11T06:05:00.000Z",
+    },
+    leaseId: "mgdl_owned_lease",
+    result: {
+      jobId: "mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      decisionsExecuted: 1,
+      decisionsSkipped: 0,
+      renderJobsQueued: 1,
+      approvedCount: 1,
+      declinedCount: 0,
+      unavailableCount: 0,
+      completedAt: "2026-08-11T06:05:01.000Z",
+      projectEvidence: {
+        schemaVersion: 1 as const,
+        mgCodegenRun: {
+          version: "mg-codegen-run-v2" as const,
+          queuedCount: 1,
+          generatedCount: 0,
+          failedCount: 0,
+          outcomes: [{
+            status: "queued" as const,
+            frame: 45,
+            candidateId: "candidate_1",
+            factKind: "comparison",
+            jobId: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          }],
+          truncated: false,
+          completedAt: new Date("2026-08-11T06:05:01.000Z"),
+        },
+        mgKineticSfxContexts: [{
+          version: "mg-kinetic-sfx-context-v1" as const,
+          momentId: "moment_1",
+          policy: "subtle" as const,
+          profileId: "A-01",
+          policySource: "director-effective-profile" as const,
+          speechEnergy: 0.4,
+          speechSource: "moment-signals" as const,
+          writtenAt: new Date("2026-08-11T06:05:00.000Z"),
+        }],
+        mgDeliveryRecords: [{
+          videoId: "proj_1",
+          momentId: "moment_1",
+          status: "enqueued" as const,
+          attempt: 1,
+          jobId: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          idempotencyKey: "proj_1:moment_1:mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        }],
+      },
+    },
+  };
+}
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: persistenceMocks.auth,
@@ -1526,6 +1587,95 @@ describe("Editron project save payload compaction", () => {
       },
     })).rejects.toBeInstanceOf(ProjectMutationConflictError);
     expect(persistenceMocks.updateOne).toHaveBeenCalledOnce();
+  });
+
+  it("atomically completes an MG design job with its exact-revision EDL evidence", async () => {
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({ status: "running", leaseId: "mgdl_owned_lease" })
+      .mockResolvedValueOnce({
+        projectRevision: 7,
+        updatedAt: new Date("2026-08-11T06:05:00.000Z"),
+        intelligence: {
+          mgKineticSfxContexts: [{ momentId: "older_moment", version: "legacy" }],
+          mgDeliveryRecords: [{ momentId: "older_moment", status: "delivered" }],
+        },
+      });
+    persistenceMocks.updateOne
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.completeMgDesignExecutionV1("user_1", "proj_1", mgDesignCompletionCommand())
+    ));
+
+    expect(captured.value).toMatchObject({
+      disposition: "RECORDED",
+      receipt: { projectId: "proj_1", revision: { value: 8 } },
+    });
+    expect(captured.receipts).toHaveLength(1);
+    expect(persistenceMocks.withTransaction).toHaveBeenCalledOnce();
+    expect(persistenceMocks.updateOne).toHaveBeenNthCalledWith(
+      1,
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        projectRevision: 7,
+        updatedAt: new Date("2026-08-11T06:05:00.000Z"),
+      },
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+        $set: expect.objectContaining({
+          "intelligence.mgCodegenRun.queuedCount": 1,
+          "intelligence.mgKineticSfxContexts": expect.arrayContaining([
+            expect.objectContaining({ momentId: "older_moment" }),
+            expect.objectContaining({ momentId: "moment_1" }),
+          ]),
+          "intelligence.mgDeliveryRecords": expect.arrayContaining([
+            expect.objectContaining({ momentId: "older_moment" }),
+            expect.objectContaining({ momentId: "moment_1" }),
+          ]),
+        }),
+      }),
+      expect.objectContaining({ session: expect.any(Object) }),
+    );
+    expect(persistenceMocks.updateOne).toHaveBeenNthCalledWith(
+      2,
+      {
+        _id: "mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        projectId: "proj_1",
+        userId: "user_1",
+        status: "running",
+        leaseId: "mgdl_owned_lease",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: "completed", leaseId: null }),
+      }),
+      expect.objectContaining({ session: expect.any(Object) }),
+    );
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
+  });
+
+  it("does not complete an MG design job against a stale project revision", async () => {
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({ status: "running", leaseId: "mgdl_owned_lease" })
+      .mockResolvedValueOnce({
+        projectRevision: 8,
+        updatedAt: new Date("2026-08-11T06:05:02.000Z"),
+        intelligence: {},
+      });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.completeMgDesignExecutionV1(
+      "user_1",
+      "proj_1",
+      mgDesignCompletionCommand(),
+    )).resolves.toMatchObject({
+      disposition: "PROJECT_CONFLICT",
+      currentRevision: { value: 8 },
+    });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
   });
 
   it("commits native-video rights and the timeline at one project revision", async () => {

@@ -23,6 +23,9 @@ import {
   assertPersistedDirectorDecisionLogV1,
   type PersistedDirectorDecisionLogV1,
 } from "./director-decision-log-v1";
+import type { EdlProjectEvidenceV1 } from "./edl-executor";
+import { mgDeliveryRecordSchema } from "../motion-graphics/codegen/mg-delivery-record";
+import { videoTasteContractSchema } from "../motion-graphics/codegen/taste/taste-schemas";
 import {
   MAX_RENDER_FINALIZATION_ATTEMPTS,
   PROJECT_ARTIFACT_NOT_CURRENT,
@@ -663,6 +666,31 @@ export interface ProjectMgRenderDeliveryCommitV1 {
   overlays: Overlay[];
   outcome: ProjectMgRenderDeliveryOutcomeV1;
 }
+
+export interface ProjectMgDesignExecutionResultV1 {
+  jobId: string;
+  decisionsExecuted: number;
+  decisionsSkipped: number;
+  renderJobsQueued: number;
+  approvedCount: number;
+  declinedCount: number;
+  unavailableCount: number;
+  completedAt: string;
+  projectEvidence: EdlProjectEvidenceV1;
+}
+
+export interface ProjectMgDesignCompletionCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  leaseId: string;
+  result: ProjectMgDesignExecutionResultV1;
+}
+
+export type ProjectMgDesignCompletionResultV1 =
+  | { disposition: "RECORDED"; receipt: ProjectMutationReceiptV1 }
+  | { disposition: "ALREADY_COMPLETED" }
+  | { disposition: "JOB_OWNERSHIP_LOST" }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "PROJECT_CONFLICT"; currentRevision: ProjectRevisionV1 };
 
 /**
  * A signed asynchronous audio worker supplies already-generated material.
@@ -7065,6 +7093,145 @@ export class ProjectService {
   }
 
   /**
+   * Complete a durable MG design job and commit the EDL evidence it produced in
+   * one transaction. Neither collection may advance without the other.
+   */
+  async completeMgDesignExecutionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectMgDesignCompletionCommandV1,
+  ): Promise<ProjectMgDesignCompletionResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectMgDesignCompletionCommandV1(input);
+    const completedAt = new Date(input.result.completedAt);
+    const { projectEvidence, ...resultSummary } = input.result;
+    const { client, db } = await connectToDatabase();
+    const session = client.startSession();
+    try {
+      const transactionResult = await session.withTransaction(async () => {
+        const jobs = db.collection<{
+          _id: string;
+          projectId: string;
+          userId: string;
+          status: string;
+          leaseId: string | null;
+        }>(COLLECTIONS.MG_DESIGN_JOBS);
+        const job = await jobs.findOne(
+          { _id: input.result.jobId, projectId, userId },
+          { projection: { status: 1, leaseId: 1 }, session },
+        ) as { status?: unknown; leaseId?: unknown } | null;
+        if (!job) return { disposition: "JOB_OWNERSHIP_LOST" } as const;
+        if (job.status === "completed") return { disposition: "ALREADY_COMPLETED" } as const;
+        if (job.status !== "running" || job.leaseId !== input.leaseId) {
+          return { disposition: "JOB_OWNERSHIP_LOST" } as const;
+        }
+
+        const projects = db.collection(COLLECTIONS.PROJECTS);
+        const project = await projects.findOne(
+          { projectId, userId },
+          { projection: { intelligence: 1, projectRevision: 1, updatedAt: 1 }, session },
+        ) as (
+          Pick<Project, "projectRevision" | "updatedAt">
+          & { intelligence?: Record<string, unknown> }
+        ) | null;
+        if (!project) return { disposition: "PROJECT_NOT_FOUND" } as const;
+        const currentRevision = projectRevisionFor(project);
+        if (!sameProjectRevisionV1(currentRevision, input.expectedRevision)) {
+          return { disposition: "PROJECT_CONFLICT", currentRevision } as const;
+        }
+
+        const intelligence = project.intelligence ?? {};
+        const setFields: Record<string, unknown> = {
+          "intelligence.mgDesignJob": {
+            version: "mg-design-job-v1",
+            jobId: input.result.jobId,
+            status: "completed",
+            result: resultSummary,
+            completedAt,
+          },
+          updatedAt: completedAt,
+        };
+        if (projectEvidence.mgCodegenRun) {
+          const run = projectEvidence.mgCodegenRun;
+          setFields["intelligence.mgCodegenRun.version"] = run.version;
+          setFields["intelligence.mgCodegenRun.queuedCount"] = run.queuedCount;
+          setFields["intelligence.mgCodegenRun.generatedCount"] = run.generatedCount;
+          setFields["intelligence.mgCodegenRun.failedCount"] = run.failedCount;
+          setFields["intelligence.mgCodegenRun.outcomes"] = structuredClone(run.outcomes);
+          setFields["intelligence.mgCodegenRun.truncated"] = run.truncated;
+          setFields["intelligence.mgCodegenRun.completedAt"] = run.completedAt;
+        }
+        if (projectEvidence.mgKineticSfxContexts.length > 0) {
+          setFields["intelligence.mgKineticSfxContexts"] = mergeBoundedMgEvidenceByMomentIdV1(
+            (intelligence as { mgKineticSfxContexts?: unknown }).mgKineticSfxContexts,
+            projectEvidence.mgKineticSfxContexts,
+            100,
+          );
+        }
+        if (projectEvidence.mgDeliveryRecords.length > 0) {
+          setFields["intelligence.mgDeliveryRecords"] = mergeBoundedMgEvidenceByMomentIdV1(
+            (intelligence as { mgDeliveryRecords?: unknown }).mgDeliveryRecords,
+            projectEvidence.mgDeliveryRecords,
+            200,
+          );
+        }
+        if (projectEvidence.mgTasteContract) {
+          setFields["intelligence.mgTasteContract"] = structuredClone(projectEvidence.mgTasteContract.contract);
+        }
+
+        const projectWrite = await projects.updateOne(
+          { projectId, userId, ...projectRevisionPredicate(input.expectedRevision) },
+          { $set: setFields, $inc: { projectRevision: 1 } },
+          { session },
+        );
+        if (projectWrite.matchedCount !== 1 || projectWrite.modifiedCount !== 1) {
+          throw new ProjectMutationWriteError("MG design project evidence changed during completion.");
+        }
+        const jobWrite = await jobs.updateOne(
+          { _id: input.result.jobId, projectId, userId, status: "running", leaseId: input.leaseId },
+          {
+            $set: {
+              status: "completed",
+              result: structuredClone(input.result),
+              leaseId: null,
+              leaseExpiresAt: null,
+              updatedAt: completedAt,
+              completedAt,
+            },
+          },
+          { session },
+        );
+        if (jobWrite.matchedCount !== 1 || jobWrite.modifiedCount !== 1) {
+          throw new ProjectMutationWriteError("MG design job ownership changed during completion.");
+        }
+
+        return {
+          disposition: "RECORDED",
+          receipt: {
+            schemaVersion: 1,
+            projectId,
+            revision: {
+              schemaVersion: 1,
+              value: input.expectedRevision.value + 1,
+              compatibilityUpdatedAt: completedAt.toISOString(),
+            },
+            committedAt: completedAt.toISOString(),
+          },
+        } as const;
+      });
+      if (!transactionResult) {
+        throw new ProjectMutationWriteError("MG design completion transaction returned no result.");
+      }
+      if (transactionResult.disposition === "RECORDED") {
+        this.publishMutationReceipt(transactionResult.receipt);
+      }
+      return transactionResult;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /**
    * Attach an already-generated BGM/SFX worker outcome through the canonical
    * project revision owner. BGM alignment re-runs only against the current CAS
    * snapshot, never against an earlier full-overlay read.
@@ -10908,6 +11075,122 @@ function assertPhase0RenderedEvidenceFacts(
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertProjectMgDesignCompletionCommandV1(
+  input: ProjectMgDesignCompletionCommandV1,
+): void {
+  const result = input.result;
+  const evidence = result?.projectEvidence;
+  const completedAt = new Date(result?.completedAt ?? "");
+  const countFields = [
+    result?.decisionsExecuted,
+    result?.decisionsSkipped,
+    result?.renderJobsQueued,
+    result?.approvedCount,
+    result?.declinedCount,
+    result?.unavailableCount,
+  ];
+  if (
+    !isBoundedNonEmptyStringV1(input.leaseId, 200)
+    || !isBoundedNonEmptyStringV1(result?.jobId, 200)
+    || countFields.some((value) => !Number.isSafeInteger(value) || (value as number) < 0)
+    || Number.isNaN(completedAt.getTime())
+    || !isPlainRecord(evidence)
+    || evidence.schemaVersion !== 1
+    || !Array.isArray(evidence.mgKineticSfxContexts)
+    || evidence.mgKineticSfxContexts.length > 100
+    || !Array.isArray(evidence.mgDeliveryRecords)
+    || evidence.mgDeliveryRecords.length > 200
+    || Buffer.byteLength(JSON.stringify(input), "utf8") > 512 * 1024
+  ) {
+    throw new ProjectMutationWriteError("MG design completion input is invalid.");
+  }
+
+  const validKineticContext = evidence.mgKineticSfxContexts.every((context) => (
+    isPlainRecord(context)
+    && context.version === "mg-kinetic-sfx-context-v1"
+    && isBoundedNonEmptyStringV1(context.momentId, 500)
+    && (context.policy === null || context.policy === "full" || context.policy === "subtle" || context.policy === "off")
+    && (context.profileId === null || isBoundedNonEmptyStringV1(context.profileId, 200))
+    && (context.policySource === "director-effective-profile" || context.policySource === "unavailable")
+    && (context.speechEnergy === null || (
+      typeof context.speechEnergy === "number"
+      && Number.isFinite(context.speechEnergy)
+      && context.speechEnergy >= 0
+      && context.speechEnergy <= 1
+    ))
+    && (context.speechSource === "moment-signals"
+      || context.speechSource === "wav2vec-segment"
+      || context.speechSource === "unavailable")
+    && context.writtenAt instanceof Date
+    && !Number.isNaN(context.writtenAt.getTime())
+  ));
+  const validDeliveryRecords = evidence.mgDeliveryRecords.every((record) => (
+    mgDeliveryRecordSchema.safeParse(record).success
+  ));
+  const run = evidence.mgCodegenRun;
+  const validRun = run === undefined || (
+    isPlainRecord(run)
+    && run.version === "mg-codegen-run-v2"
+    && [run.queuedCount, run.generatedCount, run.failedCount]
+      .every((value) => Number.isSafeInteger(value) && (value as number) >= 0)
+    && Array.isArray(run.outcomes)
+    && run.outcomes.length <= 100
+    && typeof run.truncated === "boolean"
+    && run.completedAt instanceof Date
+    && !Number.isNaN(run.completedAt.getTime())
+    && run.outcomes.every((outcome) => (
+      isPlainRecord(outcome)
+      && (outcome.status === "queued"
+        || outcome.status === "generated"
+        || outcome.status === "declined"
+        || outcome.status === "fallback")
+      && Number.isSafeInteger(outcome.frame)
+      && isBoundedNonEmptyStringV1(outcome.candidateId, 500)
+      && isBoundedNonEmptyStringV1(outcome.factKind, 200)
+      && (outcome.reason === undefined || isBoundedNonEmptyStringV1(outcome.reason, 8_000))
+      && (outcome.jobId === undefined || isBoundedNonEmptyStringV1(outcome.jobId, 200))
+      && (outcome.messageId === undefined
+        || outcome.messageId === null
+        || isBoundedNonEmptyStringV1(outcome.messageId, 500))
+    ))
+    && (run.truncated || (
+      (run.queuedCount as number) + (run.generatedCount as number) + (run.failedCount as number)
+      === run.outcomes.length
+    ))
+  );
+  const taste = evidence.mgTasteContract;
+  const validTaste = taste === undefined || (
+    isPlainRecord(taste)
+    && videoTasteContractSchema.safeParse(taste.contract).success
+    && isBoundedNonEmptyStringV1(taste.hash, 128)
+    && (taste.contract as { contractHash?: unknown }).contractHash === taste.hash
+    && Array.isArray(taste.sourcePrecedenceApplied)
+    && taste.sourcePrecedenceApplied.length <= 32
+    && Array.isArray(taste.conflicts)
+    && taste.conflicts.length <= 100
+    && taste.conflicts.every((conflict) => typeof conflict === "string" && conflict.length <= 2_000)
+  );
+  if (!validKineticContext || !validDeliveryRecords || !validRun || !validTaste) {
+    throw new ProjectMutationWriteError("MG design completion evidence is invalid.");
+  }
+}
+
+function mergeBoundedMgEvidenceByMomentIdV1<T extends { momentId: string }>(
+  existing: unknown,
+  incoming: readonly T[],
+  maximum: number,
+): Array<Record<string, unknown> | T> {
+  const incomingIds = new Set(incoming.map((entry) => entry.momentId));
+  const retained = Array.isArray(existing)
+    ? existing.filter((entry): entry is Record<string, unknown> => (
+      isPlainRecord(entry)
+      && typeof entry.momentId === "string"
+      && !incomingIds.has(entry.momentId)
+    ))
+    : [];
+  return [...retained, ...structuredClone(incoming)].slice(-maximum);
 }
 
 function projectRevisionPredicate(

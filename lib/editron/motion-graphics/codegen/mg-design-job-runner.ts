@@ -12,7 +12,6 @@ type EnvLike = Record<string, string | undefined>;
 export type MgDesignJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 
 const JOB_VERSION = 'mg-design-job-v1' as const;
-const JOB_COLLECTION = 'editron_mg_design_jobs';
 const DEFAULT_MAX_ATTEMPTS = 4;
 const DEFAULT_LEASE_MS = 12 * 60 * 1_000;
 const DEFAULT_RETRY_WINDOW_MS = 2 * 60 * 60 * 1_000;
@@ -87,7 +86,7 @@ interface MgDesignJobDependencies {
 let indexesPromise: Promise<unknown> | null = null;
 
 function jobsCollection(): Promise<Collection<MgDesignJob>> {
-  return getDatabase().then((db) => db.collection<MgDesignJob>(JOB_COLLECTION));
+  return getDatabase().then((db) => db.collection<MgDesignJob>(COLLECTIONS.MG_DESIGN_JOBS));
 }
 
 async function ensureIndexes(): Promise<void> {

@@ -92,6 +92,7 @@ export const COLLECTIONS = {
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
   MG_RENDER_JOBS: 'editron_mg_render_jobs',
+  MG_DESIGN_JOBS: 'editron_mg_design_jobs',
   CHAT_REFERENCE_STYLE_JOBS: 'editron_chat_reference_style_jobs',
   CHAT_EDITORIAL_INTENT_JOBS: 'editron_chat_editorial_intent_jobs',
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
