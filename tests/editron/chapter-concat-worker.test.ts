@@ -100,6 +100,9 @@ function queuedJob() {
     userId: "requester_1",
     ownerId: "owner_1",
     status: "rendering",
+    artifactLifecycleVersion: 1,
+    artifactState: "ACTIVE",
+    retentionState: "RETAINED",
     concatStatus: "queued",
     concatTarget: target(),
   };
@@ -191,10 +194,47 @@ describe("chapter concat worker", () => {
     const completionFilter = mocks.updateOne.mock.calls[0]![0];
     expect(completionFilter).toMatchObject({
       _id: JOB_ID,
+      artifactLifecycleVersion: 1,
+      artifactState: "ACTIVE",
+      retentionState: "RETAINED",
+      artifactInvalidatedAt: { $exists: false },
+      cleanupMaterialization: { $exists: false },
       concatStatus: "running",
       "concatLease.claimToken": claimUpdate.$set.concatLease.claimToken,
       "concatTarget.generation": target().generation,
     });
+  });
+
+  it("rejects a concat delivery after cleanup invalidates the chapter row", async () => {
+    const concatTarget = target();
+    mocks.currentJob = {
+      ...queuedJob(),
+      status: "completed",
+      concatStatus: "done",
+      concatResult: {
+        ...concatResult(concatTarget),
+        completedAt: new Date("2026-09-01T04:59:00.000Z"),
+      },
+      outputUrl: projectChapterConcatOutputUrlV1(concatTarget),
+      artifactState: "STALE",
+      retentionState: "CLEANUP_PENDING",
+      artifactInvalidatedAt: new Date("2026-09-01T05:00:00.000Z"),
+      cleanupMaterialization: { schemaVersion: 1 },
+    };
+
+    const response = await POST(request(workerMessage()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      status: "stale",
+      stale: true,
+      error: "CHAPTER_CONCAT_ARTIFACT_NOT_ACTIVE",
+    });
+    expect(mocks.getProjectRevision).not.toHaveBeenCalled();
+    expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.concatenateChapters).not.toHaveBeenCalled();
   });
 
   it("fences a stale project before claiming or invoking Modal", async () => {

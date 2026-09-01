@@ -41,6 +41,11 @@ type ChapterConcatJob = {
   userId?: string;
   ownerId?: string;
   status?: string;
+  artifactLifecycleVersion?: unknown;
+  artifactState?: unknown;
+  retentionState?: unknown;
+  artifactInvalidatedAt?: unknown;
+  cleanupMaterialization?: unknown;
   concatStatus?: 'queued' | 'running' | 'done' | 'failed';
   concatTarget?: ProjectChapterConcatTargetV1;
   chapterLayoutManifest?: unknown;
@@ -65,6 +70,22 @@ type ChapterConcatJob = {
   outputUrl?: string;
   concatError?: string;
 };
+
+const ACTIVE_CHAPTER_ARTIFACT_FILTER = {
+  artifactLifecycleVersion: 1,
+  artifactState: 'ACTIVE',
+  retentionState: 'RETAINED',
+  artifactInvalidatedAt: { $exists: false },
+  cleanupMaterialization: { $exists: false },
+} as const;
+
+function activeChapterArtifact(job: ChapterConcatJob | null | undefined): boolean {
+  return job?.artifactLifecycleVersion === 1
+    && job.artifactState === 'ACTIVE'
+    && job.retentionState === 'RETAINED'
+    && job.artifactInvalidatedAt === undefined
+    && job.cleanupMaterialization === undefined;
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -221,6 +242,7 @@ async function fenceStaleChapterConcat(
 ): Promise<boolean> {
   const filter: Record<string, unknown> = {
     _id: input.jobId,
+    ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
     'concatTarget.generation': input.target.generation,
   };
   if (input.mode === 'claimed') {
@@ -252,7 +274,8 @@ async function fenceStaleChapterConcat(
   );
   if (fenced?.modifiedCount === 1) return true;
   const latest = await collection.findOne({ _id: input.jobId });
-  return latest?.concatStatus === 'failed'
+  return !activeChapterArtifact(latest)
+    || latest?.concatStatus === 'failed'
     && latest.concatError === input.code;
 }
 
@@ -420,6 +443,15 @@ async function handler(request: NextRequest) {
       }
       return NextResponse.json({ success: false, error }, { status: 200 });
     }
+    if (!activeChapterArtifact(job)) {
+      const error = job.artifactLifecycleVersion === 1
+        ? 'CHAPTER_CONCAT_ARTIFACT_NOT_ACTIVE'
+        : 'CHAPTER_CONCAT_ARTIFACT_LIFECYCLE_MIGRATION_REQUIRED';
+      return NextResponse.json(
+        { success: false, status: 'stale', stale: true, error },
+        { status: 200 },
+      );
+    }
 
     let target: ProjectChapterConcatTargetV1;
     try {
@@ -432,7 +464,11 @@ async function handler(request: NextRequest) {
     } catch (error: unknown) {
       const code = safeErrorCode(error);
       const failed = await collection.updateOne(
-        { _id: jobId, concatStatus: { $in: ['queued', 'running'] } } as any,
+        {
+          _id: jobId,
+          ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
+          concatStatus: { $in: ['queued', 'running'] },
+        } as any,
         {
           $set: { status: 'failed', concatStatus: 'failed', concatError: code, updatedAt: now },
           $unset: { concatLease: '' },
@@ -473,6 +509,7 @@ async function handler(request: NextRequest) {
     const claimed = (await collection.findOneAndUpdate(
       {
         _id: jobId,
+        ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
         'concatTarget.generation': requestedGeneration ?? target.generation,
         $or: [
           { concatStatus: 'queued' },
@@ -498,6 +535,12 @@ async function handler(request: NextRequest) {
     if (!claimed) {
       const current = (await collection.findOne({ _id: jobId } as any)) as ChapterConcatJob | null;
       if (!current) return NextResponse.json({ error: 'Chapter render job not found' }, { status: 404 });
+      if (!activeChapterArtifact(current)) {
+        return NextResponse.json(
+          { success: false, status: 'stale', stale: true, error: 'CHAPTER_CONCAT_ARTIFACT_NOT_ACTIVE' },
+          { status: 200 },
+        );
+      }
       const response = currentStateResponse(current, new Date());
       if (response) return response;
       return NextResponse.json({ success: false, error: 'CHAPTER_CONCAT_CLAIM_NOT_AVAILABLE' }, { status: 500 });
@@ -505,6 +548,7 @@ async function handler(request: NextRequest) {
 
     if (
       claimed.concatStatus !== 'running'
+      || !activeChapterArtifact(claimed)
       || claimed.concatTarget?.generation !== target.generation
       || !targetBindsToJob(claimed, jobId, target)
       || claimed.concatLease?.claimToken !== claimToken
@@ -580,6 +624,7 @@ async function handler(request: NextRequest) {
       const publicationJob = (await collection.findOne({ _id: jobId } as any)) as ChapterConcatJob | null;
       if (
         !publicationJob
+        || !activeChapterArtifact(publicationJob)
         || publicationJob.concatStatus !== 'running'
         || publicationJob.concatTarget?.generation !== target.generation
         || publicationJob.concatLease?.claimToken !== claimToken
@@ -608,6 +653,7 @@ async function handler(request: NextRequest) {
       const completed = await collection.updateOne(
         {
           _id: jobId,
+          ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
           concatStatus: 'running',
           'concatLease.claimToken': claimToken,
           'concatTarget.generation': target.generation,
@@ -638,6 +684,7 @@ async function handler(request: NextRequest) {
         const failed = await collection.updateOne(
           {
             _id: jobId,
+            ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
             concatStatus: 'running',
             'concatLease.claimToken': claimToken,
             'concatTarget.generation': target.generation,
@@ -665,6 +712,7 @@ async function handler(request: NextRequest) {
       const released = await collection.updateOne(
         {
           _id: jobId,
+          ...ACTIVE_CHAPTER_ARTIFACT_FILTER,
           concatStatus: 'running',
           'concatLease.claimToken': claimToken,
           'concatTarget.generation': target.generation,

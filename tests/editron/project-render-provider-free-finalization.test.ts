@@ -229,6 +229,9 @@ function createFixture(currentProjectRevision = 8) {
     userId: REQUESTER,
     ownerId: OWNER,
     status: "completed",
+    artifactLifecycleVersion: 1,
+    artifactState: "ACTIVE",
+    retentionState: "RETAINED",
     chapters: [{
       index: 0,
       status: "completed",

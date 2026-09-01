@@ -83,6 +83,8 @@ function callbackParent() {
       artifactLifecycleVersion: 1,
       artifactState: "ACTIVE",
       retentionState: "RETAINED",
+      artifactInvalidatedAt: undefined as Date | undefined,
+      cleanupMaterialization: undefined as { schemaVersion: number } | undefined,
       projectRenderSnapshotBinding: binding,
       chapters: [{
         index: 0,
