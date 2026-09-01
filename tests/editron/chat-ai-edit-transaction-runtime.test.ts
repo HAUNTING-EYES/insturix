@@ -266,7 +266,9 @@ class MemoryCheckpointStore {
       stateHash: projectStateFingerprint(projectState),
       ...(input.capturedWriterReceipt
         ? { capturedProjectRevision: structuredClone(input.capturedWriterReceipt.revision) }
-        : {}),
+        : input.capturedProjectRevision
+          ? { capturedProjectRevision: structuredClone(input.capturedProjectRevision) }
+          : {}),
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: new Date(),
@@ -298,6 +300,12 @@ const ORIGINAL_PROJECT = {
   qualityReview: { overallScore: 80 },
 };
 
+const ORIGINAL_REVISION: ProjectRevisionV1 = {
+  schemaVersion: 1,
+  value: 6,
+  compatibilityUpdatedAt: '2026-08-09T00:00:06.000Z',
+};
+
 async function prepare(store: MemoryCheckpointStore, operationId = 'chatop_12345678') {
   return prepareChatAiEditTransaction({
     operationId,
@@ -305,6 +313,7 @@ async function prepare(store: MemoryCheckpointStore, operationId = 'chatop_12345
     projectId: 'proj_1',
     userId: 'user_1',
     project: structuredClone(ORIGINAL_PROJECT),
+    projectRevision: ORIGINAL_REVISION,
   }, { checkpointStore: store, loadProject: store.loadProject });
 }
 
@@ -359,6 +368,9 @@ describe('chat AI edit transaction runtime', () => {
     const replay = await prepare(store);
 
     expect(first.status).toBe('ready');
+    expect(store.checkpoints.get(first.beforeCheckpointId)?.capturedProjectRevision).toEqual(
+      ORIGINAL_REVISION,
+    );
     expect(replay).toMatchObject({ status: 'duplicate', operationStatus: 'running' });
     expect(first.beforeCheckpointId).toBe(replay.beforeCheckpointId);
     expect(store.events).toEqual(['claim', 'claim']);
@@ -918,7 +930,10 @@ describe('chat AI edit transaction runtime', () => {
         throw new Error(`Unexpected collection ${name}`);
       },
     });
-    vi.spyOn(projectService, 'getProjectRevision').mockResolvedValue(expectedRevision);
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: projectWithUndefinedMetadata as any,
+      revision: expectedRevision,
+    });
     vi.spyOn(projectService, 'restoreCheckpointState').mockImplementation(async (_userId, _projectId, input) => {
       Object.assign(persistedProject, emulateMongoRoundTrip(input.setFields));
       for (const field of input.unsetFields) delete persistedProject[field];
@@ -945,6 +960,7 @@ describe('chat AI edit transaction runtime', () => {
       projectState: captureRestorableProjectState(projectWithUndefinedMetadata),
       description: 'Before manual undo',
       type: 'before-llm',
+      capturedProjectRevision: expectedRevision,
       force: true,
     });
     expect(created).not.toBeNull();
@@ -989,9 +1005,10 @@ describe('chat AI edit transaction runtime', () => {
         throw new Error(`Unexpected collection ${name}`);
       },
     });
-    const getRevision = vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(
-      new Error('checkpoint must not reread the revision when a writer receipt was supplied'),
-    );
+    const loadSnapshot = vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: receipt.revision,
+    });
 
     const created = await service.createCheckpoint({
       checkpointId: 'ckpt_receipt_bound',
@@ -1007,7 +1024,7 @@ describe('chat AI edit transaction runtime', () => {
     });
 
     expect(created?.capturedProjectRevision).toEqual(receipt.revision);
-    expect(getRevision).not.toHaveBeenCalled();
+    expect(loadSnapshot).toHaveBeenCalledTimes(1);
 
     await expect(service.createCheckpoint({
       checkpointId: 'ckpt_wrong_receipt_scope',
@@ -1023,8 +1040,58 @@ describe('chat AI edit transaction runtime', () => {
     expect(infrastructureMocks.insertOne).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a post-mutation checkpoint when its writer receipt is no longer the current snapshot', async () => {
+    const receipt = writerReceipt();
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: {
+        ...receipt.revision,
+        value: receipt.revision.value + 1,
+        compatibilityUpdatedAt: '2026-08-09T00:00:08.000Z',
+      },
+    });
+
+    await expect(new CheckpointService().createCheckpoint({
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState: captureRestorableProjectState(ORIGINAL_PROJECT),
+      description: 'Stale post-mutation state',
+      type: 'after-llm',
+      capturedWriterReceipt: receipt,
+      force: true,
+    })).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects caller-supplied checkpoint state that differs from the authoritative snapshot', async () => {
+    vi.spyOn(projectService, 'loadProjectForMutation').mockResolvedValue({
+      project: ORIGINAL_PROJECT as any,
+      revision: ORIGINAL_REVISION,
+    });
+
+    await expect(new CheckpointService().createCheckpoint({
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState: captureRestorableProjectState({
+        ...ORIGINAL_PROJECT,
+        metadata: { title: 'forged stale state' },
+      }),
+      capturedProjectRevision: ORIGINAL_REVISION,
+      description: 'Forged pre-mutation state',
+      type: 'before-llm',
+      force: true,
+    })).rejects.toThrow('does not match its authoritative project snapshot');
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
+  });
+
   it('rejects checkpoint list, create, clear, and prune for a principal outside the actual project', async () => {
     vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(new ProjectNotFoundOrForbiddenError());
+    vi.spyOn(projectService, 'loadProjectForMutation').mockRejectedValue(new ProjectNotFoundOrForbiddenError());
     const service = new CheckpointService();
 
     const listResponse = await listCheckpointsRoute(new NextRequest(

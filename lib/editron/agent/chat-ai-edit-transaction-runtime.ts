@@ -113,6 +113,7 @@ export async function prepareChatAiEditTransaction(
     projectId: string;
     userId: string;
     project: Record<string, unknown>;
+    projectRevision?: ProjectRevisionV1;
   },
   dependencies: RuntimeDependencies = {},
 ): Promise<PrepareChatAiEditTransactionResult> {
@@ -129,6 +130,7 @@ export async function prepareChatAiEditTransaction(
     userId: input.userId,
     overlays: Array.isArray(input.project.overlays) ? input.project.overlays as any[] : [],
     projectState,
+    capturedProjectRevision: input.projectRevision,
     description: `Before AI chat edit ${input.operationId}`,
     type: 'before-llm',
     force: true,

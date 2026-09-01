@@ -116,6 +116,8 @@ export interface CheckpointInput {
    * When present, checkpoint capture must not re-observe a newer project revision.
    */
   capturedWriterReceipt?: ProjectMutationReceiptV1;
+  /** The exact revision paired with a caller's pre-mutation project snapshot. */
+  capturedProjectRevision?: ProjectRevisionV1;
   force?: boolean;
 }
 
@@ -177,13 +179,35 @@ export function projectStateFingerprint(state: RestorableProjectState): string {
 
 export class CheckpointService {
   async createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null> {
-    const capturedProjectRevision = input.capturedWriterReceipt
+    const expectedProjectRevision = input.capturedWriterReceipt
       ? revisionFromWriterReceipt(input.capturedWriterReceipt, input.projectId)
-      : await projectService.getProjectRevision(input.userId, input.projectId);
+      : input.capturedProjectRevision;
+    if (expectedProjectRevision && !isProjectRevisionV1(expectedProjectRevision)) {
+      throw new Error('Checkpoint capture revision is invalid.');
+    }
+    const snapshot = await projectService.loadProjectForMutation(
+      input.userId,
+      input.projectId,
+    );
+    if (expectedProjectRevision && !sameProjectRevision(
+      snapshot.revision,
+      expectedProjectRevision,
+    )) {
+      throw new ProjectMutationConflictError(
+        snapshot.revision,
+        'Checkpoint capture no longer matches the project revision that produced its state.',
+      );
+    }
     const db = await getDatabase();
     const cleanState = this.cleanProjectState(
-      input.projectState ?? captureRestorableProjectState({ overlays: input.overlays }),
+      captureRestorableProjectState(snapshot.project as unknown as Record<string, unknown>),
     );
+    if (input.projectState) {
+      const proposedState = this.cleanProjectState(input.projectState);
+      if (projectStateFingerprint(proposedState) !== projectStateFingerprint(cleanState)) {
+        throw new Error('Checkpoint state does not match its authoritative project snapshot.');
+      }
+    }
     const stateHash = projectStateFingerprint(cleanState);
 
     if (!input.force) {
@@ -215,7 +239,7 @@ export class CheckpointService {
       projectState: cleanState,
       stateHash,
       stateHashVersion: CURRENT_STATE_HASH_VERSION,
-      capturedProjectRevision,
+      capturedProjectRevision: snapshot.revision,
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: now,
@@ -623,6 +647,15 @@ function revisionFromWriterReceipt(
     throw new Error('Rollback writer receipt is invalid or belongs to another project.');
   }
   return cloneValue(receipt.revision);
+}
+
+function sameProjectRevision(
+  left: ProjectRevisionV1,
+  right: ProjectRevisionV1,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
 }
 
 function cloneValue<T>(value: T): T {
