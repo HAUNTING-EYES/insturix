@@ -146,7 +146,12 @@ import {
   type TimelineRangeCutResult,
   type TimelineRangeCutSplitChildV1,
 } from "./timeline-range-cut";
-import { ROW, alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
+import {
+  ROW,
+  alignCutsToBeatsWithEvidence,
+  type BeatAlignmentResult,
+} from "@/lib/pipeline/scene-to-editron";
+import { resolveBeatSyncMutationV1 } from "./beat-sync-mutation-v1";
 import {
   clonePipelineAudioCanonicalValueV1,
   isPipelineAudioOverlayForKindV1,
@@ -353,6 +358,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "UPDATE_OVERLAY"
   | "REPLACE_CAPTION_FAMILY"
   | "REPLACE_BACKGROUND_MUSIC"
+  | "ALIGN_CUTS_TO_BEATS"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -522,6 +528,43 @@ export type ProjectBackgroundMusicReplaceResultV1 =
   | ({ disposition: "APPLIED" } & ProjectDirectOverlayMutationResultV1)
   | {
       disposition: "UNCHANGED";
+      mutationReceipt: null;
+      timelineChangeReceipt: null;
+    };
+
+export type ProjectBeatSyncEvidenceSourceV1 =
+  | "persisted-beat-grid"
+  | "cached-beat-analysis"
+  | "beat-analysis-route";
+
+export interface ProjectBeatSyncCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  audioOverlayId: ProjectOverlayIdentityV1;
+  targetOverlayId?: ProjectOverlayIdentityV1;
+  beatFilter: "all" | "downbeats" | "strong";
+  strengthThreshold: number;
+  evidenceSource: ProjectBeatSyncEvidenceSourceV1;
+}
+
+export interface ProjectBeatSyncResolutionSummaryV1 {
+  sourceBeatCount: number;
+  timelineBeatCount: number;
+  alignment: BeatAlignmentResult;
+}
+
+export type ProjectBeatSyncResultV1 =
+  | ({
+      disposition: "APPLIED";
+      resolution: ProjectBeatSyncResolutionSummaryV1;
+    } & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "UNCHANGED";
+      reason:
+        | "MISSING_LICENSED_BEATS"
+        | "BEATS_OUTSIDE_ACTIVE_MUSIC"
+        | "NO_SAFE_BOUNDARY_ALIGNMENT";
+      resolution: ProjectBeatSyncResolutionSummaryV1;
       mutationReceipt: null;
       timelineChangeReceipt: null;
     };
@@ -11585,6 +11628,308 @@ export class ProjectService {
   }
 
   /**
+   * Align existing visual cut boundaries to current, rights-bound music beat
+   * evidence. The caller supplies intent only: this owner reloads project and
+   * asset evidence, recomputes the physical form, enforces locks, and commits
+   * the exact result under one project-revision compare-and-swap.
+   */
+  async alignCutsToBeatsAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectBeatSyncCommandV1,
+  ): Promise<ProjectBeatSyncResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (!["all", "downbeats", "strong"].includes(input.beatFilter)
+      || typeof input.strengthThreshold !== "number"
+      || !Number.isFinite(input.strengthThreshold)
+      || input.strengthThreshold < 0
+      || input.strengthThreshold > 1
+      || ![
+        "persisted-beat-grid",
+        "cached-beat-analysis",
+        "beat-analysis-route",
+      ].includes(input.evidenceSource)) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync requires a supported filter, evidence source, and strength threshold.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)
+      || !Number.isSafeInteger(project.durationInFrames)
+      || project.durationInFrames <= 0
+      || !Array.isArray(project.overlays)
+      || project.overlays.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync requires a bounded project with a supported frame timeline.",
+      );
+    }
+
+    const currentOverlays = project.overlays;
+    const audioOverlay = currentOverlays.find((overlay) => (
+      overlay.type === "sound"
+      && String(overlay.id) === String(input.audioOverlayId)
+    ));
+    const audioAssetId = audioOverlay?.assetId;
+    if (!audioOverlay || !isBoundedNonEmptyStringV1(audioAssetId, 500)) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync requires one current sound overlay with a durable asset identity.",
+      );
+    }
+    const audioShape = audioOverlay as Overlay & {
+      beatGrid?: unknown;
+      metadata?: unknown;
+      audioRights?: unknown;
+      musicRights?: unknown;
+    };
+    const audioRights = audioShape.musicRights ?? audioShape.audioRights;
+    const rightsIssue = getAudioRightsContractIssue(audioRights);
+    if (rightsIssue || !isPlainRecord(audioRights) || audioRights.mediaRole !== "music") {
+      throw new ProjectMutationWriteError(
+        "Beat-sync requires valid music-role rights evidence: "
+          + (rightsIssue ?? "MUSIC_ROLE_REQUIRED"),
+      );
+    }
+    if (input.targetOverlayId !== undefined && !currentOverlays.some((overlay) => (
+      overlay.type === "video"
+      && String(overlay.id) === String(input.targetOverlayId)
+    ))) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync target must be a current video overlay.",
+      );
+    }
+
+    const mediaAssets = db.collection(COLLECTIONS.MEDIA_ASSETS);
+    const audioAsset = await mediaAssets.findOne({ assetId: audioAssetId, userId });
+    if (!audioAsset || !["audio", "video"].includes(String(audioAsset.type))) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync audio evidence is not bound to a current owned media asset.",
+      );
+    }
+    const metadata = isPlainRecord(audioShape.metadata) ? audioShape.metadata : {};
+    const rawSourceEvidence = input.evidenceSource === "persisted-beat-grid"
+      ? audioShape.beatGrid ?? metadata.beatGrid
+      : audioAsset.beatAnalysis;
+    let sourceBeatEvidence: Record<string, unknown>;
+    try {
+      sourceBeatEvidence = clonePipelineAudioCanonicalValueV1(
+        rawSourceEvidence,
+      ) as Record<string, unknown>;
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync evidence is not canonical: "
+          + (error instanceof Error ? error.message : "INVALID_BEAT_EVIDENCE"),
+      );
+    }
+    if (!isPlainRecord(sourceBeatEvidence)
+      || !Array.isArray(sourceBeatEvidence.beats)
+      || sourceBeatEvidence.beats.length === 0
+      || sourceBeatEvidence.beats.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync requires one bounded current beat-evidence array.",
+      );
+    }
+
+    const visualAssetIds = [...new Set(currentOverlays
+      .filter((overlay) => overlay.type === "video"
+        && isBoundedNonEmptyStringV1(overlay.assetId, 500))
+      .map((overlay) => String(overlay.assetId)))];
+    if (visualAssetIds.length > 10_000) {
+      throw new ProjectMutationWriteError(
+        "Beat-sync visual source set exceeds the supported owner bound.",
+      );
+    }
+    const sourceDurationFramesByAssetId: Record<string, number> = {};
+    for (const assetId of visualAssetIds) {
+      const asset = await mediaAssets.findOne({ assetId, userId });
+      const durationSeconds = asset?.duration;
+      if (typeof durationSeconds === "number" && Number.isFinite(durationSeconds)
+        && durationSeconds > 0) {
+        sourceDurationFramesByAssetId[assetId] = Math.round(
+          durationSeconds * project.fps,
+        );
+      }
+    }
+
+    const resolution = resolveBeatSyncMutationV1({
+      overlays: currentOverlays,
+      fps: project.fps,
+      audioAssetId,
+      sourceBeatEvidence,
+      beatFilter: input.beatFilter,
+      strengthThreshold: input.strengthThreshold,
+      ...(input.targetOverlayId === undefined
+        ? {}
+        : { targetOverlayId: input.targetOverlayId }),
+      sourceDurationFramesByAssetId,
+    });
+    const resolutionSummary: ProjectBeatSyncResolutionSummaryV1 = {
+      sourceBeatCount: resolution.sourceBeatCount,
+      timelineBeatCount: resolution.timelineBeatCount,
+      alignment: resolution.alignment,
+    };
+    const unchangedReason = resolution.sourceBeatCount === 0
+      ? "MISSING_LICENSED_BEATS" as const
+      : resolution.timelineBeatCount === 0
+        ? "BEATS_OUTSIDE_ACTIVE_MUSIC" as const
+        : resolution.alignment.snappedCount === 0
+          ? "NO_SAFE_BOUNDARY_ALIGNMENT" as const
+          : null;
+    if (unchangedReason) {
+      return {
+        disposition: "UNCHANGED",
+        reason: unchangedReason,
+        resolution: resolutionSummary,
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before beat-sync.",
+      );
+    }
+
+    const affectedIdentityKeys = new Set<string>();
+    for (const change of resolution.alignment.changes) {
+      affectedIdentityKeys.add(`id:${String(change.clipAId)}`);
+      affectedIdentityKeys.add(`id:${String(change.clipBId)}`);
+      for (const transitionId of change.transitionOverlayIds) {
+        affectedIdentityKeys.add(`id:${String(transitionId)}`);
+      }
+    }
+    const persistedOverlays = resolution.candidateOverlays.map((candidate, index) => {
+      const stored = currentOverlays[index];
+      if (!stored || String(stored.id) !== String(candidate.id)) {
+        throw new ProjectMutationWriteError(
+          "Beat-sync form changed overlay identity or ordering.",
+        );
+      }
+      if (!affectedIdentityKeys.has(`id:${String(candidate.id)}`)) return stored;
+      return ensureLiveAtomicOverlayReceipt(candidate, {
+        source: "project-service-align-cuts-to-beats-v1",
+        intent: "align-existing-cut-boundary",
+        reason: "rights-bound beat evidence and source handles validated",
+      });
+    });
+    const writeFrameRanges = canonicalTimelineFrameRangesV1(
+      resolution.alignment.changes.map((change) => ({
+        startFrame: Math.max(0, Math.min(change.originalFrame, change.alignedFrame) - 1),
+        endFrame: Math.max(change.originalFrame, change.alignedFrame) + 2,
+      })),
+    );
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => writeFrameRanges.some((frameRange) => (
+      frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+    )));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps a beat-synced cut boundary.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const affectedBefore = currentOverlays.filter((overlay) => (
+      affectedIdentityKeys.has(`id:${String(overlay.id)}`)
+    ));
+    const affectedAfter = persistedOverlays.filter((overlay) => (
+      affectedIdentityKeys.has(`id:${String(overlay.id)}`)
+    ));
+    const beatSyncReceipt = {
+      version: "project-beat-sync-v1",
+      evidenceSource: input.evidenceSource,
+      sourceEvidenceHash: canonicalProjectMutationValueHashV1(sourceBeatEvidence),
+      audioOverlayId: input.audioOverlayId,
+      audioAssetId,
+      beatFilter: input.beatFilter,
+      strengthThreshold: input.strengthThreshold,
+      ...(input.targetOverlayId === undefined
+        ? {}
+        : { targetOverlayId: input.targetOverlayId }),
+      sourceDurationFramesByAssetId,
+      sourceBeatCount: resolution.sourceBeatCount,
+      timelineBeatCount: resolution.timelineBeatCount,
+      changes: resolution.alignment.changes,
+      rejections: resolution.alignment.rejections.slice(0, 100),
+      alignedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-beat-sync_${nanoid(18)}`,
+      projectId,
+      operation: "ALIGN_CUTS_TO_BEATS",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: affectedBefore,
+      afterOverlays: affectedAfter,
+      changedPaths: ["overlays", "latestBeatSync", "timelineRangeChangeReceipts"],
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: {
+          overlays: persistedOverlays,
+          latestBeatSync: beatSyncReceipt,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      resolution: resolutionSummary,
+      mutationReceipt,
+      timelineChangeReceipt,
+    };
+  }
+
+  /**
    * Replace a complete overlay family and related project evidence in one
    * compare-and-swap write. A concurrent editor save wins; callers must retry
    * from fresh project state instead of overwriting it.
@@ -15991,7 +16336,10 @@ function createCaptionFamilyTimelineChangeReceiptV1(input: {
 function createOverlayFamilyTimelineChangeReceiptV1(input: {
   receiptId: string;
   projectId: string;
-  operation: "REPLACE_CAPTION_FAMILY" | "REPLACE_BACKGROUND_MUSIC";
+  operation:
+    | "REPLACE_CAPTION_FAMILY"
+    | "REPLACE_BACKGROUND_MUSIC"
+    | "ALIGN_CUTS_TO_BEATS";
   actorKind: ProjectTimelineChangeActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
