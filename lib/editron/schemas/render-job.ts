@@ -77,6 +77,19 @@ export const RenderFinalizerResultSchema: z.ZodType<RenderFinalizerResult> = z.o
   }
 });
 
+/**
+ * Authenticated actor recorded for strict project-snapshot render admissions.
+ * It stays optional on the stored schema so legacy jobs can still be read.
+ */
+export const RenderJobRequesterUserIdSchema = z.string()
+  .min(1)
+  .max(200)
+  .refine((value) => value.trim().length > 0, 'Requester user ID cannot be blank.')
+  .refine(
+    (value) => !/[\u0000-\u001F\u007F]/.test(value),
+    'Requester user ID cannot contain control characters.',
+  );
+
 export const RenderJobFinalizationSchema = z.object({
   version: z.literal('editron-render-finalization-v1'),
   state: z.enum(['running', 'done', 'failed']),
@@ -97,6 +110,8 @@ export const RenderJobFinalizationSchema = z.object({
 export const RenderJobSchema = z.object({
   _id: z.string(), // Editron-owned durable job ID (legacy rows use the Lambda render ID)
   userId: z.string(),
+  /** Strict PROJECT_SNAPSHOT jobs require this; legacy rows may omit it. */
+  requestedByUserId: RenderJobRequesterUserIdSchema.optional(),
   projectId: z.string(),
   providerRenderId: z.string().optional(),
   status: z.enum(['pending', 'queued', 'rendering', 'finalizing', 'done', 'error']),
@@ -146,6 +161,7 @@ export function createPendingRenderJob(
   expectedDurationMs: number,
   artifactBinding?: ProjectArtifactBindingV1,
   projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1,
+  requestedByUserId?: string,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
@@ -162,6 +178,9 @@ export function createPendingRenderJob(
         assertProjectRenderSnapshotBindingV1(projectRenderSnapshotBinding);
         return structuredClone(projectRenderSnapshotBinding);
       })();
+  const validatedRequestedByUserId = requestedByUserId === undefined
+    ? undefined
+    : RenderJobRequesterUserIdSchema.parse(requestedByUserId.trim());
   if (validatedArtifactBinding !== undefined && validatedProjectRenderSnapshotBinding !== undefined) {
     throw new Error('RENDER_JOB_BINDING_SCOPES_AMBIGUOUS');
   }
@@ -170,6 +189,9 @@ export function createPendingRenderJob(
     _id: jobId,
     userId,
     projectId,
+    ...(validatedRequestedByUserId
+      ? { requestedByUserId: validatedRequestedByUserId }
+      : {}),
     status: 'pending',
     progress: 0,
     expectedDurationMs: validatedDurationMs,

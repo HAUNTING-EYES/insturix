@@ -7,6 +7,7 @@ import {
   RenderJob,
   RenderExpectedDurationMsSchema,
   RenderFinalizerResultSchema,
+  RenderJobRequesterUserIdSchema,
   createPendingRenderJob,
 } from '../schemas/render-job';
 import type { RenderFinalizerResult } from './render-finalizer-client';
@@ -46,6 +47,7 @@ export const ProjectRenderJobAuthorizationSchema = z.object({
   schemaVersion: z.literal(1),
   jobId: z.string().regex(PROJECT_RENDER_JOB_ID),
   ownerId: z.string().min(1).max(PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH),
+  requestedByUserId: RenderJobRequesterUserIdSchema,
   projectId: z.string().min(1).max(PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH),
   projectRevision: ProjectArtifactProjectRevisionSchema,
   bindingHash: z.string().regex(PROJECT_RENDER_JOB_BINDING_HASH),
@@ -86,6 +88,7 @@ export type ProjectRenderJobMutationResultV1 =
 export type ProjectRenderJobAuthorizationInputV1 = {
   jobId: string;
   ownerId: string;
+  requestedByUserId: string;
   projectId: string;
   projectRevision: ProjectArtifactProjectRevisionV1;
   binding: ProjectRenderSnapshotBindingV1;
@@ -94,6 +97,9 @@ export type ProjectRenderJobAuthorizationInputV1 = {
 export function createProjectRenderJobAuthorizationV1(
   input: ProjectRenderJobAuthorizationInputV1,
 ): ProjectRenderJobAuthorizationV1 {
+  if (!isBoundRenderInputString(input.requestedByUserId, PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH)) {
+    throw new Error('PROJECT_RENDER_JOB_REQUESTER_INVALID');
+  }
   assertProjectRenderSnapshotBindingV1(input.binding);
   const projectRevision = ProjectArtifactProjectRevisionSchema.parse(input.projectRevision);
   if (
@@ -108,6 +114,7 @@ export function createProjectRenderJobAuthorizationV1(
     schemaVersion: 1,
     jobId: input.jobId,
     ownerId: input.ownerId,
+    requestedByUserId: input.requestedByUserId.trim(),
     projectId: input.projectId,
     projectRevision,
     bindingHash: input.binding.bindingHash,
@@ -174,6 +181,7 @@ function currentProjectRenderJobFilter(
   return {
     _id: authorization.jobId,
     userId: authorization.ownerId,
+    requestedByUserId: authorization.requestedByUserId,
     projectId: authorization.projectId,
     artifactState: 'ACTIVE',
     artifactInvalidation: { $exists: false },
@@ -317,6 +325,7 @@ export async function reserveJob(
 export async function reserveProjectRenderJobV1(input: {
   jobId: string;
   ownerId: string;
+  requestedByUserId: string;
   projectId: string;
   currentProjectRevision: ProjectArtifactProjectRevisionV1;
   region: string;
@@ -328,6 +337,7 @@ export async function reserveProjectRenderJobV1(input: {
   const authorization = createProjectRenderJobAuthorizationV1({
     jobId: input.jobId,
     ownerId: input.ownerId,
+    requestedByUserId: input.requestedByUserId,
     projectId: input.projectId,
     projectRevision: input.currentProjectRevision,
     binding: input.binding,
@@ -348,6 +358,7 @@ export async function reserveProjectRenderJobV1(input: {
       input.expectedDurationMs,
       undefined,
       input.binding,
+      authorization.requestedByUserId,
     ),
     deliveryManifest,
   };
@@ -384,6 +395,7 @@ function validateCurrentProjectRenderJob(
   if (
     job._id !== authorization.jobId
     || job.userId !== authorization.ownerId
+    || job.requestedByUserId !== authorization.requestedByUserId
     || job.projectId !== authorization.projectId
     || binding.artifactId !== authorization.jobId
     || binding.ownerId !== authorization.ownerId

@@ -52,6 +52,7 @@ import {
 } from "@/lib/editron/services/render-job-service";
 
 const OWNER_ID = "owner-render-job-test";
+const REQUESTER_ID = "requester-render-job-test";
 const PROJECT_ID = "project-render-job-test";
 const JOB_ID = "project-render-job-1";
 const REVISION: ProjectArtifactProjectRevisionV1 = {
@@ -181,6 +182,7 @@ function makeBoundJob(
       5_000,
       undefined,
       binding,
+      REQUESTER_ID,
     ),
     status,
     deliveryManifest: DELIVERY_MANIFEST,
@@ -288,6 +290,7 @@ function makeAuthorization(binding: ProjectRenderSnapshotBindingV1 = makeBinding
   return createProjectRenderJobAuthorizationV1({
     jobId: binding.artifactId,
     ownerId: binding.ownerId,
+    requestedByUserId: REQUESTER_ID,
     projectId: binding.projectId,
     projectRevision: binding.projectRevision,
     binding,
@@ -325,6 +328,7 @@ describe("Project render-job owner V1", () => {
     const reserved = await reserveProjectRenderJobV1({
       jobId: JOB_ID,
       ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
       projectId: PROJECT_ID,
       currentProjectRevision: REVISION,
       region: "us-east-1",
@@ -337,6 +341,8 @@ describe("Project render-job owner V1", () => {
     expect(reserved.projectRenderSnapshotBinding).toEqual(binding);
     expect(reserved.artifactBinding).toBeUndefined();
     expect(reserved.artifactState).toBe("ACTIVE");
+    expect(reserved.userId).toBe(OWNER_ID);
+    expect(reserved.requestedByUserId).toBe(REQUESTER_ID);
     expect(collection.insertOne).toHaveBeenCalledTimes(1);
     const inserted = collection.insertOne.mock.calls[0]![0] as RenderJob;
     expect(inserted.deliveryManifest).toEqual(DELIVERY_MANIFEST);
@@ -347,6 +353,7 @@ describe("Project render-job owner V1", () => {
     await expect(reserveProjectRenderJobV1({
       jobId: JOB_ID,
       ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
       projectId: PROJECT_ID,
       currentProjectRevision: REVISION,
       region: "us-east-1",
@@ -364,6 +371,7 @@ describe("Project render-job owner V1", () => {
     await expect(reserveProjectRenderJobV1({
       jobId: JOB_ID,
       ownerId: "wrong-owner",
+      requestedByUserId: REQUESTER_ID,
       projectId: PROJECT_ID,
       currentProjectRevision: REVISION,
       region: "us-east-1",
@@ -375,6 +383,7 @@ describe("Project render-job owner V1", () => {
     await expect(reserveProjectRenderJobV1({
       jobId: "wrong-job",
       ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
       projectId: PROJECT_ID,
       currentProjectRevision: REVISION,
       region: "us-east-1",
@@ -386,6 +395,7 @@ describe("Project render-job owner V1", () => {
     await expect(reserveProjectRenderJobV1({
       jobId: JOB_ID,
       ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
       projectId: PROJECT_ID,
       currentProjectRevision: { ...REVISION, value: REVISION.value + 1 },
       region: "us-east-1",
@@ -395,6 +405,61 @@ describe("Project render-job owner V1", () => {
       collection: invalidCollection,
     })).rejects.toThrow("PROJECT_RENDER_JOB_AUTHORIZATION_SCOPE_MISMATCH");
     expect(invalidCollection.insertOne).not.toHaveBeenCalled();
+
+    const invalidRequesterCollection = makeCollection();
+    await expect(reserveProjectRenderJobV1({
+      jobId: JOB_ID,
+      ownerId: OWNER_ID,
+      requestedByUserId: "requester\nforged",
+      projectId: PROJECT_ID,
+      currentProjectRevision: REVISION,
+      region: "us-east-1",
+      expectedDurationMs: 5_000,
+      deliveryManifest: DELIVERY_MANIFEST,
+      binding,
+      collection: invalidRequesterCollection,
+    })).rejects.toThrow("PROJECT_RENDER_JOB_REQUESTER_INVALID");
+    expect(invalidRequesterCollection.insertOne).not.toHaveBeenCalled();
+
+    await expect(reserveProjectRenderJobV1({
+      jobId: JOB_ID,
+      ownerId: OWNER_ID,
+      requestedByUserId: " ",
+      projectId: PROJECT_ID,
+      currentProjectRevision: REVISION,
+      region: "us-east-1",
+      expectedDurationMs: 5_000,
+      deliveryManifest: DELIVERY_MANIFEST,
+      binding,
+      collection: invalidRequesterCollection,
+    })).rejects.toThrow("PROJECT_RENDER_JOB_REQUESTER_INVALID");
+
+    await expect(reserveProjectRenderJobV1({
+      jobId: JOB_ID,
+      ownerId: OWNER_ID,
+      projectId: PROJECT_ID,
+      currentProjectRevision: REVISION,
+      region: "us-east-1",
+      expectedDurationMs: 5_000,
+      deliveryManifest: DELIVERY_MANIFEST,
+      binding,
+      collection: invalidRequesterCollection,
+    } as unknown as Parameters<typeof reserveProjectRenderJobV1>[0])).rejects.toThrow(
+      "PROJECT_RENDER_JOB_REQUESTER_INVALID",
+    );
+  });
+
+  it("keeps requester identity optional for legacy rows but rejects malformed values", () => {
+    const legacy = makeLegacyJob();
+    expect(legacy.requestedByUserId).toBeUndefined();
+    expect(() => RenderJobSchema.parse({
+      ...legacy,
+      requestedByUserId: "requester\nforged",
+    })).toThrow();
+    expect(() => RenderJobSchema.parse({
+      ...legacy,
+      requestedByUserId: "a".repeat(201),
+    })).toThrow();
   });
 
   it("reads only the exact current bound job and fails closed for stale, forged, legacy, or dual scope", async () => {
@@ -427,6 +492,21 @@ describe("Project render-job owner V1", () => {
       collection,
     });
     expect(forged).toMatchObject({ ok: false, code: "PROJECT_ARTIFACT_NOT_CURRENT" });
+
+    collection.findOne.mockResolvedValueOnce(job);
+    const forgedRequester = await getCurrentProjectRenderJobV1({
+      authorization: { ...authorization, requestedByUserId: "forged-requester" },
+      currentProjectRevision: REVISION,
+      collection,
+    });
+    expect(forgedRequester).toMatchObject({
+      ok: false,
+      code: "PROJECT_ARTIFACT_NOT_CURRENT",
+      reason: "JOB_NOT_CURRENT",
+    });
+    expect(collection.findOne.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      requestedByUserId: "forged-requester",
+    }));
 
     collection.findOne.mockResolvedValueOnce(makeLegacyJob());
     const legacy = await getCurrentProjectRenderJobV1({
@@ -486,6 +566,7 @@ describe("Project render-job owner V1", () => {
         expect.objectContaining({
           _id: JOB_ID,
           userId: OWNER_ID,
+          requestedByUserId: REQUESTER_ID,
           projectId: PROJECT_ID,
           artifactState: "ACTIVE",
           artifactBinding: { $exists: false },
