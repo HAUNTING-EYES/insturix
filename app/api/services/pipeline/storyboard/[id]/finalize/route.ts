@@ -1472,26 +1472,42 @@ export async function POST(
     }
 
     // ─── Brand Intelligence: emit project_created + set status to generating ───
+    let projectStatusTracking: 'committed' | 'already_current' | 'recovery_required' = 'recovery_required';
     try {
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
 
-      await transitionProjectStatus(project.projectId, userId, 'generating', 'pipeline_finalize');
-
-      emitBrandEvent({
+      const statusResult = await transitionProjectStatus(
+        project.projectId,
         userId,
-        projectId: project.projectId,
-        service: 'pipeline',
-        type: 'project_created',
-        payload: {
-          overlayCount: overlays.length,
-          durationFrames: currentFrame,
-          sceneCount: storyboard.scenes?.length ?? 0,
-          warningCount: warnings.length,
-        },
-      }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+        'generating',
+        'pipeline_finalize',
+      );
+      if (!statusResult.success) {
+        const message = `Project lifecycle transition requires recovery: ${statusResult.error ?? 'unknown reason'}`;
+        warnings.push(message);
+        console.warn(`[Finalize] ${message}`);
+      } else {
+        projectStatusTracking = statusResult.disposition === 'ALREADY_CURRENT'
+          ? 'already_current'
+          : 'committed';
+        emitBrandEvent({
+          userId,
+          projectId: project.projectId,
+          service: 'pipeline',
+          type: 'project_created',
+          payload: {
+            overlayCount: overlays.length,
+            durationFrames: currentFrame,
+            sceneCount: storyboard.scenes?.length ?? 0,
+            warningCount: warnings.length,
+          },
+        }).catch((e) => console.warn('[Finalize] Brand event failed:', e));
+      }
     } catch (brandErr: any) {
-      console.warn(`[Finalize] Brand intelligence wiring failed: ${brandErr.message}`);
+      const message = `Project lifecycle transition requires recovery: ${brandErr.message}`;
+      warnings.push(message);
+      console.warn(`[Finalize] ${message}`);
     }
 
     // D-016: Profile detection removed — signal system + Utility AI drive all
@@ -1536,6 +1552,7 @@ export async function POST(
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
       audioGenerating: audioGenerationQueued,
+      projectStatusTracking,
       directorQueued: directorIntentQueued,
       directorQueueState,
       ...(warnings.length > 0 && { warnings }),

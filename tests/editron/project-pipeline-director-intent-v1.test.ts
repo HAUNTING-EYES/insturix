@@ -224,6 +224,9 @@ describe("ProjectService pipeline Director intent V1", () => {
     expect(intentBlock).toContain("projectService.loadProjectForMutation(");
     expect(intentBlock).toContain("recordPipelineDirectorIntentV1(");
     expect(intentBlock).not.toContain("db.collection(COLLECTIONS.PROJECTS).updateOne(");
+    expect(route).toContain("if (!statusResult.success)");
+    expect(route).toContain("Project lifecycle transition requires recovery:");
+    expect(route).toContain("projectStatusTracking");
     expect(route).toContain("directorQueued: directorIntentQueued");
     expect(route).toContain("directorQueueState");
   });

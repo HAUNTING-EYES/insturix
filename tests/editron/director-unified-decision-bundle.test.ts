@@ -102,6 +102,21 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('dispatch_error:');
   });
 
+  it('gates Director completion events on the lifecycle owner result', () => {
+    const source = directorSource();
+    const completionStart = source.indexOf('Brand Intelligence: emit director_completed');
+    const completionEnd = source.indexOf('Project Graph Record:', completionStart);
+    const completionBlock = source.slice(completionStart, completionEnd);
+
+    expect(completionBlock).toContain('const statusResult = await transitionProjectStatus(');
+    expect(completionBlock).toContain('if (!statusResult.success)');
+    expect(completionBlock).toContain('Director lifecycle transition rejected:');
+    expect(completionBlock.indexOf('if (!statusResult.success)'))
+      .toBeLessThan(completionBlock.indexOf("type: 'director_completed'"));
+    expect(source).toContain('const failureStatusResult = await transitionProjectStatus(');
+    expect(source).toContain('[Director] failure status transition rejected:');
+  });
+
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
     const source = directorSource();
     const fallbackAuthorityStart = source.indexOf("source: 'fallback-reactive'");

@@ -3141,7 +3141,17 @@ export async function executeDirectorPlan(
       const { emitBrandEvent } = await import('@/lib/shared/brand-events');
       if (!deferProjectStatusTransitions) {
         const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-        await transitionProjectStatus(projectId, userId, 'editing', 'director_completed');
+        const statusResult = await transitionProjectStatus(
+          projectId,
+          userId,
+          'editing',
+          'director_completed',
+        );
+        if (!statusResult.success) {
+          throw new Error(
+            `Director lifecycle transition rejected: ${statusResult.error ?? 'unknown reason'}`,
+          );
+        }
       }
 
       // Read actual quality score from project doc (persisted by quality_review step above)
@@ -3171,6 +3181,7 @@ export async function executeDirectorPlan(
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
     } catch (brandErr: unknown) {
       const msg = brandErr instanceof Error ? brandErr.message : String(brandErr);
+      result.warnings.push(`Director completion event requires recovery: ${msg}`);
       console.warn(`[Director] Brand intelligence wiring failed: ${msg}`);
     }
 
@@ -3278,10 +3289,16 @@ export async function executeDirectorPlan(
     if (!deferProjectStatusTransitions) {
       try {
         const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-        await transitionProjectStatus(
+        const failureStatusResult = await transitionProjectStatus(
           projectId, userId, 'failed', 'director_error',
           { message: fatalDirectorError.message, service: 'editron' },
         );
+        if (!failureStatusResult.success) {
+          console.warn(
+            '[Director] failure status transition rejected:',
+            failureStatusResult.error ?? 'unknown reason',
+          );
+        }
       } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
     }
   }
