@@ -5,6 +5,12 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { z } from 'zod';
 import { buildClickatronThumbnailCommitContext } from '@/lib/clickatron/thumbnail-commit-context';
+import {
+  ClickatronProjectPublicationBlockedErrorV1,
+  commitClickatronThumbnailProjectV1,
+  resolveClickatronThumbnailProjectBindingV1,
+} from '@/lib/editron/services/clickatron-project-publication-v1';
+import { ProjectNotFoundOrForbiddenError } from '@/lib/editron/services/project-service';
 
 // Enhanced commit request schema
 const CommitVariationRequestSchema = z.object({
@@ -112,11 +118,43 @@ export async function POST(
       },
     );
 
+    const previousCommittedThumbnail = variation.metadata?.committedThumbnail;
+    let projectBinding;
+    if (commitContext.projectId) {
+      try {
+        projectBinding = await resolveClickatronThumbnailProjectBindingV1({
+          userId,
+          projectId: commitContext.projectId,
+          thumbnailId: commitContext.thumbnailId,
+          sessionId: id,
+          variationId: validatedData.variationId,
+          thumbnailSource: validatedData.gcsPath,
+          existingBinding: previousCommittedThumbnail?.projectBindingV1,
+        });
+      } catch (error) {
+        if (error instanceof ProjectNotFoundOrForbiddenError) {
+          return NextResponse.json({ error: 'Editron project not found' }, { status: 404 });
+        }
+        if (error instanceof ClickatronProjectPublicationBlockedErrorV1) {
+          return NextResponse.json({
+            error: 'Thumbnail project binding blocked',
+            reason: error.reason,
+          }, { status: 409 });
+        }
+        throw error;
+      }
+    }
+
     variation.metadata.committedThumbnail = {
       thumbnailId: commitContext.thumbnailId,
       universalId: commitContext.universalId,
       projectId: commitContext.projectId,
       brandId: commitContext.brandId,
+      projectBindingV1: projectBinding,
+      projectPublicationV1: projectBinding ? {
+        schemaVersion: 1,
+        status: 'PENDING',
+      } : undefined,
     };
 
     // Update task timestamps (keep status as is for ongoing canvas work)
@@ -125,16 +163,48 @@ export async function POST(
     // Save the updated task
     await task.save();
 
-    // If linked to an Editron project, update its pipeline stage to "thumbnails"
-    if (commitContext.projectId) {
+    let projectProjection: Record<string, unknown> = { status: 'NOT_LINKED' };
+    if (projectBinding) {
       try {
-        const { projectService } = await import('@/lib/editron/services/project-service');
-        await projectService.updateProjectMetadata(commitContext.projectId, {
-          pipelineStage: 'thumbnails',
+        const result = await commitClickatronThumbnailProjectV1({
+          userId,
+          thumbnailSource: validatedData.gcsPath,
+          binding: projectBinding,
         });
-      } catch (e) {
-        console.warn('[clickatron/commit] Failed to update project pipeline stage:', e);
+        projectProjection = {
+          status: 'COMMITTED',
+          replayed: result.replayed,
+          publication: result.publication,
+          observedProjectRevision: result.observedProjectRevision,
+        };
+      } catch (error) {
+        projectProjection = error instanceof ClickatronProjectPublicationBlockedErrorV1
+          ? { status: 'BLOCKED', reason: error.reason }
+          : { status: 'UNVERIFIABLE' };
+        variation.metadata.committedThumbnail.projectPublicationV1 = {
+          schemaVersion: 1,
+          ...projectProjection,
+        };
+        variation.updatedAt = new Date();
+        task.updatedAt = new Date();
+        await task.save();
+        return NextResponse.json({
+          error: error instanceof ClickatronProjectPublicationBlockedErrorV1
+            ? 'Thumbnail project publication blocked'
+            : 'Thumbnail project publication could not be verified',
+          thumbnailCommitted: true,
+          thumbnailId: commitContext.thumbnailId,
+          projectProjection,
+        }, { status: error instanceof ClickatronProjectPublicationBlockedErrorV1 ? 409 : 503 });
       }
+
+      variation.metadata.committedThumbnail.projectPublicationV1 = {
+        schemaVersion: 1,
+        ...projectProjection,
+      };
+      variation.updatedAt = new Date();
+      task.updatedAt = new Date();
+      await task.save();
     }
 
     if (commitContext.universalId) {
@@ -194,6 +264,7 @@ export async function POST(
       thumbnailUrl: validatedData.gcsPath,
       thumbnailId: commitContext.thumbnailId,
       universalId: commitContext.universalId,
+      projectProjection,
       taskId: id,
       committedVariation: {
         id: variation.id,
