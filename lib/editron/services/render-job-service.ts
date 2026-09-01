@@ -110,6 +110,24 @@ export type ProjectRenderJobMutationResultV1 =
       status: 'CURRENT';
     };
 
+export type ProjectRenderBillingReconciliationReasonV1 =
+  | 'AUTHORIZATION_INVALID'
+  | 'PROJECT_REVISION_STALE'
+  | 'INPUT_INVALID'
+  | 'JOB_NOT_CURRENT'
+  | 'BILLING_IDENTITY_MISMATCH'
+  | 'PROVIDER_IDENTITY_PRESENT'
+  | 'BILLING_STATE_NOT_UNKNOWN'
+  | 'CAS_CONFLICT';
+
+export type ProjectRenderBillingReconciliationResultV1 =
+  | { ok: true; status: 'RECORDED' | 'ALREADY_RECORDED' }
+  | {
+      ok: false;
+      status: 'UNKNOWN_RETAINED';
+      reason: ProjectRenderBillingReconciliationReasonV1;
+    };
+
 export const MAX_PROJECT_RENDER_READ_LIMIT = 10;
 
 /**
@@ -566,6 +584,214 @@ export async function recordProjectRenderJobBillingV1(input: {
     ? currentProjectRenderJobMutationResult()
     : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
 }
+
+function retainedUnknownBillingResult(
+  reason: ProjectRenderBillingReconciliationReasonV1,
+): ProjectRenderBillingReconciliationResultV1 {
+  return { ok: false, status: 'UNKNOWN_RETAINED', reason };
+}
+
+function exactRenderBillingWalletFilterV1(
+  billingWallet: RenderJobBillingWalletV1,
+): Filter<RenderJob> {
+  return billingWallet.type === 'user'
+    ? {
+        'dispatch.billingWallet.type': 'user',
+        'dispatch.billingWallet.clerkUserId': billingWallet.clerkUserId,
+      }
+    : {
+        'dispatch.billingWallet.type': 'org',
+        'dispatch.billingWallet.clerkOrgId': billingWallet.clerkOrgId,
+        'dispatch.billingWallet.actorUserId': billingWallet.actorUserId,
+      };
+}
+
+function hasPersistedProviderIdentityV1(job: RenderJob): boolean {
+  const dispatch = job.dispatch;
+  return job.providerRenderId !== undefined
+    || job.bucketName !== undefined
+    || dispatch?.providerRenderId !== undefined
+    || dispatch?.providerBucketName !== undefined
+    || dispatch?.providerRegion !== undefined
+    || dispatch?.providerBoundAt !== undefined;
+}
+
+function exactUnknownRenderBillingFilterV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  identity: ProjectRenderDispatchIdentityV1;
+  billingWallet: RenderJobBillingWalletV1;
+  creditTransactionId: string;
+}): Filter<RenderJob> {
+  return currentProjectRenderJobMutationFilter(input.authorization, {
+    status: { $in: ['pending', 'queued', 'error'] },
+    providerRenderId: { $exists: false },
+    bucketName: { $exists: false },
+    'dispatch.version': 1,
+    'dispatch.phase': 'NOT_ATTEMPTED',
+    'dispatch.attemptToken': input.identity.attemptToken,
+    'dispatch.creditIdempotencyKey': input.identity.creditIdempotencyKey,
+    'dispatch.billingState': 'UNKNOWN',
+    'dispatch.billingUnknownAt': { $exists: true },
+    'dispatch.unknownReason': { $exists: true },
+    'dispatch.providerRenderId': { $exists: false },
+    'dispatch.providerBucketName': { $exists: false },
+    'dispatch.providerRegion': { $exists: false },
+    'dispatch.providerBoundAt': { $exists: false },
+    $or: [
+      { 'dispatch.creditTransactionId': { $exists: false } },
+      { 'dispatch.creditTransactionId': input.creditTransactionId },
+    ],
+    ...exactRenderBillingWalletFilterV1(input.billingWallet),
+  });
+}
+
+/**
+ * Reconcile only an already-charged, ambiguous strict render admission.
+ *
+ * This owner never asks the credit service to charge or refund. It proves the
+ * exact current admission first, then performs one UNKNOWN → RECORDED CAS.
+ * A concurrent winner or any stale/provider-bearing row remains UNKNOWN; an
+ * exact RECORDED replay is returned without a write.
+ */
+export async function reconcileProjectRenderJobBillingV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  billingWallet: unknown;
+  creditTransactionId: string;
+  collection?: Collection<RenderJob>;
+  session?: ClientSession;
+}): Promise<ProjectRenderBillingReconciliationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) {
+    return retainedUnknownBillingResult(
+      validation.result.reason === 'AUTHORIZATION_INVALID'
+        ? 'AUTHORIZATION_INVALID'
+        : 'PROJECT_REVISION_STALE',
+    );
+  }
+  const billingWallet = parseRenderBillingWallet(input.billingWallet);
+  if (!billingWallet || !isBoundRenderInputString(input.creditTransactionId, 200)) {
+    return retainedUnknownBillingResult('INPUT_INVALID');
+  }
+  const creditTransactionId = input.creditTransactionId.trim();
+  const identity = createProjectRenderDispatchIdentityV1({
+    jobId: validation.authorization.jobId,
+    bindingHash: validation.authorization.bindingHash,
+  });
+  const jobs = input.collection ?? await getCollection();
+
+  const exactFilter = exactUnknownRenderBillingFilterV1({
+    authorization: validation.authorization,
+    identity,
+    billingWallet,
+    creditTransactionId,
+  });
+  const current = await jobs.findOne(exactFilter, { session: input.session });
+  if (current) {
+    const parsedCurrent = RenderJobSchema.safeParse(current);
+    if (!parsedCurrent.success) {
+      return retainedUnknownBillingResult('JOB_NOT_CURRENT');
+    }
+    const currentDispatch = parsedCurrent.data.dispatch;
+    if (!currentDispatch) {
+      return retainedUnknownBillingResult('BILLING_IDENTITY_MISMATCH');
+    }
+    if (
+      currentDispatch.attemptToken !== identity.attemptToken
+      || currentDispatch.creditIdempotencyKey !== identity.creditIdempotencyKey
+      || JSON.stringify(currentDispatch.billingWallet) !== JSON.stringify(billingWallet)
+      || currentDispatch.creditTransactionId !== undefined
+        && currentDispatch.creditTransactionId !== creditTransactionId
+    ) {
+      return retainedUnknownBillingResult('BILLING_IDENTITY_MISMATCH');
+    }
+    if (currentDispatch.billingState === 'RECORDED') {
+      return { ok: true, status: 'ALREADY_RECORDED' };
+    }
+    if (hasPersistedProviderIdentityV1(parsedCurrent.data)) {
+      return retainedUnknownBillingResult('PROVIDER_IDENTITY_PRESENT');
+    }
+    if (currentDispatch.billingState !== 'UNKNOWN') {
+      return retainedUnknownBillingResult('BILLING_STATE_NOT_UNKNOWN');
+    }
+  } else {
+    const observed = await jobs.findOne(
+      currentProjectRenderJobFilter(validation.authorization),
+      { session: input.session },
+    );
+    if (!observed) return retainedUnknownBillingResult('JOB_NOT_CURRENT');
+    const parsedObserved = RenderJobSchema.safeParse(observed);
+    if (!parsedObserved.success) return retainedUnknownBillingResult('JOB_NOT_CURRENT');
+    const observedDispatch = parsedObserved.data.dispatch;
+    if (hasPersistedProviderIdentityV1(parsedObserved.data)) {
+      return retainedUnknownBillingResult('PROVIDER_IDENTITY_PRESENT');
+    }
+    if (
+      observedDispatch?.billingState === 'RECORDED'
+      && observedDispatch.phase === 'NOT_ATTEMPTED'
+      && observedDispatch.attemptToken === identity.attemptToken
+      && observedDispatch.creditIdempotencyKey === identity.creditIdempotencyKey
+      && JSON.stringify(observedDispatch.billingWallet) === JSON.stringify(billingWallet)
+      && observedDispatch.creditTransactionId === creditTransactionId
+    ) {
+      return { ok: true, status: 'ALREADY_RECORDED' };
+    }
+    if (
+      observedDispatch?.billingState === 'RECORDED'
+      || observedDispatch?.creditTransactionId !== undefined
+        && observedDispatch.creditTransactionId !== creditTransactionId
+      || observedDispatch?.attemptToken !== identity.attemptToken
+      || observedDispatch?.creditIdempotencyKey !== identity.creditIdempotencyKey
+      || !observedDispatch?.billingWallet
+      || JSON.stringify(observedDispatch.billingWallet) !== JSON.stringify(billingWallet)
+    ) {
+      return retainedUnknownBillingResult('BILLING_IDENTITY_MISMATCH');
+    }
+    return retainedUnknownBillingResult('BILLING_STATE_NOT_UNKNOWN');
+  }
+
+  const recorded = await jobs.updateOne(
+    exactFilter,
+    {
+      $set: {
+        'dispatch.creditTransactionId': creditTransactionId,
+        'dispatch.billingState': 'RECORDED',
+      },
+      $unset: {
+        'dispatch.billingUnknownAt': '',
+        'dispatch.unknownReason': '',
+      },
+    },
+    { session: input.session },
+  );
+  if (recorded.modifiedCount === 1) return { ok: true, status: 'RECORDED' };
+
+  const afterConflict = await jobs.findOne(
+    currentProjectRenderJobFilter(validation.authorization),
+    { session: input.session },
+  );
+  const parsedAfterConflict = RenderJobSchema.safeParse(afterConflict);
+  if (parsedAfterConflict.success) {
+    const afterDispatch = parsedAfterConflict.data.dispatch;
+    if (hasPersistedProviderIdentityV1(parsedAfterConflict.data)) {
+      return retainedUnknownBillingResult('PROVIDER_IDENTITY_PRESENT');
+    }
+    if (
+      afterDispatch?.billingState === 'RECORDED'
+      && afterDispatch.phase === 'NOT_ATTEMPTED'
+      && afterDispatch.attemptToken === identity.attemptToken
+      && afterDispatch.creditIdempotencyKey === identity.creditIdempotencyKey
+      && JSON.stringify(afterDispatch.billingWallet) === JSON.stringify(billingWallet)
+      && afterDispatch.creditTransactionId === creditTransactionId
+    ) {
+      return { ok: true, status: 'ALREADY_RECORDED' };
+    }
+  }
+  return retainedUnknownBillingResult('CAS_CONFLICT');
+}
+
+/** Compatibility alias for callers that name the operation by its UNKNOWN source state. */
+export const reconcileUnknownProjectRenderJobBillingV1 = reconcileProjectRenderJobBillingV1;
 
 /**
  * Persist an ambiguous credit-owner outcome without pretending that the

@@ -105,7 +105,189 @@ export interface CreditsBalanceInfo {
   recentTransactions: ICreditTransaction[];
 }
 
+/**
+ * Exact wallet evidence used to reconcile a render charge after an ambiguous
+ * credit-owner response. This lookup is deliberately narrower than the
+ * general credits API: it can only prove an existing Editron render charge.
+ */
+export type EditronRenderUsageLookupWalletV1 = WalletRef;
+
+export type EditronRenderUsageLookupInputV1 = {
+  wallet: EditronRenderUsageLookupWalletV1;
+  creditIdempotencyKey: string;
+  /** The durable render admission ID stamped on the usage transaction. */
+  expectedTaskId?: string;
+  /** Optional independent actor assertion; org wallets always require their wallet actor. */
+  expectedActorUserId?: string;
+};
+
+export type EditronRenderUsageLookupResultV1 =
+  | { status: 'FOUND'; transaction: ICreditTransaction }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS'; matchCount: number }
+  | {
+      status: 'INVALID';
+      reason:
+        | 'INPUT_INVALID'
+        | 'MATCHING_TRANSACTION_MALFORMED';
+    };
+
+const EDITRON_RENDER_USAGE_SERVICE_V1 = 'editron';
+const EDITRON_RENDER_USAGE_ACTION_V1 = 'render_export';
+const EDITRON_RENDER_USAGE_IDENTIFIER_MAX_LENGTH = 200;
+
+function boundedCreditsLookupIdentifierV1(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && value.length <= EDITRON_RENDER_USAGE_IDENTIFIER_MAX_LENGTH
+    && !/[\u0000-\u001F\u007F]/.test(value);
+}
+
+function creditLookupRecordV1(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function validCreditUsageTransactionV1(
+  value: unknown,
+  input: EditronRenderUsageLookupInputV1,
+): value is ICreditTransaction {
+  const transaction = creditLookupRecordV1(value);
+  const metadata = creditLookupRecordV1(transaction?.metadata);
+  if (
+    !transaction
+    || !metadata
+    || transaction.type !== 'usage'
+    || transaction.service !== EDITRON_RENDER_USAGE_SERVICE_V1
+    || transaction.action !== EDITRON_RENDER_USAGE_ACTION_V1
+    || !boundedCreditsLookupIdentifierV1(transaction.id)
+    || !Number.isFinite(transaction.amount as number)
+    || (transaction.amount as number) >= 0
+    || !Number.isFinite(transaction.balanceAfter as number)
+    || !(transaction.timestamp instanceof Date)
+    || Number.isNaN(transaction.timestamp.getTime())
+    || metadata.idempotencyKey !== input.creditIdempotencyKey
+  ) {
+    return false;
+  }
+  if (
+    input.expectedTaskId !== undefined
+    && (
+      transaction.taskId !== input.expectedTaskId
+      || metadata.taskId !== input.expectedTaskId
+    )
+  ) {
+    return false;
+  }
+  if (input.wallet.type === 'org') {
+    if (metadata.actorUserId !== input.wallet.actorUserId) return false;
+  }
+  if (
+    input.expectedActorUserId !== undefined
+    && metadata.actorUserId !== input.expectedActorUserId
+  ) {
+    return false;
+  }
+  return true;
+}
+
+type CreditHistoryLookupDocumentV1 = {
+  creditsBalance?: { creditHistory?: unknown[] };
+};
+
+/**
+ * Find an already-recorded Editron render charge without performing any write.
+ *
+ * The history is intentionally inspected after loading the exact wallet
+ * document. A matching but malformed entry returns INVALID rather than being
+ * silently ignored; duplicate valid entries return AMBIGUOUS. This prevents a
+ * capped/duplicated history from becoming an accidental charge proof.
+ */
+export async function findUsageTransactionForWallet(
+  input: EditronRenderUsageLookupInputV1,
+): Promise<EditronRenderUsageLookupResultV1> {
+  const wallet = input?.wallet;
+  const creditIdempotencyKey = input?.creditIdempotencyKey;
+  const expectedTaskId = input?.expectedTaskId;
+  const expectedActorUserId = input?.expectedActorUserId;
+  if (
+    !wallet
+    || (wallet.type !== 'user' && wallet.type !== 'org')
+    || !boundedCreditsLookupIdentifierV1(creditIdempotencyKey)
+    || expectedTaskId !== undefined
+      && !boundedCreditsLookupIdentifierV1(expectedTaskId)
+    || expectedActorUserId !== undefined
+      && !boundedCreditsLookupIdentifierV1(expectedActorUserId)
+  ) {
+    return { status: 'INVALID', reason: 'INPUT_INVALID' };
+  }
+  if (
+    wallet.type === 'user'
+    && !boundedCreditsLookupIdentifierV1(wallet.clerkUserId)
+    || wallet.type === 'org'
+    && (
+      !boundedCreditsLookupIdentifierV1(wallet.clerkOrgId)
+      || !boundedCreditsLookupIdentifierV1(wallet.actorUserId)
+    )
+  ) {
+    return { status: 'INVALID', reason: 'INPUT_INVALID' };
+  }
+  if (
+    wallet.type === 'org'
+    && expectedActorUserId !== undefined
+    && wallet.actorUserId !== expectedActorUserId
+  ) {
+    return { status: 'INVALID', reason: 'INPUT_INVALID' };
+  }
+  if (
+    wallet.type === 'user'
+    && expectedActorUserId !== undefined
+    && wallet.clerkUserId !== expectedActorUserId
+  ) {
+    return { status: 'INVALID', reason: 'INPUT_INVALID' };
+  }
+
+  await connectToDatabase();
+  const stored = wallet.type === 'user'
+    ? await User.findOne({ clerkUserId: wallet.clerkUserId })
+      .select('creditsBalance.creditHistory')
+      .lean<CreditHistoryLookupDocumentV1>()
+    : await Organization.findOne({ clerkOrgId: wallet.clerkOrgId })
+      .select('creditsBalance.creditHistory')
+      .lean<CreditHistoryLookupDocumentV1>();
+  if (!stored) return { status: 'NOT_FOUND' };
+
+  const history = stored.creditsBalance?.creditHistory;
+  if (!Array.isArray(history)) return { status: 'NOT_FOUND' };
+
+  const identityMatches = history.filter((entry) => {
+    const transaction = creditLookupRecordV1(entry);
+    const metadata = creditLookupRecordV1(transaction?.metadata);
+    return transaction?.type === 'usage'
+      && transaction.service === EDITRON_RENDER_USAGE_SERVICE_V1
+      && transaction.action === EDITRON_RENDER_USAGE_ACTION_V1
+      && metadata?.idempotencyKey === creditIdempotencyKey;
+  });
+  if (identityMatches.length === 0) return { status: 'NOT_FOUND' };
+  if (identityMatches.length > 1) {
+    return { status: 'AMBIGUOUS', matchCount: identityMatches.length };
+  }
+  const transaction = identityMatches[0]!;
+  if (!validCreditUsageTransactionV1(transaction, input)) {
+    return { status: 'INVALID', reason: 'MATCHING_TRANSACTION_MALFORMED' };
+  }
+  return { status: 'FOUND', transaction };
+}
+
 export class CreditsService {
+  /** Read-only exact proof lookup for ambiguous Editron render billing. */
+  static async findUsageTransactionForWallet(
+    input: EditronRenderUsageLookupInputV1,
+  ): Promise<EditronRenderUsageLookupResultV1> {
+    return findUsageTransactionForWallet(input);
+  }
+
   /**
    * Sole product-budget wallet composition boundary. The Mongo helper is an
    * implementation detail; callers receive only the versioned reserve/settle
