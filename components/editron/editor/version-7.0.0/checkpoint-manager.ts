@@ -1,5 +1,6 @@
 import { Overlay } from "./types";
 import { getUserId } from "./utils/user-id";
+import { readProjectRevisionV1 } from "@/lib/editron/services/project-revision-v1";
 
 export type CheckpointType = "initial" | "before-llm" | "after-llm" | "user-edit";
 
@@ -212,7 +213,12 @@ export const restoreCheckpoint = async (
 
       const checkpoint = await checkpointService.getCheckpoint(checkpointId, userId);
       if (!checkpoint || checkpoint.projectId !== projectId) return null;
-      const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId);
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId, {
+        projectId,
+        expectedRevision: snapshot.revision,
+        actorKind: 'USER',
+      });
       if (!verification.restored) return null;
       const project = await projectService.loadProject(userId, projectId);
       if (!project) return null;
@@ -228,13 +234,31 @@ export const restoreCheckpoint = async (
       };
     }
 
-    // Client-side: restore first, then reload the canonical project separately.
+    // Client-side: bind the restore to the exact canonical revision observed by
+    // this user action, then reload the newly committed canonical project.
+    const currentProjectResponse = await fetch(
+      `/api/services/editron/projects/${encodeURIComponent(projectId)}`,
+      { cache: 'no-store' },
+    );
+    if (!currentProjectResponse.ok) {
+      console.error('Failed to load current project revision:', await currentProjectResponse.text());
+      return null;
+    }
+    const currentProjectPayload = await currentProjectResponse.json() as {
+      success: boolean;
+      project?: RestoredCheckpoint['project'] & { projectRevision?: unknown; updatedAt?: unknown };
+    };
+    const expectedRevision = currentProjectPayload.project
+      ? readProjectRevisionV1(currentProjectPayload.project)
+      : null;
+    if (!currentProjectPayload.success || !expectedRevision) return null;
+
     const response = await fetch('/api/services/editron/checkpoints/restore', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ checkpointId, projectId }),
+      body: JSON.stringify({ checkpointId, projectId, expectedRevision }),
     });
 
     if (!response.ok) {

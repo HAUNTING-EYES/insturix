@@ -136,7 +136,7 @@ describe("generated composition checkpoint participation", () => {
     const result = await service.restoreProjectCheckpoint(
       "checkpoint-legacy",
       "user-1",
-      { projectId: "project-1", expectedRevision: REVISION },
+      { projectId: "project-1", expectedRevision: REVISION, actorKind: "SYSTEM" },
     );
 
     expect(result).toMatchObject({

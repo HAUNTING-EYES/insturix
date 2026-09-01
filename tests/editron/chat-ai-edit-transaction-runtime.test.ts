@@ -976,6 +976,7 @@ describe('chat AI edit transaction runtime', () => {
     const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
@@ -1250,6 +1251,7 @@ describe('chat AI edit transaction runtime', () => {
     const result = await service.restoreProjectCheckpoint('ckpt_stale_browser', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
@@ -1277,6 +1279,7 @@ describe('chat AI edit transaction runtime', () => {
     const result = await service.restoreProjectCheckpoint('ckpt_stale_worker', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'SYSTEM',
     });
 
     expect(result).toMatchObject({
@@ -1317,10 +1320,12 @@ describe('chat AI edit transaction runtime', () => {
     const first = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
     const duplicate = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'USER',
     });
 
     expect(first).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
@@ -1349,6 +1354,7 @@ describe('chat AI edit transaction runtime', () => {
         value: 7,
         compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
       },
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({
@@ -1383,6 +1389,7 @@ describe('chat AI edit transaction runtime', () => {
         value: 7,
         compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
       },
+      actorKind: 'USER',
     });
 
     expect(result).toMatchObject({
@@ -1571,8 +1578,9 @@ describe('chat AI edit transaction runtime', () => {
       'components/editron/editor/version-7.0.0/checkpoint-manager.ts',
     ), 'utf8');
 
-    expect(manager).toContain('body: JSON.stringify({ checkpointId, projectId })');
-    expect(manager).toContain('checkpointService.restoreProjectCheckpoint(checkpointId, userId)');
+    expect(manager).toContain('projectService.loadProjectForMutation(userId, projectId)');
+    expect(manager).toContain('body: JSON.stringify({ checkpointId, projectId, expectedRevision })');
+    expect(manager).toContain("actorKind: 'USER'");
     expect(manager).toContain('`/api/services/editron/projects/${encodeURIComponent(projectId)}`');
     expect(manager).not.toContain('return checkpoint ? checkpoint.overlays : null');
   });

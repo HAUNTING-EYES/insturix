@@ -141,9 +141,9 @@ export interface RestoreProjectCheckpointResult {
 }
 
 export interface RestoreProjectCheckpointOptions {
-  projectId?: string;
-  expectedRevision?: ProjectRevisionV1;
-  actorKind?: ProjectTimelineChangeActorKindV1;
+  projectId: string;
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
 }
 
 const CURRENT_STATE_HASH_VERSION = 2 as const;
@@ -423,7 +423,7 @@ export class CheckpointService {
   async restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: RestoreProjectCheckpointOptions = {},
+    options: RestoreProjectCheckpointOptions,
   ): Promise<RestoreProjectCheckpointResult> {
     const checkpoint = await this.getCheckpoint(checkpointId, userId, options.projectId);
     if (!checkpoint) {
@@ -467,14 +467,6 @@ export class CheckpointService {
         reason: 'checkpoint-state-hash-mismatch',
       };
     }
-    if (!options.expectedRevision) {
-      return {
-        restored: false,
-        checkpointId,
-        expectedStateHash,
-        reason: 'expected-revision-required',
-      };
-    }
     const setFields: Record<string, unknown> = {};
     const unsetFields: string[] = [];
 
@@ -493,7 +485,7 @@ export class CheckpointService {
         checkpoint.projectId,
         {
           checkpointId,
-          actorKind: options.actorKind ?? 'UNKNOWN_LEGACY_CALLER',
+          actorKind: options.actorKind,
           expectedRevision: options.expectedRevision,
           setFields,
           unsetFields,
