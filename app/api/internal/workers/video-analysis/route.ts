@@ -1130,8 +1130,6 @@ async function handler(request: NextRequest) {
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dev fallback: no QStash Ã¢â€ â€™ run TRIBE steps + Director inline Ã¢â€â‚¬Ã¢â€â‚¬
-    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN Ã¢â‚¬â€ running TRIBE + Director inline`);
-
     // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
     let vjepaAnalysis: any = precutVjepaAnalysis;
     let wav2vecAnalysis: any = null;
