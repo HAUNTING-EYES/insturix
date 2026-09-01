@@ -1936,8 +1936,7 @@ export async function executeDirectorPlan(
           // DECIDED (shouldAddBgm) but never PRODUCED ("we never received a BGM"). Enqueue the
           // same worker here, gated on (a) the signal AND (b) this being a NON-storyboard
           // project: storyboard projects already get BGM from finalize, so dispatching here too
-          // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
-          // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          // would double it. ProjectService owns both the decision receipt and later delivery.
           const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
           const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
           const isStoryboardProject = storyboardContextSource === 'storyboard';
@@ -1971,12 +1970,13 @@ export async function executeDirectorPlan(
               return evidence;
             };
 
-            if (!autoBgmExecutionScopePolicy.run) {
-              console.log(`[Director] Auto-BGM skipped (${autoBgmExecutionScopePolicy.reason})`);
-            } else if (!musicGenerationPolicy.allowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
-              const evidence = await persistAutoBgmEvidence({});
-              console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
-            } else {
+            if (autoBgmExecutionScopePolicy.run && (
+              !musicGenerationPolicy.allowed
+              || bgmRec?.shouldAddBgm !== true
+              || isStoryboardProject
+            )) {
+              await persistAutoBgmEvidence({});
+            } else if (autoBgmExecutionScopePolicy.run) {
               const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
               const providerAvailable = isBGMAvailable();
               if (providerAvailable && bgmDurationSec >= 10) {
@@ -2021,17 +2021,15 @@ export async function executeDirectorPlan(
                   musicPreference: musicGenerationPolicy.musicPreference,
                   editorialPreferences: musicGenerationPolicy.editorialPreferences,
                 }, 'BGM(auto-edit)');
-                const evidence = await persistAutoBgmEvidence({
+                await persistAutoBgmEvidence({
                   providerAvailable,
                   mood: bgmMood,
                   pacing: bgmPacing,
                   musicPrompt: bgmMusicPrompt,
                   dispatchResult,
                 });
-                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, mood=${bgmMood}, pacing=${bgmPacing}, durationSec=${bgmDurationSec}`);
               } else {
-                const evidence = await persistAutoBgmEvidence({ providerAvailable });
-                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, providerAvailable=${providerAvailable}, durationSec=${bgmDurationSec}`);
+                await persistAutoBgmEvidence({ providerAvailable });
               }
             }
           } catch (bgmErr: any) {
