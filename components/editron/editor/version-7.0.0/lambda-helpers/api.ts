@@ -10,6 +10,7 @@ import type {
 
 export type LambdaRenderResponse = RenderMediaOnLambdaOutput & {
   deliveryManifest?: RenderDeliveryManifest;
+  region?: string;
 };
 
 export type LambdaProgressResponse =

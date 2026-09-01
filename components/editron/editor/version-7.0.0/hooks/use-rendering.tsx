@@ -26,6 +26,7 @@ export type State =
       progress: number;
       status: "rendering";
       bucketName?: string; // Make bucketName optional
+      region?: string;
       deliveryManifest?: RenderDeliveryManifest;
     }
   | {
@@ -55,7 +56,7 @@ type RenderType = "ssr" | "lambda";
 
 async function getRenderProgress(
   renderType: RenderType,
-  input: { id: string; bucketName: string },
+  input: { id: string; bucketName: string; region?: string },
 ): Promise<LambdaProgressResponse> {
   return renderType === "lambda"
     ? lambdaGetProgress(input)
@@ -66,11 +67,14 @@ type ActiveRenderRecord = {
   projectId?: string;
   renderId?: string;
   status?: string;
+  bucketName?: string;
+  region?: string;
 };
 
 type RenderResumeClaim = {
   renderId: string;
   bucketName?: string;
+  region?: string;
   createdAt: number;
 };
 
@@ -90,12 +94,17 @@ function readRenderResumeClaim(projectId: string): RenderResumeClaim | null {
     if (typeof parsed.renderId !== "string" || !parsed.renderId.trim()) {
       return null;
     }
-    if (typeof parsed.createdAt !== "number") {
+    if (
+      typeof parsed.createdAt !== "number"
+      || !Number.isFinite(parsed.createdAt)
+      || parsed.createdAt < 0
+    ) {
       return null;
     }
     return {
       renderId: parsed.renderId,
       bucketName: typeof parsed.bucketName === "string" ? parsed.bucketName : undefined,
+      region: typeof parsed.region === "string" ? parsed.region : undefined,
       createdAt: parsed.createdAt,
     };
   } catch {
@@ -107,6 +116,7 @@ function writeRenderResumeClaim(
   projectId: string | undefined,
   renderId: string,
   bucketName?: string,
+  region?: string,
 ) {
   if (!projectId || typeof window === "undefined") return;
 
@@ -114,6 +124,7 @@ function writeRenderResumeClaim(
     const claim: RenderResumeClaim = {
       renderId,
       bucketName,
+      region,
       createdAt: Date.now(),
     };
     window.sessionStorage.setItem(
@@ -145,6 +156,9 @@ export function shouldResumeActiveRender(
   if (activeRender.projectId !== projectId) return false;
   if (activeRender.status !== "rendering") return false;
   if (activeRender.renderId !== claim.renderId) return false;
+  if (claim.bucketName && activeRender.bucketName !== claim.bucketName) return false;
+  if (claim.region && activeRender.region !== claim.region) return false;
+  if (!Number.isFinite(claim.createdAt) || claim.createdAt < 0 || claim.createdAt > now) return false;
   if (now - claim.createdAt > RENDER_RESUME_MAX_AGE_MS) return false;
   return true;
 }
@@ -171,7 +185,9 @@ export const useRendering = (
         const resumeClaim = readRenderResumeClaim(projectId);
         if (!resumeClaim) return;
 
-        const response = await fetch("/api/services/editron/render/active");
+        const response = await fetch(
+          `/api/services/editron/render/active?projectId=${encodeURIComponent(projectId)}`,
+        );
         const json = await response.json();
         
         if (json.type === "success" && json.data?.renders?.length > 0) {
@@ -187,9 +203,14 @@ export const useRendering = (
               progress: activeRender.progress || 0,
               renderId: activeRender.renderId,
               bucketName: activeRender.bucketName,
+              region: activeRender.region,
             });
             // Start polling loop
-            pollProgress(activeRender.renderId, activeRender.bucketName || "");
+            pollProgress(
+              activeRender.renderId,
+              activeRender.bucketName || "",
+              activeRender.region ?? resumeClaim.region,
+            );
           } else {
             clearRenderResumeClaim(projectId);
           }
@@ -199,13 +220,13 @@ export const useRendering = (
       }
     };
 
-    const pollProgress = async (renderId: string, bucketName: string) => {
+    const pollProgress = async (renderId: string, bucketName: string, region?: string) => {
       const getProgress = lambdaGetProgress;
       let pending = true;
       
       while (pending) {
         try {
-          const result = await getProgress({ id: renderId, bucketName });
+          const result = await getProgress({ id: renderId, bucketName, region });
           
           switch (result.type) {
             case "error":
@@ -233,6 +254,7 @@ export const useRendering = (
                 progress: result.progress,
                 renderId,
                 bucketName,
+                region,
                 deliveryManifest: result.deliveryManifest,
               });
               await wait(3000);
@@ -272,6 +294,8 @@ export const useRendering = (
         "bucketName" in response ? response.bucketName : undefined;
       const normalizedBucketName =
         typeof bucketName === "string" ? bucketName : undefined;
+      const normalizedRegion =
+        typeof lambdaResponse?.region === "string" ? lambdaResponse.region : undefined;
       const initialDeliveryManifest = lambdaResponse?.deliveryManifest;
 
       // Check if render is already complete (synchronous Cloud Run)
@@ -297,9 +321,15 @@ export const useRendering = (
         progress: 0,
         renderId,
         bucketName: normalizedBucketName,
+        region: normalizedRegion,
         deliveryManifest: initialDeliveryManifest,
       });
-      writeRenderResumeClaim(projectId, renderId, normalizedBucketName);
+      writeRenderResumeClaim(
+        projectId,
+        renderId,
+        normalizedBucketName,
+        normalizedRegion,
+      );
 
       let pending = true;
 
@@ -316,6 +346,7 @@ export const useRendering = (
         const result = await getRenderProgress(renderType, {
           id: renderId,
           bucketName: normalizedBucketName ?? "",
+          region: normalizedRegion,
         });
 
         switch (result.type) {
@@ -352,6 +383,7 @@ export const useRendering = (
               progress: result.progress,
               renderId: renderId,
               bucketName: normalizedBucketName,
+              region: normalizedRegion,
               deliveryManifest:
                 result.deliveryManifest ?? initialDeliveryManifest,
             });

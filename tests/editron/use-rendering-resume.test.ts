@@ -8,6 +8,8 @@ describe("useRendering resume guard", () => {
       projectId: "proj_123",
       renderId: "chr_old",
       status: "rendering",
+      bucketName: "chapter-render",
+      region: "ap-south-1",
     };
 
     expect(shouldResumeActiveRender(activeRender, null, "proj_123", 1_000)).toBe(false);
@@ -22,11 +24,70 @@ describe("useRendering resume guard", () => {
     expect(
       shouldResumeActiveRender(
         activeRender,
-        { renderId: "chr_old", createdAt: 500 },
+        {
+          renderId: "chr_old",
+          bucketName: "chapter-render",
+          region: "ap-south-1",
+          createdAt: 500,
+        },
         "proj_123",
         1_000,
       ),
     ).toBe(true);
+  });
+
+  it("requires the browser claim to match persisted bucket and region", () => {
+    const activeRender = {
+      projectId: "proj_123",
+      renderId: "rnd_123",
+      status: "rendering",
+      bucketName: "render-bucket",
+      region: "ap-south-1",
+    };
+
+    expect(shouldResumeActiveRender(
+      activeRender,
+      {
+        renderId: "rnd_123",
+        bucketName: "other-bucket",
+        region: "ap-south-1",
+        createdAt: 500,
+      },
+      "proj_123",
+      1_000,
+    )).toBe(false);
+    expect(shouldResumeActiveRender(
+      activeRender,
+      {
+        renderId: "rnd_123",
+        bucketName: "render-bucket",
+        region: "us-east-1",
+        createdAt: 500,
+      },
+      "proj_123",
+      1_000,
+    )).toBe(false);
+  });
+
+  it("rejects future and non-finite claim timestamps", () => {
+    const activeRender = {
+      projectId: "proj_123",
+      renderId: "rnd_123",
+      status: "rendering",
+    };
+
+    expect(shouldResumeActiveRender(
+      activeRender,
+      { renderId: "rnd_123", createdAt: 1_001 },
+      "proj_123",
+      1_000,
+    )).toBe(false);
+    expect(shouldResumeActiveRender(
+      activeRender,
+      { renderId: "rnd_123", createdAt: Number.NaN },
+      "proj_123",
+      1_000,
+    )).toBe(false);
   });
 
   it("does not resume expired local render claims", () => {
