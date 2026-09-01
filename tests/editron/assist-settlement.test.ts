@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundForWallet: mocks.refundForWallet } }));
 
-import { settleAssistScanFailure } from '@/lib/editron/services/assist-lane';
+import { registerAssistScanCharge, settleAssistScanFailure } from '@/lib/editron/services/assist-lane';
 
 const db = { collection: () => ({ findOne: mocks.findOne, updateOne: mocks.updateOne }) };
 const settlement = (overrides: Record<string, unknown> = {}) => settleAssistScanFailure(db as never, {
@@ -27,6 +27,60 @@ beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.updateOne.mockResolvedValue({ modifiedCount: 1, matchedCount: 1 });
   mocks.refundForWallet.mockResolvedValue({ success: true });
+});
+
+describe('registerAssistScanCharge', () => {
+  const register = () => registerAssistScanCharge(db as never, {
+    projectId: 'p',
+    userId: 'u',
+    creditTransactionId: 'tx_1',
+    chargedCredits: 20,
+  });
+
+  it('binds a deduction only to an active Assist scan', async () => {
+    mocks.findOne.mockResolvedValue({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' });
+    expect(await register()).toEqual({ disposition: 'registered', terminal: false });
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'p', userId: 'u', editMode: 'assist' }),
+      { $set: { assistCreditTransactionId: 'tx_1', assistChargedCredits: 20 } },
+    );
+  });
+
+  it('turns a cancel-during-registration race into a durable pending refund', async () => {
+    mocks.findOne.mockResolvedValue({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' });
+    mocks.updateOne
+      .mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 })
+      .mockResolvedValueOnce({ modifiedCount: 1, matchedCount: 1 });
+    expect(await register()).toEqual({ disposition: 'registered', terminal: true });
+    expect(mocks.updateOne.mock.calls[1]?.[1]).toEqual({
+      $set: {
+        assistCreditTransactionId: 'tx_1',
+        assistChargedCredits: 20,
+        assistRefundPending: true,
+      },
+    });
+  });
+
+  it('replays the exact registered charge without writing it twice', async () => {
+    mocks.findOne.mockResolvedValue({
+      projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'scan_failed',
+      assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, assistRefundPending: true,
+    });
+    expect(await register()).toEqual({ disposition: 'already-registered', terminal: true });
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects a competing transaction and malformed charge without mutation', async () => {
+    mocks.findOne.mockResolvedValue({
+      projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing',
+      assistCreditTransactionId: 'tx_new', assistChargedCredits: 20,
+    });
+    expect(await register()).toEqual({ disposition: 'conflict' });
+    expect(await registerAssistScanCharge(db as never, {
+      projectId: 'p', userId: 'u', creditTransactionId: ' ', chargedCredits: Number.NaN,
+    })).toEqual({ disposition: 'invalid' });
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+  });
 });
 
 describe('settleAssistScanFailure', () => {

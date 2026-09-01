@@ -60,6 +60,156 @@ export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boo
   return parseAssistFlag(env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED);
 }
 
+export interface AssistScanChargeRegistrationInput {
+  projectId: string;
+  userId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+}
+
+export type AssistScanChargeRegistrationResult =
+  | { disposition: 'registered' | 'already-registered'; terminal: boolean }
+  | { disposition: 'invalid' | 'not-assist' | 'conflict' };
+
+/**
+ * Durably binds one completed deduction to the Assist scan that must either
+ * consume it or refund it. The second CAS is deliberate: cancellation may win
+ * between deduction and registration, in which case the new charge is attached
+ * only as a terminal pending refund.
+ */
+export async function registerAssistScanCharge(
+  db: { collection: (name: string) => any },
+  input: AssistScanChargeRegistrationInput,
+): Promise<AssistScanChargeRegistrationResult> {
+  const projectId = input.projectId.trim();
+  const userId = input.userId.trim();
+  const creditTransactionId = input.creditTransactionId.trim();
+  const chargedCredits = input.chargedCredits;
+  if (
+    !projectId
+    || !userId
+    || !creditTransactionId
+    || !Number.isFinite(chargedCredits)
+    || chargedCredits < 0
+  ) {
+    return { disposition: 'invalid' };
+  }
+
+  const projects = db.collection('projects');
+  const current = await projects.findOne(
+    { projectId, userId },
+    {
+      projection: {
+        editMode: 1,
+        autoEditStatus: 1,
+        assistCreditTransactionId: 1,
+        assistChargedCredits: 1,
+        assistRefundPending: 1,
+      },
+    },
+  );
+  if (!current) return { disposition: 'conflict' };
+  if (!isAssistProject(current)) return { disposition: 'not-assist' };
+
+  const currentTransactionId = typeof current.assistCreditTransactionId === 'string'
+    ? current.assistCreditTransactionId
+    : null;
+  const currentCharge = typeof current.assistChargedCredits === 'number'
+    ? current.assistChargedCredits
+    : null;
+  if (currentTransactionId !== null || currentCharge !== null) {
+    if (currentTransactionId !== creditTransactionId || currentCharge !== chargedCredits) {
+      return { disposition: 'conflict' };
+    }
+    const terminal = current.autoEditStatus === ASSIST_STATUS_SCAN_FAILED;
+    if (terminal && current.assistRefundPending !== true) {
+      const marked = await projects.updateOne(
+        {
+          projectId,
+          userId,
+          editMode: 'assist',
+          autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+          assistCreditTransactionId: creditTransactionId,
+          assistChargedCredits: chargedCredits,
+        },
+        { $set: { assistRefundPending: true } },
+      );
+      if (marked.modifiedCount !== 1) return { disposition: 'conflict' };
+    }
+    return { disposition: 'already-registered', terminal };
+  }
+
+  if (current.autoEditStatus === ASSIST_STATUS_READY || current.autoEditStatus === 'complete') {
+    return { disposition: 'conflict' };
+  }
+
+  const noChargePredicate = {
+    $and: [
+      { $or: [{ assistCreditTransactionId: { $exists: false } }, { assistCreditTransactionId: null }] },
+      { $or: [{ assistChargedCredits: { $exists: false } }, { assistChargedCredits: null }] },
+    ],
+  };
+  const active = current.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+    ? { modifiedCount: 0 }
+    : await projects.updateOne(
+        {
+          projectId,
+          userId,
+          editMode: 'assist',
+          autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
+          ...noChargePredicate,
+        },
+        {
+          $set: {
+            assistCreditTransactionId: creditTransactionId,
+            assistChargedCredits: chargedCredits,
+          },
+        },
+      );
+  if (active.modifiedCount === 1) return { disposition: 'registered', terminal: false };
+
+  const terminal = await projects.updateOne(
+    {
+      projectId,
+      userId,
+      editMode: 'assist',
+      autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+      ...noChargePredicate,
+    },
+    {
+      $set: {
+        assistCreditTransactionId: creditTransactionId,
+        assistChargedCredits: chargedCredits,
+        assistRefundPending: true,
+      },
+    },
+  );
+  if (terminal.modifiedCount === 1) return { disposition: 'registered', terminal: true };
+
+  const latest = await projects.findOne(
+    { projectId, userId },
+    {
+      projection: {
+        editMode: 1,
+        autoEditStatus: 1,
+        assistCreditTransactionId: 1,
+        assistChargedCredits: 1,
+      },
+    },
+  );
+  if (!latest || !isAssistProject(latest)) return { disposition: 'conflict' };
+  if (
+    latest.assistCreditTransactionId === creditTransactionId
+    && latest.assistChargedCredits === chargedCredits
+  ) {
+    return {
+      disposition: 'already-registered',
+      terminal: latest.autoEditStatus === ASSIST_STATUS_SCAN_FAILED,
+    };
+  }
+  return { disposition: 'conflict' };
+}
+
 export interface AssistScanFailureSettlementInput {
   projectId: string;
   userId: string;
