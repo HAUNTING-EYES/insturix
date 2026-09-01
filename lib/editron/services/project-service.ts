@@ -1073,6 +1073,7 @@ export interface ProjectAnalysisRunV1 {
   updatedAt: string;
   phase1EvidenceHash?: string;
   phase1EvidenceCommittedAt?: string;
+  deepAnalysisDispatch?: ProjectAnalysisDeepDispatchV1;
   deepAnalysisLease?: ProjectAnalysisDeepLeaseV1;
   phase2EvidenceHash?: string;
   phase2EvidenceCommittedAt?: string;
@@ -1087,6 +1088,16 @@ export interface ProjectAnalysisDeepLeaseV1 {
 }
 
 export interface ProjectAnalysisDirectorDispatchV1 {
+  schemaVersion: 1;
+  deduplicationId: string;
+  status: "pending" | "published" | "inline_ready";
+  preparedAt: string;
+  publishedAt?: string;
+  providerMessageId?: string;
+  inlineReadyAt?: string;
+}
+
+export interface ProjectAnalysisDeepDispatchV1 {
   schemaVersion: 1;
   deduplicationId: string;
   status: "pending" | "published" | "inline_ready";
@@ -1200,6 +1211,7 @@ export interface ProjectAnalysisDeepClaimCommandV1 {
   expectedRevision: ProjectRevisionV1;
   runId: string;
   sourceAssetId: string;
+  deepAnalysisDispatchId?: string;
 }
 
 export type ProjectAnalysisDeepClaimResultV1 =
@@ -1211,7 +1223,11 @@ export type ProjectAnalysisDeepClaimResultV1 =
       receipt: ProjectMutationReceiptV1;
     }
   | {
-      disposition: "DUPLICATE_ACTIVE" | "DIRECTOR_DISPATCH_PENDING" | "DIRECTOR_DISPATCH_PUBLISHED";
+      disposition:
+        | "DUPLICATE_ACTIVE"
+        | "DEEP_DISPATCH_PENDING"
+        | "DIRECTOR_DISPATCH_PENDING"
+        | "DIRECTOR_DISPATCH_PUBLISHED";
       run: ProjectAnalysisRunV1;
       currentRevision: ProjectRevisionV1;
     }
@@ -1232,6 +1248,27 @@ export interface ProjectAnalysisPhase2CommitCommandV1 {
   sourceAssetId: string;
   leaseId: string;
   evidence: ProjectAnalysisPhase2EvidenceV1;
+}
+
+export interface ProjectAnalysisDeepDispatchPrepareCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+}
+
+export interface ProjectAnalysisDeepDispatchPublicationCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
+  providerMessageId: string;
+}
+
+export interface ProjectAnalysisDeepDispatchInlineReadyCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
 }
 
 export interface ProjectAnalysisDirectorDispatchPublicationCommandV1 {
@@ -6014,6 +6051,221 @@ export class ProjectService {
     return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
   }
 
+  /** Prepares one evidence-bound delivery identity for the TRIBE worker. */
+  async prepareProjectAnalysisDeepDispatchV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDeepDispatchPrepareCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDeepDispatchPrepareCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (
+      currentRun.state === "analysis_complete"
+      && currentRun.deepAnalysisDispatch
+      && projectRecordValueV1(current, "autoEditStatus") === "analysis_complete"
+    ) return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    if (
+      currentRun.state !== "analysis_complete"
+      || projectRecordValueV1(current, "autoEditStatus") !== "analysis_complete"
+      || currentRun.deepAnalysisDispatch !== undefined
+      || !currentRun.phase1EvidenceHash
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const preparedAt = new Date();
+    const deepAnalysisDispatch = createProjectAnalysisDeepDispatchV1({
+      projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      phase1EvidenceHash: currentRun.phase1EvidenceHash,
+      preparedAt,
+    });
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: preparedAt.toISOString(),
+      deepAnalysisDispatch,
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "analysis_complete",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "analysis_complete",
+        "autoEditAnalysisRunV1.deepAnalysisDispatch": { $exists: false },
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: preparedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, preparedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Activates an exact prepared TRIBE dispatch for trusted development execution. */
+  async recordProjectAnalysisDeepDispatchInlineReadyV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDeepDispatchInlineReadyCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDeepDispatchInlineReadyCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    const dispatch = currentRun?.deepAnalysisDispatch;
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === "analysis_complete"
+      && dispatch?.status === "inline_ready"
+      && dispatch.deduplicationId === input.deduplicationId
+    ) return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== "analysis_complete"
+      || projectRecordValueV1(current, "autoEditStatus") !== "analysis_complete"
+      || dispatch?.status !== "pending"
+      || dispatch.deduplicationId !== input.deduplicationId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const inlineReadyAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: inlineReadyAt.toISOString(),
+      deepAnalysisDispatch: {
+        ...dispatch,
+        status: "inline_ready",
+        inlineReadyAt: inlineReadyAt.toISOString(),
+      },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "analysis_complete",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "analysis_complete",
+        "autoEditAnalysisRunV1.deepAnalysisDispatch.status": "pending",
+        "autoEditAnalysisRunV1.deepAnalysisDispatch.deduplicationId": input.deduplicationId,
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: inlineReadyAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, inlineReadyAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Records the provider receipt for one exact prepared TRIBE dispatch. */
+  async recordProjectAnalysisDeepDispatchPublishedV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDeepDispatchPublicationCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDeepDispatchPublicationCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    const dispatch = currentRun?.deepAnalysisDispatch;
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === "analysis_complete"
+      && dispatch?.status === "published"
+      && dispatch.deduplicationId === input.deduplicationId
+      && dispatch.providerMessageId === input.providerMessageId
+    ) return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== "analysis_complete"
+      || projectRecordValueV1(current, "autoEditStatus") !== "analysis_complete"
+      || dispatch?.status !== "pending"
+      || dispatch.deduplicationId !== input.deduplicationId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const publishedAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: publishedAt.toISOString(),
+      deepAnalysisDispatch: {
+        ...dispatch,
+        status: "published",
+        publishedAt: publishedAt.toISOString(),
+        providerMessageId: input.providerMessageId,
+      },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "analysis_complete",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "analysis_complete",
+        "autoEditAnalysisRunV1.deepAnalysisDispatch.status": "pending",
+        "autoEditAnalysisRunV1.deepAnalysisDispatch.deduplicationId": input.deduplicationId,
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: publishedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, publishedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
   /** Claims or reclaims the exact Phase-2 GPU analysis lease. */
   async claimProjectAnalysisDeepRunV1(
     userId: string,
@@ -6033,6 +6285,18 @@ export class ProjectService {
       || currentRun.sourceAssetId !== input.sourceAssetId
     ) {
       return { disposition: "OWNERSHIP_LOST" };
+    }
+    const deepAnalysisDispatch = currentRun.deepAnalysisDispatch;
+    if (
+      (deepAnalysisDispatch && deepAnalysisDispatch.deduplicationId !== input.deepAnalysisDispatchId)
+      || (!deepAnalysisDispatch && input.deepAnalysisDispatchId !== undefined)
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (deepAnalysisDispatch?.status === "pending") {
+      return {
+        disposition: "DEEP_DISPATCH_PENDING",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
     }
     if (currentRun.state === "directing_queued" && currentRun.directorDispatch) {
       return {
@@ -6089,6 +6353,12 @@ export class ProjectService {
         "autoEditAnalysisRunV1.runId": input.runId,
         "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
         "autoEditAnalysisRunV1.state": currentRun.state,
+        ...(deepAnalysisDispatch
+          ? {
+              "autoEditAnalysisRunV1.deepAnalysisDispatch.status": deepAnalysisDispatch.status,
+              "autoEditAnalysisRunV1.deepAnalysisDispatch.deduplicationId": deepAnalysisDispatch.deduplicationId,
+            }
+          : { "autoEditAnalysisRunV1.deepAnalysisDispatch": { $exists: false } }),
         ...(activeLease ? { "autoEditAnalysisRunV1.deepAnalysisLease.leaseId": activeLease.leaseId } : {}),
       },
       {
@@ -12501,6 +12771,8 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceHash, 128))
     || (value.phase1EvidenceCommittedAt !== undefined
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceCommittedAt, 100))
+    || (value.deepAnalysisDispatch !== undefined
+      && !isProjectAnalysisDeepDispatchV1(value.deepAnalysisDispatch))
     || (value.deepAnalysisLease !== undefined && !isProjectAnalysisDeepLeaseV1(value.deepAnalysisLease))
     || (value.phase2EvidenceHash !== undefined
       && !isBoundedNonEmptyStringV1(value.phase2EvidenceHash, 128))
@@ -12735,6 +13007,30 @@ function isProjectAnalysisDirectorDispatchV1(value: unknown): value is ProjectAn
     && value.inlineReadyAt === undefined;
 }
 
+function isProjectAnalysisDeepDispatchV1(value: unknown): value is ProjectAnalysisDeepDispatchV1 {
+  return isProjectAnalysisDirectorDispatchV1(value);
+}
+
+function createProjectAnalysisDeepDispatchV1(input: {
+  projectId: string;
+  runId: string;
+  sourceAssetId: string;
+  phase1EvidenceHash: string;
+  preparedAt: Date;
+}): ProjectAnalysisDeepDispatchV1 {
+  return {
+    schemaVersion: 1,
+    deduplicationId: `editron_tribe_${hashEditronCanonicalJsonV1({
+      projectId: input.projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      phase1EvidenceHash: input.phase1EvidenceHash,
+    }).slice(0, 48)}`,
+    status: "pending",
+    preparedAt: input.preparedAt.toISOString(),
+  };
+}
+
 function createProjectAnalysisDirectorDispatchV1(input: {
   projectId: string;
   runId: string;
@@ -12761,7 +13057,48 @@ function assertProjectAnalysisDeepClaimCommandV1(input: ProjectAnalysisDeepClaim
     || !input.expectedRevision
     || !isBoundedNonEmptyStringV1(input.runId, 200)
     || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
-  ) throw new ProjectMutationWriteError("Deep-analysis claim requires one exact revision, run and source.");
+    || (input.deepAnalysisDispatchId !== undefined
+      && !isBoundedNonEmptyStringV1(input.deepAnalysisDispatchId, 200))
+  ) throw new ProjectMutationWriteError("Deep-analysis claim requires one exact revision, run, source and optional dispatch.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisDeepDispatchPrepareCommandV1(
+  input: ProjectAnalysisDeepDispatchPrepareCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+  ) throw new ProjectMutationWriteError("Deep-analysis dispatch preparation requires one exact run, source and revision.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisDeepDispatchPublicationCommandV1(
+  input: ProjectAnalysisDeepDispatchPublicationCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+    || !isBoundedNonEmptyStringV1(input.providerMessageId, 500)
+  ) throw new ProjectMutationWriteError("Deep-analysis publication requires one exact run, source, dispatch and provider message.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisDeepDispatchInlineReadyCommandV1(
+  input: ProjectAnalysisDeepDispatchInlineReadyCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+  ) throw new ProjectMutationWriteError("Inline deep-analysis activation requires one exact run, source, dispatch and revision.");
   assertProjectRevision(input.expectedRevision);
 }
 
