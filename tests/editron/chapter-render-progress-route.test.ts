@@ -259,6 +259,9 @@ describe("Editron chapter render progress route", () => {
     expect(mocks.loadProjectForRenderSnapshot).toHaveBeenCalledWith("user_1", "project_1");
     expect(mocks.updateProjectRenderJobProgressTransactionV1).toHaveBeenCalledWith({
       authorization: STRICT_AUTHORIZATION,
+      providerRenderId: "strict_provider",
+      bucketName: "strict-bucket",
+      region: "us-east-1",
       progress: 0.42,
     });
     expect(mocks.updateJobProgress).not.toHaveBeenCalled();
