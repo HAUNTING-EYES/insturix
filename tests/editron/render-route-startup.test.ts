@@ -833,6 +833,7 @@ describe('Editron render startup boundary', () => {
         status: 'finalizing',
         'finalization.state': 'running',
         'finalization.claimToken': 'rfl_retry_1',
+        projectRenderSnapshotBinding: { $exists: false },
       },
       expect.objectContaining({
         $set: expect.objectContaining({
@@ -1040,6 +1041,7 @@ describe('Editron render startup boundary', () => {
         _id: 'rnd_admission_1',
         status: 'finalizing',
         'finalization.claimToken': 'rfl_claim_1',
+        projectRenderSnapshotBinding: { $exists: false },
       },
       expect.objectContaining({
         $set: expect.objectContaining({

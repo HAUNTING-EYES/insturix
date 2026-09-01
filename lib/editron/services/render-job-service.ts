@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Collection, type Filter } from 'mongodb';
+import { z } from 'zod';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
   RenderJob,
@@ -16,19 +17,177 @@ import {
 import {
   assertProjectArtifactBindingV1,
   assertProjectArtifactInvalidationReceiptV1,
+  ProjectArtifactProjectRevisionSchema,
   projectArtifactBindingMatchesCurrentV1,
   projectArtifactBindingMatchesInvalidationV1,
+  sameProjectArtifactRevisionV1,
   type ProjectArtifactBindingV1,
   type ProjectArtifactInvalidationDerivativeClassV1,
   type ProjectArtifactInvalidationFenceV1,
   type ProjectArtifactInvalidationReceiptV1,
+  type ProjectArtifactProjectRevisionV1,
 } from './project-artifact-invalidation-v1';
+import {
+  assertProjectRenderSnapshotBindingV1,
+  type ProjectRenderSnapshotBindingV1,
+} from './project-render-snapshot-binding-v1';
 
 const COLLECTION_NAME = 'editron_render_jobs';
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
 const MAX_FINALIZATION_LEASE_MS = 60 * 60 * 1000;
 export const MAX_RENDER_FINALIZATION_ATTEMPTS = 3;
 const DEFAULT_COMPLETION_EFFECTS_LEASE_MS = 5 * 60 * 1000;
+const PROJECT_RENDER_JOB_ID = /^[A-Za-z0-9_.:-]{1,500}$/;
+const PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH = 200;
+const PROJECT_RENDER_JOB_BINDING_HASH = /^[a-f0-9]{64}$/;
+
+export const ProjectRenderJobAuthorizationSchema = z.object({
+  schemaVersion: z.literal(1),
+  jobId: z.string().regex(PROJECT_RENDER_JOB_ID),
+  ownerId: z.string().min(1).max(PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH),
+  projectId: z.string().min(1).max(PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH),
+  projectRevision: ProjectArtifactProjectRevisionSchema,
+  bindingHash: z.string().regex(PROJECT_RENDER_JOB_BINDING_HASH),
+}).strict();
+export type ProjectRenderJobAuthorizationV1 = z.infer<
+  typeof ProjectRenderJobAuthorizationSchema
+>;
+
+export const PROJECT_ARTIFACT_NOT_CURRENT = 'PROJECT_ARTIFACT_NOT_CURRENT' as const;
+
+export type ProjectRenderJobNotCurrentReasonV1 =
+  | 'AUTHORIZATION_INVALID'
+  | 'PROJECT_REVISION_STALE'
+  | 'JOB_NOT_CURRENT'
+  | 'JOB_STATE_NOT_ACTIVE'
+  | 'INPUT_INVALID';
+
+export type ProjectRenderJobNotCurrentResultV1 = {
+  ok: false;
+  status: 'NON_CURRENT';
+  code: typeof PROJECT_ARTIFACT_NOT_CURRENT;
+  reason: ProjectRenderJobNotCurrentReasonV1;
+};
+
+export type ProjectRenderJobCurrentResultV1 = {
+  ok: true;
+  status: 'CURRENT';
+  job: RenderJob;
+};
+
+export type ProjectRenderJobMutationResultV1 =
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'CURRENT';
+    };
+
+export type ProjectRenderJobAuthorizationInputV1 = {
+  jobId: string;
+  ownerId: string;
+  projectId: string;
+  projectRevision: ProjectArtifactProjectRevisionV1;
+  binding: ProjectRenderSnapshotBindingV1;
+};
+
+export function createProjectRenderJobAuthorizationV1(
+  input: ProjectRenderJobAuthorizationInputV1,
+): ProjectRenderJobAuthorizationV1 {
+  assertProjectRenderSnapshotBindingV1(input.binding);
+  const projectRevision = ProjectArtifactProjectRevisionSchema.parse(input.projectRevision);
+  if (
+    input.binding.artifactId !== input.jobId
+    || input.binding.ownerId !== input.ownerId
+    || input.binding.projectId !== input.projectId
+    || !sameProjectArtifactRevisionV1(input.binding.projectRevision, projectRevision)
+  ) {
+    throw new Error('PROJECT_RENDER_JOB_AUTHORIZATION_SCOPE_MISMATCH');
+  }
+  return ProjectRenderJobAuthorizationSchema.parse({
+    schemaVersion: 1,
+    jobId: input.jobId,
+    ownerId: input.ownerId,
+    projectId: input.projectId,
+    projectRevision,
+    bindingHash: input.binding.bindingHash,
+  });
+}
+
+export function assertProjectRenderJobAuthorizationV1(
+  input: unknown,
+): asserts input is ProjectRenderJobAuthorizationV1 {
+  ProjectRenderJobAuthorizationSchema.parse(input);
+}
+
+const LEGACY_RENDER_JOB_MUTATION_EXCLUSION: Filter<RenderJob> = {
+  projectRenderSnapshotBinding: { $exists: false },
+};
+
+function withLegacyRenderJobMutationExclusion(
+  filter: Filter<RenderJob>,
+): Filter<RenderJob> {
+  return {
+    ...filter,
+    ...LEGACY_RENDER_JOB_MUTATION_EXCLUSION,
+  };
+}
+
+function nonCurrentProjectRenderJobResult(
+  reason: ProjectRenderJobNotCurrentReasonV1,
+): ProjectRenderJobNotCurrentResultV1 {
+  return {
+    ok: false,
+    status: 'NON_CURRENT',
+    code: PROJECT_ARTIFACT_NOT_CURRENT,
+    reason,
+  };
+}
+
+function currentProjectRenderJobMutationResult(): ProjectRenderJobMutationResultV1 {
+  return { ok: true, status: 'CURRENT' };
+}
+
+function validateProjectRenderJobAuthorization(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+}):
+  | { authorization: ProjectRenderJobAuthorizationV1 }
+  | { result: ProjectRenderJobNotCurrentResultV1 } {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return { result: nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID') };
+  }
+  const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(input.currentProjectRevision);
+  if (!parsedRevision.success) {
+    return { result: nonCurrentProjectRenderJobResult('PROJECT_REVISION_STALE') };
+  }
+  if (!sameProjectArtifactRevisionV1(parsedAuthorization.data.projectRevision, parsedRevision.data)) {
+    return { result: nonCurrentProjectRenderJobResult('PROJECT_REVISION_STALE') };
+  }
+  return { authorization: parsedAuthorization.data };
+}
+
+function currentProjectRenderJobFilter(
+  authorization: ProjectRenderJobAuthorizationV1,
+): Filter<RenderJob> {
+  return {
+    _id: authorization.jobId,
+    userId: authorization.ownerId,
+    projectId: authorization.projectId,
+    artifactState: 'ACTIVE',
+    artifactInvalidation: { $exists: false },
+    artifactBinding: { $exists: false },
+    'projectRenderSnapshotBinding.scope': 'PROJECT_SNAPSHOT',
+    'projectRenderSnapshotBinding.artifactId': authorization.jobId,
+    'projectRenderSnapshotBinding.ownerId': authorization.ownerId,
+    'projectRenderSnapshotBinding.projectId': authorization.projectId,
+    'projectRenderSnapshotBinding.projectRevision.schemaVersion': 1,
+    'projectRenderSnapshotBinding.projectRevision.value': authorization.projectRevision.value,
+    'projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt':
+      authorization.projectRevision.compatibilityUpdatedAt,
+    'projectRenderSnapshotBinding.bindingHash': authorization.bindingHash,
+  };
+}
 
 async function getCollection(): Promise<Collection<RenderJob>> {
   const db = await getDatabase();
@@ -73,6 +232,188 @@ export async function reserveJob(
     throw new Error('Failed to reserve render job');
   }
   return job;
+}
+
+/**
+ * Reserve a whole-project render only after its immutable snapshot binding has
+ * been issued for the current ProjectService revision.  This is intentionally
+ * a separate owner path from reserveJob, whose artifact scope is legacy or
+ * single-overlay ProjectArtifactBindingV1.
+ */
+export async function reserveProjectRenderJobV1(input: {
+  jobId: string;
+  ownerId: string;
+  projectId: string;
+  currentProjectRevision: ProjectArtifactProjectRevisionV1;
+  region: string;
+  expectedDurationMs: number;
+  deliveryManifest: RenderDeliveryManifest;
+  binding: ProjectRenderSnapshotBindingV1;
+  collection?: Collection<RenderJob>;
+}): Promise<RenderJob> {
+  const authorization = createProjectRenderJobAuthorizationV1({
+    jobId: input.jobId,
+    ownerId: input.ownerId,
+    projectId: input.projectId,
+    projectRevision: input.currentProjectRevision,
+    binding: input.binding,
+  });
+  const jobs = input.collection ?? await getCollection();
+  const job: RenderJob = {
+    ...createPendingRenderJob(
+      authorization.jobId,
+      authorization.ownerId,
+      authorization.projectId,
+      input.region,
+      input.expectedDurationMs,
+      undefined,
+      input.binding,
+    ),
+    deliveryManifest: input.deliveryManifest,
+  };
+  const result = await jobs.insertOne(job as any);
+  if (!result.acknowledged) {
+    throw new Error('Failed to reserve project render job');
+  }
+  return job;
+}
+
+function validateCurrentProjectRenderJob(
+  job: RenderJob | null,
+  authorization: ProjectRenderJobAuthorizationV1,
+): ProjectRenderJobNotCurrentReasonV1 | null {
+  if (!job) return 'JOB_NOT_CURRENT';
+  if (
+    job.artifactState !== 'ACTIVE'
+    || job.artifactInvalidation !== undefined
+    || job.artifactBinding !== undefined
+    || !job.projectRenderSnapshotBinding
+  ) {
+    return 'JOB_NOT_CURRENT';
+  }
+  try {
+    assertProjectRenderSnapshotBindingV1(job.projectRenderSnapshotBinding);
+  } catch {
+    return 'JOB_NOT_CURRENT';
+  }
+  const binding = job.projectRenderSnapshotBinding;
+  if (
+    job._id !== authorization.jobId
+    || job.userId !== authorization.ownerId
+    || job.projectId !== authorization.projectId
+    || binding.artifactId !== authorization.jobId
+    || binding.ownerId !== authorization.ownerId
+    || binding.projectId !== authorization.projectId
+    || binding.bindingHash !== authorization.bindingHash
+    || !sameProjectArtifactRevisionV1(binding.projectRevision, authorization.projectRevision)
+  ) {
+    return 'JOB_NOT_CURRENT';
+  }
+  return null;
+}
+
+/** Read one current whole-project render through its exact authorization tuple. */
+export async function getCurrentProjectRenderJobV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobCurrentResultV1 | ProjectRenderJobNotCurrentResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  const jobs = input.collection ?? await getCollection();
+  const job = await jobs.findOne(currentProjectRenderJobFilter(validation.authorization));
+  const invalidReason = validateCurrentProjectRenderJob(job, validation.authorization);
+  if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  return {
+    ok: true,
+    status: 'CURRENT',
+    job: job!,
+  };
+}
+
+function isBoundRenderInputString(value: unknown, maxLength = 500): value is string {
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && value.length <= maxLength
+    && !/[\u0000-\u001F\u007F]/.test(value);
+}
+
+/** Atomically bind a provider render to a current whole-project admission. */
+export async function markProjectRenderJobStartedV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  deliveryManifest: RenderDeliveryManifest;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobCurrentResultV1 | ProjectRenderJobNotCurrentResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (
+    !isBoundRenderInputString(input.providerRenderId)
+    || !isBoundRenderInputString(input.bucketName)
+    || !isBoundRenderInputString(input.region, 100)
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const providerRenderId = input.providerRenderId.trim();
+  const started = await jobs.findOneAndUpdate(
+    {
+      $and: [
+        currentProjectRenderJobFilter(validation.authorization),
+        {
+          $or: [
+            { status: 'pending' },
+            { status: 'queued' },
+            { status: 'rendering', providerRenderId },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        status: 'rendering',
+        providerRenderId,
+        bucketName: input.bucketName.trim(),
+        region: input.region.trim(),
+        deliveryManifest: input.deliveryManifest,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!started) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(started, validation.authorization);
+  if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  return { ok: true, status: 'CURRENT', job: started };
+}
+
+/** Atomically update progress only for the exact current bound render. */
+export async function updateProjectRenderJobProgressV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  progress: number;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!Number.isFinite(input.progress) || input.progress < 0 || input.progress > 1) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const updated = await jobs.updateOne(
+    {
+      $and: [
+        currentProjectRenderJobFilter(validation.authorization),
+        { status: { $in: ['pending', 'queued', 'rendering', 'finalizing'] } },
+      ],
+    },
+    { $set: { progress: input.progress } },
+  );
+  return updated.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
 
 export interface FencedRenderJobsForProjectArtifactInvalidationV1 {
@@ -136,13 +477,13 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
       fencedAt: now.toISOString(),
     };
     const result = await jobs.updateOne(
-      {
+      withLegacyRenderJobMutationExclusion({
         _id: candidate._id,
         userId: input.receipt.ownerId,
         projectId: input.receipt.projectId,
         artifactState: 'ACTIVE',
         'artifactBinding.bindingHash': candidate.artifactBinding.bindingHash,
-      },
+      }),
       {
         $set: {
           artifactState: nextState,
@@ -280,7 +621,7 @@ export async function claimJobFinalization(input: {
   ];
   if (providerRenderId) claimableStates.unshift({ status: 'pending' });
   const identityFilters: Filter<RenderJob>[] = [
-    renderJobSelector(input.renderId),
+    withLegacyRenderJobMutationExclusion(renderJobSelector(input.renderId)),
     { expectedDurationMs: { $exists: true, $gt: 0 } },
   ];
   if (providerRenderId) {
@@ -338,11 +679,11 @@ export async function releaseJobFinalizationClaim(input: {
 }): Promise<boolean> {
   const jobs = input.collection ?? await getCollection();
   const released = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'finalizing',
       'finalization.claimToken': input.claimToken,
-    },
+    }),
     {
       $set: {
         status: 'rendering',
@@ -376,7 +717,7 @@ export async function claimFailedJobFinalizationRetry(input: {
   const now = input.now ?? new Date();
   const claimToken = input.claimToken ?? `rfl_${randomUUID().replaceAll('-', '')}`;
   const claimed = await jobs.findOneAndUpdate(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       userId: input.userId,
       status: 'error',
@@ -385,7 +726,7 @@ export async function claimFailedJobFinalizationRetry(input: {
       'finalization.sourceOutputUrl': { $regex: /^https:\/\// },
       'finalization.sourceOutputSize': { $exists: true, $gte: 0 },
       'finalization.attempts': { $lt: MAX_RENDER_FINALIZATION_ATTEMPTS },
-    },
+    }),
     {
       $set: {
         status: 'finalizing',
@@ -435,12 +776,12 @@ export async function releaseFailedJobFinalizationRetryClaim(input: {
   const completedAt = input.now ?? new Date();
   const message = boundedError(input.error);
   const released = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'finalizing',
       'finalization.state': 'running',
       'finalization.claimToken': input.claimToken,
-    },
+    }),
     {
       $set: {
         status: 'error',
@@ -472,9 +813,11 @@ export async function completeJobFinalization(input: {
   const jobs = input.collection ?? await getCollection();
   const result = RenderFinalizerResultSchema.parse(input.result);
   const current = await jobs.findOne({
-    _id: input.jobId,
-    status: 'finalizing',
-    'finalization.claimToken': input.claimToken,
+    ...withLegacyRenderJobMutationExclusion({
+      _id: input.jobId,
+      status: 'finalizing',
+      'finalization.claimToken': input.claimToken,
+    }),
   });
   if (!current) return false;
   if (current.expectedDurationMs !== result.expectedDurationMs) {
@@ -485,11 +828,11 @@ export async function completeJobFinalization(input: {
     ? completeRenderDeliveryManifest(current.deliveryManifest, result.url, completedAt.toISOString())
     : undefined;
   const update = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'finalizing',
       'finalization.claimToken': input.claimToken,
-    },
+    }),
     {
       $set: {
         status: 'done',
@@ -526,11 +869,11 @@ export async function failJobFinalization(input: {
   const completedAt = input.now ?? new Date();
   const message = boundedError(input.error);
   const update = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'finalizing',
       'finalization.claimToken': input.claimToken,
-    },
+    }),
     {
       $set: {
         status: 'error',
@@ -578,6 +921,7 @@ export async function claimRenderCompletionEffects(input: {
     {
       $and: [
         renderJobSelector(input.renderId),
+        LEGACY_RENDER_JOB_MUTATION_EXCLUSION,
         { status: 'done' },
         { outputUrl: { $exists: true } },
         { 'finalization.state': 'done' },
@@ -626,12 +970,12 @@ export async function completeRenderCompletionEffects(input: {
 }): Promise<boolean> {
   const jobs = input.collection ?? await getCollection();
   const completed = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'done',
       'completionEffects.state': 'running',
       'completionEffects.claimToken': input.claimToken,
-    },
+    }),
     {
       $set: {
         'completionEffects.state': 'done',
@@ -653,12 +997,12 @@ export async function releaseRenderCompletionEffects(input: {
 }): Promise<boolean> {
   const jobs = input.collection ?? await getCollection();
   const released = await jobs.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       status: 'done',
       'completionEffects.state': 'running',
       'completionEffects.claimToken': input.claimToken,
-    },
+    }),
     { $unset: { completionEffects: '' } },
   );
   return released.modifiedCount === 1;
@@ -677,14 +1021,14 @@ export async function markJobStarted(
 ): Promise<void> {
   const collection = await getCollection();
   const result = await collection.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: jobId,
       userId,
       $or: [
         { status: 'pending' },
         { status: 'rendering', providerRenderId },
       ],
-    },
+    }),
     {
       $set: {
         status: 'rendering',
@@ -744,14 +1088,14 @@ export async function reconcileProviderTerminalEvent(input: {
       )
     : undefined;
   const result = await collection.updateOne(
-    {
+    withLegacyRenderJobMutationExclusion({
       _id: input.jobId,
       ...(input.event.type === 'success' ? {} : { status: { $ne: 'done' } }),
       $or: [
         { providerRenderId: { $exists: false } },
         { providerRenderId: input.providerRenderId },
       ],
-    },
+    }),
     {
       $set: {
         providerRenderId: input.providerRenderId,
@@ -788,7 +1132,7 @@ export async function updateJobProgress(
 ): Promise<void> {
   const collection = await getCollection();
   await collection.updateOne(
-    renderJobSelector(renderId),
+    withLegacyRenderJobMutationExclusion(renderJobSelector(renderId)),
     { $set: { progress } }
   );
 }
@@ -815,7 +1159,7 @@ export async function completeJob(
       )
     : undefined;
   await collection.updateOne(
-    renderJobSelector(renderId),
+    withLegacyRenderJobMutationExclusion(renderJobSelector(renderId)),
     { 
       $set: { 
         status: 'done',
@@ -838,7 +1182,7 @@ export async function failJob(
 ): Promise<void> {
   const collection = await getCollection();
   await collection.updateOne(
-    renderJobSelector(renderId),
+    withLegacyRenderJobMutationExclusion(renderJobSelector(renderId)),
     { 
       $set: { 
         status: 'error',
