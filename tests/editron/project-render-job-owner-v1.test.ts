@@ -31,6 +31,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
 
 import {
   abandonStaleProjectRenderJobAdmissionV1,
+  claimFailedProjectRenderJobFinalizationRetryV1,
   claimJobFinalization,
   claimProjectRenderCompletionEffectsV1,
   claimProjectRenderJobFinalizationV1,
@@ -40,11 +41,14 @@ import {
   completeProjectRenderCompletionEffectsV1,
   completeProjectRenderJobFinalizationV1,
   createProjectRenderJobAuthorizationV1,
+  failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1,
   failProjectRenderJobV1,
   getCurrentProjectRenderJobV1,
+  getProjectRenderJobAuthorizationByAdmissionV1,
   markJobStarted,
   markProjectRenderJobStartedV1,
+  releaseFailedProjectRenderJobFinalizationRetryClaimV1,
   releaseProjectRenderCompletionEffectsV1,
   releaseProjectRenderJobFinalizationClaimV1,
   reserveProjectRenderJobV1,
@@ -215,6 +219,27 @@ function makeFinalizingJob(
   });
 }
 
+function makeFailedFinalizationJob(
+  binding: ProjectRenderSnapshotBindingV1 = makeBinding(),
+): RenderJob {
+  return RenderJobSchema.parse({
+    ...makeBoundJob(binding, "error"),
+    providerRenderId: "provider-render-1",
+    bucketName: "editron-render-output",
+    completedAt: FINALIZATION_COMPLETED_AT,
+    error: "finalizer failed",
+    finalization: {
+      version: "editron-render-finalization-v1",
+      state: "failed",
+      sourceOutputUrl: FINALIZATION_SOURCE_URL,
+      sourceOutputSize: 100,
+      attempts: 1,
+      completedAt: FINALIZATION_COMPLETED_AT,
+      error: "finalizer failed",
+    },
+  });
+}
+
 function makeDoneJob(
   binding: ProjectRenderSnapshotBindingV1 = makeBinding(),
   withRunningEffects = false,
@@ -320,6 +345,47 @@ function containsLegacyMutationExclusion(value: unknown): boolean {
 describe("Project render-job owner V1", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("reconstructs server authorization only from an exact stored admission", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const boundJob = makeBoundJob(binding, "rendering");
+    collection.findOne.mockResolvedValueOnce(boundJob);
+
+    await expect(getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId: JOB_ID,
+      expectedBindingHash: binding.bindingHash,
+      collection,
+    })).resolves.toMatchObject({
+      ok: true,
+      status: "BOUND",
+      job: boundJob,
+      authorization: makeAuthorization(binding),
+    });
+    expect(collection.findOne).toHaveBeenCalledWith({ _id: JOB_ID });
+
+    collection.findOne.mockResolvedValueOnce(boundJob);
+    const forgedHash = await getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId: JOB_ID,
+      expectedBindingHash: "f".repeat(64),
+      collection,
+    });
+    expect(forgedHash).toMatchObject({ ok: false, reason: "JOB_NOT_CURRENT" });
+
+    collection.findOne.mockResolvedValueOnce(makeLegacyJob());
+    const legacy = await getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId: JOB_ID,
+      collection,
+    });
+    expect(legacy).toMatchObject({ ok: false, status: "NOT_PROJECT_RENDER_JOB" });
+
+    const invalid = await getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId: "",
+      collection,
+    });
+    expect(invalid).toMatchObject({ ok: false, reason: "INPUT_INVALID" });
+    expect(collection.findOne).toHaveBeenCalledTimes(3);
   });
 
   it("requires an exact snapshot binding before reserving a project render", async () => {
@@ -837,6 +903,121 @@ describe("Project render-job owner V1", () => {
     });
     expect(wrongClaim).toMatchObject({ ok: false, code: "PROJECT_ARTIFACT_NOT_CURRENT" });
     expect(collection.updateOne.mock.calls.at(-1)![1].$set.status).not.toBe("done");
+  });
+
+  it("binds signed provider failures and failed-finalization retries to the current admission", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const now = new Date("2026-08-31T00:05:00.000Z");
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(failProjectRenderJobFromProviderV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      error: "provider callback failed",
+      now,
+      collection,
+    })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    const [failureFilter, failureUpdate] = collection.updateOne.mock.calls[0]!;
+    expect(JSON.stringify(failureFilter)).toContain(binding.bindingHash);
+    expect(failureFilter).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          $or: expect.arrayContaining([
+            { providerRenderId: { $exists: false } },
+            { providerRenderId: "provider-render-1" },
+          ]),
+        }),
+        expect.objectContaining({
+          $or: expect.arrayContaining([
+            { bucketName: { $exists: false } },
+            { bucketName: "editron-render-output" },
+          ]),
+        }),
+      ]),
+    }));
+    expect(failureUpdate.$set).toEqual(expect.objectContaining({
+      status: "error",
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      completedAt: now,
+    }));
+
+    collection.updateOne.mockClear();
+    const staleFailure = await failProjectRenderJobFromProviderV1({
+      authorization,
+      currentProjectRevision: { ...REVISION, value: REVISION.value + 1 },
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      error: "must not write",
+      collection,
+    });
+    expect(staleFailure).toMatchObject({ ok: false, reason: "PROJECT_REVISION_STALE" });
+    expect(collection.updateOne).not.toHaveBeenCalled();
+
+    const failedJob = makeFailedFinalizationJob(binding);
+    collection.findOneAndUpdate.mockResolvedValueOnce(RenderJobSchema.parse({
+      ...failedJob,
+      status: "finalizing",
+      completedAt: undefined,
+      error: undefined,
+      finalization: {
+        ...failedJob.finalization!,
+        state: "running",
+        attempts: 2,
+        claimToken: "retry-claim",
+        claimedAt: now,
+        leaseExpiresAt: new Date("2026-08-31T00:25:00.000Z"),
+        completedAt: undefined,
+        error: undefined,
+      },
+    }));
+    const retry = await claimFailedProjectRenderJobFinalizationRetryV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      claimToken: "retry-claim",
+      now,
+      collection,
+    });
+    expect(retry).toMatchObject({
+      ok: true,
+      status: "CURRENT",
+      jobId: JOB_ID,
+      providerRenderId: "provider-render-1",
+      claimToken: "retry-claim",
+      authorization,
+      binding,
+    });
+    const retryFilter = collection.findOneAndUpdate.mock.calls[0]![0];
+    expect(JSON.stringify(retryFilter)).toContain(binding.bindingHash);
+    expect(JSON.stringify(retryFilter)).toContain('"finalization.attempts":{"$lt":3}');
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(releaseFailedProjectRenderJobFinalizationRetryClaimV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      claimToken: "retry-claim",
+      error: "queue publish failed",
+      now,
+      collection,
+    })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    const retryRelease = collection.updateOne.mock.calls.at(-1)!;
+    expect(JSON.stringify(retryRelease[0])).toContain(binding.bindingHash);
+    expect(retryRelease[1]).toEqual({
+      $set: expect.objectContaining({
+        status: "error",
+        "finalization.state": "failed",
+        completedAt: now,
+      }),
+      $unset: {
+        "finalization.claimToken": "",
+        "finalization.claimedAt": "",
+        "finalization.leaseExpiresAt": "",
+      },
+    });
   });
 
   it("abandons only an exact stale admission before provider dispatch", async () => {

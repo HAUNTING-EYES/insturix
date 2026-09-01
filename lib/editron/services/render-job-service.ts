@@ -7,6 +7,7 @@ import {
   RenderJob,
   RenderExpectedDurationMsSchema,
   RenderFinalizerResultSchema,
+  RenderJobSchema,
   RenderJobRequesterUserIdSchema,
   createPendingRenderJob,
 } from '../schemas/render-job';
@@ -77,6 +78,20 @@ export type ProjectRenderJobCurrentResultV1 = {
   status: 'CURRENT';
   job: RenderJob;
 };
+
+export type ProjectRenderJobAuthorizationLookupResultV1 =
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: false;
+      status: 'NOT_PROJECT_RENDER_JOB';
+      job: RenderJob;
+    }
+  | {
+      ok: true;
+      status: 'BOUND';
+      job: RenderJob;
+      authorization: ProjectRenderJobAuthorizationV1;
+    };
 
 export type ProjectRenderJobMutationResultV1 =
   | ProjectRenderJobNotCurrentResultV1
@@ -427,6 +442,56 @@ export async function getCurrentProjectRenderJobV1(input: {
   };
 }
 
+/**
+ * Reconstruct the server-only authorization tuple for one durable admission.
+ * This proves stored binding identity, not current ProjectService revision;
+ * every mutating caller must still supply that live revision to a strict owner.
+ */
+export async function getProjectRenderJobAuthorizationByAdmissionV1(input: {
+  jobId: string;
+  expectedBindingHash?: string;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobAuthorizationLookupResultV1> {
+  if (
+    !PROJECT_RENDER_JOB_ID.test(input.jobId)
+    || input.expectedBindingHash !== undefined
+      && !PROJECT_RENDER_JOB_BINDING_HASH.test(input.expectedBindingHash)
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const stored = await jobs.findOne({ _id: input.jobId });
+  if (!stored) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  const parsedJob = RenderJobSchema.safeParse(stored);
+  if (!parsedJob.success) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  const job = parsedJob.data;
+  if (job.projectRenderSnapshotBinding === undefined) {
+    return { ok: false, status: 'NOT_PROJECT_RENDER_JOB', job };
+  }
+  if (
+    input.expectedBindingHash !== undefined
+    && job.projectRenderSnapshotBinding.bindingHash !== input.expectedBindingHash
+  ) {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  let authorization: ProjectRenderJobAuthorizationV1;
+  try {
+    authorization = createProjectRenderJobAuthorizationV1({
+      jobId: job._id,
+      ownerId: job.userId,
+      requestedByUserId: job.requestedByUserId ?? '',
+      projectId: job.projectId,
+      projectRevision: job.projectRenderSnapshotBinding.projectRevision,
+      binding: job.projectRenderSnapshotBinding,
+    });
+  } catch {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  const invalidReason = validateCurrentProjectRenderJob(job, authorization);
+  if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  return { ok: true, status: 'BOUND', job, authorization };
+}
+
 function isBoundRenderInputString(value: unknown, maxLength = 500): value is string {
   return typeof value === 'string'
     && value.trim().length > 0
@@ -544,6 +609,70 @@ export async function failProjectRenderJobV1(input: {
     },
   );
   return failed.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
+/**
+ * Reconcile a signed provider failure against one exact current admission.
+ * Missing provider identity may be repaired after ambiguous startup, but an
+ * existing different identity can never be overwritten.
+ */
+export async function failProjectRenderJobFromProviderV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  providerRenderId: string;
+  bucketName: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (
+    !isBoundRenderInputString(input.providerRenderId)
+    || !isBoundRenderInputString(input.bucketName)
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const providerRenderId = input.providerRenderId.trim();
+  const bucketName = input.bucketName.trim();
+  const jobs = input.collection ?? await getCollection();
+  const failed = await jobs.updateOne(
+    {
+      $and: [
+        currentProjectRenderJobMutationFilter(validation.authorization, {
+          status: { $in: ['pending', 'queued', 'rendering'] },
+        }),
+        {
+          $or: [
+            { providerRenderId: { $exists: false } },
+            { providerRenderId },
+          ],
+        },
+        {
+          $or: [
+            { bucketName: { $exists: false } },
+            { bucketName },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        status: 'error',
+        providerRenderId,
+        bucketName,
+        error: boundedError(input.error),
+        completedAt,
+      },
+    },
+  );
+  return failed.modifiedCount === 1
     ? currentProjectRenderJobMutationResult()
     : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
@@ -1001,6 +1130,129 @@ export async function releaseFailedJobFinalizationRetryClaim(input: {
     },
   );
   return released.modifiedCount === 1;
+}
+
+/** Re-lease a failed current project render without buying another render. */
+export async function claimFailedProjectRenderJobFinalizationRetryV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  const lease = resolveProjectRenderLease(input, 'rfl');
+  if (!lease) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  const jobs = input.collection ?? await getCollection();
+  const claimed = await jobs.findOneAndUpdate(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'error',
+      expectedDurationMs: { $exists: true, $gt: 0 },
+      providerRenderId: { $exists: true, $type: 'string', $ne: '' },
+      bucketName: { $exists: true, $type: 'string', $ne: '' },
+      'finalization.state': 'failed',
+      'finalization.sourceOutputUrl': { $regex: /^https:\/\// },
+      'finalization.sourceOutputSize': { $exists: true, $gte: 0 },
+      'finalization.attempts': { $lt: MAX_RENDER_FINALIZATION_ATTEMPTS },
+    }),
+    {
+      $set: {
+        status: 'finalizing',
+        progress: 0.99,
+        'finalization.state': 'running',
+        'finalization.claimToken': lease.claimToken,
+        'finalization.claimedAt': lease.now,
+        'finalization.leaseExpiresAt': new Date(lease.now.getTime() + lease.leaseMs),
+      },
+      $inc: { 'finalization.attempts': 1 },
+      $unset: {
+        'finalization.completedAt': '',
+        'finalization.error': '',
+        completedAt: '',
+        error: '',
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(claimed, validation.authorization);
+  if (
+    invalidReason
+    || !claimed.projectRenderSnapshotBinding
+    || !claimed.expectedDurationMs
+    || !claimed.providerRenderId
+    || !claimed.finalization?.sourceOutputUrl
+    || claimed.finalization.sourceOutputSize === undefined
+  ) {
+    return nonCurrentProjectRenderJobResult(invalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  try {
+    assertHttpsUrl(claimed.finalization.sourceOutputUrl, 'Preserved provider output URL');
+  } catch {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  return {
+    ok: true,
+    status: 'CURRENT',
+    jobId: claimed._id,
+    providerRenderId: claimed.providerRenderId,
+    claimToken: lease.claimToken,
+    sourceOutputUrl: claimed.finalization.sourceOutputUrl,
+    sourceOutputSize: claimed.finalization.sourceOutputSize,
+    expectedDurationMs: claimed.expectedDurationMs,
+    authorization: validation.authorization,
+    binding: structuredClone(claimed.projectRenderSnapshotBinding),
+  };
+}
+
+/** Restore only the exact current failed-retry claim after queue failure. */
+export async function releaseFailedProjectRenderJobFinalizationRetryClaimV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const message = boundedError(input.error);
+  const jobs = input.collection ?? await getCollection();
+  const released = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': input.claimToken.trim(),
+    }),
+    {
+      $set: {
+        status: 'error',
+        progress: 0.99,
+        error: message,
+        completedAt,
+        'finalization.state': 'failed',
+        'finalization.error': message,
+        'finalization.completedAt': completedAt,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.claimedAt': '',
+        'finalization.leaseExpiresAt': '',
+      },
+    },
+  );
+  return released.modifiedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
 
 /** Publish only a receipt-verified artifact held by the active finalization lease. */
