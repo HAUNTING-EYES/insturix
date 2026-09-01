@@ -5,6 +5,11 @@ import {
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
 } from "./project-render-snapshot-binding-v1";
+import {
+  ProjectArtifactProjectRevisionSchema,
+  sameProjectArtifactRevisionV1,
+  type ProjectArtifactProjectRevisionV1,
+} from "./project-artifact-invalidation-v1";
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 
 /**
@@ -299,6 +304,94 @@ async function resolveCollection(
   );
 }
 
+/**
+ * The snapshot binding records the expected revision; ProjectService remains
+ * the sole live revision authority. Both signed callbacks and provider polls
+ * use this owner before a strict child terminal write.
+ */
+export type ChapterChildProjectRevisionReaderV1 = (
+  ownerId: string,
+  projectId: string,
+) => Promise<unknown>;
+
+export type ChapterChildProjectRevisionFenceReasonV1 =
+  | "BINDING_INVALID"
+  | "PROJECT_REVISION_UNAVAILABLE"
+  | "PROJECT_REVISION_STALE";
+
+export type ChapterChildProjectRevisionFenceResultV1 =
+  | {
+      ok: true;
+      status: "CURRENT";
+      currentProjectRevision: ProjectArtifactProjectRevisionV1;
+    }
+  | {
+      ok: false;
+      status: "NOT_CURRENT";
+      reason: ChapterChildProjectRevisionFenceReasonV1;
+    };
+
+async function defaultChapterChildProjectRevisionReaderV1(
+  ownerId: string,
+  projectId: string,
+): Promise<unknown> {
+  // Keep the live authority lazy: chapter dispatch is also imported by the
+  // ProjectService cleanup path, so a static import would create a cycle.
+  const { projectService } = await import("./project-service");
+  return projectService.getProjectRevision(ownerId, projectId);
+}
+
+export async function fenceChapterChildProjectRevisionV1(input: {
+  binding: unknown;
+  projectRevisionReader?: ChapterChildProjectRevisionReaderV1;
+}): Promise<ChapterChildProjectRevisionFenceResultV1> {
+  try {
+    assertProjectRenderSnapshotBindingV1(input.binding);
+  } catch {
+    return {
+      ok: false,
+      status: "NOT_CURRENT",
+      reason: "BINDING_INVALID",
+    };
+  }
+
+  const binding = input.binding as ProjectRenderSnapshotBindingV1;
+  let currentRevision: unknown;
+  try {
+    currentRevision = await (input.projectRevisionReader
+      ?? defaultChapterChildProjectRevisionReaderV1)(
+        binding.ownerId,
+        binding.projectId,
+      );
+  } catch {
+    return {
+      ok: false,
+      status: "NOT_CURRENT",
+      reason: "PROJECT_REVISION_UNAVAILABLE",
+    };
+  }
+  const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(currentRevision);
+  if (!parsedRevision.success) {
+    return {
+      ok: false,
+      status: "NOT_CURRENT",
+      reason: "PROJECT_REVISION_UNAVAILABLE",
+    };
+  }
+  if (!sameProjectArtifactRevisionV1(binding.projectRevision, parsedRevision.data)) {
+    return {
+      ok: false,
+      status: "NOT_CURRENT",
+      reason: "PROJECT_REVISION_STALE",
+    };
+  }
+  return {
+    ok: true,
+    status: "CURRENT",
+    currentProjectRevision: parsedRevision.data,
+  };
+}
+
 function bindingForParent(
   binding: unknown,
   parentAdmissionId: string,
@@ -397,6 +490,11 @@ function parentBindingFilter(
     "projectRenderSnapshotBinding.artifactId": parentAdmissionId,
     "projectRenderSnapshotBinding.ownerId": binding.ownerId,
     "projectRenderSnapshotBinding.projectId": binding.projectId,
+    "projectRenderSnapshotBinding.projectRevision.schemaVersion":
+      binding.projectRevision.schemaVersion,
+    "projectRenderSnapshotBinding.projectRevision.value": binding.projectRevision.value,
+    "projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt":
+      binding.projectRevision.compatibilityUpdatedAt,
     "projectRenderSnapshotBinding.bindingHash": binding.bindingHash,
   };
 }
@@ -987,6 +1085,7 @@ export async function reconcileChapterChildTerminalCallbackV1(input: {
   event: ChapterChildTerminalEventV1;
   now?: Date;
   collection?: ChapterChildDispatchCollection;
+  projectRevisionReader?: ChapterChildProjectRevisionReaderV1;
 }): Promise<ChapterChildTerminalCallbackResultV1> {
   const parentAdmissionId = input.parentAdmissionId.trim();
   const bindingHash = input.bindingHash.trim();
@@ -1101,6 +1200,16 @@ export async function reconcileChapterChildTerminalCallbackV1(input: {
     return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_STATUS_INVALID");
   }
 
+  const beforeBindFence = await fenceChapterChildProjectRevisionV1({
+    binding,
+    projectRevisionReader: input.projectRevisionReader,
+  });
+  if (!beforeBindFence.ok) {
+    return terminalCallbackRejected(
+      `CHAPTER_CHILD_CALLBACK_${beforeBindFence.reason}`,
+    );
+  }
+
   const bound = await bindChapterChildDispatchV1({
     parentAdmissionId,
     childIndex: input.childIndex,
@@ -1116,6 +1225,19 @@ export async function reconcileChapterChildTerminalCallbackV1(input: {
     return terminalCallbackRejected(`CHAPTER_CHILD_CALLBACK_DISPATCH_${bound.reason}`);
   }
 
+  // The first fence prevents a stale callback from binding evidence. This
+  // second fence narrows the check-to-CAS window after any ATTEMPTING/UNKNOWN
+  // recovery write and before the terminal transition itself.
+  const beforeTerminalFence = await fenceChapterChildProjectRevisionV1({
+    binding,
+    projectRevisionReader: input.projectRevisionReader,
+  });
+  if (!beforeTerminalFence.ok) {
+    return terminalCallbackRejected(
+      `CHAPTER_CHILD_CALLBACK_${beforeTerminalFence.reason}`,
+    );
+  }
+
   // Remotion 4.0.509's signed success payload proves the output URL but does
   // not include the byte size. Bind the exact provider tuple, then leave the
   // child nonterminal until the existing progress owner proves a positive
@@ -1126,10 +1248,7 @@ export async function reconcileChapterChildTerminalCallbackV1(input: {
 
   const terminalError = terminalCallbackError(input.event);
   const filter = {
-    _id: parentAdmissionId,
-    "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
-    "projectRenderSnapshotBinding.artifactId": parentAdmissionId,
-    "projectRenderSnapshotBinding.bindingHash": bindingHash,
+    ...parentBindingFilter(parentAdmissionId, binding),
     chapters: {
       $elemMatch: {
         index: input.childIndex,

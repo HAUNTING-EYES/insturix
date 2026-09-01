@@ -50,6 +50,10 @@ import {
   markChapterChildDispatchAttemptingV1,
   bindChapterChildDispatchV1,
   quarantineChapterChildDispatchV1,
+  fenceChapterChildProjectRevisionV1,
+  reconcileChapterChildTerminalCallbackV1,
+  type ChapterChildProjectRevisionReaderV1,
+  type ChapterChildTerminalEventV1,
   type ChapterChildDispatchV1,
 } from './chapter-render-dispatch-v1';
 import {
@@ -381,6 +385,8 @@ export type ChapterRenderProgressOptionsV1 = {
     RenderJobChapterOrchestrationStateV1,
     'RUNNING' | 'CONCATENATING'
   >;
+  /** Optional test/worker port; production defaults to ProjectService. */
+  projectRevisionReader?: ChapterChildProjectRevisionReaderV1;
 };
 
 type LegacyChapterRenderStartResultV1 = {
@@ -739,9 +745,35 @@ async function failChapter(
   jobId: string,
   chapter: Chapter,
   error: string,
+  options: {
+    binding?: ProjectRenderSnapshotBindingV1;
+    projectRevisionReader?: ChapterChildProjectRevisionReaderV1;
+  } = {},
 ): Promise<void> {
+  const filter = options.binding
+    ? {
+        _id: jobId,
+        'projectRenderSnapshotBinding.scope': 'PROJECT_SNAPSHOT',
+        'projectRenderSnapshotBinding.artifactId': jobId,
+        'projectRenderSnapshotBinding.ownerId': options.binding.ownerId,
+        'projectRenderSnapshotBinding.projectId': options.binding.projectId,
+        'projectRenderSnapshotBinding.bindingHash': options.binding.bindingHash,
+        'projectRenderSnapshotBinding.projectRevision.schemaVersion':
+          options.binding.projectRevision.schemaVersion,
+        'projectRenderSnapshotBinding.projectRevision.value': options.binding.projectRevision.value,
+        'projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt':
+          options.binding.projectRevision.compatibilityUpdatedAt,
+        'chapters.index': chapter.index,
+      }
+    : { _id: jobId, 'chapters.index': chapter.index };
+  if (options.binding) {
+    await assertChapterChildProjectRevisionCurrentV1(
+      options.binding,
+      options.projectRevisionReader,
+    );
+  }
   await db.collection(CHAPTERS_COLLECTION).updateOne(
-    { _id: jobId, 'chapters.index': chapter.index } as any,
+    filter as any,
     {
       $set: {
         'chapters.$.status': 'failed',
@@ -750,6 +782,65 @@ async function failChapter(
       },
     },
   );
+}
+
+function chapterProgressRevisionFenceError(reason: string): Error {
+  if (reason === 'BINDING_INVALID') {
+    return new Error('CHAPTER_RENDER_PROGRESS_BINDING_INVALID');
+  }
+  if (reason === 'PROJECT_REVISION_STALE') {
+    return new Error('CHAPTER_RENDER_PROGRESS_PROJECT_REVISION_STALE');
+  }
+  return new Error('CHAPTER_RENDER_PROGRESS_PROJECT_REVISION_UNAVAILABLE');
+}
+
+function isChapterProgressRevisionFenceError(error: unknown): boolean {
+  return error instanceof Error
+    && error.message.startsWith('CHAPTER_RENDER_PROGRESS_PROJECT_REVISION_');
+}
+
+async function assertChapterChildProjectRevisionCurrentV1(
+  binding: ProjectRenderSnapshotBindingV1,
+  projectRevisionReader?: ChapterChildProjectRevisionReaderV1,
+): Promise<void> {
+  const fence = await fenceChapterChildProjectRevisionV1({
+    binding,
+    projectRevisionReader,
+  });
+  if (!fence.ok) throw chapterProgressRevisionFenceError(fence.reason);
+}
+
+async function reconcilePolledChapterTerminalV1(input: {
+  jobId: string;
+  chapter: Chapter;
+  binding: ProjectRenderSnapshotBindingV1;
+  dispatch: ChapterChildDispatchV1;
+  event: ChapterChildTerminalEventV1;
+  projectRevisionReader?: ChapterChildProjectRevisionReaderV1;
+}): Promise<void> {
+  if (!chapterProviderIdentityIsComplete(input.chapter)) {
+    throw new Error('CHAPTER_RENDER_PROVIDER_IDENTITY_MISSING');
+  }
+  const result = await reconcileChapterChildTerminalCallbackV1({
+    parentAdmissionId: input.jobId,
+    childIndex: input.chapter.index,
+    bindingHash: input.binding.bindingHash,
+    attemptToken: input.dispatch.attemptToken,
+    providerRenderId: input.chapter.renderId!.trim(),
+    bucketName: input.chapter.bucketName!.trim(),
+    region: input.chapter.region!.trim(),
+    event: input.event,
+    projectRevisionReader: input.projectRevisionReader,
+  });
+  if (!result.ok) {
+    if (result.reason === 'CHAPTER_CHILD_CALLBACK_PROJECT_REVISION_STALE') {
+      throw chapterProgressRevisionFenceError('PROJECT_REVISION_STALE');
+    }
+    if (result.reason === 'CHAPTER_CHILD_CALLBACK_PROJECT_REVISION_UNAVAILABLE') {
+      throw chapterProgressRevisionFenceError('PROJECT_REVISION_UNAVAILABLE');
+    }
+    throw new Error(result.reason);
+  }
 }
 
 /**
@@ -1310,9 +1401,28 @@ export async function getChapterRenderProgress(
   const db = await getDatabase();
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
   if (!job) return null;
+  const strictJob = isStrictChapterRenderJob(job);
+  if (strictJob && !options) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_AUTHORIZATION_REQUIRED');
+  }
   if (options) {
     assertStrictChapterRenderJobForProgress(job, options);
   }
+  const strictBinding = strictJob
+    ? job.projectRenderSnapshotBinding as ProjectRenderSnapshotBindingV1
+    : undefined;
+  if (strictBinding) {
+    await assertChapterChildProjectRevisionCurrentV1(
+      strictBinding,
+      options?.projectRevisionReader,
+    );
+  }
+  const strictWriteOptions = strictBinding
+    ? {
+        binding: strictBinding,
+        projectRevisionReader: options?.projectRevisionReader,
+      }
+    : undefined;
 
   let totalProgress = 0;
   let computedStatus = job.status;
@@ -1326,7 +1436,6 @@ export async function getChapterRenderProgress(
     let chapterOutputUrl = chapter.outputUrl;
     let chapterOutputSize = chapter.outputSize;
     let chapterError = chapter.error;
-    const strictJob = isStrictChapterRenderJob(job);
     let strictDispatch: ChapterChildDispatchV1 | undefined;
     let strictDispatchInvalid = false;
 
@@ -1348,7 +1457,7 @@ export async function getChapterRenderProgress(
         strictDispatchInvalid = true;
         chapterStatus = 'failed';
         chapterError = err instanceof Error ? err.message : String(err);
-        await failChapter(db, jobId, chapter, chapterError);
+        await failChapter(db, jobId, chapter, chapterError, strictWriteOptions);
       }
     }
 
@@ -1361,6 +1470,10 @@ export async function getChapterRenderProgress(
       const binding = job.projectRenderSnapshotBinding!;
       const repairTime = new Date();
       try {
+        await assertChapterChildProjectRevisionCurrentV1(
+          binding,
+          options?.projectRevisionReader,
+        );
         const repaired = await bindChapterChildDispatchV1({
           parentAdmissionId: jobId,
           childIndex: chapter.index,
@@ -1418,7 +1531,7 @@ export async function getChapterRenderProgress(
     ) {
       chapterStatus = 'failed';
       chapterError = 'CHAPTER_RENDER_DISPATCH_TUPLE_MISMATCH';
-      await failChapter(db, jobId, chapter, chapterError);
+      await failChapter(db, jobId, chapter, chapterError, strictWriteOptions);
     } else if (strictJob && strictDispatch && strictDispatch.phase !== 'BOUND') {
       // ATTEMPTING and UNKNOWN are durable uncertainty, not provider failures.
       // Leave them visible as in-progress; the recovery owner must resolve them.
@@ -1430,7 +1543,7 @@ export async function getChapterRenderProgress(
     ) {
       chapterStatus = 'failed';
       chapterError = 'CHAPTER_RENDER_PROVIDER_IDENTITY_MISSING';
-      await failChapter(db, jobId, chapter, chapterError);
+      await failChapter(db, jobId, chapter, chapterError, strictWriteOptions);
     } else if (chapter.renderId) {
       // Poll Lambda for this chapter's progress
       try {
@@ -1459,21 +1572,43 @@ export async function getChapterRenderProgress(
           if (strictJob && (!isHttpsUrl(renderProgress.outputFile) || outputSize === undefined)) {
             chapterStatus = 'failed';
             chapterError = 'CHAPTER_RENDER_OUTPUT_IDENTITY_MISSING';
-            await failChapter(db, jobId, chapter, chapterError);
+            await reconcilePolledChapterTerminalV1({
+              jobId,
+              chapter,
+              binding: strictBinding!,
+              dispatch: strictDispatch!,
+              event: { type: 'error', error: chapterError },
+              projectRevisionReader: options?.projectRevisionReader,
+            });
           } else {
             // Chapter completed — persist the exact provider output identity for
             // the later child-cleanup materializer. Concat output is separate.
-            await db.collection(CHAPTERS_COLLECTION).updateOne(
-              { _id: jobId, 'chapters.index': chapter.index } as any,
-              {
-                $set: {
-                  'chapters.$.status': 'completed',
-                  'chapters.$.outputUrl': renderProgress.outputFile,
-                  ...(outputSize === undefined ? {} : { 'chapters.$.outputSize': outputSize }),
-                  updatedAt: new Date(),
+            if (strictJob) {
+              await reconcilePolledChapterTerminalV1({
+                jobId,
+                chapter,
+                binding: strictBinding!,
+                dispatch: strictDispatch!,
+                event: {
+                  type: 'success',
+                  outputUrl: renderProgress.outputFile!,
+                  outputSize,
                 },
-              },
-            );
+                projectRevisionReader: options?.projectRevisionReader,
+              });
+            } else {
+              await db.collection(CHAPTERS_COLLECTION).updateOne(
+                { _id: jobId, 'chapters.index': chapter.index } as any,
+                {
+                  $set: {
+                    'chapters.$.status': 'completed',
+                    'chapters.$.outputUrl': renderProgress.outputFile,
+                    ...(outputSize === undefined ? {} : { 'chapters.$.outputSize': outputSize }),
+                    updatedAt: new Date(),
+                  },
+                },
+              );
+            }
             chapterStatus = 'completed';
             chapterOutputUrl = renderProgress.outputFile;
             chapterOutputSize = outputSize;
@@ -1482,33 +1617,56 @@ export async function getChapterRenderProgress(
         } else if (renderProgress.fatalErrorEncountered) {
           chapterStatus = 'failed';
           chapterError = renderProgress.errors?.[0]?.message || 'Render failed';
-          await db.collection(CHAPTERS_COLLECTION).updateOne(
-            { _id: jobId, 'chapters.index': chapter.index } as any,
-            {
-              $set: {
-                'chapters.$.status': 'failed',
-                'chapters.$.error': chapterError,
-                updatedAt: new Date(),
+          if (strictJob) {
+            await reconcilePolledChapterTerminalV1({
+              jobId,
+              chapter,
+              binding: strictBinding!,
+              dispatch: strictDispatch!,
+              event: { type: 'error', error: chapterError },
+              projectRevisionReader: options?.projectRevisionReader,
+            });
+          } else {
+            await db.collection(CHAPTERS_COLLECTION).updateOne(
+              { _id: jobId, 'chapters.index': chapter.index } as any,
+              {
+                $set: {
+                  'chapters.$.status': 'failed',
+                  'chapters.$.error': chapterError,
+                  updatedAt: new Date(),
+                },
               },
-            },
-          );
+            );
+          }
         }
       } catch (err: unknown) {
+        if (isChapterProgressRevisionFenceError(err)) throw err;
         const message = chapterProgressErrorMessage(err);
         if (isTerminalChapterProgressError(message)) {
           console.warn('[ChapterRenderer] progress check failed (terminal):', message);
           chapterStatus = 'failed';
           chapterError = message;
-          await db.collection(CHAPTERS_COLLECTION).updateOne(
-            { _id: jobId, 'chapters.index': chapter.index } as any,
-            {
-              $set: {
-                'chapters.$.status': 'failed',
-                'chapters.$.error': message,
-                updatedAt: new Date(),
+          if (strictJob) {
+            await reconcilePolledChapterTerminalV1({
+              jobId,
+              chapter,
+              binding: strictBinding!,
+              dispatch: strictDispatch!,
+              event: { type: 'error', error: message },
+              projectRevisionReader: options?.projectRevisionReader,
+            });
+          } else {
+            await db.collection(CHAPTERS_COLLECTION).updateOne(
+              { _id: jobId, 'chapters.index': chapter.index } as any,
+              {
+                $set: {
+                  'chapters.$.status': 'failed',
+                  'chapters.$.error': message,
+                  updatedAt: new Date(),
+                },
               },
-            },
-          );
+            );
+          }
         } else {
           console.warn('[ChapterRenderer] progress check failed (non-fatal):', message);
         }
@@ -1524,6 +1682,13 @@ export async function getChapterRenderProgress(
       outputSize: chapterOutputSize,
       error: chapterError,
     });
+  }
+
+  if (strictBinding) {
+    await assertChapterChildProjectRevisionCurrentV1(
+      strictBinding,
+      options?.projectRevisionReader,
+    );
   }
 
   // Advance the chapter queue: finished chapters have freed slots, so start the next pending one(s).

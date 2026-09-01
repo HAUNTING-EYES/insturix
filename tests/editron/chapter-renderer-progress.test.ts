@@ -6,12 +6,13 @@ const mocks = vi.hoisted(() => ({
   getDatabase: vi.fn(),
   setAWSCredentials: vi.fn(async () => {}),
   findOne: vi.fn(),
-  updateOne: vi.fn(async () => ({})),
+  updateOne: vi.fn(async (_filter?: unknown, _update?: unknown) => ({})),
   insertOne: vi.fn(async (_job?: unknown) => ({})),
   collection: vi.fn(),
   isChapterConcatConfigured: vi.fn(() => false),
   enqueueChapterConcat: vi.fn(async () => {}),
   assertRemotionSiteFresh: vi.fn(),
+  projectRevisionReader: vi.fn(),
 }));
 
 vi.mock("@remotion/lambda/client", () => ({
@@ -247,6 +248,11 @@ describe("chapter renderer progress", () => {
     mocks.isChapterConcatConfigured.mockReturnValue(false);
     mocks.enqueueChapterConcat.mockResolvedValue(undefined);
     mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
+    mocks.projectRevisionReader.mockResolvedValue({
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: "2026-08-29T00:00:00.000Z",
+    });
     mocks.updateOne.mockResolvedValue({});
   });
 
@@ -610,6 +616,7 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     })).rejects.toThrow("CHAPTER_LAYOUT_HASH_MISMATCH");
 
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
@@ -632,6 +639,7 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_LAYOUT_CHAPTER_MISMATCH");
 
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
@@ -649,11 +657,83 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount + 1,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_LAYOUT_MANIFEST_IDENTITY_MISMATCH");
 
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
     expect(mocks.getRenderProgress).not.toHaveBeenCalled();
     expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale strict project before polling any child provider", async () => {
+    const fixture = makeStrictChapterFixture();
+    mocks.findOne.mockResolvedValue(makeStrictProgressJob(fixture));
+    mocks.projectRevisionReader.mockResolvedValueOnce({
+      ...fixture.binding.projectRevision,
+      value: fixture.binding.projectRevision.value + 1,
+    });
+
+    await expect(getChapterRenderProgress(STRICT_CHAPTER_JOB_ID, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
+    })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_PROJECT_REVISION_STALE");
+
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("publishes polled strict success through the exact revision-bound terminal CAS", async () => {
+    const fixture = makeStrictChapterFixture();
+    const job = makeStrictProgressJob(fixture);
+    mocks.findOne.mockResolvedValue(job);
+    mocks.getRenderProgress
+      .mockResolvedValueOnce({
+        overallProgress: 1,
+        done: true,
+        fatalErrorEncountered: false,
+        outputFile: "https://render.example.test/chapter-0.mp4",
+        outputSizeInBytes: 42_000,
+      })
+      .mockResolvedValueOnce({
+        overallProgress: 0.5,
+        done: false,
+        fatalErrorEncountered: false,
+      });
+    mocks.updateOne
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 0, modifiedCount: 0 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 0, modifiedCount: 0 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+
+    const progress = await getChapterRenderProgress(STRICT_CHAPTER_JOB_ID, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
+    });
+
+    expect(progress?.chapters[0]).toMatchObject({
+      index: 0,
+      status: "completed",
+      outputUrl: "https://render.example.test/chapter-0.mp4",
+      outputSize: 42_000,
+    });
+    expect(mocks.projectRevisionReader).toHaveBeenCalledTimes(4);
+    expect(mocks.updateOne).toHaveBeenCalledTimes(3);
+    expect(mocks.updateOne.mock.calls[2]![0]).toMatchObject({
+      "projectRenderSnapshotBinding.ownerId": fixture.binding.ownerId,
+      "projectRenderSnapshotBinding.projectId": fixture.binding.projectId,
+      "projectRenderSnapshotBinding.projectRevision.value":
+        fixture.binding.projectRevision.value,
+      "projectRenderSnapshotBinding.bindingHash": fixture.binding.bindingHash,
+    });
   });
 
   it("binds strict progress to the requester separately from an organization owner", async () => {
@@ -675,6 +755,7 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     });
 
     expect(validProgress?.status).toBe("rendering");
@@ -689,6 +770,7 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_BINDING_SCOPE_MISMATCH");
     expect(mocks.getRenderProgress).not.toHaveBeenCalled();
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
@@ -703,6 +785,7 @@ describe("chapter renderer progress", () => {
       chapterCount: fixture.manifest.chapterCount,
       chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
       parentState: "RUNNING",
+      projectRevisionReader: mocks.projectRevisionReader,
     })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_BINDING_SCOPE_MISMATCH");
     expect(mocks.getRenderProgress).not.toHaveBeenCalled();
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();

@@ -5,8 +5,10 @@ import {
   ChapterChildDispatchSchemaV1,
   createChapterChildDispatchIdentityV1,
   createChapterChildDispatchV1,
+  fenceChapterChildProjectRevisionV1,
   markChapterChildDispatchAttemptingV1,
   quarantineChapterChildDispatchV1,
+  reconcileChapterChildTerminalCallbackV1,
 } from "@/lib/editron/services/chapter-render-dispatch-v1";
 import {
   buildContainedVideoTargetsV1,
@@ -69,6 +71,30 @@ function baseInput() {
 
 function acknowledgedResult(matchedCount = 1, modifiedCount = 1) {
   return { acknowledged: true, matchedCount, modifiedCount };
+}
+
+function callbackParent() {
+  const { binding, dispatch } = baseInput();
+  return {
+    binding,
+    dispatch,
+    row: {
+      _id: PARENT_ADMISSION_ID,
+      projectRenderSnapshotBinding: binding,
+      chapters: [{
+        index: 0,
+        status: "rendering",
+        renderId: PROVIDER_TUPLE.providerRenderId,
+        bucketName: PROVIDER_TUPLE.bucketName,
+        region: PROVIDER_TUPLE.region,
+        dispatch: {
+          ...dispatch,
+          phase: "ATTEMPTING" as const,
+          attemptStartedAt: new Date("2026-09-01T00:00:01.000Z"),
+        },
+      }],
+    },
+  };
 }
 
 describe("chapter child dispatch ledger v1", () => {
@@ -280,5 +306,111 @@ describe("chapter child dispatch ledger v1", () => {
       expect(filter.chapters.$elemMatch["dispatch.phase"].$in).not.toContain("NOT_ATTEMPTED");
       expect(filter.chapters.$elemMatch["dispatch.attemptStartedAt"]).toEqual({ $exists: true });
     }
+  });
+
+  it("fences the exact live project revision before bind and terminal callback writes", async () => {
+    const fixture = callbackParent();
+    const projectRevisionReader = vi.fn().mockResolvedValue(PROJECT_REVISION);
+    const updateOne = vi.fn()
+      .mockResolvedValueOnce(acknowledgedResult())
+      .mockResolvedValueOnce(acknowledgedResult());
+    const result = await reconcileChapterChildTerminalCallbackV1({
+      parentAdmissionId: PARENT_ADMISSION_ID,
+      childIndex: 0,
+      bindingHash: fixture.binding.bindingHash,
+      attemptToken: fixture.dispatch.attemptToken,
+      ...PROVIDER_TUPLE,
+      event: {
+        type: "success",
+        outputUrl: "https://render.example.test/chapter-0.mp4",
+        outputSize: 42_000,
+      },
+      projectRevisionReader,
+      collection: {
+        findOne: vi.fn().mockResolvedValue(fixture.row),
+        updateOne,
+      } as any,
+    });
+
+    expect(result).toEqual({ ok: true, status: "RECONCILED" });
+    expect(projectRevisionReader).toHaveBeenCalledTimes(2);
+    expect(projectRevisionReader).toHaveBeenCalledWith(OWNER_ID, PROJECT_ID);
+    expect(updateOne).toHaveBeenCalledTimes(2);
+    const terminalFilter = updateOne.mock.calls[1]![0];
+    expect(terminalFilter).toMatchObject({
+      "projectRenderSnapshotBinding.ownerId": OWNER_ID,
+      "projectRenderSnapshotBinding.projectId": PROJECT_ID,
+      "projectRenderSnapshotBinding.projectRevision.value": PROJECT_REVISION.value,
+      "projectRenderSnapshotBinding.bindingHash": fixture.binding.bindingHash,
+    });
+  });
+
+  it("rejects a stale callback before binding provider evidence", async () => {
+    const fixture = callbackParent();
+    const updateOne = vi.fn();
+    const result = await reconcileChapterChildTerminalCallbackV1({
+      parentAdmissionId: PARENT_ADMISSION_ID,
+      childIndex: 0,
+      bindingHash: fixture.binding.bindingHash,
+      attemptToken: fixture.dispatch.attemptToken,
+      ...PROVIDER_TUPLE,
+      event: { type: "error", error: "provider failed" },
+      projectRevisionReader: vi.fn().mockResolvedValue({
+        ...PROJECT_REVISION,
+        value: PROJECT_REVISION.value + 1,
+      }),
+      collection: {
+        findOne: vi.fn().mockResolvedValue(fixture.row),
+        updateOne,
+      } as any,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: "REJECTED",
+      reason: "CHAPTER_CHILD_CALLBACK_PROJECT_REVISION_STALE",
+    });
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects terminal publication when the project changes after binding", async () => {
+    const fixture = callbackParent();
+    const projectRevisionReader = vi.fn()
+      .mockResolvedValueOnce(PROJECT_REVISION)
+      .mockResolvedValueOnce({ ...PROJECT_REVISION, value: PROJECT_REVISION.value + 1 });
+    const updateOne = vi.fn().mockResolvedValueOnce(acknowledgedResult());
+    const result = await reconcileChapterChildTerminalCallbackV1({
+      parentAdmissionId: PARENT_ADMISSION_ID,
+      childIndex: 0,
+      bindingHash: fixture.binding.bindingHash,
+      attemptToken: fixture.dispatch.attemptToken,
+      ...PROVIDER_TUPLE,
+      event: { type: "error", error: "provider failed" },
+      projectRevisionReader,
+      collection: {
+        findOne: vi.fn().mockResolvedValue(fixture.row),
+        updateOne,
+      } as any,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: "REJECTED",
+      reason: "CHAPTER_CHILD_CALLBACK_PROJECT_REVISION_STALE",
+    });
+    expect(projectRevisionReader).toHaveBeenCalledTimes(2);
+    expect(updateOne).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes unavailable live revision evidence from a stale revision", async () => {
+    const { binding } = baseInput();
+    await expect(fenceChapterChildProjectRevisionV1({
+      binding,
+      projectRevisionReader: vi.fn().mockRejectedValue(new Error("database unavailable")),
+    })).resolves.toEqual({
+      ok: false,
+      status: "NOT_CURRENT",
+      reason: "PROJECT_REVISION_UNAVAILABLE",
+    });
   });
 });
