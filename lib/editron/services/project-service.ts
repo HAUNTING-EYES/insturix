@@ -146,7 +146,7 @@ import {
   type TimelineRangeCutResult,
   type TimelineRangeCutSplitChildV1,
 } from "./timeline-range-cut";
-import { alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
+import { ROW, alignCutsToBeatsWithEvidence } from "@/lib/pipeline/scene-to-editron";
 import {
   clonePipelineAudioCanonicalValueV1,
   isPipelineAudioOverlayForKindV1,
@@ -157,6 +157,7 @@ import {
   type PipelineAudioDeliveryKindV1,
   type PipelineAudioDeliveryOutcomeV1,
 } from "./pipeline-audio-project-delivery-v1";
+import { assertMusicCoveragePlan } from "./music-coverage-runtime";
 import {
   assertPipelineVideoDeliveryInvalidationAdmissionV1,
   assertPipelineVideoProjectDeliveryPrerequisiteV1,
@@ -351,6 +352,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
   | "REPLACE_CAPTION_FAMILY"
+  | "REPLACE_BACKGROUND_MUSIC"
   | "APPLY_VIDEO_SPEED_RAMP"
   | "RETIME_VIDEO_SOURCE_RANGE"
   | "DELETE_OVERLAY"
@@ -490,6 +492,33 @@ export interface ProjectCaptionFamilyReplaceCommandV1 {
 }
 
 export type ProjectCaptionFamilyReplaceResultV1 =
+  | ({ disposition: "APPLIED" } & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "UNCHANGED";
+      mutationReceipt: null;
+      timelineChangeReceipt: null;
+    };
+
+export type ProjectBackgroundMusicEvidenceV1 =
+  | {
+      kind: "ASSIGNMENT";
+      usageMode: "embedded" | "reference-only";
+      receipt: Readonly<Record<string, unknown>>;
+    }
+  | {
+      kind: "CHAT_CHANGE";
+      receipt: Readonly<Record<string, unknown>>;
+    };
+
+export interface ProjectBackgroundMusicReplaceCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  candidateOverlays: readonly Overlay[];
+  musicCoveragePlan: unknown;
+  evidence: ProjectBackgroundMusicEvidenceV1;
+}
+
+export type ProjectBackgroundMusicReplaceResultV1 =
   | ({ disposition: "APPLIED" } & ProjectDirectOverlayMutationResultV1)
   | {
       disposition: "UNCHANGED";
@@ -11208,11 +11237,11 @@ export class ProjectService {
     const comparableCurrentOverlays = assetResolver.stripUrlsForLLM([
       ...currentOverlays,
     ]);
-    const currentByIdentity = indexOverlaySetForCaptionFamilyV1(
+    const currentByIdentity = indexOverlaySetForFamilyReplacementV1(
       currentOverlays,
       "stored",
     );
-    indexOverlaySetForCaptionFamilyV1(cleanCandidateOverlays, "candidate");
+    indexOverlaySetForFamilyReplacementV1(cleanCandidateOverlays, "candidate");
 
     const currentNonCaption = comparableCurrentOverlays.filter(
       (overlay) => overlay.type !== "caption",
@@ -11245,7 +11274,7 @@ export class ProjectService {
           reason: "caption family persisted through a caller-bound ProjectService command",
         });
       }
-      const stored = currentByIdentity.get(overlayIdentityKeyForCaptionFamilyV1(overlay));
+      const stored = currentByIdentity.get(overlayIdentityKeyForFamilyReplacementV1(overlay));
       if (!stored) {
         throw new ProjectMutationWriteError(
           "Caption-family replacement lost a stored non-caption overlay identity.",
@@ -11313,6 +11342,218 @@ export class ProjectService {
       },
       {
         $set: { overlays: persistedOverlays, updatedAt: committedAt },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      disposition: "APPLIED",
+      mutationReceipt,
+      timelineChangeReceipt,
+    };
+  }
+
+  /**
+   * Replace the complete background-music bed at one exact project revision.
+   * Music coverage and assignment/change evidence commit with the overlays;
+   * all non-BGM overlays are verified and reused from stored state. Cut timing
+   * is deliberately excluded and belongs to the beat-sync mutation owner.
+   */
+  async replaceBackgroundMusicAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectBackgroundMusicReplaceCommandV1,
+  ): Promise<ProjectBackgroundMusicReplaceResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (!Array.isArray(input.candidateOverlays) || input.candidateOverlays.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Background-music replacement requires a bounded overlay array.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps) || !Number.isSafeInteger(project.durationInFrames)
+      || project.durationInFrames <= 0) {
+      throw new ProjectMutationWriteError(
+        "Background-music replacement requires a supported project timeline.",
+      );
+    }
+    if (!Array.isArray(project.overlays) || project.overlays.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Stored overlay state is invalid or exceeds the background-music owner bound.",
+      );
+    }
+
+    const currentOverlays = project.overlays;
+    const cleanCandidateOverlays = assetResolver.stripUrlsForLLM([
+      ...input.candidateOverlays,
+    ]);
+    const comparableCurrentOverlays = assetResolver.stripUrlsForLLM([
+      ...currentOverlays,
+    ]);
+    const currentByIdentity = indexOverlaySetForFamilyReplacementV1(
+      currentOverlays,
+      "stored",
+    );
+    indexOverlaySetForFamilyReplacementV1(cleanCandidateOverlays, "candidate");
+
+    const currentNonBgm = comparableCurrentOverlays.filter(
+      (overlay) => !isBackgroundMusicOverlayV1(overlay),
+    );
+    const candidateNonBgm = cleanCandidateOverlays.filter(
+      (overlay) => !isBackgroundMusicOverlayV1(overlay),
+    );
+    if (
+      canonicalProjectMutationValueHashV1(currentNonBgm)
+      !== canonicalProjectMutationValueHashV1(candidateNonBgm)
+    ) {
+      throw new ProjectMutationWriteError(
+        "Background-music replacement cannot alter or reorder non-BGM overlays.",
+      );
+    }
+
+    const beforeBgm = currentOverlays.filter(isBackgroundMusicOverlayV1);
+    const candidateBgm = cleanCandidateOverlays.filter(isBackgroundMusicOverlayV1);
+    const preparedEvidence = prepareBackgroundMusicEvidenceV1(
+      project,
+      input,
+      candidateBgm,
+    );
+    const persistedBgmByIdentity = new Map(candidateBgm.map((overlay) => [
+      overlayIdentityKeyForFamilyReplacementV1(overlay),
+      ensureLiveAtomicOverlayReceipt(overlay, {
+        source: "project-service-replace-background-music-at-revision-v1",
+        intent: "persist-background-music",
+        reason: "background-music family persisted with rights and coverage evidence",
+      }),
+    ]));
+    const persistedOverlays = cleanCandidateOverlays.map((overlay) => {
+      const identity = overlayIdentityKeyForFamilyReplacementV1(overlay);
+      if (isBackgroundMusicOverlayV1(overlay)) {
+        const persistedBgm = persistedBgmByIdentity.get(identity);
+        if (!persistedBgm) {
+          throw new ProjectMutationWriteError(
+            "Background-music replacement lost a validated BGM identity.",
+          );
+        }
+        return persistedBgm;
+      }
+      const stored = currentByIdentity.get(identity);
+      if (!stored) {
+        throw new ProjectMutationWriteError(
+          "Background-music replacement lost a stored non-BGM identity.",
+        );
+      }
+      return stored;
+    });
+
+    const evidenceUnchanged = Object.entries(preparedEvidence.setFields).every(
+      ([path, value]) => sameCanonicalProjectMutationValueV1(
+        readProjectDottedValueV1(project, path),
+        value,
+      ),
+    );
+    if (
+      evidenceUnchanged
+      && sameCanonicalProjectMutationValueV1(currentOverlays, persistedOverlays)
+    ) {
+      return {
+        disposition: "UNCHANGED",
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before replacing music.",
+      );
+    }
+    const beforeFrameRanges = overlayFamilyFrameRangesV1(beforeBgm, "stored BGM");
+    const afterBgm = persistedOverlays.filter(isBackgroundMusicOverlayV1);
+    const afterFrameRanges = overlayFamilyFrameRangesV1(afterBgm, "candidate BGM");
+    const writeFrameRanges = canonicalTimelineFrameRangesV1([
+      ...beforeFrameRanges,
+      ...afterFrameRanges,
+    ]);
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => writeFrameRanges.some((frameRange) => (
+      frameRangesOverlapHalfOpenV1(lock.frameRange, frameRange)
+    )));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the background-music replacement.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-background-music_${nanoid(18)}`,
+      projectId,
+      operation: "REPLACE_BACKGROUND_MUSIC",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: beforeBgm,
+      afterOverlays: afterBgm,
+      changedPaths: [
+        "overlays",
+        ...Object.keys(preparedEvidence.setFields),
+        "timelineRangeChangeReceipts",
+      ],
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: {
+          ...preparedEvidence.setFields,
+          overlays: persistedOverlays,
+          updatedAt: committedAt,
+        },
         $push: {
           timelineRangeChangeReceipts: {
             $each: [timelineChangeReceipt],
@@ -15416,7 +15657,7 @@ function overlayTimelineFrameRangeV1(
   return { startFrame: rawStartFrame, endFrame };
 }
 
-function overlayIdentityKeyForCaptionFamilyV1(overlay: Overlay): string {
+function overlayIdentityKeyForFamilyReplacementV1(overlay: Overlay): string {
   const identity = (overlay as { id?: unknown }).id;
   const validNumber = typeof identity === "number"
     && Number.isSafeInteger(identity)
@@ -15427,22 +15668,22 @@ function overlayIdentityKeyForCaptionFamilyV1(overlay: Overlay): string {
     && identity.length <= 256;
   if (!validNumber && !validString) {
     throw new ProjectMutationWriteError(
-      "Caption-family replacement requires exact stable overlay identities.",
+      "Overlay-family replacement requires exact stable overlay identities.",
     );
   }
   return `${typeof identity}:${identity}`;
 }
 
-function indexOverlaySetForCaptionFamilyV1(
+function indexOverlaySetForFamilyReplacementV1(
   overlays: readonly Overlay[],
   label: "stored" | "candidate",
 ): ReadonlyMap<string, Overlay> {
   const indexed = new Map<string, Overlay>();
   for (const overlay of overlays) {
-    const key = overlayIdentityKeyForCaptionFamilyV1(overlay);
+    const key = overlayIdentityKeyForFamilyReplacementV1(overlay);
     if (indexed.has(key)) {
       throw new ProjectMutationWriteError(
-        `Caption-family replacement requires unique ${label} overlay identities.`,
+        `Overlay-family replacement requires unique ${label} overlay identities.`,
       );
     }
     indexed.set(key, overlay);
@@ -15459,6 +15700,21 @@ function captionFamilyFrameRangesV1(
     if (!frameRange) {
       throw new ProjectMutationWriteError(
         `Caption-family replacement requires exact positive ${label} caption frame ranges.`,
+      );
+    }
+    return frameRange;
+  }));
+}
+
+function overlayFamilyFrameRangesV1(
+  overlays: readonly Overlay[],
+  label: string,
+): readonly TimelineFrameRangeV1[] {
+  return canonicalTimelineFrameRangesV1(overlays.map((overlay) => {
+    const frameRange = overlayTimelineFrameRangeV1(overlay);
+    if (!frameRange) {
+      throw new ProjectMutationWriteError(
+        `Overlay-family replacement requires exact positive ${label} frame ranges.`,
       );
     }
     return frameRange;
@@ -15484,9 +15740,191 @@ function canonicalProjectMutationValueHashV1(value: unknown): string {
     return hashEditronCanonicalJsonV1(JSON.parse(encoded));
   } catch {
     throw new ProjectMutationWriteError(
-      "Caption-family replacement material must be canonical JSON.",
+      "Overlay-family replacement material must be canonical JSON.",
     );
   }
+}
+
+function sameCanonicalProjectMutationValueV1(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return canonicalProjectMutationValueHashV1(left)
+    === canonicalProjectMutationValueHashV1(right);
+}
+
+function readProjectDottedValueV1(project: Project, path: string): unknown {
+  let current: unknown = project;
+  for (const segment of path.split(".")) {
+    if (!isPlainRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function isBackgroundMusicOverlayV1(overlay: Overlay): boolean {
+  return overlay.type === "sound" && overlay.row === ROW.BGM;
+}
+
+function prepareBackgroundMusicEvidenceV1(
+  project: Project,
+  input: ProjectBackgroundMusicReplaceCommandV1,
+  candidateBgm: readonly Overlay[],
+): { setFields: Readonly<Record<string, unknown>> } {
+  let musicCoveragePlan: ReturnType<typeof assertMusicCoveragePlan>;
+  let receipt: Record<string, unknown>;
+  try {
+    musicCoveragePlan = assertMusicCoveragePlan(
+      clonePipelineAudioCanonicalValueV1(input.musicCoveragePlan),
+      project.durationInFrames,
+    );
+    receipt = clonePipelineAudioCanonicalValueV1(input.evidence.receipt) as Record<string, unknown>;
+  } catch (error) {
+    throw new ProjectMutationWriteError(
+      "Background-music replacement requires canonical coverage and audit evidence: "
+        + (error instanceof Error ? error.message : "INVALID_EVIDENCE"),
+    );
+  }
+  if (!isPlainRecord(receipt)) {
+    throw new ProjectMutationWriteError(
+      "Background-music replacement evidence must be a canonical object.",
+    );
+  }
+  if (musicCoveragePlan.mode === "none" || candidateBgm.length === 0
+    || candidateBgm.length !== musicCoveragePlan.sections.length) {
+    throw new ProjectMutationWriteError(
+      "Background-music replacement requires one BGM overlay per non-empty coverage section.",
+    );
+  }
+
+  const candidateAssetIds = candidateBgm.map((overlay) => (
+    isBoundedNonEmptyStringV1(overlay.assetId, 500) ? overlay.assetId : null
+  ));
+  if (candidateAssetIds.some((assetId) => assetId === null)
+    || new Set(candidateAssetIds).size !== 1) {
+    throw new ProjectMutationWriteError(
+      "Background-music coverage overlays must share one exact source asset identity.",
+    );
+  }
+  const assetId = candidateAssetIds[0] as string;
+  let canonicalRights: Record<string, unknown> | null = null;
+  for (const [index, overlay] of candidateBgm.entries()) {
+    const shape = overlay as Overlay & {
+      audioRights?: unknown;
+      musicRights?: unknown;
+      startFromSound?: unknown;
+      metadata?: unknown;
+    };
+    const audioRights = shape.audioRights;
+    const musicRights = shape.musicRights;
+    const rightsIssue = getAudioRightsContractIssue(audioRights)
+      ?? getAudioRightsContractIssue(musicRights);
+    if (rightsIssue || !isPlainRecord(audioRights) || !isPlainRecord(musicRights)
+      || audioRights.mediaRole !== "music" || musicRights.mediaRole !== "music"
+      || !sameCanonicalProjectMutationValueV1(audioRights, musicRights)) {
+      throw new ProjectMutationWriteError(
+        "Background-music overlays require matching music-role rights evidence: "
+          + (rightsIssue ?? "RIGHTS_MISMATCH"),
+      );
+    }
+    if (canonicalRights === null) {
+      canonicalRights = audioRights;
+    } else if (!sameCanonicalProjectMutationValueV1(canonicalRights, audioRights)) {
+      throw new ProjectMutationWriteError(
+        "Background-music coverage overlays must share identical rights evidence.",
+      );
+    }
+
+    const section = musicCoveragePlan.sections[index];
+    const metadata = isPlainRecord(shape.metadata) ? shape.metadata : null;
+    const coverage = metadata && isPlainRecord(metadata.musicCoverage)
+      ? metadata.musicCoverage
+      : null;
+    if (
+      !coverage
+      || coverage.version !== musicCoveragePlan.version
+      || coverage.mode !== musicCoveragePlan.mode
+      || coverage.sectionIndex !== index
+      || !sameCanonicalProjectMutationValueV1(coverage.section, section)
+      || overlay.from !== section.startFrame
+      || overlay.durationInFrames !== section.endFrame - section.startFrame
+      || shape.startFromSound !== section.startFrame
+    ) {
+      throw new ProjectMutationWriteError(
+        "Background-music overlay ranges must exactly match the canonical coverage plan.",
+      );
+    }
+  }
+  if (!canonicalRights) {
+    throw new ProjectMutationWriteError("Background-music rights evidence is missing.");
+  }
+
+  const usageMode = input.evidence.kind === "ASSIGNMENT"
+    ? input.evidence.usageMode
+    : "embedded";
+  if (usageMode === "embedded") {
+    if (canonicalRights.licensed !== true || canonicalRights.source === "preview-only") {
+      throw new ProjectMutationWriteError(
+        "Embedded background music requires licensed, non-preview rights evidence.",
+      );
+    }
+  } else if (
+    canonicalRights.licensed !== false
+    || canonicalRights.source !== "preview-only"
+    || canonicalRights.userChoice !== "no-music"
+  ) {
+    throw new ProjectMutationWriteError(
+      "Reference-only background music requires preview-only, non-licensed evidence.",
+    );
+  }
+
+  const candidateIds = candidateBgm.map((overlay) => (
+    (overlay as { id: ProjectOverlayIdentityV1 }).id
+  ));
+  const commonEvidenceValid = receipt.snappedCutCount === 0
+    && receipt.beatRealignEnabled === false;
+  if (input.evidence.kind === "ASSIGNMENT") {
+    if (
+      receipt.version !== "background-music-assignment-v1"
+      || !isBoundedNonEmptyStringV1(receipt.idempotencyKey, 128)
+      || !isBoundedNonEmptyStringV1(receipt.sourceAssetId, 500)
+      || receipt.derivativeAssetId !== assetId
+      || receipt.usageMode !== usageMode
+      || !sameCanonicalProjectMutationValueV1(receipt.musicRights, canonicalRights)
+      || !sameCanonicalProjectMutationValueV1(receipt.musicCoveragePlan, musicCoveragePlan)
+      || !isValidDateValueV1(receipt.assignedAt)
+      || !commonEvidenceValid
+    ) {
+      throw new ProjectMutationWriteError(
+        "Background-music assignment evidence does not match the replacement material.",
+      );
+    }
+    return {
+      setFields: {
+        musicCoveragePlan,
+        "intelligence.audio.musicUsageMode": usageMode,
+        "intelligence.audio.musicCoveragePlan": musicCoveragePlan,
+        "intelligence.audio.lastMusicAssignment": receipt,
+      },
+    };
+  }
+
+  if (
+    receipt.version !== "chat-music-change-v1"
+    || receipt.assetId !== assetId
+    || !sameCanonicalProjectMutationValueV1(receipt.replacementOverlayIds, candidateIds)
+    || !isValidDateValueV1(receipt.generatedAt)
+    || !commonEvidenceValid
+  ) {
+    throw new ProjectMutationWriteError(
+      "Chat background-music change evidence does not match the replacement material.",
+    );
+  }
+  return {
+    setFields: {
+      musicCoveragePlan,
+      "intelligence.audio.musicCoveragePlan": musicCoveragePlan,
+      "intelligence.audio.lastMusicChange": receipt,
+    },
+  };
 }
 
 function unionTimelineFrameRangesV1(
@@ -15541,21 +15979,43 @@ function createCaptionFamilyTimelineChangeReceiptV1(input: {
   beforeCaptions: readonly Overlay[];
   afterCaptions: readonly Overlay[];
 }): ProjectTimelineRangeChangeReceiptV1 {
-  const beforeFrameRanges = captionFamilyFrameRangesV1(input.beforeCaptions, "stored");
-  const afterFrameRanges = captionFamilyFrameRangesV1(input.afterCaptions, "candidate");
+  return createOverlayFamilyTimelineChangeReceiptV1({
+    ...input,
+    operation: "REPLACE_CAPTION_FAMILY",
+    beforeOverlays: input.beforeCaptions,
+    afterOverlays: input.afterCaptions,
+    changedPaths: ["overlays", "timelineRangeChangeReceipts"],
+  });
+}
+
+function createOverlayFamilyTimelineChangeReceiptV1(input: {
+  receiptId: string;
+  projectId: string;
+  operation: "REPLACE_CAPTION_FAMILY" | "REPLACE_BACKGROUND_MUSIC";
+  actorKind: ProjectTimelineChangeActorKindV1;
+  fps: number;
+  beforeProjectRevision: ProjectRevisionV1;
+  afterProjectRevision: ProjectRevisionV1;
+  committedAt: string;
+  beforeOverlays: readonly Overlay[];
+  afterOverlays: readonly Overlay[];
+  changedPaths: readonly string[];
+}): ProjectTimelineRangeChangeReceiptV1 {
+  const beforeFrameRanges = overlayFamilyFrameRangesV1(input.beforeOverlays, "stored family");
+  const afterFrameRanges = overlayFamilyFrameRangesV1(input.afterOverlays, "candidate family");
   const writeFrameRanges = canonicalTimelineFrameRangesV1([
     ...beforeFrameRanges,
     ...afterFrameRanges,
   ]);
   const affectedOverlayRefs = [...new Set([
-    ...input.beforeCaptions,
-    ...input.afterCaptions,
+    ...input.beforeOverlays,
+    ...input.afterOverlays,
   ].map(overlayReferenceForTimelineChangeV1))].sort();
   return {
     schemaVersion: 1,
     receiptId: input.receiptId,
     projectId: input.projectId,
-    operation: "REPLACE_CAPTION_FAMILY",
+    operation: input.operation,
     actorKind: input.actorKind,
     coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
     fps: input.fps,
@@ -15566,7 +16026,7 @@ function createCaptionFamilyTimelineChangeReceiptV1(input: {
     writeFrameRangesBefore: writeFrameRanges,
     affectedFrameRangesAfter: afterFrameRanges,
     affectedOverlayRefs,
-    changedPaths: ["overlays", "timelineRangeChangeReceipts"],
+    changedPaths: input.changedPaths,
     rangeObservation: "EXACT",
     overlayTemporalChange: null,
     timelineCoordinateTransform: null,
