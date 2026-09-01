@@ -278,7 +278,7 @@ type ChapterRenderStartOptionsV1 = {
   chapterWebhook: ChapterChildWebhookConfigV1;
 };
 
-export type ChapterChildWebhookConfigV1 = {
+type ChapterChildWebhookConfigV1 = {
   url: string;
   secret: string;
 };
@@ -582,7 +582,6 @@ async function startSingleChapterRender(
       if (!bound.ok) {
         throw new Error(`CHAPTER_RENDER_DISPATCH_BIND_NOT_CURRENT:${bound.reason}`);
       }
-      console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${providerTuple.providerRenderId}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[ChapterRenderer] Chapter ${chapter.index} dispatch is uncertain: ${message}`);
@@ -668,7 +667,6 @@ async function startSingleChapterRender(
         },
       },
     );
-    console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${providerRenderId}`);
   } catch (err: any) {
     console.error(`[ChapterRenderer] Chapter ${chapter.index} failed to start: ${err.message}`);
     await db.collection(CHAPTERS_COLLECTION).updateOne(
@@ -684,7 +682,7 @@ async function startSingleChapterRender(
  * every progress poll, so the next chapter begins as soon as a running one finishes. Idempotent; safe to
  * call repeatedly.
  */
-export async function startPendingChapters(
+async function startPendingChapters(
   jobId: string,
   opts?: {
     serveUrl?: string;
@@ -895,7 +893,6 @@ export async function startChapterRender(
 
   await db.collection(CHAPTERS_COLLECTION).insertOne(job as any);
 
-  console.log(`[ChapterRenderer] Job ${jobId}: ${chapters.length} chapters for ${totalFrames} frames`);
 
   // Start chapters under a concurrency cap. The rest stay 'pending' and are started by
   // getChapterRenderProgress() as each running chapter finishes — keeping total renderer Lambdas under
@@ -1256,7 +1253,6 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
           if (claim.modifiedCount === 1) {
             try {
               await enqueueChapterConcat(jobId, concatTarget.generation);
-              console.log(`[ChapterRenderer] Job ${jobId}: enqueued concat of ${chapterStatuses.length} chapters`);
             } catch (err: unknown) {
               // Preserve the target: the next poll can re-queue the exact same
               // generation instead of making a new destination identity.
