@@ -14973,3 +14973,51 @@ progress, active, history and chapter consumers; and ambiguous-dispatch
 recovery. Queue 5 remains `ACTIVE_PARTIAL`; no live provider proof or
 convergence is claimed, and Stage 2.5 remains `MODIFY` while Stage 3 remains
 blocked.
+
+## 2026-09-01 vertical-convergence Phase 3K checkpoint
+
+Commits `47ab1231e`, `4a412af23`, `e94cf54f9`, `600f8a78a`, `49e472bf9`
+and `39c3bb6fa` harden the bounded whole-project render ingress and signed
+finalizer lifecycle after Phase 3J. The server reconstructs strict
+authorization from the durable admission, binds webhook/retry work to the
+exact project snapshot, requester, binding hash, provider render ID, bucket,
+source output and current ProjectService revision, and preserves distinct
+provider-failure and failed-finalization-retry owners. The signed finalizer
+schema requires its embedded authorization job ID to equal the message job
+ID. Project-snapshot and target-artifact-bound jobs presented as legacy work
+are rejected before finalizer media work or failure mutation.
+
+An exact stale-finalization recovery owner now fences only the bound running
+claim after ProjectService proves the project revision changed or the project
+was deleted. It records the render artifact as `STALE`, preserves the source
+output identity on the job, marks cleanup `PENDING`, clears the exact lease and
+accepts only proved idempotent states such as an already-stale row, a replaced
+claim or an already-terminal claim. The success and failure workers return a
+retryable HTTP 500 when no durable transition or exact idempotent state can be
+proved; they no longer acknowledge an unproved strict state. Existing cleanup
+metadata is an explicit fence precondition and is never overwritten.
+
+The focused owner/startup/finalizer run passed 68/68 tests. Full repository
+`npx tsc --noEmit`, `npx eslint . --quiet` and `git diff --check` passed before
+`39c3bb6fa` was committed and pushed. No provider inference, paid cohort
+rerun, live render, project mutation or external spend occurred.
+
+This checkpoint is partial render-owner safety, not render-chain convergence.
+The cleanup flag is not yet a durable cleanup/invalidation outbox handoff and
+no cleanup consumer has materialized or deleted the preserved provider
+artifact. ProjectService revision is read before the render-job collection
+CAS; the two collections are not atomically coupled, so a project change in
+that interval remains a verified race until the existing ProjectArtifact
+invalidation/outbox path deterministically fences the completed/stale render
+or an equivalent authoritative transaction closes it. Artifact-bound legacy
+service owners outside these two worker routes also retain their separately
+scheduled Queue 5 migration.
+
+The corrected immediate dependency order is therefore: attach stale and
+post-completion render state to the existing durable ProjectArtifact
+invalidation/cleanup outbox and close or deterministically repair the
+cross-collection revision race; then migrate strict progress, active, history
+and chapter consumers. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No live-provider, agency-class, certification,
+successor-receipt or `GO` claim is made.
