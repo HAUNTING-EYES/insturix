@@ -8635,26 +8635,6 @@ export class ProjectService {
   }
 
   /**
-   * Update project name
-   */
-  async updateProjectName(
-    userId: string,
-    projectId: string,
-    name: string,
-  ): Promise<void> {
-    const db = await getDatabase();
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId },
-      {
-        $set: {
-          name,
-          updatedAt: new Date(),
-        },
-      },
-    );
-  }
-
-  /**
    * Add an overlay atomically
    */
   async addOverlay(
