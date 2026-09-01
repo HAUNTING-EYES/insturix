@@ -3,8 +3,9 @@
  *
  * For every approved/enqueued MG moment we keep a durable record so a lapsed/stale worker delivery can never
  * silently mutate a project (idempotency + stale plan/taste guard). The record consolidates WITH the existing
- * `intelligence.mgCodegenRun.outcomes/asyncOutcomes` ledger (no second job system). Persistence is best-effort
- * and never blocks the live lane.
+ * `intelligence.mgCodegenRun.outcomes/asyncOutcomes` ledger (no second job
+ * system). The EDL producer returns records to ProjectService for atomic
+ * persistence with the durable MG-design completion.
  */
 import { z } from 'zod';
 
@@ -61,32 +62,4 @@ export function deliveryStaleGuard(
     return { ok: false, reason: 'stale delivery: taste contract hash changed since enqueue' };
   }
   return { ok: true };
-}
-
-/** Idempotent upsert of a delivery record onto the project (best-effort, never blocks the live lane). */
-export async function persistMGDeliveryRecord(
-  projectId: string,
-  userId: string,
-  record: MGDeliveryRecord,
-): Promise<{ persisted: boolean; reason?: string }> {
-  try {
-    const { getDatabase } = await import('@/lib/editron/db/mongodb');
-    const projects = (await getDatabase()).collection('projects');
-    const res = await projects.updateOne(
-      { projectId, userId, 'intelligence.mgDeliveryRecords.momentId': record.momentId },
-      { $set: { 'intelligence.mgDeliveryRecords.$': record, updatedAt: new Date() } },
-    );
-    if (res.matchedCount === 0) {
-      await projects.updateOne(
-        { projectId, userId, 'intelligence.mgDeliveryRecords.momentId': { $ne: record.momentId } },
-        {
-          $push: { 'intelligence.mgDeliveryRecords': { $each: [record], $slice: -200 } } as never,
-          $set: { updatedAt: new Date() },
-        },
-      );
-    }
-    return { persisted: true };
-  } catch (error) {
-    return { persisted: false, reason: error instanceof Error ? error.message : String(error) };
-  }
 }
