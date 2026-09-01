@@ -16754,3 +16754,68 @@ Queues 3 and 4, which alone may be worked in parallel under the founder's
 current authorization; (6) implement Queue 6 serially; and (7) certify agency
 verticals serially unless the founder explicitly authorizes additional
 parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4T checkpoint
+
+Commits `e4d854989`, `d8037428f`, `22019b2c8`, `306ef5bfe`,
+`70e00deae`, `8babc5489`, `cdddc25fd`, `74a3d298c`, `d031af487`,
+`143e79b17`, `ce1f759a1`, `b120370a4` and `319947e02` close the
+revision/provenance/actor portion of the whole-state checkpoint family. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+Checkpoint capture now has one discriminated provenance contract. A
+post-mutation `after-llm` checkpoint requires the exact writer-issued
+`ProjectMutationReceiptV1` and forbids a separately observed revision. An
+`initial`, `before-llm` or `user-edit` checkpoint requires the exact
+`ProjectRevisionV1` paired with the captured state and forbids a writer receipt.
+The service validates this before project or checkpoint storage access, reloads
+the authoritative ProjectService snapshot, and rejects either a revision or
+state mismatch. The durable editorial-intent and reference-style job owners now
+carry the revision embedded in the project document they captured; no guessed
+or subsequently observed revision is accepted.
+
+Checkpoint restore now requires the caller to name the project, carry the exact
+expected revision and declare an explicit `USER`, `AGENT` or `SYSTEM` actor.
+Automatic rollback is `SYSTEM`, chat undo is `AGENT`, and manual restore is
+`USER`. The former unknown-legacy actor fallback is removed. Public manual
+capture is restricted to `initial` and `user-edit`, requires the caller-bound
+revision, and cannot impersonate the internal `before-llm`/`after-llm`
+transaction phases.
+
+The battle-fixture seed path now creates its pre-edit checkpoint from a real
+ProjectService mutation snapshot, performs the fixture mutation through the
+receipt-bearing ProjectService writer, and binds the post-edit checkpoint to
+that writer receipt. The obsolete duplicate overlay-only checkpoint transaction
+owner and the unsafe browser debug checkpoint utilities were removed instead of
+being migrated as shadow authorities.
+
+The final focused closure passed 102/102 checkpoint, battle, dubbing,
+editorial-intent and reference-style tests. Repeated full 8-GB TypeScript,
+targeted quiet ESLint and `git diff --check` passed before push. No provider
+call, render, storage spend, wallet mutation, paid-cohort rerun or model
+inference occurred.
+
+This is not checkpoint-family or universal Queue 5 closure. Revision and actor
+provenance are now enforced, but each restore/capture use still needs its
+operation-specific classification for source evidence, rights, coordinate
+ranges, locks/leases, predecessors and durable derivative invalidation.
+Media-bearing whole-state replacement has the same open classification. The
+rollback-revision API is runtime-mandatory but its writer receipt is still
+type-optional and must become statically mandatory after the remaining caller
+audit. Remaining specialized ProjectService writers also require
+operation-by-operation enforcement. Full-repository quiet ESLint and the
+aggregate Queue 5 owner suite remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) close whole-state and checkpoint
+source/rights/range/lock/predecessor/invalidation classification; (2) finish the
+remaining specialized ProjectService writers serially; (3) run the aggregate
+mutation-owner suite and full-repository quiet ESLint; (4) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (5) implement Queue 6 serially; and (6) certify agency
+verticals serially unless the founder explicitly authorizes additional
+parallel execution.
