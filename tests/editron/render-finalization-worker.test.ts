@@ -108,6 +108,36 @@ const projectRenderAuthorization = {
 
 const strictMessage = { ...message, projectRenderAuthorization };
 
+const providerFreeAuthorization = {
+  ...projectRenderAuthorization,
+  jobId: 'chr_123456789012',
+};
+
+const providerFreeFinalization = {
+  ...message,
+  jobId: providerFreeAuthorization.jobId,
+  claimToken: 'rfl_chapter_claim_123',
+  sourceOutputUrl: 'https://render.example.test/chapter-aggregate.mp4',
+  sourceOutputSize: 42_000_000,
+};
+
+const providerFreeMessage = {
+  ...providerFreeFinalization,
+  projectRenderAuthorization: providerFreeAuthorization,
+};
+
+const providerFreeClaim = {
+  ok: true as const,
+  status: 'CURRENT' as const,
+  jobId: providerFreeFinalization.jobId,
+  claimToken: providerFreeFinalization.claimToken,
+  sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+  sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+  expectedDurationMs: providerFreeFinalization.expectedDurationMs,
+  authorization: providerFreeAuthorization,
+  binding: {},
+};
+
 const finalizerResult = {
   url: 'https://render.example.test/editron-finalized/rnd_test_123.mp4',
   sizeBytes: 39_000_000,
@@ -266,6 +296,89 @@ describe('render finalization orchestration', () => {
       region: 'us-east-1',
       sourceOutputUrl: message.sourceOutputUrl,
       sourceOutputSize: message.sourceOutputSize,
+    });
+  });
+
+  it('dispatches a provider-free aggregate without inventing provider identity', async () => {
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValueOnce(providerFreeClaim);
+    const result = await beginProjectRenderFinalizationV1({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    });
+
+    expect(result).toMatchObject({ state: 'enqueued' });
+    if (!('state' in result) || result.state !== 'enqueued') {
+      throw new Error('Expected provider-free finalization to enqueue.');
+    }
+    expect(result.claim.providerRenderId).toBeUndefined();
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    });
+    expect(mocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: providerFreeMessage,
+      deduplicationId: providerFreeFinalization.claimToken,
+    }));
+    const publishedBody = mocks.publishJSON.mock.calls[0]?.[0]?.body as Record<string, unknown>;
+    expect(publishedBody).not.toHaveProperty('providerRenderId');
+    expect(publishedBody).not.toHaveProperty('bucketName');
+    expect(publishedBody).not.toHaveProperty('region');
+  });
+
+  it('rejects a partial provider tuple before ProjectService or queue dispatch', async () => {
+    const partialProviderIdentities = [
+      { providerRenderId: 'provider_render_1' },
+      { providerRenderId: 'provider_render_1', bucketName: 'bucket_1' },
+      { bucketName: 'bucket_1', region: 'us-east-1' },
+    ];
+
+    for (const providerIdentity of partialProviderIdentities) {
+      await expect(beginProjectRenderFinalizationV1({
+        authorization: projectRenderAuthorization,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+        ...providerIdentity,
+      } as never)).rejects.toThrow('complete provider identity tuple');
+    }
+
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider-free authorizations without an exact chapter aggregate ID', async () => {
+    const invalidAuthorizations = [
+      projectRenderAuthorization,
+      { ...projectRenderAuthorization, jobId: 'chr_bad' },
+    ];
+
+    for (const authorization of invalidAuthorizations) {
+      await expect(beginProjectRenderFinalizationV1({
+        authorization,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      })).rejects.toThrow('chapter aggregate authorization');
+    }
+
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
+  it('releases the exact provider-free claim when queue dispatch fails', async () => {
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValueOnce(providerFreeClaim);
+    const dispatchError = new Error('qstash unavailable');
+    mocks.publishJSON.mockRejectedValueOnce(dispatchError);
+
+    await expect(beginProjectRenderFinalizationV1({
+      authorization: providerFreeAuthorization,
+      sourceOutputUrl: providerFreeFinalization.sourceOutputUrl,
+      sourceOutputSize: providerFreeFinalization.sourceOutputSize,
+    })).rejects.toBe(dispatchError);
+
+    expect(mocks.releaseProjectRenderJobFinalizationClaimTransaction).toHaveBeenCalledWith({
+      authorization: providerFreeAuthorization,
+      claimToken: providerFreeFinalization.claimToken,
     });
   });
 

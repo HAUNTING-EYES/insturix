@@ -14,6 +14,7 @@ import {
 } from '@/lib/editron/services/render-job-service';
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
+const CHAPTER_AGGREGATE_JOB_ID = /^chr_[A-Za-z0-9_-]{12}$/;
 
 export const RenderFinalizationJobMessageSchema = z.object({
   version: z.literal('editron-render-finalization-job-v1'),
@@ -193,20 +194,38 @@ export type BeginProjectRenderFinalizationResultV1 =
   | { state: 'enqueued'; claim: ProjectRenderFinalizationClaimV1; messageId: string | null }
   | ProjectRenderJobNotCurrentResultV1;
 
-/**
- * Lease a strict project render through its full authorization tuple before
- * handing it to the durable finalizer queue. The queue payload intentionally
- * remains signed and carries the strict authorization only to the internal
- * worker; it is never returned to a browser.
- */
-export async function beginProjectRenderFinalizationV1(input: {
+type ProviderBoundProjectRenderFinalizationInputV1 = {
   authorization: unknown;
   providerRenderId: string;
   bucketName: string;
   region: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
-}): Promise<BeginProjectRenderFinalizationResultV1> {
+};
+
+type ProviderFreeProjectRenderFinalizationInputV1 = {
+  authorization: unknown;
+  providerRenderId?: never;
+  bucketName?: never;
+  region?: never;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+};
+
+export type BeginProjectRenderFinalizationInputV1 =
+  | ProviderBoundProjectRenderFinalizationInputV1
+  | ProviderFreeProjectRenderFinalizationInputV1;
+
+/**
+ * Lease a strict project render through its full authorization tuple before
+ * handing it to the durable finalizer queue. The queue payload intentionally
+ * remains signed and carries the strict authorization only to the internal
+ * worker; it is never returned to a browser.
+ */
+export async function beginProjectRenderFinalizationV1(
+  input: BeginProjectRenderFinalizationInputV1,
+): Promise<BeginProjectRenderFinalizationResultV1> {
+  assertProjectRenderFinalizationInput(input);
   const claim = await projectService.claimProjectRenderJobFinalizationTransactionV1(input);
   if (!claim.ok) return claim;
 
@@ -229,6 +248,31 @@ export async function beginProjectRenderFinalizationV1(input: {
       );
     }
     throw dispatchError;
+  }
+}
+
+/**
+ * ProjectService owns provider-value validation. This boundary only rejects a
+ * mixed tuple so provider-free aggregate claims cannot gain partial identity.
+ */
+function assertProjectRenderFinalizationInput(
+  input: BeginProjectRenderFinalizationInputV1,
+): void {
+  const supplied = [
+    input.providerRenderId,
+    input.bucketName,
+    input.region,
+  ].filter((value) => value !== undefined).length;
+  if (supplied !== 0 && supplied !== 3) {
+    throw new Error('Strict render finalization requires a complete provider identity tuple.');
+  }
+  if (supplied === 0) {
+    const authorization = ProjectRenderJobAuthorizationSchema.parse(input.authorization);
+    if (!CHAPTER_AGGREGATE_JOB_ID.test(authorization.jobId)) {
+      throw new Error(
+        'Provider-free render finalization requires a chapter aggregate authorization.',
+      );
+    }
   }
 }
 
