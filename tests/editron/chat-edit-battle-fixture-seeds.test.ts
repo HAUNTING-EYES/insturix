@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildChatBattleInitialProjectDocument,
   persistChatBattleDurableSeeds,
   prepareChatBattleDurableSeeds,
 } from '@/lib/editron/services/chat-edit-battle-fixture-seeds';
@@ -11,6 +12,17 @@ import {
 import type { ChatRestorableProjectField } from '@/lib/editron/services/checkpoint-service';
 
 const NOW = new Date('2026-07-25T10:00:00.000Z');
+const REVISION = {
+  schemaVersion: 1 as const,
+  value: 4,
+  compatibilityUpdatedAt: NOW.toISOString(),
+};
+const WRITER_RECEIPT = {
+  schemaVersion: 1 as const,
+  projectId: 'proj_chatbattle_seed',
+  revision: { ...REVISION, value: 5 },
+  committedAt: '2026-07-25T10:00:01.000Z',
+};
 
 describe('chat battle durable fixture seeds', () => {
   it.each(['undo-overlay-edit', 'undo-full-state'])(
@@ -22,7 +34,7 @@ describe('chat battle durable fixture seeds', () => {
         project: project(),
         now: NOW,
       });
-      const dependencies = seedDependencies();
+      const dependencies = seedDependencies(prepared);
 
       await persistChatBattleDurableSeeds(prepared, dependencies);
 
@@ -54,6 +66,8 @@ describe('chat battle durable fixture seeds', () => {
         }),
       ]));
       expect(prepared.undo!.beforeProject.overlays).not.toEqual(prepared.project.overlays);
+      expect(buildChatBattleInitialProjectDocument(prepared).overlays)
+        .toEqual(prepared.undo!.beforeProject.overlays);
       expect(evaluateChatBattleFixturePreconditions(scenario, prepared.project))
         .toMatchObject({ ok: true, satisfied: ['ai-edit-checkpoint'] });
       expect(dependencies.claimChatEditOperation).toHaveBeenCalledWith(expect.objectContaining({
@@ -62,11 +76,19 @@ describe('chat battle durable fixture seeds', () => {
         projectId: 'proj_chatbattle_seed',
         userId: 'user_fixture',
         operationStatus: 'running',
+        capturedProjectRevision: REVISION,
         force: true,
       }));
+      expect(dependencies.commitUndoFixtureMutation).toHaveBeenCalledWith({
+        userId: 'user_fixture',
+        projectId: 'proj_chatbattle_seed',
+        project: prepared.project,
+        expectedRevision: REVISION,
+      });
       expect(dependencies.createCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
         checkpointId: prepared.undo!.afterCheckpointId,
         type: 'after-llm',
+        capturedWriterReceipt: WRITER_RECEIPT,
         force: true,
       }));
       expect(dependencies.updateChatEditOperation).toHaveBeenCalledWith(
@@ -92,7 +114,7 @@ describe('chat battle durable fixture seeds', () => {
       project: project(),
       now: NOW,
     });
-    const dependencies = seedDependencies();
+    const dependencies = seedDependencies(prepared);
 
     await persistChatBattleDurableSeeds(prepared, dependencies);
 
@@ -106,6 +128,7 @@ describe('chat battle durable fixture seeds', () => {
       projectId: 'proj_chatbattle_seed',
       userId: 'user_fixture',
       project: prepared.project,
+      projectRevision: REVISION,
     });
     expect(dependencies.claimChatEditOperation).not.toHaveBeenCalled();
   });
@@ -175,7 +198,7 @@ describe('chat battle durable fixture seeds', () => {
   });
 });
 
-function seedDependencies() {
+function seedDependencies(prepared: ReturnType<typeof prepareChatBattleDurableSeeds>) {
   const claimChatEditOperation = vi.fn(async (input: any) => ({
     claimed: true,
     checkpoint: checkpoint(input.checkpointId, input.operationId),
@@ -194,6 +217,11 @@ function seedDependencies() {
     claimChatEditOperation,
     createCheckpoint,
     updateChatEditOperation: vi.fn(async () => undefined),
+    loadProjectForMutation: vi.fn(async () => ({
+      project: buildChatBattleInitialProjectDocument(prepared),
+      revision: REVISION,
+    })),
+    commitUndoFixtureMutation: vi.fn(async () => WRITER_RECEIPT),
     prepareChatAiEditTransaction: vi.fn(async () => ({
       status: 'ready' as const,
       beforeCheckpointId: 'ckpt_replay_before',
@@ -238,5 +266,7 @@ function project(): Record<string, unknown> {
         disposable: true,
       },
     },
+    projectRevision: REVISION.value,
+    updatedAt: NOW,
   };
 }

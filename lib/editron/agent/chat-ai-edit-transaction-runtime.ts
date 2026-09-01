@@ -113,7 +113,7 @@ export async function prepareChatAiEditTransaction(
     projectId: string;
     userId: string;
     project: Record<string, unknown>;
-    projectRevision?: ProjectRevisionV1;
+    projectRevision: ProjectRevisionV1;
   },
   dependencies: RuntimeDependencies = {},
 ): Promise<PrepareChatAiEditTransactionResult> {
