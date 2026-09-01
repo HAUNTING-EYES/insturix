@@ -15175,3 +15175,56 @@ then chapter child-render cleanup and ambiguous-dispatch recovery, followed
 by deployed IAM/live deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues
 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
 `BLOCKED_NOT_AUTHORIZED`.
+
+## 2026-09-01 vertical-convergence Phase 3O checkpoint
+
+Commits `5244d0527`, `f1027fd85`, `11ab47aa0`, `a679f4b9a`,
+`5cb301bac`, `c6ccb0e48`, `ed8ebf284`, `dc7a77282` and `bf83b880d`
+migrate the standard whole-project render progress, active-read and history-
+read consumers onto the strict `PROJECT_SNAPSHOT` owners introduced in the
+preceding phases.
+
+The progress route now requires the authenticated requester, current
+ProjectService access/revision and exact admission/provider identity. An exact
+durable admission ID wins; a provider ID is accepted only when it identifies
+exactly one row, so an admission/provider collision cannot select an arbitrary
+job. Strict progress, provider failure, finalization and completion effects use
+the ProjectService transaction owners. The provider resource tuple is now
+`(providerRenderId, bucketName, region)` throughout dispatch, signed webhook
+custom data, progress polling, atomic failure/finalization filters and stale-
+source cleanup materialization. Missing, partial or mismatched strict tuples
+fail before mutation. New browser render state preserves the region across
+reload/resume and scopes active reads by project.
+
+The strict active reader returns only current-revision jobs with exact owner,
+requester, project, binding and manifest identity. The strict history reader
+allows valid prior project revisions while retaining exact owner, requester,
+project, binding, manifest and artifact-state validation. Both HTTP consumers
+first prove live ProjectService access. Genuine unbound rows retain an
+explicit compatibility path; target-artifact-bound or project-snapshot-bound
+rows cannot enter it. Strict history is currently requester-scoped: an
+authorized collaborator sees strict renders they requested, not a complete
+cross-collaborator project audit. That broader collaborative-history product
+contract remains open and is not inferred here.
+
+The active/history route and startup closure passed 50/50 tests, the strict
+read-owner suite passed 19/19, the collision-safe progress suite passed 12/12,
+and the latest provider-tuple owner/transaction/route/finalizer closure passed
+98/98. The full repository TypeScript check passed with the project compiler
+and an 8 GB Node heap; full `npx eslint . --quiet` and `git diff --check`
+passed. No provider call, deletion, paid cohort rerun, model inference, project
+content mutation or external spend occurred.
+
+This is partial standard-render consumer convergence, not complete render-
+chain convergence. Chapter aggregate children still lack their own immutable
+per-child cleanup descriptor and deployed cleanup receipt; concat output has
+separate object identity and must never be passed to Remotion `deleteRender`.
+Ambiguous-dispatch recovery, deployed IAM/live deletion proof and complete
+chapter progress/finalization recovery remain open. Queue 5 remains
+`ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains
+`MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`.
+
+The next bounded order is chapter child-render cleanup with separate concat-
+object cleanup, then ambiguous-dispatch recovery and deployed IAM/live
+deletion proof. No certification, agency-class completion, convergence,
+successor receipt or `GO` is claimed.
