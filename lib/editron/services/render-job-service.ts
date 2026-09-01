@@ -136,12 +136,6 @@ export function createProjectRenderJobAuthorizationV1(
   });
 }
 
-export function assertProjectRenderJobAuthorizationV1(
-  input: unknown,
-): asserts input is ProjectRenderJobAuthorizationV1 {
-  ProjectRenderJobAuthorizationSchema.parse(input);
-}
-
 const LEGACY_RENDER_JOB_MUTATION_EXCLUSION: Filter<RenderJob> = {
   projectRenderSnapshotBinding: { $exists: false },
 };
