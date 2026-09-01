@@ -160,7 +160,9 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     );
   });
 
-  it("records and finalizes the exact pre-Director refund identity without changing status", async () => {
+  it.each(["analyzing", "directing_queued"])(
+    "records and finalizes the exact pre-Director refund identity from %s without changing status",
+    async (refundStatus) => {
     const refundAt = "2026-09-01T12:03:00.000Z";
     const refundEvent = {
       creditTransactionId: "credit_tx_exact",
@@ -171,9 +173,9 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     vi.setSystemTime(new Date(refundAt));
     try {
       persistence.findOne
-        .mockResolvedValueOnce(project({ autoEditStatus: "directing_queued" }))
+        .mockResolvedValueOnce(project({ autoEditStatus: refundStatus }))
         .mockResolvedValueOnce(project({
-          autoEditStatus: "directing_queued",
+          autoEditStatus: refundStatus,
           projectRevision: 8,
           updatedAt: new Date(refundAt),
           autoEditRefundPending: {
@@ -201,7 +203,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
       expect(persistence.updateOne).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
-          autoEditStatus: "directing_queued",
+          autoEditStatus: refundStatus,
           autoEditRefunded: { $ne: true },
           autoEditRefundPending: null,
         }),
@@ -229,7 +231,7 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
       expect(persistence.updateOne).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
-          autoEditStatus: "directing_queued",
+          autoEditStatus: refundStatus,
           "autoEditRefundPending.schemaVersion": 1,
           "autoEditRefundPending.uploadBatchId": BATCH_ID,
           "autoEditRefundPending.creditTransactionId": refundEvent.creditTransactionId,
@@ -251,7 +253,8 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+    },
+  );
 
   it("does not finalize a refund when the pending identity no longer matches", async () => {
     persistence.findOne

@@ -61,6 +61,7 @@ import {
 import {
   ASSIST_STATUS_READY,
   buildAssistHydration,
+  cancelUnchargedAssistScan,
   isAssistIntakeEnabled,
   isAssistProject,
   parseEditMode,
@@ -306,6 +307,98 @@ async function settleBatchAutoEditRefundV1(input: {
     return 'refund-record-pending';
   }
   return 'refunded';
+}
+
+type BatchTerminalProjectionResultV1 = Readonly<{
+  transitionId: string;
+  batchProjectionPending: boolean;
+  projectMutationReceipt?: ProjectMutationReceiptV1;
+  assistCancellation?: Awaited<ReturnType<typeof cancelUnchargedAssistScan>>;
+}>;
+
+async function recordAutoProjectThenBatchTerminalV1(input: {
+  db: { collection: (name: string) => any };
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  event: ProjectBatchAutoEditLifecycleEventV1;
+  expectedBatchStatuses: BatchDocument['orchestrationStatus'][];
+  batchStatus: 'failed' | 'needs_input';
+  batchFields: Record<string, unknown>;
+}): Promise<BatchTerminalProjectionResultV1> {
+  const transitionId = randomUUID();
+  const projectMutationReceipt = await commitBatchAutoEditProjectLifecycleV1({
+    userId: input.userId,
+    projectId: input.projectId,
+    uploadBatchId: input.uploadBatchId,
+    transitionId,
+    event: input.event,
+  });
+  const projection = await input.db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+    {
+      uploadBatchId: input.uploadBatchId,
+      userId: input.userId,
+      projectId: input.projectId,
+      orchestrationStatus: { $in: input.expectedBatchStatuses },
+    },
+    {
+      $set: {
+        orchestrationStatus: input.batchStatus,
+        ...input.batchFields,
+        orchestrationLastTransitionId: transitionId,
+        orchestrationProjectMutationReceipt: projectMutationReceipt,
+        updatedAt: new Date(),
+      },
+      $unset: { orchestrationLeaseUntil: '', orchestrationTransitionId: '' },
+    },
+  );
+  return {
+    transitionId,
+    projectMutationReceipt,
+    batchProjectionPending: projection.matchedCount !== 1,
+  };
+}
+
+async function cancelAssistProjectThenBatchTerminalV1(input: {
+  db: { collection: (name: string) => any };
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  reason: string;
+  expectedBatchStatuses: BatchDocument['orchestrationStatus'][];
+}): Promise<BatchTerminalProjectionResultV1> {
+  const transitionId = randomUUID();
+  const assistCancellation = await cancelUnchargedAssistScan(input.db, {
+    projectId: input.projectId,
+    userId: input.userId,
+    reason: input.reason,
+  });
+  if (assistCancellation !== 'cancelled' && assistCancellation !== 'already-cancelled') {
+    return { transitionId, assistCancellation, batchProjectionPending: true };
+  }
+  const projection = await input.db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+    {
+      uploadBatchId: input.uploadBatchId,
+      userId: input.userId,
+      projectId: input.projectId,
+      orchestrationStatus: { $in: input.expectedBatchStatuses },
+    },
+    {
+      $set: {
+        orchestrationStatus: 'failed',
+        orchestrationError: input.reason,
+        orchestrationLastTransitionId: transitionId,
+        orchestrationAssistCancellation: assistCancellation,
+        updatedAt: new Date(),
+      },
+      $unset: { orchestrationLeaseUntil: '', orchestrationTransitionId: '' },
+    },
+  );
+  return {
+    transitionId,
+    assistCancellation,
+    batchProjectionPending: projection.matchedCount !== 1,
+  };
 }
 
 const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
@@ -1255,16 +1348,39 @@ export async function POST(request: NextRequest) {
     let readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
     let visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
     if (visualAssets.length === 0) {
+      const noVisualReason = 'Upload batch has no usable video or image assets.';
+      let terminalProjection: BatchTerminalProjectionResultV1 | null = null;
       if (batch.projectId) {
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: batch.projectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: 'Upload batch has no usable video or image assets.', updatedAt: new Date() } },
-        );
+        activeProjectId = batch.projectId;
+        const snapshot = await projectService.loadProjectForMutation(userId, batch.projectId);
+        const project = snapshot.project as unknown as Record<string, unknown>;
+        if (isAssistProject(project)) {
+          terminalProjection = await cancelAssistProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: batch.projectId,
+            uploadBatchId,
+            reason: noVisualReason,
+            expectedBatchStatuses: ['requested', 'waiting_analysis', 'retryable_error'],
+          });
+        } else if (project.autoEditStatus === 'analyzing') {
+          terminalProjection = await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: batch.projectId,
+            uploadBatchId,
+            event: { kind: 'NO_USABLE_VISUAL_ASSETS', errorMessage: noVisualReason },
+            expectedBatchStatuses: ['requested', 'waiting_analysis', 'retryable_error'],
+            batchStatus: 'failed',
+            batchFields: { orchestrationError: noVisualReason },
+          });
+        }
       }
       return NextResponse.json({
         success: false,
-        error: 'Upload batch has no usable video or image assets.',
+        error: noVisualReason,
         batch: summary,
+        ...(terminalProjection ? terminalProjection : {}),
       }, { status: 400 });
     }
 
@@ -1687,15 +1803,34 @@ export async function POST(request: NextRequest) {
         );
         if (visualAssets.length === 0) {
           const batchReason = `${reason} No usable video or image assets completed successfully.`;
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId },
-            { $set: { orchestrationStatus: 'failed', orchestrationError: batchReason, updatedAt: now } },
-          );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId },
-            { $set: { autoEditStatus: 'failed', autoEditError: batchReason, updatedAt: now } },
-          );
-          return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed', error: batchReason });
+          const snapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+          const project = snapshot.project as unknown as Record<string, unknown>;
+          const terminalProjection = isAssistProject(project)
+            ? await cancelAssistProjectThenBatchTerminalV1({
+                db,
+                userId,
+                projectId: activeProjectId,
+                uploadBatchId,
+                reason: batchReason,
+                expectedBatchStatuses: ['waiting_analysis'],
+              })
+            : await recordAutoProjectThenBatchTerminalV1({
+                db,
+                userId,
+                projectId: activeProjectId,
+                uploadBatchId,
+                event: { kind: 'ANALYSIS_DEADLINE_EXHAUSTED', errorMessage: batchReason },
+                expectedBatchStatuses: ['waiting_analysis'],
+                batchStatus: 'failed',
+                batchFields: { orchestrationError: batchReason },
+              });
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            status: isAssistProject(project) ? 'scan_failed' : 'failed',
+            error: batchReason,
+            ...terminalProjection,
+          });
         }
         console.warn(`[BatchAutoEdit] Fail-forward after analysis deadline: composing ${visualAssets.length} successful assets; excluded ${timedOutAssetIds.length} timed-out assets.`);
       } else {
@@ -1788,15 +1923,30 @@ export async function POST(request: NextRequest) {
 
     creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
     if (!creditCheck.allowed) {
-      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-        { uploadBatchId, userId, projectId: activeProjectId },
-        { $set: { orchestrationStatus: 'failed', orchestrationError: 'Insufficient credits', updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
-      );
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        { $set: { autoEditStatus: 'failed', autoEditError: 'Insufficient credits', updatedAt: new Date() } },
-      );
-      return creditCheck.errorResponse!;
+      const terminalProjection = assistLaneActive
+        ? await cancelAssistProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            reason: 'Insufficient credits',
+            expectedBatchStatuses: ['composing'],
+          })
+        : await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            event: { kind: 'INSUFFICIENT_CREDITS', errorMessage: 'Insufficient credits' },
+            expectedBatchStatuses: ['composing'],
+            batchStatus: 'failed',
+            batchFields: { orchestrationError: 'Insufficient credits' },
+          });
+      const creditResponse = creditCheck.errorResponse!;
+      const creditPayload = await creditResponse.clone().json().catch(() => ({ error: 'Insufficient credits' }));
+      return NextResponse.json({ ...creditPayload, projectId: activeProjectId, ...terminalProjection }, {
+        status: creditResponse.status,
+      });
     }
     const deduction = await creditCheck.deduct();
     creditsDeducted = true;

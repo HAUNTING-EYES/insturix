@@ -613,6 +613,165 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it('records unusable-media failure through ProjectService before projecting the batch', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mediaAssets = [{
+      assetId: 'audio_1',
+      userId: 'user_1',
+      filename: 'audio.wav',
+      type: 'audio',
+      size: 100,
+      analysisStatus: 'complete',
+    }];
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      assetIds: ['audio_1'],
+    };
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: {
+        editMode: 'auto',
+        autoEditStatus: 'analyzing',
+        sourceUploadBatchId: 'batch_1',
+      },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:04.000Z' },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual(expect.objectContaining({
+      success: false,
+      batchProjectionPending: false,
+      projectMutationReceipt: expect.objectContaining({ projectId: 'proj_batch_1' }),
+    }));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        uploadBatchId: 'batch_1',
+        event: { kind: 'NO_USABLE_VISUAL_ASSETS', errorMessage: 'Upload batch has no usable video or image assets.' },
+      }),
+    );
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder[0],
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('records analysis-deadline exhaustion before projecting a failed batch', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_DEADLINE_MS = String(5 * 60 * 1000);
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    for (const asset of mediaAssets) {
+      asset.analysisStatus = 'analyzing';
+      if (asset.type === 'video') {
+        asset.deepAnalysisStatus = 'queued';
+        asset.deepAnalysisTargetVersion = ASSET_DEEP_ANALYSIS_VERSION;
+      }
+    }
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(Date.now() - 6 * 60 * 1000),
+    };
+    mocks.loadProjectForMutation.mockResolvedValue({
+      project: { editMode: 'auto', autoEditStatus: 'analyzing', sourceUploadBatchId: 'batch_1' },
+      revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: '2026-09-01T00:00:04.000Z' },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 30, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual(expect.objectContaining({ status: 'failed', batchProjectionPending: false }));
+    expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        event: expect.objectContaining({ kind: 'ANALYSIS_DEADLINE_EXHAUSTED' }),
+      }),
+    );
+    expect(mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateBatch.mock.invocationCallOrder.at(-1)!,
+    );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { editMode: 'auto' as const, expectedEvent: 'INSUFFICIENT_CREDITS' },
+    { editMode: 'assist' as const, expectedEvent: null },
+  ])('terminates an uncharged $editMode project before projecting insufficient credits', async ({ editMode, expectedEvent }) => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({
+      editMode,
+      autoEditStatus: 'analyzing',
+      projectRevision: 4,
+      updatedAt: new Date('2026-09-01T00:00:04.000Z'),
+    });
+    mocks.checkCredits.mockResolvedValue({
+      allowed: false,
+      errorResponse: new Response(JSON.stringify({
+        error: 'Insufficient credits',
+        required: 15,
+        available: 0,
+        code: 'INSUFFICIENT_CREDITS',
+      }), { status: 402, headers: { 'content-type': 'application/json' } }),
+      deduct: mocks.deductCredits,
+      refund: mocks.refundCredits,
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(payload).toEqual(expect.objectContaining({
+      error: 'Insufficient credits',
+      projectId: 'proj_batch_1',
+      batchProjectionPending: false,
+    }));
+    if (expectedEvent) {
+      expect(mocks.recordBatchAutoEditLifecycleV1).toHaveBeenCalledWith(
+        'user_1',
+        'proj_batch_1',
+        expect.objectContaining({ event: { kind: expectedEvent, errorMessage: 'Insufficient credits' } }),
+      );
+      expect(mocks.updateProject).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.recordBatchAutoEditLifecycleV1).not.toHaveBeenCalled();
+      expect(mocks.updateProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'proj_batch_1',
+          userId: 'user_1',
+          editMode: 'assist',
+        }),
+        expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      );
+    }
+    const projectOrder = expectedEvent
+      ? mocks.recordBatchAutoEditLifecycleV1.mock.invocationCallOrder[0]
+      : mocks.updateProject.mock.invocationCallOrder[0];
+    expect(projectOrder).toBeLessThan(mocks.updateBatch.mock.invocationCallOrder.at(-1)!);
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+  });
+
   it('derives video readiness from semantic capability evidence instead of aggregate completion', () => {
     const requirements = {
       semanticVisual: {
