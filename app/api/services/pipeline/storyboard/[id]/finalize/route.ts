@@ -1008,29 +1008,42 @@ export async function POST(
       });
     }
 
-    // Update name + stage on reused project (it was created with a possibly-different title)
-    if (existingProject) {
-      const db2 = await getDatabase();
-      await db2.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: project.projectId },
-        {
-          $set: {
-            name: projectName,
-            pipelineStage: 'edit',
-            ...(brandId ? { brandId } : {}),
-            ...(storyboardSourceSessionId ? { sourceSessionId: storyboardSourceSessionId } : {}),
-            updatedAt: new Date(),
-          },
-        },
-      );
-    }
-
-    await projectService.saveProject(userId, project.projectId, {
+    const finalizeSnapshot = await projectService.loadProjectForMutation(userId, project.projectId);
+    await projectService.saveProjectWithReceipt(userId, project.projectId, {
       overlays,
       aspectRatio: aspectRatio as any,
       playerDimensions: { width, height },
       fps,
       durationInFrames: currentFrame,
+    }, {
+      expectedRevision: finalizeSnapshot.revision,
+      projectUpdates: {
+        name: projectName,
+        pipelineStage: 'edit',
+        sourceStoryboardId: id,
+        musicGenerationPolicy,
+        ...(brandId ? { brandId } : {}),
+        ...(storyboardSourceSessionId ? { sourceSessionId: storyboardSourceSessionId } : {}),
+        ...(musicCoveragePlan ? {
+          musicCoveragePlan,
+          'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+        } : {}),
+        ...(musicGenerationPolicy.musicPreference
+          ? { musicPreference: musicGenerationPolicy.musicPreference }
+          : {}),
+        ...(musicGenerationPolicy.editorialPreferences
+          ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
+          : {}),
+        // A successful retry must remove a stale banner left by an earlier
+        // finalize attempt; a failed attempt records its exact surfaced error.
+        ...(editDirectionsFailed ? {
+          editDirectionsFailed: true,
+          editDirectionsError: editDirectionsError || 'Unknown error',
+        } : {}),
+      },
+      projectUnsets: editDirectionsFailed
+        ? []
+        : ['editDirectionsFailed', 'editDirectionsError'],
     });
 
     // ─── Link storyboard ↔ project bidirectionally ────────────────
@@ -1040,34 +1053,6 @@ export async function POST(
     await db.collection('storyboards').updateOne(
       { storyboardId: id },
       { $set: { projectId: project.projectId, updatedAt: new Date() } },
-    );
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: project.projectId },
-      {
-        $set: {
-          sourceStoryboardId: id,
-          musicGenerationPolicy,
-          ...(musicCoveragePlan ? {
-            musicCoveragePlan,
-            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-          } : {}),
-          ...(musicGenerationPolicy.musicPreference
-            ? { musicPreference: musicGenerationPolicy.musicPreference }
-            : {}),
-          ...(musicGenerationPolicy.editorialPreferences
-            ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
-            : {}),
-          updatedAt: new Date(),
-          // Bundle 4 Toyota B.silent.1 fix: if applyEditDirections failed,
-          // persist that flag on the project so the editor UI can show a
-          // "Edit directions failed — filters/transitions/pacing missing"
-          // banner. Previously this was completely invisible.
-          ...(editDirectionsFailed && {
-            editDirectionsFailed: true,
-            editDirectionsError: editDirectionsError || 'Unknown error',
-          }),
-        },
-      },
     );
 
     // ─── Update project link with new projectId (fail-open) ────────
