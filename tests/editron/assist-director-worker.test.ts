@@ -111,6 +111,28 @@ describe('director worker QStash boundary', () => {
     expect(mocks.updateOne).not.toHaveBeenCalled();
     expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
   });
+
+  it('returns a retryable response while the exact analysis dispatch publication is pending', async () => {
+    mocks.claimDirectorRunV1.mockResolvedValue({ disposition: 'DISPATCH_PENDING' });
+
+    const response = await POST(request({
+      projectId: 'p1', userId: 'u1', profileId: 'A-01',
+      analysisRunId: 'analysis_run_12345678901234567890',
+      analysisDirectorDispatchId: 'editron_director_dispatch_exact',
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: { code: 'DIRECTOR_DISPATCH_PENDING', projectId: 'p1' },
+    });
+    expect(mocks.claimDirectorRunV1).toHaveBeenCalledWith('u1', 'p1', {
+      analysisRunId: 'analysis_run_12345678901234567890',
+      analysisDirectorDispatchId: 'editron_director_dispatch_exact',
+    });
+    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+  });
 });
 
 describe('director worker assist guard', () => {

@@ -42,6 +42,12 @@ async function handler(request: NextRequest) {
     if (result.disposition === 'ALREADY_PROCESSED') {
       return NextResponse.json({ success: true, skipped: true, reason: 'already_processed' });
     }
+    if (result.disposition === 'DISPATCH_PENDING') {
+      return NextResponse.json(
+        { success: false, error: { code: 'DIRECTOR_DISPATCH_PENDING', projectId: result.projectId } },
+        { status: 503 },
+      );
+    }
     if (result.disposition === 'ASSIST_READY') {
       return NextResponse.json({
         success: true,

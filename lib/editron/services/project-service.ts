@@ -1089,10 +1089,11 @@ export interface ProjectAnalysisDeepLeaseV1 {
 export interface ProjectAnalysisDirectorDispatchV1 {
   schemaVersion: 1;
   deduplicationId: string;
-  status: "pending" | "published";
+  status: "pending" | "published" | "inline_ready";
   preparedAt: string;
   publishedAt?: string;
   providerMessageId?: string;
+  inlineReadyAt?: string;
 }
 
 export interface ProjectAnalysisQueueFactsV1 {
@@ -1241,6 +1242,19 @@ export interface ProjectAnalysisDirectorDispatchPublicationCommandV1 {
   providerMessageId: string;
 }
 
+export interface ProjectAnalysisDirectorDispatchPrepareCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+}
+
+export interface ProjectAnalysisDirectorDispatchInlineReadyCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
+}
+
 export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
   expectedRevision: ProjectRevisionV1;
   batchId: string;
@@ -1284,6 +1298,10 @@ export type ProjectPipelineDirectorIntentResultV1 =
 export interface ProjectDirectorRunClaimOptionsV1 {
   /** Required only when ProjectService prepared a pipeline-video dispatch. */
   pipelineDirectorDispatchToken?: string;
+  /** Exact analysis run that authorized this Director execution. */
+  analysisRunId?: string;
+  /** Exact prepared analysis dispatch; omitted only by legacy run-bound messages. */
+  analysisDirectorDispatchId?: string;
 }
 
 /**
@@ -1325,6 +1343,7 @@ export interface ProjectDirectorDecisionLogCommandV1 {
 export type ProjectDirectorRunClaimDispositionV1 =
   | "CLAIMED"
   | "ASSIST_PROJECT"
+  | "DISPATCH_PENDING"
   | "PROJECT_NOT_FOUND"
   | "NOT_ELIGIBLE";
 
@@ -1339,6 +1358,9 @@ export type ProjectDirectorRunClaimResultV1 =
       disposition: "ASSIST_PROJECT";
       project: Project;
       receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "DISPATCH_PENDING";
     }
   | {
       disposition: "PROJECT_NOT_FOUND";
@@ -6014,9 +6036,9 @@ export class ProjectService {
     }
     if (currentRun.state === "directing_queued" && currentRun.directorDispatch) {
       return {
-        disposition: currentRun.directorDispatch.status === "published"
-          ? "DIRECTOR_DISPATCH_PUBLISHED"
-          : "DIRECTOR_DISPATCH_PENDING",
+        disposition: currentRun.directorDispatch.status === "pending"
+          ? "DIRECTOR_DISPATCH_PENDING"
+          : "DIRECTOR_DISPATCH_PUBLISHED",
         run: structuredClone(currentRun),
         currentRevision,
       };
@@ -6143,17 +6165,13 @@ export class ProjectService {
 
     const committedAt = new Date();
     const { deepAnalysisLease: _deepAnalysisLease, ...runWithoutLease } = currentRun;
-    const directorDispatch: ProjectAnalysisDirectorDispatchV1 = {
-      schemaVersion: 1,
-      deduplicationId: `editron_director_${hashEditronCanonicalJsonV1({
-        projectId,
-        runId: input.runId,
-        sourceAssetId: input.sourceAssetId,
-        phase2EvidenceHash,
-      }).slice(0, 48)}`,
-      status: "pending",
-      preparedAt: committedAt.toISOString(),
-    };
+    const directorDispatch = createProjectAnalysisDirectorDispatchV1({
+      projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      evidenceHash: phase2EvidenceHash,
+      preparedAt: committedAt,
+    });
     const nextRun: ProjectAnalysisRunV1 = {
       ...runWithoutLease,
       state: "directing_queued",
@@ -6203,6 +6221,152 @@ export class ProjectService {
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
 
     const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, committedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Prepares one Director dispatch when Phase 2 is intentionally skipped. */
+  async prepareProjectAnalysisDirectorDispatchV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDirectorDispatchPrepareCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDirectorDispatchPrepareCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (
+      currentRun.state === "directing_queued"
+      && currentRun.directorDispatch
+      && projectRecordValueV1(current, "autoEditStatus") === "directing_queued"
+    ) {
+      return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    }
+    if (
+      (currentRun.state !== "analysis_complete" && currentRun.state !== "directing_queued")
+      || projectRecordValueV1(current, "autoEditStatus") !== currentRun.state
+      || currentRun.directorDispatch !== undefined
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const preparedAt = new Date();
+    const directorDispatch = createProjectAnalysisDirectorDispatchV1({
+      projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      evidenceHash: currentRun.phase2EvidenceHash
+        ?? currentRun.phase1EvidenceHash
+        ?? currentRun.admissionHash,
+      preparedAt,
+    });
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      state: "directing_queued",
+      updatedAt: preparedAt.toISOString(),
+      directorDispatch,
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: currentRun.state,
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": currentRun.state,
+        "autoEditAnalysisRunV1.directorDispatch": { $exists: false },
+      },
+      {
+        $set: {
+          autoEditStatus: "directing_queued",
+          autoEditAnalysisRunV1: nextRun,
+          updatedAt: preparedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, preparedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Activates a prepared dispatch for the trusted development inline path. */
+  async recordProjectAnalysisDirectorDispatchInlineReadyV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDirectorDispatchInlineReadyCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDirectorDispatchInlineReadyCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    const dispatch = currentRun?.directorDispatch;
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === "directing_queued"
+      && dispatch?.status === "inline_ready"
+      && dispatch.deduplicationId === input.deduplicationId
+    ) return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== "directing_queued"
+      || projectRecordValueV1(current, "autoEditStatus") !== "directing_queued"
+      || dispatch?.status !== "pending"
+      || dispatch.deduplicationId !== input.deduplicationId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const inlineReadyAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: inlineReadyAt.toISOString(),
+      directorDispatch: { ...dispatch, status: "inline_ready", inlineReadyAt: inlineReadyAt.toISOString() },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "directing_queued",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "directing_queued",
+        "autoEditAnalysisRunV1.directorDispatch.status": "pending",
+        "autoEditAnalysisRunV1.directorDispatch.deduplicationId": input.deduplicationId,
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: inlineReadyAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, inlineReadyAt);
     this.publishMutationReceipt(receipt);
     return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
   }
@@ -6589,6 +6753,13 @@ export class ProjectService {
             options.pipelineDirectorDispatchToken,
           )
         )
+        || (options.analysisRunId !== undefined
+          && !isBoundedNonEmptyStringV1(options.analysisRunId, 200))
+        || (options.analysisDirectorDispatchId !== undefined
+          && !isBoundedNonEmptyStringV1(options.analysisDirectorDispatchId, 200))
+        || (options.analysisDirectorDispatchId !== undefined && options.analysisRunId === undefined)
+        || (options.pipelineDirectorDispatchToken !== undefined
+          && options.analysisRunId !== undefined)
       )
     ) {
       return { disposition: "NOT_ELIGIBLE" };
@@ -6600,6 +6771,8 @@ export class ProjectService {
     })) as Project | null;
     if (!current) return { disposition: "PROJECT_NOT_FOUND" };
     const suppliedDispatchToken = options?.pipelineDirectorDispatchToken;
+    const suppliedAnalysisRunId = options?.analysisRunId;
+    const suppliedAnalysisDispatchId = options?.analysisDirectorDispatchId;
     const rawPipelineDispatch = projectRecordValueV1(current, "pipelineDirectorDispatch");
     const pipelineDispatch = readProjectPipelineDirectorDispatchV1(rawPipelineDispatch);
     if (
@@ -6612,6 +6785,40 @@ export class ProjectService {
       ))
       || (pipelineDispatch === null && suppliedDispatchToken !== undefined)
     ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+    const rawAnalysisRun = projectRecordValueV1(current, "autoEditAnalysisRunV1");
+    const analysisRun = readProjectAnalysisRunV1(rawAnalysisRun);
+    if (rawAnalysisRun !== undefined && !analysisRun) return { disposition: "NOT_ELIGIBLE" };
+    let analysisClaimPredicate: Record<string, unknown> = {};
+    if (!pipelineDispatch && analysisRun) {
+      if (suppliedAnalysisRunId !== analysisRun.runId) return { disposition: "NOT_ELIGIBLE" };
+      const analysisDispatch = analysisRun.directorDispatch;
+      if (
+        suppliedAnalysisDispatchId !== undefined
+        && suppliedAnalysisDispatchId !== analysisDispatch?.deduplicationId
+      ) return { disposition: "NOT_ELIGIBLE" };
+      if (analysisDispatch?.status === "pending") return { disposition: "DISPATCH_PENDING" };
+      if (
+        analysisDispatch !== undefined
+        && analysisDispatch.status !== "published"
+        && analysisDispatch.status !== "inline_ready"
+      ) return { disposition: "NOT_ELIGIBLE" };
+      if (suppliedAnalysisDispatchId !== undefined && !analysisDispatch) {
+        return { disposition: "NOT_ELIGIBLE" };
+      }
+      analysisClaimPredicate = {
+        "autoEditAnalysisRunV1.runId": analysisRun.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": analysisRun.sourceAssetId,
+        "autoEditAnalysisRunV1.state": analysisRun.state,
+        ...(analysisDispatch
+          ? {
+              "autoEditAnalysisRunV1.directorDispatch.status": analysisDispatch.status,
+              "autoEditAnalysisRunV1.directorDispatch.deduplicationId": analysisDispatch.deduplicationId,
+            }
+          : { "autoEditAnalysisRunV1.directorDispatch": { $exists: false } }),
+      };
+    } else if (suppliedAnalysisRunId !== undefined || suppliedAnalysisDispatchId !== undefined) {
       return { disposition: "NOT_ELIGIBLE" };
     }
     const pipelineClaimPredicate = pipelineDispatch
@@ -6643,6 +6850,7 @@ export class ProjectService {
           autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
           directorRunToken: { $exists: false },
           ...pipelineClaimPredicate,
+          ...analysisClaimPredicate,
         },
         {
           $set: {
@@ -6731,6 +6939,7 @@ export class ProjectService {
         autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
         directorRunToken: { $exists: false },
         ...pipelineClaimPredicate,
+        ...analysisClaimPredicate,
       },
       claimUpdate,
       { returnDocument: "after", includeResultMetadata: false },
@@ -12505,16 +12714,45 @@ function isProjectAnalysisDirectorDispatchV1(value: unknown): value is ProjectAn
     !isPlainRecord(value)
     || value.schemaVersion !== 1
     || !isBoundedNonEmptyStringV1(value.deduplicationId, 200)
-    || (value.status !== "pending" && value.status !== "published")
+    || (value.status !== "pending" && value.status !== "published" && value.status !== "inline_ready")
     || !isBoundedNonEmptyStringV1(value.preparedAt, 100)
     || Number.isNaN(new Date(value.preparedAt).getTime())
   ) return false;
   if (value.status === "pending") {
-    return value.publishedAt === undefined && value.providerMessageId === undefined;
+    return value.publishedAt === undefined
+      && value.providerMessageId === undefined
+      && value.inlineReadyAt === undefined;
+  }
+  if (value.status === "inline_ready") {
+    return value.publishedAt === undefined
+      && value.providerMessageId === undefined
+      && isBoundedNonEmptyStringV1(value.inlineReadyAt, 100)
+      && !Number.isNaN(new Date(value.inlineReadyAt).getTime());
   }
   return isBoundedNonEmptyStringV1(value.publishedAt, 100)
     && !Number.isNaN(new Date(value.publishedAt).getTime())
-    && isBoundedNonEmptyStringV1(value.providerMessageId, 500);
+    && isBoundedNonEmptyStringV1(value.providerMessageId, 500)
+    && value.inlineReadyAt === undefined;
+}
+
+function createProjectAnalysisDirectorDispatchV1(input: {
+  projectId: string;
+  runId: string;
+  sourceAssetId: string;
+  evidenceHash: string;
+  preparedAt: Date;
+}): ProjectAnalysisDirectorDispatchV1 {
+  return {
+    schemaVersion: 1,
+    deduplicationId: `editron_director_${hashEditronCanonicalJsonV1({
+      projectId: input.projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      phase2EvidenceHash: input.evidenceHash,
+    }).slice(0, 48)}`,
+    status: "pending",
+    preparedAt: input.preparedAt.toISOString(),
+  };
 }
 
 function assertProjectAnalysisDeepClaimCommandV1(input: ProjectAnalysisDeepClaimCommandV1): void {
@@ -12565,6 +12803,31 @@ function assertProjectAnalysisDirectorDispatchPublicationCommandV1(
     || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
     || !isBoundedNonEmptyStringV1(input.providerMessageId, 500)
   ) throw new ProjectMutationWriteError("Director publication requires one exact run, source, revision and provider message.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisDirectorDispatchPrepareCommandV1(
+  input: ProjectAnalysisDirectorDispatchPrepareCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+  ) throw new ProjectMutationWriteError("Director dispatch preparation requires one exact run, source and revision.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisDirectorDispatchInlineReadyCommandV1(
+  input: ProjectAnalysisDirectorDispatchInlineReadyCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+  ) throw new ProjectMutationWriteError("Inline Director activation requires one exact run, source, dispatch and revision.");
   assertProjectRevision(input.expectedRevision);
 }
 

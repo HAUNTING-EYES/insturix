@@ -20,10 +20,13 @@ export interface CanonicalDirectorRunInputV1 {
   musicPreference?: unknown;
   editorialPreferences?: unknown;
   pipelineDirectorDispatchToken?: string;
+  analysisRunId?: string;
+  analysisDirectorDispatchId?: string;
 }
 
 export type CanonicalDirectorRunResultV1 =
   | { disposition: 'ALREADY_PROCESSED' }
+  | { disposition: 'DISPATCH_PENDING'; projectId: string }
   | { disposition: 'ASSIST_READY'; projectId: string; status: 'ready_for_chat' }
   | { disposition: 'OWNERSHIP_LOST'; projectId: string }
   | {
@@ -137,10 +140,15 @@ export async function runCanonicalDirectorV1(
     const runClaim = await projectService.claimDirectorRunV1(
       input.userId,
       input.projectId,
-      input.pipelineDirectorDispatchToken === undefined
-        ? undefined
-        : { pipelineDirectorDispatchToken: input.pipelineDirectorDispatchToken },
+      {
+        ...(input.pipelineDirectorDispatchToken && { pipelineDirectorDispatchToken: input.pipelineDirectorDispatchToken }),
+        ...(input.analysisRunId && { analysisRunId: input.analysisRunId }),
+        ...(input.analysisDirectorDispatchId && { analysisDirectorDispatchId: input.analysisDirectorDispatchId }),
+      },
     );
+    if (runClaim.disposition === 'DISPATCH_PENDING') {
+      return { disposition: 'DISPATCH_PENDING', projectId: input.projectId };
+    }
     if (runClaim.disposition === 'PROJECT_NOT_FOUND' || runClaim.disposition === 'NOT_ELIGIBLE') {
       return { disposition: 'ALREADY_PROCESSED' };
     }
