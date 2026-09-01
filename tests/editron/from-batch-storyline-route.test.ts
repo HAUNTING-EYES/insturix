@@ -905,6 +905,24 @@ describe('from-batch storyline route handoff', () => {
       messageId: 'msg_1',
     }));
     expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        aspectRatio: '16:9',
+        playerDimensions: { width: 1920, height: 1080 },
+      }),
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 1 }),
+        projectUpdates: expect.objectContaining({
+          editMode: 'auto',
+          autoEditMode: 'batch',
+          autoEditStatus: 'analyzing',
+          sourceUploadBatchId: 'batch_1',
+        }),
+      }),
+    );
     expect(mocks.deductCredits).not.toHaveBeenCalled();
 
     batchDocument = {
@@ -951,8 +969,8 @@ describe('from-batch storyline route handoff', () => {
     );
     expect(mocks.resolveProductionBrief).toHaveBeenCalledWith(expect.objectContaining({ brandId: 'brand_1' }));
 
-    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledOnce();
-    const savedState = mocks.saveProjectWithReceipt.mock.calls[0][2];
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledTimes(2);
+    const savedState = mocks.saveProjectWithReceipt.mock.calls[1][2];
     expect(savedState.durationInFrames).toBe(180);
     expect(savedState.playerDimensions).toEqual({ width: 1920, height: 1080 });
     expect(savedState.overlays).toHaveLength(2);
@@ -1486,16 +1504,23 @@ describe('from-batch storyline route handoff', () => {
     const response = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '9:16' }) as never);
 
     expect(response.status).toBe(202);
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      {
-        $set: expect.objectContaining({
+    expect(mocks.createProject).toHaveBeenCalledWith('user_1', expect.any(String), expect.objectContaining({
+      aspectRatio: '9:16',
+    }));
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_batch_1',
+      expect.objectContaining({
+        aspectRatio: '9:16',
+        playerDimensions: { width: 1080, height: 1920 },
+      }),
+      expect.objectContaining({
+        projectUpdates: expect.objectContaining({
           autoEditStatus: 'analyzing',
-          aspectRatio: '9:16',
-          playerDimensions: { width: 1080, height: 1920 },
         }),
-      },
+      }),
     );
+    expect(mocks.updateProject).not.toHaveBeenCalled();
   });
 
   it('re-dispatches a stale existing batch exactly once without creating or charging again', async () => {

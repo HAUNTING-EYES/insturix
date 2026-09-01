@@ -1342,36 +1342,33 @@ export async function POST(request: NextRequest) {
       const projectName = cleanString(body.title, 160)
         || cleanString(intake.userIntent, 80)
         || `Auto-Edit Batch: ${uploadBatchId}`;
+      const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
+      const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
       const project = await projectService.createProject(userId, projectName, {
         brandId,
         orgId: orgId ?? batch.orgId ?? null,
+        aspectRatio: initialAspectRatio,
       });
       activeProjectId = project.projectId;
-      if (requestedEditMode === 'assist') {
-        // Persisted BEFORE orchestration dispatch — compose consults project.editMode.
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { editMode: 'assist' } },
-        );
-      }
-      const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
-      const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
-
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        {
-          $set: {
-            autoEditMode: 'batch',
-            autoEditStatus: 'analyzing',
-            sourceUploadBatchId: uploadBatchId,
-            sourceAssetIds: visualAssets.map((asset) => asset.assetId),
-            aspectRatio: initialAspectRatio,
-            playerDimensions: initialPlayerDimensions,
-            updatedAt: new Date(),
-            ...(intake.editorialPreferences ? { editorialPreferences: intake.editorialPreferences } : {}),
-          },
+      const initialSnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+      await projectService.saveProjectWithReceipt(userId, activeProjectId, {
+        overlays: initialSnapshot.project.overlays,
+        aspectRatio: initialAspectRatio,
+        playerDimensions: initialPlayerDimensions,
+        fps: initialSnapshot.project.fps || FPS,
+        durationInFrames: initialSnapshot.project.durationInFrames ?? 0,
+      }, {
+        expectedRevision: initialSnapshot.revision,
+        overlayAuthority: 'server',
+        projectUpdates: {
+          editMode: requestedEditMode,
+          autoEditMode: 'batch',
+          autoEditStatus: 'analyzing',
+          sourceUploadBatchId: uploadBatchId,
+          sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+          ...(intake.editorialPreferences ? { editorialPreferences: intake.editorialPreferences } : {}),
         },
-      );
+      });
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         { uploadBatchId, userId, orchestrationStatus: 'initializing' },
         {
