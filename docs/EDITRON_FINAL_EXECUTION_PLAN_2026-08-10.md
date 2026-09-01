@@ -15569,3 +15569,45 @@ Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
 Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
 chapter-path convergence, agency-class completion, live recovery proof,
 successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Y checkpoint
+
+Commits `5688798bf` and `3d9c8c1ea` establish a provider-free chapter-parent
+contract and keep that parent outside standard provider recovery. A strict
+`chapterOrchestration` record is now admitted atomically with the immutable
+project-render snapshot and a real billing/dispatch ledger. Its aggregate ID,
+binding hash and selected execution region must match the render admission.
+The parent cannot carry top-level provider identity, a provider-bound generic
+dispatch, a missing project snapshot or a missing dispatch ledger. Reservation
+can create only `NOT_STARTED`; dedicated current-revision-fenced CAS owners
+advance `NOT_STARTED -> STARTING`, bind an exact chapter count and manifest hash
+for `STARTING -> RUNNING`, or quarantine a lost starting boundary as `UNKNOWN`.
+Exact replays are read-only and unproved writes fail closed.
+
+Standard provider recovery now excludes both new
+`CHAPTER_ORCHESTRATION` rows and every `chr_*` compatibility admission at the
+Mongo query, classifier, signed-proof and admission-lookup boundaries. Even an
+adversarial query result cannot reach the provider-binding CAS. No legacy row
+is silently migrated, rebound, retried, refunded or treated as provider
+evidence.
+
+The focused parent/recovery closure passed 16/16 tests and the adjacent
+render-owner closure passed 107/107 across seven suites. Full 8-GB TypeScript,
+full quiet ESLint and `git diff --check` passed before push. No provider call,
+wallet mutation, refund, rerender, deletion, historical cohort run, model
+inference, project-content mutation or external spend occurred.
+
+This is contract/recovery isolation, not chapter-route convergence. The live
+render and progress routes still need to reserve/start/read the orchestration
+record and stop creating or consuming the synthetic
+`(jobId, "chapter-render", region)` parent tuple. Finalization, cleanup and
+legacy migration must then consume explicit orchestration receipts. The next
+bounded order remains: (1) route/progress orchestration rewiring, (2) live
+revision/invalidation fences through child polling and concat, (3) concat
+publish/expired-lease recovery, (4) retention and post-invalidation fencing,
+then (5) migration/backfill and deployed IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, live recovery proof,
+successor receipt or `GO` is claimed.
