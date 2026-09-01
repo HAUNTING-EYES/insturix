@@ -28,6 +28,7 @@ import {
 import { encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   ProjectAnalysisDirectorPublicationError,
+  activateProjectAnalysisDirectorInlineV1,
   publishProjectAnalysisDirectorDispatchV1,
 } from '@/lib/editron/services/project-analysis-director-publication';
 import {
@@ -619,23 +620,7 @@ async function runPreparedDirectorInline(input: {
   dispatch: ProjectAnalysisDirectorDispatchV1;
   onClaimed(): void;
 }): Promise<CanonicalDirectorRunResultV1> {
-  const { projectService } = await import('@/lib/editron/services/project-service');
-  const snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
-  const activated = await projectService.recordProjectAnalysisDirectorDispatchInlineReadyV1(
-    input.userId,
-    input.projectId,
-    {
-      expectedRevision: snapshot.revision,
-      runId: input.analysisRunId,
-      sourceAssetId: input.sourceAssetId,
-      deduplicationId: input.dispatch.deduplicationId,
-    },
-  );
-  if (activated.disposition !== 'ADVANCED' && activated.disposition !== 'ALREADY_ADVANCED') {
-    throw new TribeAnalysisOwnershipLostError(
-      `Inline Director activation lost current run ownership (${activated.disposition}).`,
-    );
-  }
+  await activateProjectAnalysisDirectorInlineV1(input);
   const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
   return runCanonicalDirectorV1({
     projectId: input.projectId,

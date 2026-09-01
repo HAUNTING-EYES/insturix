@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   loadProjectForMutation: vi.fn(),
   recordPublished: vi.fn(),
+  recordInlineReady: vi.fn(),
   fetch: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock('@/lib/editron/services/project-service', () => {
     projectService: {
       loadProjectForMutation: mocks.loadProjectForMutation,
       recordProjectAnalysisDirectorDispatchPublishedV1: mocks.recordPublished,
+      recordProjectAnalysisDirectorDispatchInlineReadyV1: mocks.recordInlineReady,
     },
   };
 });
@@ -73,6 +75,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', mocks.fetch);
   mocks.loadProjectForMutation.mockResolvedValue({ revision: REVISION_7 });
   mocks.recordPublished.mockResolvedValue({ disposition: 'ADVANCED' });
+  mocks.recordInlineReady.mockResolvedValue({ disposition: 'ADVANCED' });
   mocks.fetch.mockResolvedValue(qstashResponse(202, { messageId: 'qstash_message_1' }));
 });
 
@@ -142,6 +145,38 @@ describe('project analysis Director publication', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(mocks.recordPublished).toHaveBeenCalledTimes(2);
     expect(mocks.recordPublished.mock.calls[1]?.[2]).toMatchObject({ expectedRevision: REVISION_8 });
+  });
+
+  it('activates one exact inline dispatch and retries only its revision receipt', async () => {
+    const { ProjectMutationConflictError } = await import('@/lib/editron/services/project-service');
+    const { activateProjectAnalysisDirectorInlineV1 } = await import(
+      '@/lib/editron/services/project-analysis-director-publication'
+    );
+    mocks.recordInlineReady
+      .mockRejectedValueOnce(new ProjectMutationConflictError(REVISION_8))
+      .mockResolvedValueOnce({ disposition: 'ALREADY_ADVANCED' });
+
+    await expect(activateProjectAnalysisDirectorInlineV1({
+      projectId: 'project_1',
+      userId: 'user_1',
+      analysisRunId: 'analysis_run_12345678901234567890',
+      sourceAssetId: 'asset_1',
+      dispatch: DISPATCH,
+    })).resolves.toBeUndefined();
+
+    expect(mocks.recordInlineReady).toHaveBeenNthCalledWith(1, 'user_1', 'project_1', {
+      expectedRevision: REVISION_7,
+      runId: 'analysis_run_12345678901234567890',
+      sourceAssetId: 'asset_1',
+      deduplicationId: DISPATCH.deduplicationId,
+    });
+    expect(mocks.recordInlineReady).toHaveBeenNthCalledWith(2, 'user_1', 'project_1', {
+      expectedRevision: REVISION_8,
+      runId: 'analysis_run_12345678901234567890',
+      sourceAssetId: 'asset_1',
+      deduplicationId: DISPATCH.deduplicationId,
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
   it('fails before project reads when the provider rejects publication', async () => {

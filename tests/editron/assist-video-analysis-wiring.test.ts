@@ -56,8 +56,10 @@ describe('video-analysis worker zero-edit wiring', () => {
 
   it('delegates inline Assist completion to the canonical Director owner', () => {
     expect(source).toContain("const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run')");
-    expect(source).toContain('const directorResult = await runCanonicalDirectorV1(directorPayload, {');
-    expect(source).toContain("directorResult.disposition === 'ASSIST_READY'");
+    expect(source).toContain('const directorResult = await runPreparedVideoDirectorInline({');
+    expect(source).toContain('activateProjectAnalysisDirectorInlineV1({');
+    expect(source).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
+    expect(source).toContain("result.disposition === 'ASSIST_READY'");
     expect(source).not.toContain('projectService.claimDirectorRunV1(userId, projectId)');
     expect(source).not.toContain("{ projectId, autoEditStatus: { $ne: 'scan_failed' } }");
   });
@@ -110,6 +112,12 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).toContain("await advanceAnalysis('cleaning')");
     expect(source).toContain("await advanceAnalysis('computing_params')");
     expect(source).toContain('commitProjectAnalysisPhase1V1');
+    expect(source).toContain('commitProjectAnalysisPhase2V1');
+    expect(source).toContain('prepareProjectAnalysisDirectorDispatchV1');
+    expect(source).toContain('publishProjectAnalysisDirectorDispatchV1');
+    expect(source).toContain("resumeRun?.state === 'directing_queued'");
+    expect(source).toContain('resumeRun.runId === analysisRunId');
+    expect(source).toContain('resumeRun.sourceAssetId === assetId');
     expect(source).toContain('projectService.failProjectAnalysisRunV1');
     expect(source).toContain('projectId, userId, orgId, assetId, analysisRunId, videoUrl');
     for (const rawStatus of [
@@ -129,8 +137,9 @@ describe('video-analysis worker zero-edit wiring', () => {
   it('never terminalizes a later valid run when an old worker loses ownership', () => {
     expect(source).toContain("readonly code = 'ANALYSIS_RUN_OWNERSHIP_LOST'");
     expect(source).toContain('const ownershipLost = error instanceof AnalysisRunOwnershipLostError');
-    expect(source).toContain('if (trackedScan && !directorDispatched && !ownershipLost)');
-    expect(source).toContain('{ status: ownershipLost ? 409 : 500 }');
+    expect(source).toContain('const retryable = error instanceof AnalysisRunRetryableError');
+    expect(source).toContain('if (trackedScan && !directorDispatched && !ownershipLost && !retryable)');
+    expect(source).toContain('{ status: retryable ? 503 : ownershipLost ? 409 : 500 }');
   });
 
   it('binds TRIBE claim, Phase-2 evidence and Director publication to the admitted run', () => {
@@ -138,9 +147,9 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(tribeSource).toContain('claimProjectAnalysisDeepRunV1');
     expect(tribeSource).toContain('commitProjectAnalysisPhase2V1');
     expect(tribeSource).toContain('publishProjectAnalysisDirectorDispatchV1');
-    expect(tribeSource).toContain('recordProjectAnalysisDirectorDispatchInlineReadyV1');
     expect(tribeSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
     expect(publicationSource).toContain('recordProjectAnalysisDirectorDispatchPublishedV1');
+    expect(publicationSource).toContain('recordProjectAnalysisDirectorDispatchInlineReadyV1');
     expect(publicationSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
     expect(publicationSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
     expect(tribeSource).toContain('if (trackedScan && !directorDispatched && !ownershipLost && !retryable)');

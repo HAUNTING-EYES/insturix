@@ -29,7 +29,12 @@ import {
   isInternalWorkerInlineFallbackAllowed,
   withInternalQStashWorkerAuth,
 } from '@/lib/editron/security/internal-worker-auth';
-import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import { persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import {
+  ProjectAnalysisDirectorPublicationError,
+  activateProjectAnalysisDirectorInlineV1,
+  publishProjectAnalysisDirectorDispatchV1,
+} from '@/lib/editron/services/project-analysis-director-publication';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -42,8 +47,14 @@ import {
 } from '@/lib/editron/production-brief/editorial-preferences';
 import type { CanonicalizeReferenceOutput } from '@/lib/editron/reference-video/canonicalize-reference';
 import type {
+  ProjectAnalysisDirectorDispatchV1,
   ProjectAnalysisRunStateV1,
+  ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
+import type {
+  CanonicalDirectorRunInputV1,
+  CanonicalDirectorRunResultV1,
+} from '@/lib/editron/services/canonical-director-run';
 import type { NativeAudioEvidence } from '@/lib/editron/services/native-audio-evidence';
 
 export const runtime = 'nodejs';
@@ -101,6 +112,15 @@ class AnalysisRunOwnershipLostError extends Error {
   }
 }
 
+class AnalysisRunRetryableError extends Error {
+  readonly code = 'ANALYSIS_RUN_RETRYABLE';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AnalysisRunRetryableError';
+  }
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   let trackedScan: Pick<
@@ -150,6 +170,68 @@ async function handler(request: NextRequest) {
     const db = await getDatabase();
     const normalizedMusicPreference = normalizeMusicPreference(musicPreference);
     const normalizedEditorialPreferences = normalizeEditorialPreferences(editorialPreferences);
+    const resumeDirectorPayload: CanonicalDirectorRunInputV1 = {
+      projectId,
+      userId,
+      analysisRunId,
+      profileId: initialProfileId,
+      platform,
+      userIntent,
+      captionStyle,
+      transitionPreference,
+      zoomBehavior,
+      motionGraphics,
+      pacingFeel,
+      musicPreference: normalizedMusicPreference,
+      editorialPreferences: normalizedEditorialPreferences,
+    };
+
+    const { projectService: resumeProjectService } = await import('@/lib/editron/services/project-service');
+    const resumeSnapshot = await resumeProjectService.loadProjectForMutation(userId, projectId);
+    const resumeRun = resumeSnapshot.project.autoEditAnalysisRunV1;
+    if (
+      resumeRun?.state === 'directing_queued'
+      && resumeRun.runId === analysisRunId
+      && resumeRun.sourceAssetId === assetId
+    ) {
+      const preparedDispatch = await prepareAnalysisDirectorDispatch({
+        projectId,
+        userId,
+        analysisRunId,
+        sourceAssetId: assetId,
+        expectedRevision: resumeSnapshot.revision,
+      });
+      if (preparedDispatch.status === 'published') {
+        return NextResponse.json({ success: true, totalMs: Date.now() - startMs, resumed: true, skipped: 'director-already-dispatched' });
+      }
+      if (preparedDispatch.status === 'inline_ready') {
+        const directorResult = await runPreparedVideoDirectorInline({
+          directorPayload: resumeDirectorPayload,
+          analysisRunId,
+          sourceAssetId: assetId,
+          dispatch: preparedDispatch,
+          onClaimed: () => { directorDispatched = true; },
+        });
+        return videoDirectorResponse(directorResult, Date.now() - startMs);
+      }
+      if (isInternalQStashDispatchConfigured()) {
+        await publishPreparedVideoDirectorDispatch({
+          payload,
+          directorPayload: resumeDirectorPayload,
+          dispatch: preparedDispatch,
+          onProviderAccepted: () => { directorDispatched = true; },
+        });
+        return NextResponse.json({ success: true, totalMs: Date.now() - startMs, resumed: true, nextStage: 'director' });
+      }
+      const directorResult = await runPreparedVideoDirectorInline({
+        directorPayload: resumeDirectorPayload,
+        analysisRunId,
+        sourceAssetId: assetId,
+        dispatch: preparedDispatch,
+        onClaimed: () => { directorDispatched = true; },
+      });
+      return videoDirectorResponse(directorResult, Date.now() - startMs);
+    }
     type ActiveAnalysisState = Exclude<ProjectAnalysisRunStateV1, 'failed'>;
     type AnalysisTargetState = Exclude<ProjectAnalysisRunStateV1, 'queued' | 'failed'>;
     let analysisState: ActiveAnalysisState = 'queued';
@@ -968,20 +1050,8 @@ async function handler(request: NextRequest) {
     // TRIBE worker runs Steps 3.5-3.7 (V-JEPA, Wav2Vec, Essentia, moment weights,
     // segment analysis) then dispatches Director. If no segments exist (transcription
     // failed), skip TRIBE and dispatch Director directly.
-    const directorPayload = {
-      projectId, userId,
-      analysisRunId,
-      profileId: initialProfileId,
-      title, platform, userIntent,
-      captionStyle, transitionPreference, zoomBehavior,
-      motionGraphics, pacingFeel,
-      musicPreference: normalizedMusicPreference,
-      editorialPreferences: normalizedEditorialPreferences,
-      creditTransactionId: payload.creditTransactionId,
-      chargedCredits: payload.chargedCredits,
-    };
-
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
+    const directorPayload = { ...resumeDirectorPayload };
 
     if (isInternalQStashDispatchConfigured()) {
       const qstashBaseUrl = process.env.VERCEL_URL
@@ -1013,7 +1083,7 @@ async function handler(request: NextRequest) {
           headers: {
             'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
             'Content-Type': 'application/json',
-            'Upstash-Retries': '1',
+            'Upstash-Retries': '3',
             'Upstash-Delay': '2s',
             // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
             // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
@@ -1048,38 +1118,19 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
         // No segments Ã¢â‚¬â€ skip TRIBE, dispatch Director directly
-        await advanceAnalysis('directing_queued');
-
-        const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
-        const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
-
-        const dispatchRes = await fetch(qstashUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '0',
-            'Upstash-Delay': '3s',
-          },
-          body: JSON.stringify(directorPayload),
+        const preparedDispatch = await prepareAnalysisDirectorDispatch({
+          projectId,
+          userId,
+          analysisRunId,
+          sourceAssetId: assetId,
         });
-
-        const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
-        await recordVideoAnalysisCostEvent(payload, {
-          stage: 'director_qstash',
-          status: directorDispatchStatus,
-          provider: 'upstash-qstash',
-          operation: 'queue_message',
-          units: { queueMessages: 1, requestCount: 1 },
-          metadata: { httpStatus: dispatchRes.status, reason: 'no_segments' },
+        analysisState = 'directing_queued';
+        await publishPreparedVideoDirectorDispatch({
+          payload,
+          directorPayload,
+          dispatch: preparedDispatch,
+          onProviderAccepted: () => { directorDispatched = true; },
         });
-
-        if (!dispatchRes.ok) {
-          const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
-        }
-
-        directorDispatched = true;
         const totalMs = Date.now() - startMs;
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'director' });
       }
@@ -1091,9 +1142,25 @@ async function handler(request: NextRequest) {
     // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
     let vjepaAnalysis: any = precutVjepaAnalysis;
     let wav2vecAnalysis: any = null;
+    let musicAnalysis: any = null;
+    let momentWeightMap: any = null;
+    let segmentAnalysis: any = null;
+    let preparedDispatch: ProjectAnalysisDirectorDispatchV1;
 
     if (hasSegments) {
-      await advanceAnalysis('analyzing_deep');
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const deepSnapshot = await projectService.loadProjectForMutation(userId, projectId);
+      const deepClaim = await projectService.claimProjectAnalysisDeepRunV1(userId, projectId, {
+        expectedRevision: deepSnapshot.revision,
+        runId: analysisRunId,
+        sourceAssetId: assetId,
+      });
+      if (deepClaim.disposition !== 'CLAIMED') {
+        throw new AnalysisRunOwnershipLostError(
+          `Inline deep-analysis claim lost current run ownership (${deepClaim.disposition}).`,
+        );
+      }
+      analysisState = 'analyzing_deep';
       try {
         const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
           startMs: seg.startMs,
@@ -1125,16 +1192,10 @@ async function handler(request: NextRequest) {
           wav2vecAnalysis = wav2vecResult.value;
         }
         if (musicResult.status === 'fulfilled' && musicResult.value) {
-          try {
-            await db.collection('projects').updateOne(
-              { projectId },
-              { $set: { musicAnalysis: musicResult.value } },
-            );
-          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] music analysis store failed:', err instanceof Error ? err.message : err); }
+          musicAnalysis = musicResult.value;
         }
 
         // Build moment weight map
-        let momentWeightMap: any = null;
         if (vjepaAnalysis || wav2vecAnalysis) {
           try {
             const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
@@ -1149,7 +1210,6 @@ async function handler(request: NextRequest) {
         }
 
         // Build segment analysis
-        let segmentAnalysis: any = null;
         try {
           const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
           segmentAnalysis = buildSegmentAnalysis(
@@ -1158,75 +1218,77 @@ async function handler(request: NextRequest) {
           );
         } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
 
-        // Store Phase 2 data
-        const inlinePhase2UpdatedAt = new Date();
-        const inlinePhase2PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
-          vjepaAnalysis,
-          wav2vecAnalysis,
-          musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
-          momentWeightMap,
-          segmentAnalysis,
-        }, inlinePhase2UpdatedAt);
-
-        await db.collection('projects').updateOne(
-          { projectId },
-          {
-            $set: {
-              ...(vjepaAnalysis && { vjepaAnalysis }),
-              ...(wav2vecAnalysis && { wav2vecAnalysis }),
-              ...(momentWeightMap && { momentWeightMap }),
-              ...(segmentAnalysis && { segmentAnalysis }),
-              ...inlinePhase2PerAssetSet,
-              updatedAt: inlinePhase2UpdatedAt,
-            },
-          },
-        );
-
-        try {
-          await persistProjectAssetAnalysis(db, projectId, assetId, {
-            vjepaAnalysis,
-            wav2vecAnalysis,
-            musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
-            momentWeightMap,
-            segmentAnalysis,
-          }, inlinePhase2UpdatedAt);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal): ${msg}`);
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[VideoAnalysisWorker] TRIBE inline failed (non-fatal): ${msg}`);
       }
+      const phase2Snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      const phase2Commit = await projectService.commitProjectAnalysisPhase2V1(userId, projectId, {
+        expectedRevision: phase2Snapshot.revision,
+        runId: analysisRunId,
+        sourceAssetId: assetId,
+        leaseId: deepClaim.lease.leaseId,
+        evidence: {
+          ...(vjepaAnalysis ? { vjepaAnalysis } : {}),
+          ...(wav2vecAnalysis ? { wav2vecAnalysis } : {}),
+          ...(musicAnalysis ? { musicAnalysis } : {}),
+          ...(momentWeightMap ? { momentWeightMap } : {}),
+          ...(segmentAnalysis ? { segmentAnalysis } : {}),
+        },
+      });
+      if (phase2Commit.disposition !== 'ADVANCED' && phase2Commit.disposition !== 'ALREADY_ADVANCED') {
+        throw new AnalysisRunOwnershipLostError(
+          `Inline Phase-2 commit lost current run ownership (${phase2Commit.disposition}).`,
+        );
+      }
+      analysisState = 'directing_queued';
+      if (!phase2Commit.run.directorDispatch) {
+        throw new Error('Inline Phase-2 commit did not prepare its Director dispatch.');
+      }
+      preparedDispatch = phase2Commit.run.directorDispatch;
+      const inlinePhase2UpdatedAt = new Date(
+        phase2Commit.run.phase2EvidenceCommittedAt ?? phase2Commit.run.updatedAt,
+      );
+      try {
+        await persistProjectAssetAnalysis(db, projectId, assetId, {
+          vjepaAnalysis,
+          wav2vecAnalysis,
+          musicAnalysis,
+          momentWeightMap,
+          segmentAnalysis,
+        }, inlinePhase2UpdatedAt);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal): ${msg}`);
+      }
+    } else {
+      preparedDispatch = await prepareAnalysisDirectorDispatch({
+        projectId,
+        userId,
+        analysisRunId,
+        sourceAssetId: assetId,
+      });
+      analysisState = 'directing_queued';
     }
 
-    await advanceAnalysis('directing_queued');
-    const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
-    const directorResult = await runCanonicalDirectorV1(directorPayload, {
+    const directorResult = await runPreparedVideoDirectorInline({
+      directorPayload,
+      analysisRunId,
+      sourceAssetId: assetId,
+      dispatch: preparedDispatch,
       onClaimed: () => { directorDispatched = true; },
     });
-    const totalMs = Date.now() - startMs;
-    if (directorResult.disposition === 'ASSIST_READY') {
-      return NextResponse.json({
-        success: true,
-        projectId,
-        status: directorResult.status,
-        directorSkipped: true,
-      });
-    }
-    if (directorResult.disposition === 'ALREADY_PROCESSED' || directorResult.disposition === 'OWNERSHIP_LOST') {
-      return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
-    }
-    return NextResponse.json({ success: true, totalMs });
+    return videoDirectorResponse(directorResult, Date.now() - startMs);
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     const ownershipLost = error instanceof AnalysisRunOwnershipLostError;
+    const retryable = error instanceof AnalysisRunRetryableError;
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
     // Mark project as failed Ã¢â‚¬â€ but only if TRIBE/Director hasn't already been dispatched
     // (if dispatched, the downstream worker owns the final status)
-    if (trackedScan && !directorDispatched && !ownershipLost) {
+    if (trackedScan && !directorDispatched && !ownershipLost && !retryable) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -1264,9 +1326,129 @@ async function handler(request: NextRequest) {
 
     return NextResponse.json(
       { success: false, error: msg },
-      { status: ownershipLost ? 409 : 500 },
+      { status: retryable ? 503 : ownershipLost ? 409 : 500 },
     );
   }
+}
+
+async function prepareAnalysisDirectorDispatch(input: {
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  expectedRevision?: ProjectRevisionV1;
+}): Promise<ProjectAnalysisDirectorDispatchV1> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  const expectedRevision = input.expectedRevision ?? (
+    await projectService.loadProjectForMutation(input.userId, input.projectId)
+  ).revision;
+  const prepared = await projectService.prepareProjectAnalysisDirectorDispatchV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision,
+      runId: input.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+    },
+  );
+  if (prepared.disposition !== 'ADVANCED' && prepared.disposition !== 'ALREADY_ADVANCED') {
+    throw new AnalysisRunOwnershipLostError(
+      `Director dispatch preparation lost current run ownership (${prepared.disposition}).`,
+    );
+  }
+  if (!prepared.run.directorDispatch) {
+    throw new Error('Director dispatch preparation returned no dispatch identity.');
+  }
+  return prepared.run.directorDispatch;
+}
+
+async function publishPreparedVideoDirectorDispatch(input: {
+  payload: VideoAnalysisPayload;
+  directorPayload: CanonicalDirectorRunInputV1;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onProviderAccepted(): void;
+}): Promise<void> {
+  try {
+    const publication = await publishProjectAnalysisDirectorDispatchV1({
+      projectId: input.payload.projectId,
+      userId: input.payload.userId,
+      analysisRunId: input.payload.analysisRunId,
+      sourceAssetId: input.payload.assetId,
+      directorPayload: { ...input.directorPayload },
+      dispatch: input.dispatch,
+      onProviderAccepted: input.onProviderAccepted,
+    });
+    await recordVideoAnalysisCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: 'success',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publication.httpStatus,
+        reason: 'no_segments_or_resume',
+        deduplicationId: publication.deduplicationId,
+        providerMessageId: publication.providerMessageId,
+      },
+    });
+  } catch (error: unknown) {
+    const publicationError = error instanceof ProjectAnalysisDirectorPublicationError
+      ? error
+      : undefined;
+    await recordVideoAnalysisCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: publicationError?.providerAccepted ? 'success' : 'failed',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publicationError?.httpStatus,
+        reason: 'no_segments_or_resume',
+        deduplicationId: input.dispatch.deduplicationId,
+        providerAccepted: publicationError?.providerAccepted ?? false,
+      },
+    });
+    throw new AnalysisRunRetryableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function runPreparedVideoDirectorInline(input: {
+  directorPayload: CanonicalDirectorRunInputV1;
+  analysisRunId: string;
+  sourceAssetId: string;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onClaimed(): void;
+}): Promise<CanonicalDirectorRunResultV1> {
+  await activateProjectAnalysisDirectorInlineV1({
+    projectId: input.directorPayload.projectId,
+    userId: input.directorPayload.userId,
+    analysisRunId: input.analysisRunId,
+    sourceAssetId: input.sourceAssetId,
+    dispatch: input.dispatch,
+  });
+  const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+  return runCanonicalDirectorV1({
+    ...input.directorPayload,
+    analysisDirectorDispatchId: input.dispatch.deduplicationId,
+  }, { onClaimed: input.onClaimed });
+}
+
+function videoDirectorResponse(result: CanonicalDirectorRunResultV1, totalMs: number) {
+  if (result.disposition === 'DISPATCH_PENDING') {
+    return NextResponse.json({ success: false, error: 'Inline Director dispatch remained pending.' }, { status: 503 });
+  }
+  if (result.disposition === 'ASSIST_READY') {
+    return NextResponse.json({
+      success: true,
+      projectId: result.projectId,
+      status: result.status,
+      directorSkipped: true,
+    });
+  }
+  if (result.disposition === 'ALREADY_PROCESSED' || result.disposition === 'OWNERSHIP_LOST') {
+    return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
+  }
+  return NextResponse.json({ success: true, totalMs });
 }
 
 async function recordVideoAnalysisCostEvent(

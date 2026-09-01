@@ -36,6 +36,15 @@ export class ProjectAnalysisDirectorPublicationError extends Error {
   }
 }
 
+export class ProjectAnalysisDirectorActivationError extends Error {
+  readonly code = 'PROJECT_ANALYSIS_DIRECTOR_ACTIVATION_FAILED';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectAnalysisDirectorActivationError';
+  }
+}
+
 function isBoundedString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string'
     && value.trim().length > 0
@@ -110,6 +119,58 @@ async function recordProviderPublicationV1(
   throw new ProjectAnalysisDirectorPublicationError(
     'Director publication receipt exhausted its bounded revision attempts.',
     true,
+  );
+}
+
+export async function activateProjectAnalysisDirectorInlineV1(input: {
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+}): Promise<void> {
+  if (
+    !isBoundedString(input.projectId, 500)
+    || !isBoundedString(input.userId, 500)
+    || !isBoundedString(input.analysisRunId, 200)
+    || !isBoundedString(input.sourceAssetId, 500)
+    || input.dispatch.schemaVersion !== 1
+    || (input.dispatch.status !== 'pending' && input.dispatch.status !== 'inline_ready')
+    || !isBoundedString(input.dispatch.deduplicationId, 200)
+  ) throw new ProjectAnalysisDirectorActivationError('Inline Director activation requires one exact prepared dispatch.');
+
+  let expectedRevision: ProjectRevisionV1 = (
+    await projectService.loadProjectForMutation(input.userId, input.projectId)
+  ).revision;
+  for (let attempt = 1; attempt <= MAX_PUBLICATION_RECEIPT_CAS_ATTEMPTS; attempt += 1) {
+    try {
+      const activated = await projectService.recordProjectAnalysisDirectorDispatchInlineReadyV1(
+        input.userId,
+        input.projectId,
+        {
+          expectedRevision,
+          runId: input.analysisRunId,
+          sourceAssetId: input.sourceAssetId,
+          deduplicationId: input.dispatch.deduplicationId,
+        },
+      );
+      if (activated.disposition === 'ADVANCED' || activated.disposition === 'ALREADY_ADVANCED') return;
+      throw new ProjectAnalysisDirectorActivationError(
+        `Inline Director activation lost current run ownership (${activated.disposition}).`,
+      );
+    } catch (error: unknown) {
+      if (error instanceof ProjectMutationConflictError && attempt < MAX_PUBLICATION_RECEIPT_CAS_ATTEMPTS) {
+        expectedRevision = error.currentRevision;
+        continue;
+      }
+      if (error instanceof ProjectAnalysisDirectorActivationError) throw error;
+      throw new ProjectAnalysisDirectorActivationError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  throw new ProjectAnalysisDirectorActivationError(
+    'Inline Director activation exhausted its bounded revision attempts.',
   );
 }
 
