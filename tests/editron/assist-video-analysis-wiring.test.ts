@@ -50,10 +50,9 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(tribeSource).toContain('creditTransactionId: trackedScan.creditTransactionId');
   });
 
-  it('commits the inline Assist ready state through the ProjectService claim receipt', () => {
+  it('commits the inline Assist ready state through the ProjectService claim owner', () => {
     expect(source).toContain('const assistCompletion = await projectService.claimDirectorRunV1(userId, projectId)');
     expect(source).toContain("assistCompletion.disposition !== 'ASSIST_PROJECT'");
-    expect(source).toContain('assistCompletion.receipt.revision.value');
     expect(source).not.toContain("{ projectId, autoEditStatus: { $ne: 'scan_failed' } }");
   });
 

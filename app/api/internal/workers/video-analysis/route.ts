@@ -90,7 +90,6 @@ interface VideoAnalysisPayload {
 
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  console.log('[VideoAnalysisWorker] Started');
   let trackedScan: Pick<VideoAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
   let directorDispatched = false;
 
@@ -164,8 +163,6 @@ async function handler(request: NextRequest) {
     let precutVjepaAnalysis: any = null;
     let visualCutIntelligence: any = null;
 
-    console.log(`[VideoAnalysisWorker] Step 1: Transcribing + cutting ${Math.round(durationSec)}s video (${assetId})...`);
-
     const rawFootageStartedAt = Date.now();
     try {
       await db.collection('projects').updateOne(
@@ -174,7 +171,6 @@ async function handler(request: NextRequest) {
       );
       const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
       rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
-      console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
       await recordVideoAnalysisCostEvent(payload, {
         stage: 'raw_footage_processing',
         status: 'success',
@@ -274,8 +270,6 @@ async function handler(request: NextRequest) {
               sourceFingerprint: canonical.sourceFingerprint,
               canonicalKind: canonical.canonicalKind,
             };
-            console.log(`[VideoAnalysisWorker] Canonicalized reference source as ${canonical.referenceAssetId}`);
-
             // R2/R3: enrich the canonical reference with measured evidence
             // (audio beats/silence) + soundtrack identity. Env-gated: the AudD
             // recognizer activates only when AUDD_API_TOKEN is set; without it
@@ -297,7 +291,6 @@ async function handler(request: NextRequest) {
                   adaptivePlan: enriched.adaptivePlan,
                   enrichmentWarnings: enriched.warnings,
                 };
-                console.log(`[VideoAnalysisWorker] Reference soundtrack identity attached for ${canonical.referenceAssetId}`);
               } else if (enriched.audioEvidence) {
                 referenceVideoAnalysis = {
                   ...referenceVideoAnalysis,
@@ -387,7 +380,6 @@ async function handler(request: NextRequest) {
                     frameSamples: [],
                   };
                 }
-                console.log(`[VideoAnalysisWorker] GLM SaaS reference cache hit (${cachedSaasResult.status})`);
               } else {
                 const frameSamples = await sampleReferenceVideoFrames({
                   videoUrl: refUrl,
@@ -446,7 +438,6 @@ async function handler(request: NextRequest) {
                     model: saasResult.model,
                     usage: saasResult.usage,
                   });
-                  console.log(`[VideoAnalysisWorker] GLM SaaS reference accepted (${saasResult.evaluationWindowSec}s window)`);
                 } else {
                   referenceVideoAnalysis = {
                     provider: 'glm-saas-reference',
@@ -510,7 +501,6 @@ async function handler(request: NextRequest) {
               ...(orgId ? { orgId } : {}),
               projectId,
             });
-            console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
           }
         }
       } catch (refErr: unknown) {
@@ -541,10 +531,8 @@ async function handler(request: NextRequest) {
       const resolved = resolveVideoDurationSec({ containerSec, transcriptEndSec, reportedSec: durationSec });
       const actualDurationSec = resolved.seconds;
       const actualDurationMs = Math.round(actualDurationSec * 1000);
-      const reportedDuration = durationSec;
 
       if (resolved.corrected) {
-        console.log(`[VideoAnalysisWorker] Duration corrected via ${resolved.source}: reported=${reportedDuration}s → ${actualDurationSec.toFixed(1)}s (speech ends ${transcriptEndSec.toFixed(1)}s).`);
         if (resolved.source === 'container' || resolved.source === 'transcript') {
           const {
             projectService,
@@ -561,7 +549,7 @@ async function handler(request: NextRequest) {
             );
           } else {
             try {
-              const correction = await projectService.commitVideoAnalysisDurationCorrectionV1(
+              await projectService.commitVideoAnalysisDurationCorrectionV1(
                 userId,
                 projectId,
                 {
@@ -571,9 +559,6 @@ async function handler(request: NextRequest) {
                   durationSource: resolved.source,
                   target,
                 },
-              );
-              console.log(
-                `[VideoAnalysisWorker] Duration correction ${correction.disposition}; project timeline changed only when its exact initial source target remained current.`,
               );
             } catch (durationCorrectionError: unknown) {
               const msg = durationCorrectionError instanceof Error
@@ -594,7 +579,6 @@ async function handler(request: NextRequest) {
             if (a.action === 'shorten') return sum + (a.endMs - a.startMs) - (a.shortenToMs || 0);
             return sum;
           }, 0);
-        console.log(`[VideoAnalysisWorker] Fixed originalDurationMs=${actualDurationMs}, cleanDuration=${rawFootageAnalysis.estimatedCleanDurationMs}ms`);
         effectiveDurationSec = actualDurationSec;
       }
 
@@ -612,14 +596,12 @@ async function handler(request: NextRequest) {
             duration: actualDurationSec,
             uploadedAt: new Date(),
           });
-          console.log(`[VideoAnalysisWorker] Registered missing asset ${assetId} in media_assets (duration=${actualDurationSec.toFixed(1)}s)`);
         } else if (!existingAsset.duration && actualDurationSec > 0) {
           // Asset exists but duration missing Ã¢â‚¬â€ update it
           await db.collection('media_assets').updateOne(
             { assetId },
             { $set: { duration: actualDurationSec } },
           );
-          console.log(`[VideoAnalysisWorker] Updated asset ${assetId} duration to ${actualDurationSec.toFixed(1)}s`);
         }
       } catch (assetErr: unknown) {
         const msg = assetErr instanceof Error ? assetErr.message : String(assetErr);
@@ -640,10 +622,6 @@ async function handler(request: NextRequest) {
             },
           },
           { arrayFilters: [{ 'vid.type': 'video', 'vid.assetId': assetId }] },
-        );
-        console.log(
-          `[VideoAnalysisWorker] Native audio evidence: speech=${nativeAudioEvidence.hasSpeech}, ` +
-          `regions=${nativeAudioEvidence.regionCount}, words=${nativeAudioEvidence.wordCount}`
         );
       } catch (nativeAudioErr: unknown) {
         const msg = nativeAudioErr instanceof Error ? nativeAudioErr.message : String(nativeAudioErr);
@@ -670,7 +648,6 @@ async function handler(request: NextRequest) {
           maxSegments: 180,
         });
 
-        console.log(`[VideoAnalysisWorker] Step 1.58: Visual cut intelligence via V-JEPA (${visualSegmentInputs.length} visual segments, speechCoverage=${((rawFootageAnalysis.speechCoverage ?? 0) * 100).toFixed(1)}%)...`);
         const visualCutStartedAt = Date.now();
         precutVjepaAnalysis = await analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
         await recordVideoAnalysisCostEvent(payload, {
@@ -694,9 +671,7 @@ async function handler(request: NextRequest) {
 
         const {
           refineCutPlanWithVisualIntelligence,
-          resolveVisualCutRefinementMode,
         } = await import('@/lib/editron/services/visual-cut-intelligence');
-        const visualCutMode = resolveVisualCutRefinementMode(rawFootageAnalysis);
         const visualCutResult = refineCutPlanWithVisualIntelligence(rawFootageAnalysis, precutVjepaAnalysis);
         visualCutIntelligence = visualCutResult.report;
         rawFootageAnalysis.visualCutIntelligence = visualCutResult.report;
@@ -707,14 +682,6 @@ async function handler(request: NextRequest) {
             if (action.action === 'shorten') return sum + (action.endMs - action.startMs) - (action.shortenToMs || 0);
             return sum;
           }, 0);
-
-        console.log(
-          `[VideoAnalysisWorker] Visual cuts: status=${visualCutIntelligence.status}, mode=${visualCutMode.mode}, ` +
-          `protected=${visualCutIntelligence.protectedActionCount}, ` +
-          `addedRemovals=${visualCutIntelligence.addedRemovalCount}, ` +
-          `addedSplits=${visualCutIntelligence.addedSplitCount}, ` +
-          `actions=${visualCutIntelligence.inputActionCount}->${visualCutIntelligence.outputActionCount}`
-        );
       } catch (visualCutErr: unknown) {
         const msg = visualCutErr instanceof Error ? visualCutErr.message : String(visualCutErr);
         console.warn(`[VideoAnalysisWorker] Visual cut intelligence failed (non-fatal): ${msg}`);
@@ -741,8 +708,7 @@ async function handler(request: NextRequest) {
         );
 
         const { executeSilenceRemoval } = await import('@/lib/editron/services/silence-removal-executor');
-        const removalResult = await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan);
-        console.log(`[VideoAnalysisWorker] Silence removed: ${removalResult.totalFramesRemoved} frames (${removalResult.actionsExecuted} actions, ${removalResult.overlaysDeleted} deleted)`);
+        await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : '';
@@ -768,14 +734,9 @@ async function handler(request: NextRequest) {
         })),
       } : undefined;
 
-      console.log(`[VideoAnalysisWorker] Step 2: Running Visual Understanding on ${Math.round(effectiveDurationSec)}s video${segmentContext ? ` (${segmentContext.keptCount} kept segments, ${segmentContext.totalKeptSec}s clean)` : ''}...`);
-
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
       syntheticStoryboard = await analyzeVideo(videoUrl, effectiveDurationSec, userIntent || title, segmentContext);
-      if (syntheticStoryboard) {
-        const setup = syntheticStoryboard.visualSetup;
-        console.log(`[VideoAnalysisWorker] VU: type=${syntheticStoryboard.contentType}, setup=${setup?.environment || 'unknown'}/${setup?.dominantShotScale || 'unknown'}/${setup?.productionQuality || 'unknown'}`);
-      } else {
+      if (!syntheticStoryboard) {
         console.warn(`[VideoAnalysisWorker] VU returned null. Continuing without visual setup.`);
       }
       await recordVideoAnalysisCostEvent(payload, {
@@ -837,7 +798,6 @@ async function handler(request: NextRequest) {
         });
         genreParameters = genreOutput.genreParams;
         genreParametersSignalComputed = { ...genreOutput.genreParams };  // Snapshot before bandit
-        console.log(`[VideoAnalysisWorker] Genre params: pacing=${genreOutput.genreParams.pacing_tolerance.toFixed(1)}, formality=${genreOutput.genreParams.formality.toFixed(2)}, zoom_budget=${genreOutput.genreParams.zoom_budget} (${genreOutput.confidence})`);
 
         // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 3.1: Apply Thompson Sampling bandit adjustments Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         // Load per-user bandit state from MongoDB. If the user has enough
@@ -847,7 +807,7 @@ async function handler(request: NextRequest) {
         try {
           const {
             loadBanditState, sampleAdjustments, applyAdjustments,
-            averageSignalValue, buildDurationBucket, buildSignalBucket, buildSpeechCoverageBucket, buildContextKey,
+            averageSignalValue, buildDurationBucket, buildSignalBucket, buildSpeechCoverageBucket,
           } = await import('@/lib/editron/services/genre-parameter-bandit');
           const banditState = await loadBanditState(userId);
 
@@ -873,12 +833,7 @@ async function handler(request: NextRequest) {
             const banditResult = sampleAdjustments(banditState, context);
             if (banditResult.usedBandit && Object.keys(banditResult.adjustments).length > 0) {
               genreParameters = applyAdjustments(genreParameters, banditResult.adjustments);
-              console.log(`[VideoAnalysisWorker] Bandit: ${Object.keys(banditResult.adjustments).length} adjustments applied (confidence=${banditResult.confidence}, obs=${banditResult.observationCount}, ctx=${buildContextKey(context)})`);
-            } else {
-              console.log(`[VideoAnalysisWorker] Bandit: active but no significant adjustments for this context`);
             }
-          } else {
-            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} Ã¢â‚¬â€ using pure signal computation`);
           }
         } catch (banditErr: unknown) {
           const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
@@ -1066,9 +1021,7 @@ async function handler(request: NextRequest) {
         }
 
         directorDispatched = true; // TRIBE owns Director dispatch from here
-        const dispatchData = await dispatchRes.json().catch(() => ({}));
         const totalMs = Date.now() - startMs;
-        console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, speechSegments=${segmentInputs.length}, visualSegments=${visualSegmentInputs.length}).`);
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
         // No segments Ã¢â‚¬â€ skip TRIBE, dispatch Director directly
@@ -1107,9 +1060,7 @@ async function handler(request: NextRequest) {
         }
 
         directorDispatched = true;
-        const dispatchData = await dispatchRes.json().catch(() => ({}));
         const totalMs = Date.now() - startMs;
-        console.log(`[VideoAnalysisWorker] Phase 1 complete (no segments, skipped TRIBE): ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'director' });
       }
     }
@@ -1135,14 +1086,6 @@ async function handler(request: NextRequest) {
         const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
 
-        console.log(
-          `[VideoAnalysisWorker] TRIBE Phase 2 (inline): ${
-            vjepaAnalysis
-              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
-              : `dispatching V-JEPA for ${visualSegmentInputs.length} visual segments`
-          }; Wav2Vec for ${segmentInputs.length} speech segments...`
-        );
-
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           vjepaAnalysis
             ? Promise.resolve(vjepaAnalysis)
@@ -1161,11 +1104,9 @@ async function handler(request: NextRequest) {
 
         if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
           vjepaAnalysis = vjepaResult.value;
-          console.log(`[VideoAnalysisWorker] V-JEPA (inline): ${vjepaAnalysis.segments.length} segments`);
         }
         if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
           wav2vecAnalysis = wav2vecResult.value;
-          console.log(`[VideoAnalysisWorker] Wav2Vec (inline): ${wav2vecAnalysis.segments.length} segments`);
         }
         if (musicResult.status === 'fulfilled' && musicResult.value) {
           try {
@@ -1259,10 +1200,6 @@ async function handler(request: NextRequest) {
           `Assist completion lost current project ownership (${assistCompletion.disposition}).`,
         );
       }
-      console.log(
-        `[DirectorMode] Assist scan complete at project revision ${assistCompletion.receipt.revision.value}`
-        + ` — inline director skipped (project ${projectId}).`,
-      );
       return NextResponse.json({ success: true, projectId, status: assistReadyStatus, directorSkipped: true });
     }
 
@@ -1275,9 +1212,6 @@ async function handler(request: NextRequest) {
     // D-016: Profile selection removed Ã¢â‚¬â€ signal system + Utility AI drive all editing decisions.
     // Content type still available in rawFootageAnalysis.contentTypeDetection for creative brief context.
     const profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection) {
-      console.log(`[VideoAnalysisWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
-    }
 
     let brief: any = undefined;
     const userPrefs = {
@@ -1306,10 +1240,7 @@ async function handler(request: NextRequest) {
     }
 
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief,
-      (step, total, desc) => console.log(`[VideoAnalysisWorker] Director ${step}/${total}: ${desc}`),
-    );
+    await executeDirectorPlan(projectId, userId, profileId, brief);
 
     const totalMs = Date.now() - startMs;
     const projectAfterDirector = await db.collection('projects').findOne(
@@ -1347,24 +1278,16 @@ async function handler(request: NextRequest) {
       { projectId },
       completionUpdate,
     );
-
-    console.log(`[VideoAnalysisWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
-
     try {
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
+        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
           evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
           renderedAestheticStatus:
             renderedQualityEvidence?.renderedAestheticStatus ??
             renderedQualityEvidence?.renderedQualityStatus ??
             renderedQualityEvidence?.artifactStatus,
         });
-        if (!outcome.recorded) {
-          console.log('[VideoAnalysisWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
-        }
-      } else {
-        console.log(`[VideoAnalysisWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }
     } catch (err: unknown) { console.warn('[VideoAnalysisWorker] bandit outcome recording failed:', err instanceof Error ? err.message : err); }
 
