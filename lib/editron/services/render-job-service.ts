@@ -105,6 +105,36 @@ export type ProjectRenderJobMutationResultV1 =
       status: 'CURRENT';
     };
 
+export const MAX_PROJECT_RENDER_READ_LIMIT = 10;
+
+/**
+ * Scope supplied by an access-authorized caller for strict project-render
+ * reads.  The actor/requester is deliberately separate from the persisted
+ * project owner because shared and org projects render into the owner's
+ * durable job namespace.
+ */
+export type ProjectRenderJobReadScopeV1 = {
+  ownerId: string;
+  requestedByUserId: string;
+  projectId: string;
+};
+
+export type ProjectRenderJobActiveReadResultV1 =
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'CURRENT';
+      jobs: RenderJob[];
+    };
+
+export type ProjectRenderJobHistoryReadResultV1 =
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'HISTORY';
+      jobs: RenderJob[];
+    };
+
 export type ProjectRenderJobAuthorizationInputV1 = {
   jobId: string;
   ownerId: string;
@@ -300,6 +330,31 @@ function renderJobSelector(renderId: string): Filter<RenderJob> {
 }
 
 /**
+ * Resolve one render ID without allowing an admission/provider collision to
+ * select an arbitrary Mongo row.  An exact durable admission ID wins; a
+ * provider ID is accepted only when it identifies exactly one row.  The
+ * generic getJob() selector remains unchanged for legacy callers.
+ */
+export async function getRenderJobByAdmissionOrProviderIdV1(input: {
+  renderId: string;
+  collection?: Collection<RenderJob>;
+}): Promise<RenderJob | null> {
+  const renderId = normalizeRenderLookupId(input.renderId);
+  if (!renderId) return null;
+
+  const jobs = input.collection ?? await getCollection();
+  const admission = await jobs.findOne({ _id: renderId });
+  if (admission) return admission;
+
+  const providerMatches = await jobs
+    .find({ providerRenderId: renderId })
+    .sort({ _id: 1 })
+    .limit(2)
+    .toArray();
+  return providerMatches.length === 1 ? providerMatches[0]! : null;
+}
+
+/**
  * Persist Editron ownership before billing or provider dispatch.
  */
 export async function reserveJob(
@@ -441,6 +496,167 @@ export async function getCurrentProjectRenderJobV1(input: {
   };
 }
 
+const ACTIVE_PROJECT_RENDER_JOB_STATUSES: RenderJob['status'][] = [
+  'pending',
+  'queued',
+  'rendering',
+  'finalizing',
+];
+const HISTORY_PROJECT_RENDER_JOB_STATUSES: RenderJob['status'][] = [
+  'done',
+  'error',
+  'finalizing',
+];
+
+/**
+ * Read current active strict jobs for one access-authorized project snapshot.
+ * The caller must obtain ownerId, requestedByUserId, projectId, and the live
+ * revision from ProjectService; this owner verifies that tuple and never
+ * falls back to a legacy row.
+ */
+export async function getActiveProjectRenderJobsV1(input: {
+  ownerId: string;
+  requestedByUserId: string;
+  projectId: string;
+  currentProjectRevision: unknown;
+  limit?: number;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobActiveReadResultV1> {
+  const scope = normalizeProjectRenderJobReadScope(input);
+  if (!scope) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+
+  const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(
+    input.currentProjectRevision,
+  );
+  if (!parsedRevision.success) {
+    return nonCurrentProjectRenderJobResult('PROJECT_REVISION_STALE');
+  }
+  const limit = normalizeProjectRenderReadLimit(input.limit);
+  if (limit === null) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+
+  const jobs = input.collection ?? await getCollection();
+  const candidates = await jobs.find({
+    userId: scope.ownerId,
+    requestedByUserId: scope.requestedByUserId,
+    projectId: scope.projectId,
+    artifactState: 'ACTIVE',
+    artifactInvalidation: { $exists: false },
+    artifactBinding: { $exists: false },
+    'projectRenderSnapshotBinding.scope': 'PROJECT_SNAPSHOT',
+    'projectRenderSnapshotBinding.ownerId': scope.ownerId,
+    'projectRenderSnapshotBinding.projectId': scope.projectId,
+    'projectRenderSnapshotBinding.projectRevision.schemaVersion': 1,
+    'projectRenderSnapshotBinding.projectRevision.value': parsedRevision.data.value,
+    'projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt':
+      parsedRevision.data.compatibilityUpdatedAt,
+    status: { $in: ACTIVE_PROJECT_RENDER_JOB_STATUSES },
+  } satisfies Filter<RenderJob>)
+    .sort({ startedAt: -1, _id: 1 })
+    .limit(limit)
+    .toArray();
+
+  const currentJobs: RenderJob[] = [];
+  for (const candidate of candidates) {
+    const parsedJob = RenderJobSchema.safeParse(candidate);
+    if (!parsedJob.success) continue;
+    const binding = parsedJob.data.projectRenderSnapshotBinding;
+    if (!binding) continue;
+
+    let authorization: ProjectRenderJobAuthorizationV1;
+    try {
+      authorization = createProjectRenderJobAuthorizationV1({
+        jobId: parsedJob.data._id,
+        ownerId: scope.ownerId,
+        requestedByUserId: scope.requestedByUserId,
+        projectId: scope.projectId,
+        projectRevision: parsedRevision.data,
+        binding,
+      });
+    } catch {
+      continue;
+    }
+    if (!validateCurrentProjectRenderJob(parsedJob.data, authorization)) {
+      currentJobs.push(parsedJob.data);
+    }
+  }
+
+  return { ok: true, status: 'CURRENT', jobs: currentJobs };
+}
+
+/**
+ * Read strict render history without treating the live revision as a history
+ * filter.  Previous snapshot revisions remain visible, but every returned
+ * row must carry a valid whole-project binding, manifest, artifact state, and
+ * exact owner/requester/project scope.  Legacy and target-artifact rows stay
+ * on the generic compatibility reader.
+ */
+export async function getProjectRenderHistoryV1(input: {
+  ownerId: string;
+  requestedByUserId: string;
+  projectId: string;
+  limit?: number;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobHistoryReadResultV1> {
+  const scope = normalizeProjectRenderJobReadScope(input);
+  if (!scope) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  const limit = normalizeProjectRenderReadLimit(input.limit);
+  if (limit === null) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+
+  const jobs = input.collection ?? await getCollection();
+  const candidates = await jobs.find({
+    userId: scope.ownerId,
+    requestedByUserId: scope.requestedByUserId,
+    projectId: scope.projectId,
+    status: { $in: HISTORY_PROJECT_RENDER_JOB_STATUSES },
+    artifactBinding: { $exists: false },
+    artifactState: { $in: ['ACTIVE', 'STALE'] },
+    'projectRenderSnapshotBinding.scope': 'PROJECT_SNAPSHOT',
+  } satisfies Filter<RenderJob>)
+    .sort({ completedAt: -1, startedAt: -1, _id: 1 })
+    .limit(limit)
+    .toArray();
+
+  const history: RenderJob[] = [];
+  for (const candidate of candidates) {
+    const parsedJob = RenderJobSchema.safeParse(candidate);
+    if (!parsedJob.success) continue;
+    const job = parsedJob.data;
+    if (
+      !HISTORY_PROJECT_RENDER_JOB_STATUSES.includes(job.status)
+      || (job.artifactState !== 'ACTIVE' && job.artifactState !== 'STALE')
+      || job.artifactBinding !== undefined
+    ) {
+      continue;
+    }
+
+    const binding = job.projectRenderSnapshotBinding;
+    if (
+      !binding
+      || binding.scope !== 'PROJECT_SNAPSHOT'
+      || binding.artifactId !== job._id
+      || binding.ownerId !== scope.ownerId
+      || binding.projectId !== scope.projectId
+      || job.userId !== scope.ownerId
+      || job.requestedByUserId !== scope.requestedByUserId
+      || job.projectId !== scope.projectId
+    ) {
+      continue;
+    }
+    try {
+      assertProjectRenderSnapshotBindingV1(binding);
+    } catch {
+      continue;
+    }
+
+    const manifest = parseProjectRenderDeliveryManifest(job.deliveryManifest);
+    if (!manifest || manifest.primaryArtifact.renderId !== job._id) continue;
+    if (job.status === 'done' && !verifiedProjectRenderDeliveryManifest(job)) continue;
+    history.push(job);
+  }
+
+  return { ok: true, status: 'HISTORY', jobs: history };
+}
+
 /**
  * Reconstruct the server-only authorization tuple for one durable admission.
  * This proves stored binding identity, not current ProjectService revision;
@@ -499,6 +715,44 @@ function isBoundRenderInputString(value: unknown, maxLength = 500): value is str
     && value.trim().length > 0
     && value.length <= maxLength
     && !/[\u0000-\u001F\u007F]/.test(value);
+}
+
+function normalizeRenderLookupId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const renderId = value.trim();
+  return PROJECT_RENDER_JOB_ID.test(renderId) ? renderId : null;
+}
+
+function normalizeProjectRenderScopeId(value: unknown): string | null {
+  if (!isBoundRenderInputString(value, PROJECT_RENDER_JOB_OWNER_OR_PROJECT_ID_MAX_LENGTH)) {
+    return null;
+  }
+  return value.trim();
+}
+
+function normalizeProjectRenderJobReadScope(input: {
+  ownerId: string;
+  requestedByUserId: string;
+  projectId: string;
+}): ProjectRenderJobReadScopeV1 | null {
+  const ownerId = normalizeProjectRenderScopeId(input.ownerId);
+  const requestedByUserId = RenderJobRequesterUserIdSchema.safeParse(
+    typeof input.requestedByUserId === 'string' ? input.requestedByUserId.trim() : input.requestedByUserId,
+  );
+  const projectId = normalizeProjectRenderScopeId(input.projectId);
+  if (!ownerId || !requestedByUserId.success || !projectId) return null;
+  return {
+    ownerId,
+    requestedByUserId: requestedByUserId.data,
+    projectId,
+  };
+}
+
+function normalizeProjectRenderReadLimit(value: number | undefined): number | null {
+  const limit = value ?? MAX_PROJECT_RENDER_READ_LIMIT;
+  return Number.isSafeInteger(limit) && limit > 0 && limit <= MAX_PROJECT_RENDER_READ_LIMIT
+    ? limit
+    : null;
 }
 
 /** Atomically bind a provider render to a current whole-project admission. */

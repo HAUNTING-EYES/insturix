@@ -50,8 +50,11 @@ import {
   fenceStaleProjectRenderJobFinalizationV1,
   fenceStaleProjectRenderJobFinalizationWithCleanupV1,
   fenceStaleProjectRenderJobProviderOutputWithCleanupV1,
+  getActiveProjectRenderJobsV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
+  getProjectRenderHistoryV1,
+  getRenderJobByAdmissionOrProviderIdV1,
   materializeProjectRenderSourceCleanupHandoffV1,
   markJobStarted,
   markProjectRenderJobStartedV1,
@@ -1855,5 +1858,115 @@ describe("Project render-job owner V1", () => {
     collection.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     await updateJobProgress("legacy-render-job", 0.5);
     expect(collection.updateOne).toHaveBeenCalled();
+  });
+
+  it("resolves admission/provider IDs deterministically and rejects collisions", async () => {
+    const collection = makeCollection();
+    const job = makeBoundJob();
+    collection.findOne.mockResolvedValueOnce(job);
+
+    await expect(getRenderJobByAdmissionOrProviderIdV1({
+      renderId: job._id,
+      collection,
+    })).resolves.toEqual(job);
+    expect(collection.find).not.toHaveBeenCalled();
+
+    collection.findOne.mockResolvedValueOnce(null);
+    const cursor = {
+      sort: vi.fn(),
+      limit: vi.fn(),
+      toArray: vi.fn(async () => [job, { ...job, _id: "project-render-job-2" }]),
+    };
+    cursor.sort.mockReturnValue(cursor);
+    cursor.limit.mockReturnValue(cursor);
+    collection.find.mockReturnValueOnce(cursor);
+
+    await expect(getRenderJobByAdmissionOrProviderIdV1({
+      renderId: "provider-collision",
+      collection,
+    })).resolves.toBeNull();
+    expect(cursor.limit).toHaveBeenCalledWith(2);
+  });
+
+  it("returns only current, scope-valid active project renders", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const current = makeBoundJob(binding, "rendering");
+    const wrongRequester = { ...current, requestedByUserId: "other-requester" };
+    const cursor = {
+      sort: vi.fn(),
+      limit: vi.fn(),
+      toArray: vi.fn(async () => [current, wrongRequester]),
+    };
+    cursor.sort.mockReturnValue(cursor);
+    cursor.limit.mockReturnValue(cursor);
+    collection.find.mockReturnValueOnce(cursor);
+
+    const result = await getActiveProjectRenderJobsV1({
+      ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
+      projectId: PROJECT_ID,
+      currentProjectRevision: REVISION,
+      collection,
+    });
+
+    expect(result).toMatchObject({ ok: true, status: "CURRENT", jobs: [current] });
+    expect(cursor.sort).toHaveBeenCalledWith({ startedAt: -1, _id: 1 });
+    expect(cursor.limit).toHaveBeenCalledWith(10);
+  });
+
+  it("keeps valid prior-revision history while excluding malformed rows", async () => {
+    const collection = makeCollection();
+    const priorRevision = {
+      ...REVISION,
+      value: REVISION.value - 1,
+      compatibilityUpdatedAt: "2026-08-30T00:00:00.000Z",
+    };
+    const priorBinding = makeBinding(JOB_ID, priorRevision);
+    const priorDone = makeDoneJob(priorBinding, true);
+    const malformedManifest = {
+      ...priorDone,
+      deliveryManifest: {
+        ...priorDone.deliveryManifest!,
+        primaryArtifact: {
+          ...priorDone.deliveryManifest!.primaryArtifact,
+          renderId: "wrong-artifact",
+        },
+      },
+    };
+    const cursor = {
+      sort: vi.fn(),
+      limit: vi.fn(),
+      toArray: vi.fn(async () => [priorDone, malformedManifest]),
+    };
+    cursor.sort.mockReturnValue(cursor);
+    cursor.limit.mockReturnValue(cursor);
+    collection.find.mockReturnValueOnce(cursor);
+
+    const result = await getProjectRenderHistoryV1({
+      ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
+      projectId: PROJECT_ID,
+      collection,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: "HISTORY",
+      jobs: [{
+        _id: JOB_ID,
+        status: "done",
+        projectRenderSnapshotBinding: {
+          projectRevision: priorRevision,
+        },
+      }],
+    });
+    if (result.ok) expect(result.jobs).toHaveLength(1);
+    expect(cursor.sort).toHaveBeenCalledWith({
+      completedAt: -1,
+      startedAt: -1,
+      _id: 1,
+    });
+    expect(cursor.limit).toHaveBeenCalledWith(10);
   });
 });
