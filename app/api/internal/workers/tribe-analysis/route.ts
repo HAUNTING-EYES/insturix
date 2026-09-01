@@ -51,7 +51,6 @@ interface TribeAnalysisPayload {
 
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  console.log('[TribeWorker] Started');
   let trackedScan: Pick<TribeAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
   let directorDispatched = false;
 
@@ -102,10 +101,8 @@ async function handler(request: NextRequest) {
       { $set: { tribeLockAt: new Date() } },
     );
     if (claim.matchedCount === 0) {
-      console.log(`[TribeWorker] ${projectId} already claimed by a concurrent worker (duplicate QStash delivery) — skipping to avoid GPU contention`);
       return NextResponse.json({ success: true, skipped: 'duplicate-delivery', stage: 'tribe-analysis' });
     }
-    console.log(`[TribeWorker] Claimed ${projectId} (tribe lock acquired)`);
 
     const precomputedProjectDoc = await db.collection('projects').findOne(
       { projectId },
@@ -136,14 +133,6 @@ async function handler(request: NextRequest) {
         const vjepaRequestedSeconds = sumSegmentSeconds(vjepaSegmentInputs);
         const speechRequestedSeconds = sumSegmentSeconds(segmentInputs);
 
-        console.log(
-          `[TribeWorker] TRIBE Phase 2: ${
-            vjepaAnalysis
-              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
-              : `dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments`
-          }; Wav2Vec for ${segmentInputs.length} speech segments...`
-        );
-
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           vjepaAnalysis
             ? Promise.resolve(vjepaAnalysis)
@@ -172,8 +161,6 @@ async function handler(request: NextRequest) {
         // Handle V-JEPA result
         if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
           vjepaAnalysis = vjepaResult.value;
-          const avgSig = vjepaAnalysis.segments.reduce((s: number, r: any) => s + r.visualSignificance, 0) / vjepaAnalysis.segments.length;
-          console.log(`[TribeWorker] V-JEPA: ${vjepaAnalysis.segments.length} segments analyzed (avg significance=${avgSig.toFixed(2)}, ${vjepaAnalysis.processingTimeMs}ms)`);
         } else {
           const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] V-JEPA skipped: ${msg}`);
@@ -230,12 +217,6 @@ async function handler(request: NextRequest) {
         const wav2vecResolution = wav2vecResult.status === 'fulfilled' ? wav2vecResult.value : null;
         if (wav2vecResolution?.analysis) {
           wav2vecAnalysis = wav2vecResolution.analysis;
-          const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
-          console.log(
-            `[TribeWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments ` +
-            `(avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms, ` +
-            `source=${wav2vecResolution.provenance}, waited=${wav2vecResolution.waitedMs}ms)`,
-          );
         } else {
           const msg = wav2vecResult.status === 'rejected'
             ? (wav2vecResult.reason?.message || String(wav2vecResult.reason))
@@ -287,7 +268,6 @@ async function handler(request: NextRequest) {
         let musicAnalysis: any = null;
         if (musicResult.status === 'fulfilled' && musicResult.value) {
           musicAnalysis = musicResult.value;
-          console.log(`[TribeWorker] Music: BPM=${musicAnalysis.bpm}, ${musicAnalysis.beats.length} beats, presence=${musicAnalysis.musicPresence.toFixed(2)}, ${musicAnalysis.processingTimeMs}ms`);
         } else {
           const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] Music analysis skipped: ${msg}`);
@@ -393,7 +373,6 @@ async function handler(request: NextRequest) {
         }
 
         momentWeightMap = weightMap;
-        console.log(`[TribeWorker] Moment weights: Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] Moment weight computation failed (non-fatal): ${msg}`);
@@ -410,9 +389,6 @@ async function handler(request: NextRequest) {
           rawFootageAnalysis, syntheticStoryboard,
           vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
         );
-        if (segmentAnalysis) {
-          console.log(`[TribeWorker] SegmentAnalysis: ${segmentAnalysis.meta.segmentCount} segments, vjepa=${segmentAnalysis.meta.hasVjepa}, wav2vec=${segmentAnalysis.meta.hasWav2vec}, phase=${segmentAnalysis.meta.momentWeightPhase}`);
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] SegmentAnalysis build failed (non-fatal): ${msg}`);
@@ -502,9 +478,7 @@ async function handler(request: NextRequest) {
       }
 
       directorDispatched = true;
-      const dispatchData = await dispatchRes.json().catch(() => ({}));
       const totalMs = Date.now() - startMs;
-      console.log(`[TribeWorker] TRIBE complete: ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
       return NextResponse.json({ success: true, totalMs, stage: 'tribe-analysis' });
     }
 
@@ -516,7 +490,6 @@ async function handler(request: NextRequest) {
     );
 
     const initialProfileId = (directorPayload.profileId as string) || 'G-01';
-    const title = (directorPayload.title as string) || '';
     const platform = (directorPayload.platform as string) || 'youtube';
     const userIntent = directorPayload.userIntent as string | undefined;
     const captionStyle = directorPayload.captionStyle as string | undefined;
@@ -528,9 +501,6 @@ async function handler(request: NextRequest) {
 
     // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
     const profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection) {
-      console.log(`[TribeWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
-    }
 
     const editDNA = projectDoc?.referenceEditDNA;
     let brief: any = undefined;
@@ -559,10 +529,7 @@ async function handler(request: NextRequest) {
     }
 
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief,
-      (step, total, desc) => console.log(`[TribeWorker] Director ${step}/${total}: ${desc}`),
-    );
+    await executeDirectorPlan(projectId, userId, profileId, brief);
 
     const totalMs = Date.now() - startMs;
     const projectAfterDirector = await db.collection('projects').findOne(
@@ -601,23 +568,16 @@ async function handler(request: NextRequest) {
       completionUpdate,
     );
 
-    console.log(`[TribeWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
-
     try {
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
+        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
           evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
           renderedAestheticStatus:
             renderedQualityEvidence?.renderedAestheticStatus ??
             renderedQualityEvidence?.renderedQualityStatus ??
             renderedQualityEvidence?.artifactStatus,
         });
-        if (!outcome.recorded) {
-          console.log('[TribeWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
-        }
-      } else {
-        console.log(`[TribeWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }
     } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
 
