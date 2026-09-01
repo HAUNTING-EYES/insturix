@@ -15803,3 +15803,64 @@ The exact order remains: (1) continue universal Queue 5 owners serially,
 (2) finish the Queue 3-4 media chain, where founder-authorized parallel work is
 permitted, (3) implement Queue 6 serially, then (4) certify agency verticals
 serially unless the founder explicitly authorizes further parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4C checkpoint
+
+Commits `cbf83608f`, `69604a03a`, `540186741`, `59d09bb24`,
+`f13b8a9f4`, `c2f0deafc` and `22f215a7f` continue Queue 5 through
+the assist-ready/inline-completion seams and the asynchronous MG render/design
+terminal paths. `01a9b667e` separately restores the previously tracked
+provider-SFX coverage fixture; it is test-fixture repair, not a new editing
+capability. `c2f0deafc` is the required separate Step-0 removal of EDL debug
+logging before the large executor cutover.
+
+Assist-ready transitions now advance through a ProjectService receipt owner,
+and the inline video-analysis completion path uses the existing assist
+completion owner. This is partial assist convergence only: the assist-lane
+settlement saga, batch/cancel/rescue paths and stale/refund recovery still
+contain direct project-document writers and remain open.
+
+The MG render runner no longer manufactures terminal fallback or decline
+project outcomes. ProjectService owns generated, fallback and declined
+terminal delivery under the exact project revision, detects partial persisted
+state and treats a complete replay idempotently. The separate MG-design chain
+now loads one ProjectService mutation snapshot, returns bounded codegen-run,
+kinetic-SFX, delivery-record and taste-contract evidence from `executeEDL`, and
+commits the durable design job plus all returned project evidence in one Mongo
+transaction. A concurrent project revision change requeues within the existing
+bounded attempt/deadline policy; a lost lease or missing project cannot land
+evidence. Parent reconciliation begins only after successful completion.
+
+The cutover removes the old split completion sequence and the active hidden EDL
+project writes for codegen-run, kinetic-SFX, delivery-record and taste evidence.
+It does not close all MG lifecycle mutation ownership: MG-design enqueue/failure
+UI mirrors, parent reconciliation durability and the now-unused legacy taste/
+delivery persistence helpers still require classification or removal. No claim
+is made that all MG, assist or project writers are unified merely because these
+terminal paths share ProjectService.
+
+Focused proof passed 60/60 across the MG worker, live-codegen seam and
+ProjectService payload/transaction suites after the final cutover. The full
+8-GB TypeScript check, full repository quiet ESLint and `git diff --check`
+passed before push. Earlier bounded slices also passed their focused owner
+closures. No provider request, live render, wallet mutation, project-content
+edit, paid cohort rerun, model inference or external spend occurred.
+
+A fresh fixed-string source inventory still finds non-ProjectService project
+writes in the video-analysis and tribe-analysis workers, assist-lane and
+auto-edit batch/asset/cancel/rescue/recovery paths, plus adjacent storyboard,
+Alyzitron and MG lifecycle mirrors. Each site must be classified as canonical
+editor state, durable job state or disposable UI projection before migration;
+raw occurrence count alone is not a completion metric.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order is: (1) finish the remaining Queue 5 owners serially, beginning
+with MG enqueue/failure projection ownership and assist settlement, then the
+video/tribe/auto-edit route families; (2) return to the unfinished Queue 3-4
+media chain, where founder-authorized parallel work is permitted; (3) implement
+Queue 6 serially; and (4) certify the agency verticals serially unless the
+founder explicitly authorizes more parallelization.
