@@ -406,7 +406,6 @@ export async function POST(request: NextRequest) {
       autoEditAnalysisStarted = true;
     } else {
       // No QStash → run inline (dev mode)
-      console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
       autoEditAnalysisStarted = true;
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
