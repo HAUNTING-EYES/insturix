@@ -16016,3 +16016,57 @@ unfinished Queue 3-4 media chain, where only those two queues have the
 founder's current permission for parallel execution; (3) implement Queue 6
 serially; and (4) certify agency verticals serially unless the founder
 explicitly grants new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4G checkpoint
+
+Commits `8c7a55eb5`, `017a4a478`, `b19933b19`, `a06635496` and
+`21e53b3b3` close the bounded run-bound Video-to-TRIBE dispatch gap recorded by
+Phase 4F. The separate `a06635496` commit is the required Step-0 removal of a
+Video-worker development debug warning before structural work in that large
+owner.
+
+ProjectService now prepares one evidence-bound deep-analysis dispatch identity
+for the admitted project, analysis run and source asset. The shared publication
+owner sends the exact TRIBE body under a stable QStash deduplication identity,
+records provider acceptance and message identity with bounded revision CAS, and
+preserves retry ownership when provider publication or local receipt recording
+is ambiguous. The TRIBE worker claims only the matching dispatch identity before
+GPU work; pending, forged, stale and duplicate-active claims cannot mutate the
+project or falsely report completion.
+
+The provider-free route now uses one shared inline Phase-2 owner for both first
+execution and retry. It resumes `analysis_complete`, `analyzing_deep` and
+already-prepared Director states without retranscription, prefers the exact
+source-asset-keyed committed Phase-1 evidence, validates it losslessly, reclaims
+only an expired deep-analysis lease and commits Phase-2 evidence under bounded
+revision CAS. Unexpected infrastructure failures remain retryable instead of
+terminalizing an active run; stale ownership remains a conflict. The normal
+queued TRIBE path and the provider-free inline path still have separate primary
+executors, so this is lifecycle convergence around shared ProjectService state,
+not a claim that their analysis implementations are merged.
+
+The final focused closure passed 40/40 tests across Video/TRIBE wiring, deep
+publication, deep dispatch and lease lifecycle, Director publication/dispatch
+and reference evidence. The repository-wide 8-GB TypeScript check, full quiet
+ESLint and `git diff --check` passed before push. No live provider call, GPU
+analysis, wallet mutation, render, project-content edit, paid-cohort rerun,
+model inference or external spend occurred.
+
+This closes the upstream Video-to-TRIBE publication and local-resume gap only.
+Universal Queue 5 remains open for remaining batch projections,
+auto-edit rescue/recovery, storyboard finalization, Alyzitron and adjacent
+project writers, followed by a fresh owner/consumer inventory proving there are
+no unclassified mutation bypasses. Deployed QStash/IAM behavior and live
+provider redelivery remain unproven and belong to later live vertical evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order is: (1) continue the remaining Queue 5 writers serially,
+beginning with batch/rescue/recovery, storyboard and Alyzitron classification;
+(2) return to the unfinished Queue 3-4 media chain, where only those two queues
+have the founder's current permission for parallel execution; (3) implement
+Queue 6 serially; and (4) certify agency verticals serially unless the founder
+explicitly grants new parallelization permission.
