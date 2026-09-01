@@ -14949,3 +14949,27 @@ Stage 2.5 remains `MODIFY` and Stage 3 remains blocked.
 The next bounded work is migration of those route and consumer paths under
 the same exact binding and recovery gates, followed by invalidation-outbox
 consumer integration.
+
+## 2026-09-01 vertical-convergence Phase 3J checkpoint
+
+At commit `3e9298d2f`, the signed QStash render-finalization message carries
+strict server-only authorization for a bound project job; that authorization
+is never returned to the browser. The success worker checks the current
+ProjectService revision before media work and again before strict publish. The
+failure worker uses the strict failure owner. Transient revision or database
+failures return HTTP 500 for retry, while an explicit project-not-current
+outcome is skipped without publishing success. Legacy signed messages remain
+supported through their existing generic path.
+
+The focused finalization-worker run passed 49/49 tests; full TypeScript, ESLint
+(`--quiet`) and `git diff --check` passed. This is a bounded queue/worker
+hardening slice, not signed Remotion webhook binding-hash/provider/bucket
+ingress, live-provider proof, certification, convergence, or Stage 3/`GO`
+authorization.
+
+Remaining dependencies are signed Remotion webhook binding-hash/provider/
+bucket ingress; strict provider-failure and failed-retry owners/routes;
+progress, active, history and chapter consumers; and ambiguous-dispatch
+recovery. Queue 5 remains `ACTIVE_PARTIAL`; no live provider proof or
+convergence is claimed, and Stage 2.5 remains `MODIFY` while Stage 3 remains
+blocked.
