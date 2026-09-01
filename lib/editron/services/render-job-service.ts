@@ -548,6 +548,68 @@ export async function failProjectRenderJobV1(input: {
     : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
 
+/**
+ * Close an exact reserved admission that became stale before provider
+ * dispatch. This is deliberately separate from the current-job failure owner:
+ * a changed project revision is the admission to this transition, and a
+ * provider identity makes the transition ineligible.
+ */
+export async function abandonStaleProjectRenderJobAdmissionV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<
+  ProjectRenderJobNotCurrentResultV1 | { ok: true; status: 'STALE' }
+> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID');
+  }
+  const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(
+    input.currentProjectRevision,
+  );
+  if (
+    !parsedRevision.success
+    || sameProjectArtifactRevisionV1(
+      parsedAuthorization.data.projectRevision,
+      parsedRevision.data,
+    )
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const abandoned = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(parsedAuthorization.data, {
+      status: 'pending',
+      providerRenderId: { $exists: false },
+      bucketName: { $exists: false },
+      finalization: { $exists: false },
+    }),
+    {
+      $set: {
+        status: 'error',
+        error: boundedError(input.error),
+        completedAt,
+        artifactState: 'STALE',
+        artifactCleanup: {
+          state: 'NOT_REQUIRED',
+          pendingArtifactIds: [],
+        },
+        artifactInvalidatedAt: completedAt,
+      },
+    },
+  );
+  return abandoned.matchedCount === 1
+    ? { ok: true, status: 'STALE' }
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
 export interface FencedRenderJobsForProjectArtifactInvalidationV1 {
   fences: ProjectArtifactInvalidationFenceV1[];
   fencedArtifactIds: string[];

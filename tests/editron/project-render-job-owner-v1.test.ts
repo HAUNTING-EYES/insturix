@@ -30,6 +30,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
 }));
 
 import {
+  abandonStaleProjectRenderJobAdmissionV1,
   claimJobFinalization,
   claimProjectRenderCompletionEffectsV1,
   claimProjectRenderJobFinalizationV1,
@@ -836,6 +837,75 @@ describe("Project render-job owner V1", () => {
     });
     expect(wrongClaim).toMatchObject({ ok: false, code: "PROJECT_ARTIFACT_NOT_CURRENT" });
     expect(collection.updateOne.mock.calls.at(-1)![1].$set.status).not.toBe("done");
+  });
+
+  it("abandons only an exact stale admission before provider dispatch", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const staleRevision = { ...REVISION, value: REVISION.value + 1 };
+    const now = new Date("2026-08-31T00:04:00.000Z");
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+
+    await expect(abandonStaleProjectRenderJobAdmissionV1({
+      authorization,
+      currentProjectRevision: staleRevision,
+      error: "project changed before provider dispatch",
+      now,
+      collection,
+    })).resolves.toEqual({ ok: true, status: "STALE" });
+    const [filter, update] = collection.updateOne.mock.calls[0]!;
+    expect(filter).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          _id: JOB_ID,
+          userId: OWNER_ID,
+          requestedByUserId: REQUESTER_ID,
+          projectId: PROJECT_ID,
+          artifactState: "ACTIVE",
+          "projectRenderSnapshotBinding.bindingHash": binding.bindingHash,
+        }),
+        expect.objectContaining({
+          status: "pending",
+          providerRenderId: { $exists: false },
+          bucketName: { $exists: false },
+          finalization: { $exists: false },
+        }),
+      ]),
+    }));
+    expect(update).toEqual({
+      $set: expect.objectContaining({
+        status: "error",
+        artifactState: "STALE",
+        artifactCleanup: { state: "NOT_REQUIRED", pendingArtifactIds: [] },
+        artifactInvalidatedAt: now,
+        completedAt: now,
+      }),
+    });
+
+    collection.updateOne.mockClear();
+    const current = await abandonStaleProjectRenderJobAdmissionV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      error: "must not close current admission",
+      collection,
+    });
+    expect(current).toMatchObject({ ok: false, reason: "INPUT_INVALID" });
+    expect(collection.updateOne).not.toHaveBeenCalled();
+
+    const forged = await abandonStaleProjectRenderJobAdmissionV1({
+      authorization: { ...authorization, requestedByUserId: "forged-requester" },
+      currentProjectRevision: staleRevision,
+      error: "must not close another requester's admission",
+      collection,
+    });
+    expect(forged).toMatchObject({ ok: false, reason: "JOB_STATE_NOT_ACTIVE" });
+    expect(collection.updateOne).toHaveBeenCalledTimes(1);
+    expect(collection.updateOne.mock.calls[0]![0]).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({ requestedByUserId: "forged-requester" }),
+      ]),
+    }));
   });
 
   it("requires a verified exact-duration receipt before bound finalization success", async () => {

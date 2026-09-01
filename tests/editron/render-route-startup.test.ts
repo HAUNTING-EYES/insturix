@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const routeMocks = vi.hoisted(() => ({
+  abandonStaleProjectRenderJobAdmission: vi.fn(),
   auth: vi.fn(),
   renderMediaOnLambda: vi.fn(),
   validateWebhookSignature: vi.fn(),
@@ -57,6 +58,8 @@ vi.mock('@upstash/qstash', () => ({
 }));
 
 vi.mock('@/lib/editron/services/render-job-service', () => ({
+  abandonStaleProjectRenderJobAdmissionV1:
+    routeMocks.abandonStaleProjectRenderJobAdmission,
   createJob: routeMocks.createJob,
   calculateExpectedRenderDurationMs: routeMocks.calculateExpectedRenderDurationMs,
   createProjectRenderJobAuthorizationV1: routeMocks.createProjectRenderJobAuthorization,
@@ -254,6 +257,10 @@ describe('Editron render startup boundary', () => {
     });
     routeMocks.failJob.mockResolvedValue(undefined);
     routeMocks.failProjectRenderJob.mockResolvedValue({ ok: true, status: 'CURRENT' });
+    routeMocks.abandonStaleProjectRenderJobAdmission.mockResolvedValue({
+      ok: true,
+      status: 'STALE',
+    });
     routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
     routeMocks.releaseFailedJobFinalizationRetryClaim.mockResolvedValue(true);
     routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
@@ -649,6 +656,17 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledTimes(1);
     expect(routeMocks.deduct).toHaveBeenCalledTimes(1);
     expect(routeMocks.refund).toHaveBeenCalledTimes(1);
+    expect(routeMocks.abandonStaleProjectRenderJobAdmission).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({
+        requestedByUserId: 'user_1',
+        ownerId: 'user_1',
+        projectId: 'project_1',
+        projectRevision: projectRevision(),
+      }),
+      currentProjectRevision: staleRevision,
+      error: 'Project changed after render admission and before provider dispatch',
+    });
+    expect(routeMocks.failProjectRenderJob).not.toHaveBeenCalled();
     expect(routeMocks.setAwsCredentials).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });

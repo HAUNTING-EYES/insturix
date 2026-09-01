@@ -3,6 +3,7 @@ import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
 import { nanoid } from 'nanoid';
 import {
+  abandonStaleProjectRenderJobAdmissionV1,
   calculateExpectedRenderDurationMs,
   createProjectRenderJobAuthorizationV1,
   failProjectRenderJobV1,
@@ -696,6 +697,20 @@ async function markRenderAdmissionFailed(
       authorization.ownerId,
       authorization.projectId,
     );
+    if (!sameProjectArtifactRevisionV1(
+      currentProjectRevision,
+      authorization.projectRevision,
+    )) {
+      const abandoned = await abandonStaleProjectRenderJobAdmissionV1({
+        authorization,
+        currentProjectRevision,
+        error: reason,
+      });
+      if (!abandoned.ok) {
+        console.error('[Render] failed to close stale pre-dispatch admission:', abandoned);
+      }
+      return;
+    }
     const result = await failProjectRenderJobV1({
       authorization,
       currentProjectRevision,
