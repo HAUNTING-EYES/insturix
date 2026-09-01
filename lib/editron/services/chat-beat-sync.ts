@@ -5,7 +5,12 @@ import {
   resolveBeatSyncMutationV1,
   type BeatSyncSourceEvidenceV1,
 } from './beat-sync-mutation-v1';
-import { projectService } from './project-service';
+import {
+  projectService,
+  type ProjectBeatSyncEvidenceSourceV1,
+  type ProjectBeatSyncResultV1,
+} from './project-service';
+import { readProjectRevisionV1, type ProjectRevisionV1 } from './project-revision-v1';
 
 export interface ChatBeatSyncInput {
   audioOverlayId?: number;
@@ -18,6 +23,7 @@ interface ProjectLike {
   projectId: string;
   userId: string;
   fps?: number;
+  projectRevision?: unknown;
   updatedAt?: Date | string;
   overlays?: Array<Record<string, any>>;
 }
@@ -31,11 +37,13 @@ export interface ChatBeatSyncDependencies {
   commit(input: {
     userId: string;
     projectId: string;
-    expectedUpdatedAt: Date;
-    overlays: Overlay[];
-    audit: Record<string, unknown>;
-  }): Promise<boolean>;
-  now(): Date;
+    expectedRevision: ProjectRevisionV1;
+    audioOverlayId: string | number;
+    targetOverlayId?: string | number;
+    beatFilter: ChatBeatSyncInput['beatFilter'];
+    strengthThreshold: number;
+    evidenceSource: ProjectBeatSyncEvidenceSourceV1;
+  }): Promise<ProjectBeatSyncResultV1>;
 }
 
 export type ChatBeatSyncResult =
@@ -47,12 +55,21 @@ const DEFAULT_DEPENDENCIES: ChatBeatSyncDependencies = {
   loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<ProjectLike | null>,
   loadAsset: (assetId, userId) => assetResolver.getAsset(assetId, userId),
   analyzeAssetBeats: analyzeAssetBeatsThroughRoute,
-  commit: async (input) => projectService.replaceOverlayFamilyAtomic(input.userId, input.projectId, {
-    expectedUpdatedAt: input.expectedUpdatedAt,
-    overlays: input.overlays,
-    projectUpdates: { latestBeatSync: input.audit },
-  }),
-  now: () => new Date(),
+  commit: async (input) => projectService.alignCutsToBeatsAtRevisionV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision: input.expectedRevision,
+      actorKind: 'AGENT',
+      audioOverlayId: input.audioOverlayId,
+      ...(input.targetOverlayId === undefined
+        ? {}
+        : { targetOverlayId: input.targetOverlayId }),
+      beatFilter: input.beatFilter,
+      strengthThreshold: input.strengthThreshold,
+      evidenceSource: input.evidenceSource,
+    },
+  ),
 };
 
 export async function executeChatBeatSync(
@@ -86,7 +103,7 @@ export async function executeChatBeatSync(
   const persistedGrid = record(audioOverlay.beatGrid ?? record(audioOverlay.metadata).beatGrid);
   const cachedAnalysis = record(audioAsset?.beatAnalysis) as BeatAnalysisLike;
   let analysis: BeatAnalysisLike = cachedAnalysis;
-  let evidenceSource = hasBeatArray(persistedGrid)
+  const evidenceSource: ProjectBeatSyncEvidenceSourceV1 = hasBeatArray(persistedGrid)
     ? 'persisted-beat-grid'
     : hasBeatArray(cachedAnalysis)
       ? 'cached-beat-analysis'
@@ -139,45 +156,56 @@ export async function executeChatBeatSync(
       evidenceSource,
     });
   }
-  const { alignment, candidateOverlays: nextOverlays } = resolution;
-  if (alignment.snappedCount === 0) {
+  const plannedAlignment = resolution.alignment;
+  if (plannedAlignment.snappedCount === 0) {
     return noOp('No existing cut boundary had a safe, speech-compatible beat alignment.', {
       reason: 'no-safe-boundary-alignment',
       evidenceSource,
-      trackOverlayIds: alignment.trackOverlayIds,
-      rejections: alignment.rejections,
+      trackOverlayIds: plannedAlignment.trackOverlayIds,
+      rejections: plannedAlignment.rejections,
     });
   }
 
-  const expectedUpdatedAt = project.updatedAt instanceof Date
-    ? project.updatedAt
-    : new Date(project.updatedAt ?? '');
-  if (Number.isNaN(expectedUpdatedAt.getTime())) {
+  const expectedRevision = readProjectRevisionV1(project);
+  if (!expectedRevision) {
     return failure('BEAT_SYNC_REVISION_MISSING', 'Project revision is missing; beat alignment was not written.');
   }
-  const audit = {
-    version: 'chat-beat-sync-v2',
-    evidenceSource,
-    audioAssetId: audioOverlay.assetId,
-    beatFilter: args.input.beatFilter,
-    alignedAt: dependencies.now(),
-    changes: alignment.changes,
-    rejections: alignment.rejections.slice(0, 100),
-  };
-  const committed = await dependencies.commit({
-    userId: args.userId,
-    projectId: args.projectId,
-    expectedUpdatedAt,
-    overlays: nextOverlays as Overlay[],
-    audit,
-  });
-  if (!committed) {
+  let committed: ProjectBeatSyncResultV1;
+  try {
+    committed = await dependencies.commit({
+      userId: args.userId,
+      projectId: args.projectId,
+      expectedRevision,
+      audioOverlayId: audioOverlay.id,
+      ...(args.input.videoOverlayId == null
+        ? {}
+        : { targetOverlayId: args.input.videoOverlayId }),
+      beatFilter: args.input.beatFilter,
+      strengthThreshold: args.input.strengthThreshold,
+      evidenceSource,
+    });
+  } catch (error) {
+    if (isProjectRevisionConflict(error)) {
+      return failure(
+        'BEAT_SYNC_PROJECT_CONFLICT',
+        'The timeline changed while beat alignment was being planned. Read the latest timeline and retry.',
+      );
+    }
     return failure(
-      'BEAT_SYNC_PROJECT_CONFLICT',
-      'The timeline changed while beat alignment was being planned. Read the latest timeline and retry.',
+      'BEAT_SYNC_COMMIT_FAILED',
+      error instanceof Error ? error.message : 'Beat alignment could not be committed.',
     );
   }
+  if (committed.disposition === 'UNCHANGED') {
+    return noOp('No current cut boundary had a safe beat alignment at commit time.', {
+      reason: committed.reason.toLowerCase().replaceAll('_', '-'),
+      evidenceSource,
+      trackOverlayIds: committed.resolution.alignment.trackOverlayIds,
+      rejections: committed.resolution.alignment.rejections,
+    });
+  }
 
+  const alignment = committed.resolution.alignment;
   const affectedFrameRanges = alignment.changes.map((change) => ({
     startFrame: Math.max(0, Math.min(change.originalFrame, change.alignedFrame) - 1),
     endFrame: Math.max(change.originalFrame, change.alignedFrame) + 2,
@@ -194,7 +222,7 @@ export async function executeChatBeatSync(
       bpm: positiveNumber(persistedGridMetadata.bpm ?? analysis.bpm),
       bpmConfidence: positiveNumber(persistedGridMetadata.bpmConfidence ?? analysis.bpmConfidence),
       alignedBoundaryCount: alignment.snappedCount,
-      totalLicensedBeats: resolution.timelineBeatCount,
+      totalLicensedBeats: committed.resolution.timelineBeatCount,
       beatFilter: args.input.beatFilter,
       changes: alignment.changes,
       rejections: alignment.rejections,
@@ -254,4 +282,13 @@ function stringValue(value: unknown): string | null {
 
 function positiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function isProjectRevisionConflict(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'PROJECT_REVISION_CONFLICT',
+  );
 }
