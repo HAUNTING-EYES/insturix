@@ -12,6 +12,7 @@ import {
 import type { RenderFinalizerResult } from './render-finalizer-client';
 import {
   completeRenderDeliveryManifest,
+  RenderDeliveryManifestSchema,
   type RenderDeliveryManifest,
 } from './render-delivery-manifest';
 import {
@@ -186,6 +187,79 @@ function currentProjectRenderJobFilter(
     'projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt':
       authorization.projectRevision.compatibilityUpdatedAt,
     'projectRenderSnapshotBinding.bindingHash': authorization.bindingHash,
+    'deliveryManifest.version': 'editron-render-delivery-manifest-v1',
+    'deliveryManifest.primaryArtifact.renderId': authorization.jobId,
+  };
+}
+
+function currentProjectRenderJobMutationFilter(
+  authorization: ProjectRenderJobAuthorizationV1,
+  conditions: Filter<RenderJob>,
+): Filter<RenderJob> {
+  return {
+    $and: [currentProjectRenderJobFilter(authorization), conditions],
+  };
+}
+
+function parseProjectRenderDeliveryManifest(
+  value: unknown,
+): RenderDeliveryManifest | null {
+  const parsed = RenderDeliveryManifestSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function sameProjectRenderDeliveryManifestV1(
+  left: RenderDeliveryManifest,
+  right: RenderDeliveryManifest,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function verifiedProjectRenderDeliveryManifest(
+  job: RenderJob,
+): RenderDeliveryManifest | null {
+  const manifest = parseProjectRenderDeliveryManifest(job.deliveryManifest);
+  if (
+    !manifest
+    || manifest.primaryArtifact.renderId !== job._id
+    || manifest.primaryArtifact.status !== 'ready'
+    || manifest.primaryArtifact.url === null
+    || manifest.primaryArtifact.url !== job.outputUrl
+    || manifest.completedAt === null
+  ) {
+    return null;
+  }
+  return manifest;
+}
+
+function validProjectRenderDate(value: Date): boolean {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+}
+
+function resolveProjectRenderLease(input: {
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+}, prefix: 'rfl' | 'rce'): {
+  claimToken: string;
+  leaseMs: number;
+  now: Date;
+} | null {
+  if (input.claimToken !== undefined && !isBoundRenderInputString(input.claimToken)) {
+    return null;
+  }
+  const leaseMs = input.leaseMs ?? (
+    prefix === 'rfl' ? DEFAULT_FINALIZATION_LEASE_MS : DEFAULT_COMPLETION_EFFECTS_LEASE_MS
+  );
+  if (!Number.isInteger(leaseMs) || leaseMs <= 0 || leaseMs > MAX_FINALIZATION_LEASE_MS) {
+    return null;
+  }
+  const now = input.now ?? new Date();
+  if (!validProjectRenderDate(now)) return null;
+  return {
+    claimToken: input.claimToken?.trim() ?? `${prefix}_${randomUUID().replaceAll('-', '')}`,
+    leaseMs,
+    now,
   };
 }
 
@@ -258,6 +332,12 @@ export async function reserveProjectRenderJobV1(input: {
     projectRevision: input.currentProjectRevision,
     binding: input.binding,
   });
+  const deliveryManifest = structuredClone(
+    RenderDeliveryManifestSchema.parse(input.deliveryManifest),
+  );
+  if (deliveryManifest.primaryArtifact.renderId !== authorization.jobId) {
+    throw new Error('PROJECT_RENDER_DELIVERY_MANIFEST_SCOPE_MISMATCH');
+  }
   const jobs = input.collection ?? await getCollection();
   const job: RenderJob = {
     ...createPendingRenderJob(
@@ -269,7 +349,7 @@ export async function reserveProjectRenderJobV1(input: {
       undefined,
       input.binding,
     ),
-    deliveryManifest: input.deliveryManifest,
+    deliveryManifest,
   };
   const result = await jobs.insertOne(job as any);
   if (!result.acknowledged) {
@@ -289,6 +369,10 @@ function validateCurrentProjectRenderJob(
     || job.artifactBinding !== undefined
     || !job.projectRenderSnapshotBinding
   ) {
+    return 'JOB_NOT_CURRENT';
+  }
+  const deliveryManifest = parseProjectRenderDeliveryManifest(job.deliveryManifest);
+  if (!deliveryManifest || deliveryManifest.primaryArtifact.renderId !== authorization.jobId) {
     return 'JOB_NOT_CURRENT';
   }
   try {
@@ -357,28 +441,28 @@ export async function markProjectRenderJobStartedV1(input: {
   ) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
+  const deliveryManifest = parseProjectRenderDeliveryManifest(input.deliveryManifest);
+  if (!deliveryManifest || deliveryManifest.primaryArtifact.renderId !== validation.authorization.jobId) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
   const jobs = input.collection ?? await getCollection();
   const providerRenderId = input.providerRenderId.trim();
   const started = await jobs.findOneAndUpdate(
-    {
-      $and: [
-        currentProjectRenderJobFilter(validation.authorization),
-        {
-          $or: [
-            { status: 'pending' },
-            { status: 'queued' },
-            { status: 'rendering', providerRenderId },
-          ],
-        },
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      deliveryManifest,
+      $or: [
+        { status: 'pending' },
+        { status: 'queued' },
+        { status: 'rendering', providerRenderId },
       ],
-    },
+    }),
     {
       $set: {
         status: 'rendering',
         providerRenderId,
         bucketName: input.bucketName.trim(),
         region: input.region.trim(),
-        deliveryManifest: input.deliveryManifest,
+        deliveryManifest,
       },
     },
     { returnDocument: 'after' },
@@ -386,6 +470,10 @@ export async function markProjectRenderJobStartedV1(input: {
   if (!started) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(started, validation.authorization);
   if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  const startedManifest = parseProjectRenderDeliveryManifest(started.deliveryManifest);
+  if (!startedManifest || !sameProjectRenderDeliveryManifestV1(startedManifest, deliveryManifest)) {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
   return { ok: true, status: 'CURRENT', job: started };
 }
 
@@ -412,6 +500,38 @@ export async function updateProjectRenderJobProgressV1(input: {
     { $set: { progress: input.progress } },
   );
   return updated.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
+/** Atomically fail a current bound render before finalization begins. */
+export async function failProjectRenderJobV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const failed = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: { $in: ['pending', 'queued', 'rendering'] },
+    }),
+    {
+      $set: {
+        status: 'error',
+        error: boundedError(input.error),
+        completedAt,
+      },
+    },
+  );
+  return failed.matchedCount === 1
     ? currentProjectRenderJobMutationResult()
     : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
@@ -577,6 +697,13 @@ export interface ClaimedRenderFinalization {
   sourceOutputUrl: string;
   sourceOutputSize: number;
   expectedDurationMs: number;
+}
+
+export interface ProjectRenderFinalizationClaimV1 extends ClaimedRenderFinalization {
+  ok: true;
+  status: 'CURRENT';
+  authorization: ProjectRenderJobAuthorizationV1;
+  binding: ProjectRenderSnapshotBindingV1;
 }
 
 /**
@@ -892,6 +1019,295 @@ export async function failJobFinalization(input: {
   return update.modifiedCount === 1;
 }
 
+/**
+ * Atomically lease finalization for a current whole-project render.  This is
+ * intentionally independent from claimJobFinalization so a legacy caller
+ * cannot mutate a snapshot-bound row by supplying only its render ID.
+ */
+export async function claimProjectRenderJobFinalizationV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  providerRenderId?: string;
+  bucketName?: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (
+    typeof input.sourceOutputUrl !== 'string'
+    || input.providerRenderId !== undefined && !isBoundRenderInputString(input.providerRenderId)
+    || input.bucketName !== undefined && !isBoundRenderInputString(input.bucketName)
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  try {
+    assertHttpsUrl(input.sourceOutputUrl, 'Provider output URL');
+  } catch {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  if (!Number.isInteger(input.sourceOutputSize) || input.sourceOutputSize < 0) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const providerRenderId = input.providerRenderId?.trim();
+  const bucketName = input.bucketName?.trim();
+  if (Boolean(providerRenderId) !== Boolean(bucketName)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const lease = resolveProjectRenderLease(input, 'rfl');
+  if (!lease) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  const jobs = input.collection ?? await getCollection();
+  const claimableStates: Filter<RenderJob>[] = [
+    { status: 'rendering' },
+    {
+      status: 'finalizing',
+      'finalization.sourceOutputUrl': input.sourceOutputUrl,
+      'finalization.leaseExpiresAt': { $lte: lease.now },
+    },
+  ];
+  if (providerRenderId) claimableStates.unshift({ status: 'pending' });
+  const claimed = await jobs.findOneAndUpdate(
+    {
+      $and: [
+        currentProjectRenderJobMutationFilter(validation.authorization, {
+          expectedDurationMs: { $exists: true, $gt: 0 },
+        }),
+        { $or: claimableStates },
+        ...(providerRenderId
+          ? [{
+              $or: [
+                { providerRenderId: { $exists: false } },
+                { providerRenderId },
+              ],
+            }, {
+              $or: [
+                { bucketName: { $exists: false } },
+                { bucketName },
+              ],
+            }]
+          : []),
+      ],
+    },
+    {
+      $set: {
+        status: 'finalizing',
+        progress: 0.99,
+        'finalization.version': 'editron-render-finalization-v1',
+        'finalization.state': 'running',
+        'finalization.sourceOutputUrl': input.sourceOutputUrl,
+        'finalization.sourceOutputSize': input.sourceOutputSize,
+        'finalization.claimToken': lease.claimToken,
+        'finalization.claimedAt': lease.now,
+        'finalization.leaseExpiresAt': new Date(lease.now.getTime() + lease.leaseMs),
+        ...(providerRenderId && bucketName ? { providerRenderId, bucketName } : {}),
+      },
+      $inc: { 'finalization.attempts': 1 },
+      $unset: {
+        'finalization.error': '',
+        error: '',
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(claimed, validation.authorization);
+  if (invalidReason || !claimed.projectRenderSnapshotBinding || !claimed.expectedDurationMs) {
+    return nonCurrentProjectRenderJobResult(invalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  return {
+    ok: true,
+    status: 'CURRENT',
+    jobId: claimed._id,
+    providerRenderId: claimed.providerRenderId,
+    claimToken: lease.claimToken,
+    sourceOutputUrl: input.sourceOutputUrl,
+    sourceOutputSize: input.sourceOutputSize,
+    expectedDurationMs: claimed.expectedDurationMs,
+    authorization: validation.authorization,
+    binding: structuredClone(claimed.projectRenderSnapshotBinding),
+  };
+}
+
+/** Release only the exact current bound finalization claim. */
+export async function releaseProjectRenderJobFinalizationClaimV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const released = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': input.claimToken.trim(),
+    }),
+    {
+      $set: {
+        status: 'rendering',
+        progress: 0.99,
+      },
+      $unset: {
+        finalization: '',
+      },
+    },
+  );
+  return released.modifiedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
+/** Publish only a receipt-verified artifact held by the exact bound claim. */
+export async function completeProjectRenderJobFinalizationV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  result: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const parsedResult = RenderFinalizerResultSchema.safeParse(input.result);
+  if (!parsedResult.success) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const claimToken = input.claimToken.trim();
+  const current = await jobs.findOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': claimToken,
+    }),
+  );
+  if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
+  if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  if (
+    current.expectedDurationMs === undefined
+    || current.expectedDurationMs !== parsedResult.data.expectedDurationMs
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const reservedDeliveryManifest = parseProjectRenderDeliveryManifest(current.deliveryManifest);
+  if (
+    !reservedDeliveryManifest
+    || reservedDeliveryManifest.primaryArtifact.renderId !== validation.authorization.jobId
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  let deliveryManifest: RenderDeliveryManifest;
+  try {
+    deliveryManifest = completeRenderDeliveryManifest(
+      reservedDeliveryManifest,
+      parsedResult.data.url,
+      completedAt.toISOString(),
+    );
+  } catch {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completed = await jobs.findOneAndUpdate(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': claimToken,
+      expectedDurationMs: parsedResult.data.expectedDurationMs,
+      deliveryManifest: reservedDeliveryManifest,
+    }),
+    {
+      $set: {
+        status: 'done',
+        progress: 1,
+        outputUrl: parsedResult.data.url,
+        outputSize: parsedResult.data.sizeBytes,
+        completedAt,
+        'finalization.state': 'done',
+        'finalization.outputUrl': parsedResult.data.url,
+        'finalization.outputSize': parsedResult.data.sizeBytes,
+        'finalization.receipt': parsedResult.data.receipt,
+        'finalization.completedAt': completedAt,
+        deliveryManifest,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.leaseExpiresAt': '',
+        'finalization.error': '',
+        error: '',
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!completed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const completedInvalidReason = validateCurrentProjectRenderJob(
+    completed,
+    validation.authorization,
+  );
+  if (completedInvalidReason) return nonCurrentProjectRenderJobResult(completedInvalidReason);
+  return verifiedProjectRenderDeliveryManifest(completed)
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+}
+
+/** Fail only the exact current bound finalization claim; never publish success. */
+export async function failProjectRenderJobFinalizationV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const failed = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': input.claimToken.trim(),
+    }),
+    {
+      $set: {
+        status: 'error',
+        error: boundedError(input.error),
+        completedAt,
+        'finalization.state': 'failed',
+        'finalization.error': boundedError(input.error),
+        'finalization.completedAt': completedAt,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.leaseExpiresAt': '',
+      },
+    },
+  );
+  return failed.modifiedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
 export interface ClaimedRenderCompletionEffects {
   jobId: string;
   userId: string;
@@ -900,6 +1316,13 @@ export interface ClaimedRenderCompletionEffects {
   outputUrl: string;
   outputSize: number;
   claimToken: string;
+}
+
+export interface ProjectRenderCompletionEffectsClaimV1 extends ClaimedRenderCompletionEffects {
+  ok: true;
+  status: 'CURRENT';
+  authorization: ProjectRenderJobAuthorizationV1;
+  binding: ProjectRenderSnapshotBindingV1;
 }
 
 /** Lease post-render integrations only after exact-duration finalization is committed. */
@@ -1006,6 +1429,248 @@ export async function releaseRenderCompletionEffects(input: {
     { $unset: { completionEffects: '' } },
   );
   return released.modifiedCount === 1;
+}
+
+function verifiedProjectRenderFinalizerReceipt(
+  job: RenderJob,
+): RenderFinalizerResult['receipt'] | null {
+  const outputSize = job.outputSize;
+  if (
+    job.expectedDurationMs === undefined
+    || typeof job.outputUrl !== 'string'
+    || typeof outputSize !== 'number'
+    || !Number.isInteger(outputSize)
+    || outputSize <= 0
+  ) {
+    return null;
+  }
+  const parsed = RenderFinalizerResultSchema.safeParse({
+    url: job.outputUrl,
+    sizeBytes: outputSize,
+    expectedDurationMs: job.expectedDurationMs,
+    receipt: job.finalization?.receipt,
+  });
+  return parsed.success ? parsed.data.receipt : null;
+}
+
+/** Lease post-render effects only from a receipt-verified current bound job. */
+export async function claimProjectRenderCompletionEffectsV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderCompletionEffectsClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  const lease = resolveProjectRenderLease(input, 'rce');
+  if (!lease) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  const completionEffectsConditions: Filter<RenderJob> = {
+    status: 'done',
+    outputUrl: { $exists: true },
+    'finalization.state': 'done',
+    'finalization.receipt': { $exists: true },
+    $or: [
+      { 'completionEffects.state': { $exists: false } },
+      {
+        'completionEffects.state': 'running',
+        'completionEffects.leaseExpiresAt': { $lte: lease.now },
+      },
+    ],
+  };
+  const jobs = input.collection ?? await getCollection();
+  const current = await jobs.findOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, completionEffectsConditions),
+  );
+  if (!current) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
+  if (invalidReason) return nonCurrentProjectRenderJobResult(invalidReason);
+  const receipt = verifiedProjectRenderFinalizerReceipt(current);
+  if (!receipt || !current.outputUrl || current.outputSize === undefined) {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  const deliveryManifest = verifiedProjectRenderDeliveryManifest(current);
+  if (!deliveryManifest) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  try {
+    assertHttpsUrl(current.outputUrl, 'Finalized output URL');
+  } catch {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  const claimed = await jobs.findOneAndUpdate(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      ...completionEffectsConditions,
+      outputUrl: current.outputUrl,
+      outputSize: current.outputSize,
+      'finalization.receipt': receipt,
+      deliveryManifest,
+    }),
+    {
+      $set: {
+        'completionEffects.version': 'editron-render-completion-effects-v1',
+        'completionEffects.state': 'running',
+        'completionEffects.claimToken': lease.claimToken,
+        'completionEffects.claimedAt': lease.now,
+        'completionEffects.leaseExpiresAt': new Date(lease.now.getTime() + lease.leaseMs),
+      },
+      $inc: { 'completionEffects.attempts': 1 },
+      $unset: { 'completionEffects.completedAt': '' },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const claimedInvalidReason = validateCurrentProjectRenderJob(
+    claimed,
+    validation.authorization,
+  );
+  const claimedReceipt = verifiedProjectRenderFinalizerReceipt(claimed);
+  const claimedDeliveryManifest = verifiedProjectRenderDeliveryManifest(claimed);
+  const claimedOutputSize = claimed.outputSize;
+  if (
+    claimedInvalidReason
+    || !claimedReceipt
+    || !claimedDeliveryManifest
+    || !sameProjectRenderDeliveryManifestV1(claimedDeliveryManifest, deliveryManifest)
+    || !claimed.outputUrl
+    || typeof claimedOutputSize !== 'number'
+    || !Number.isInteger(claimedOutputSize)
+    || claimedOutputSize <= 0
+  ) {
+    return nonCurrentProjectRenderJobResult(claimedInvalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  return {
+    ok: true,
+    status: 'CURRENT',
+    jobId: claimed._id,
+    userId: claimed.userId,
+    projectId: claimed.projectId,
+    providerRenderId: claimed.providerRenderId,
+    outputUrl: claimed.outputUrl,
+    outputSize: claimedOutputSize,
+    claimToken: lease.claimToken,
+    authorization: validation.authorization,
+    binding: structuredClone(claimed.projectRenderSnapshotBinding!),
+  };
+}
+
+/** Complete only the exact current bound completion-effects lease. */
+export async function completeProjectRenderCompletionEffectsV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const claimToken = input.claimToken.trim();
+  const conditions: Filter<RenderJob> = {
+    status: 'done',
+    outputUrl: { $exists: true },
+    'finalization.state': 'done',
+    'finalization.receipt': { $exists: true },
+    'completionEffects.state': 'running',
+    'completionEffects.claimToken': claimToken,
+  };
+  const current = await jobs.findOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, conditions),
+  );
+  if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
+  const receipt = verifiedProjectRenderFinalizerReceipt(current);
+  const deliveryManifest = verifiedProjectRenderDeliveryManifest(current);
+  if (
+    invalidReason
+    || !receipt
+    || !deliveryManifest
+    || !current.outputUrl
+    || current.outputSize === undefined
+  ) {
+    return nonCurrentProjectRenderJobResult(invalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  const completed = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      ...conditions,
+      outputUrl: current.outputUrl,
+      outputSize: current.outputSize,
+      'finalization.receipt': receipt,
+      deliveryManifest,
+    }),
+    {
+      $set: {
+        'completionEffects.state': 'done',
+        'completionEffects.completedAt': completedAt,
+      },
+      $unset: {
+        'completionEffects.claimToken': '',
+        'completionEffects.leaseExpiresAt': '',
+      },
+    },
+  );
+  return completed.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
+/** Release only the exact current bound completion-effects lease. */
+export async function releaseProjectRenderCompletionEffectsV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  claimToken: string;
+  collection?: Collection<RenderJob>;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const claimToken = input.claimToken.trim();
+  const conditions: Filter<RenderJob> = {
+    status: 'done',
+    outputUrl: { $exists: true },
+    'finalization.state': 'done',
+    'finalization.receipt': { $exists: true },
+    'completionEffects.state': 'running',
+    'completionEffects.claimToken': claimToken,
+  };
+  const current = await jobs.findOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, conditions),
+  );
+  if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
+  const receipt = verifiedProjectRenderFinalizerReceipt(current);
+  const deliveryManifest = verifiedProjectRenderDeliveryManifest(current);
+  if (
+    invalidReason
+    || !receipt
+    || !deliveryManifest
+    || !current.outputUrl
+    || current.outputSize === undefined
+  ) {
+    return nonCurrentProjectRenderJobResult(invalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  const released = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      ...conditions,
+      outputUrl: current.outputUrl,
+      outputSize: current.outputSize,
+      'finalization.receipt': receipt,
+      deliveryManifest,
+    }),
+    { $unset: { completionEffects: '' } },
+  );
+  return released.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
 
 /**
