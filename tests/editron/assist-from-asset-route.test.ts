@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   isR2Available: vi.fn(() => false),
   getR2PresignedReadUrl: vi.fn(),
   analyzeVideo: vi.fn(async () => null),
+  activateProjectAnalysisIntakeInlineV1: vi.fn(),
+  publishProjectAnalysisIntakeDispatchV1: vi.fn(),
   activateProjectAnalysisDirectorInlineV1: vi.fn(),
   runCanonicalDirectorV1: vi.fn(),
   getCreditCost: vi.fn(() => 12),
@@ -72,6 +74,23 @@ vi.mock('@/lib/editron/services/video-understanding-service', () => ({ analyzeVi
 vi.mock('@/lib/editron/services/project-analysis-director-publication', () => ({
   activateProjectAnalysisDirectorInlineV1: mocks.activateProjectAnalysisDirectorInlineV1,
 }));
+vi.mock('@/lib/editron/services/project-analysis-intake-publication', () => {
+  class ProjectAnalysisIntakePublicationError extends Error {
+    constructor(
+      message: string,
+      readonly providerAccepted: boolean,
+      readonly httpStatus?: number,
+    ) {
+      super(message);
+      this.name = 'ProjectAnalysisIntakePublicationError';
+    }
+  }
+  return {
+    ProjectAnalysisIntakePublicationError,
+    activateProjectAnalysisIntakeInlineV1: mocks.activateProjectAnalysisIntakeInlineV1,
+    publishProjectAnalysisIntakeDispatchV1: mocks.publishProjectAnalysisIntakeDispatchV1,
+  };
+});
 vi.mock('@/lib/editron/services/canonical-director-run', () => ({
   runCanonicalDirectorV1: mocks.runCanonicalDirectorV1,
 }));
@@ -113,7 +132,15 @@ beforeEach(() => {
   });
   mocks.admitProjectAnalysisRunV1.mockResolvedValue({
     disposition: 'ADMITTED',
-    run: { runId: 'analysis_run_asset_1' },
+    run: {
+      runId: 'analysis_run_asset_1',
+      intakeDispatch: {
+        schemaVersion: 1,
+        status: 'pending',
+        deduplicationId: 'editron_analysis_asset_1',
+        preparedAt: '2026-09-01T00:00:01.000Z',
+      },
+    },
   });
   mocks.loadProjectForMutation.mockResolvedValue({
     revision: { schemaVersion: 1, value: 2, compatibilityUpdatedAt: '2026-09-01T00:00:01.000Z' },
@@ -135,6 +162,12 @@ beforeEach(() => {
   mocks.admitAssistScanCharge.mockResolvedValue({ disposition: 'admitted' });
   mocks.settleAssistScanFailure.mockResolvedValue('refunded');
   mocks.runCanonicalDirectorV1.mockResolvedValue({ disposition: 'ASSIST_READY' });
+  mocks.activateProjectAnalysisIntakeInlineV1.mockResolvedValue(undefined);
+  mocks.publishProjectAnalysisIntakeDispatchV1.mockResolvedValue({
+    deduplicationId: 'editron_analysis_asset_1',
+    providerMessageId: 'qstash_message_asset_1',
+    httpStatus: 202,
+  });
   mocks.getCreditCost.mockReturnValue(12);
 });
 
@@ -217,6 +250,13 @@ describe('from-asset assist intake handler', () => {
       lane: 'assist',
       queueFacts: {},
     });
+    expect(mocks.activateProjectAnalysisIntakeInlineV1).toHaveBeenCalledWith({
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      analysisRunId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      dispatch: expect.objectContaining({ deduplicationId: 'editron_analysis_asset_1' }),
+    });
     expect(mocks.advanceProjectAnalysisRunV1).toHaveBeenNthCalledWith(1, 'user_1', 'proj_asset_1', {
       expectedRevision: expect.any(Object),
       runId: 'analysis_run_asset_1',
@@ -269,7 +309,12 @@ describe('from-asset assist intake handler', () => {
     process.env.QSTASH_TOKEN = 'qstash-token';
     process.env.QSTASH_CURRENT_SIGNING_KEY = 'current-key';
     process.env.QSTASH_NEXT_SIGNING_KEY = 'next-key';
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('queue unavailable', { status: 503 }));
+    mocks.publishProjectAnalysisIntakeDispatchV1.mockRejectedValueOnce(
+      Object.assign(new Error('Analysis intake QStash dispatch failed: HTTP 503 — queue unavailable'), {
+        providerAccepted: false,
+        httpStatus: 503,
+      }),
+    );
 
     const res = await POST(request({ assetId: 'a1', editMode: 'assist' }));
 
@@ -278,7 +323,7 @@ describe('from-asset assist intake handler', () => {
       projectId: 'proj_asset_1',
       userId: 'user_1',
       creditTransactionId: 'tx_asset_1',
-      reason: 'QStash dispatch failed: HTTP 503 — queue unavailable',
+      reason: 'Analysis intake QStash dispatch failed: HTTP 503 — queue unavailable',
     });
     expect(mocks.refund).not.toHaveBeenCalled();
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
@@ -311,7 +356,12 @@ describe('from-asset assist intake handler', () => {
     process.env.QSTASH_TOKEN = 'qstash-token';
     process.env.QSTASH_CURRENT_SIGNING_KEY = 'current-key';
     process.env.QSTASH_NEXT_SIGNING_KEY = 'next-key';
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('queue unavailable', { status: 503 }));
+    mocks.publishProjectAnalysisIntakeDispatchV1.mockRejectedValueOnce(
+      Object.assign(new Error('Analysis intake QStash dispatch failed: HTTP 503 — queue unavailable'), {
+        providerAccepted: false,
+        httpStatus: 503,
+      }),
+    );
 
     const res = await POST(request({ assetId: 'a1' }));
 
@@ -320,8 +370,33 @@ describe('from-asset assist intake handler', () => {
       expectedRevision: expect.any(Object),
       runId: 'analysis_run_asset_1',
       sourceAssetId: 'a1',
-      errorMessage: 'QStash dispatch failed: HTTP 503 — queue unavailable',
+      errorMessage: 'Analysis intake QStash dispatch failed: HTTP 503 — queue unavailable',
     });
     expect(mocks.refund).toHaveBeenCalledWith('Auto-edit analysis dispatch failed before worker queueing');
+  });
+
+  it('does not fail or refund a provider-accepted message whose local receipt needs reconciliation', async () => {
+    process.env.QSTASH_TOKEN = 'qstash-token';
+    process.env.QSTASH_CURRENT_SIGNING_KEY = 'current-key';
+    process.env.QSTASH_NEXT_SIGNING_KEY = 'next-key';
+    const { ProjectAnalysisIntakePublicationError } = await import(
+      '@/lib/editron/services/project-analysis-intake-publication'
+    );
+    mocks.publishProjectAnalysisIntakeDispatchV1.mockRejectedValueOnce(
+      new ProjectAnalysisIntakePublicationError('database unavailable after provider acceptance', true, 202),
+    );
+
+    const res = await POST(request({ assetId: 'a1' }));
+
+    expect(res.status).toBe(202);
+    await expect(res.json()).resolves.toMatchObject({
+      success: true,
+      projectId: 'proj_asset_1',
+      status: 'processing',
+      publicationReceipt: 'reconciliation_pending',
+    });
+    expect(mocks.failProjectAnalysisRunV1).not.toHaveBeenCalled();
+    expect(mocks.refund).not.toHaveBeenCalled();
+    expect(mocks.settleAssistScanFailure).not.toHaveBeenCalled();
   });
 });

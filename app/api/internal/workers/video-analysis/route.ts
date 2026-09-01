@@ -108,6 +108,7 @@ interface VideoAnalysisPayload {
   musicPreference?: string;
   editorialPreferences?: EditorialPreferences;
   analysisRunId: string;
+  analysisIntakeDispatchId?: string;
   creditTransactionId?: string;
   chargedCredits?: number;
 }
@@ -145,7 +146,7 @@ async function handler(request: NextRequest) {
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
-      editorialPreferences, analysisRunId,
+      editorialPreferences, analysisRunId, analysisIntakeDispatchId,
     } = payload;
 
     let effectiveDurationSec = durationSec;
@@ -198,6 +199,13 @@ async function handler(request: NextRequest) {
     const { projectService: resumeProjectService } = await import('@/lib/editron/services/project-service');
     const resumeSnapshot = await resumeProjectService.loadProjectForMutation(userId, projectId);
     const resumeRun = resumeSnapshot.project.autoEditAnalysisRunV1;
+    const intakeDispatch = resumeRun?.intakeDispatch;
+    if (
+      (intakeDispatch && intakeDispatch.deduplicationId !== analysisIntakeDispatchId)
+      || (!intakeDispatch && analysisIntakeDispatchId !== undefined)
+    ) {
+      throw new AnalysisRunOwnershipLostError('Analysis intake dispatch does not own the current project run.');
+    }
     if (
       resumeRun?.state === 'directing_queued'
       && resumeRun.runId === analysisRunId

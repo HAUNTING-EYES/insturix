@@ -33,6 +33,10 @@ const deepPublicationSource = readFileSync(
   join(process.cwd(), 'lib/editron/services/project-analysis-deep-publication.ts'),
   'utf8',
 ).replaceAll('\r\n', '\n');
+const intakePublicationSource = readFileSync(
+  join(process.cwd(), 'lib/editron/services/project-analysis-intake-publication.ts'),
+  'utf8',
+).replaceAll('\r\n', '\n');
 
 describe('video-analysis worker zero-edit wiring', () => {
   it('reads the assist lane once, up front, from editMode', () => {
@@ -110,6 +114,14 @@ describe('video-analysis worker zero-edit wiring', () => {
 
   it('binds every analysis stage and Phase-1 evidence commit to the admitted run', () => {
     expect(source).toContain('analysisRunId: string');
+    expect(source).toContain('analysisIntakeDispatchId?: string');
+    expect(source).toContain('const intakeDispatch = resumeRun?.intakeDispatch');
+    expect(source).toContain('intakeDispatch.deduplicationId !== analysisIntakeDispatchId');
+    expect(source).toContain("throw new AnalysisRunOwnershipLostError('Analysis intake dispatch does not own the current project run.')");
+    expect(intakePublicationSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
+    expect(intakePublicationSource).toContain('analysisIntakeDispatchId: input.dispatch.deduplicationId');
+    expect(intakePublicationSource).toContain('recordProjectAnalysisIntakeDispatchPublishedV1');
+    expect(intakePublicationSource).toContain('recordProjectAnalysisIntakeDispatchInlineReadyV1');
     expect(source).toContain("await advanceAnalysis('analyzing')");
     expect(source).toContain("await advanceAnalysis('transcribing')");
     expect(source).toContain("await advanceAnalysis('analyzing_visual_cuts')");

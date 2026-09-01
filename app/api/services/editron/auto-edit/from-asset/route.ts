@@ -35,6 +35,11 @@ import {
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 import { activateProjectAnalysisDirectorInlineV1 } from '@/lib/editron/services/project-analysis-director-publication';
 import {
+  activateProjectAnalysisIntakeInlineV1,
+  ProjectAnalysisIntakePublicationError,
+  publishProjectAnalysisIntakeDispatchV1,
+} from '@/lib/editron/services/project-analysis-intake-publication';
+import {
   isInternalQStashDispatchConfigured,
   isInternalQStashWorkerAuthConfigured,
   isInternalWorkerInlineFallbackAllowed,
@@ -340,53 +345,56 @@ export async function POST(request: NextRequest) {
     }
     const admittedAnalysisRunId = analysisAdmission.run.runId;
     analysisRunId = admittedAnalysisRunId;
-
-    // Dispatch to video-analysis worker via QStash
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-    const workerUrl = `${baseUrl}/api/internal/workers/video-analysis`;
+    const intakeDispatch = analysisAdmission.run.intakeDispatch;
+    if (!intakeDispatch) {
+      throw new Error('Auto-edit analysis admission returned no intake dispatch identity.');
+    }
 
     if (qstashToken) {
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${workerUrl}`;
-      const qstashRes = await fetch(qstashUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${qstashToken}`,
-          'Content-Type': 'application/json',
-          'Upstash-Retries': '0',
-        },
-        body: JSON.stringify({
+      try {
+        await publishProjectAnalysisIntakeDispatchV1({
           projectId,
           userId,
-          orgId: orgId || undefined,
-          assetId,
-          videoUrl: serverVideoUrl,
-          durationSec,
-          title: projectName,
-          profileId: 'A-01',
-          userIntent,
-          referenceAssetId,
-          referenceVideoUrl: normalizedReferenceVideoUrl,
-          script,
-          platform,
-          captionStyle,
-          transitionPreference,
-          zoomBehavior,
-          motionGraphics,
-          pacingFeel,
-          musicPreference,
-          editorialPreferences,
-          analysisRunId,
-          creditTransactionId: autoEditCreditTransactionId,
-          chargedCredits: autoEditChargedCredits,
-        }),
-      });
-
-      if (!qstashRes.ok) {
-        const errBody = await qstashRes.text().catch(() => 'no body');
-        const errMsg = `QStash dispatch failed: HTTP ${qstashRes.status} — ${errBody}`;
+          analysisRunId: admittedAnalysisRunId,
+          sourceAssetId: assetId,
+          dispatch: intakeDispatch,
+          onProviderAccepted: () => { autoEditAnalysisStarted = true; },
+          workerPayload: {
+            orgId: orgId || undefined,
+            videoUrl: serverVideoUrl,
+            durationSec,
+            title: projectName,
+            profileId: 'A-01',
+            userIntent,
+            referenceAssetId,
+            referenceVideoUrl: normalizedReferenceVideoUrl,
+            script,
+            platform,
+            captionStyle,
+            transitionPreference,
+            zoomBehavior,
+            motionGraphics,
+            pacingFeel,
+            musicPreference,
+            editorialPreferences,
+            creditTransactionId: autoEditCreditTransactionId,
+            chargedCredits: autoEditChargedCredits,
+          },
+        });
+      } catch (error: unknown) {
+        const providerAccepted = error instanceof ProjectAnalysisIntakePublicationError
+          && error.providerAccepted;
+        const errMsg = error instanceof Error ? error.message : String(error);
         console.error(`[auto-edit/from-asset] ${errMsg}`);
+        if (providerAccepted) {
+          return NextResponse.json({
+            success: true,
+            projectId,
+            status: 'processing',
+            publicationReceipt: 'reconciliation_pending',
+            message: 'Video analysis was queued; its local provider receipt is awaiting reconciliation.',
+          }, { status: 202 });
+        }
         if (assistRun) {
           await settleAssistScanFailure(db, {
             ...assistRun,
@@ -406,11 +414,16 @@ export async function POST(request: NextRequest) {
         }
         return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
       }
-
-      autoEditAnalysisStarted = true;
     } else {
       // No QStash → run inline (dev mode)
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      await activateProjectAnalysisIntakeInlineV1({
+        projectId,
+        userId,
+        analysisRunId: admittedAnalysisRunId,
+        sourceAssetId: assetId,
+        dispatch: intakeDispatch,
+      });
       autoEditAnalysisStarted = true;
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
       await commitInlineAssetAnalysisPhase1({
