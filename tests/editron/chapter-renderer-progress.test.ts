@@ -44,11 +44,137 @@ vi.mock("@/lib/editron/services/render-chapter-retention", () => ({
 }));
 
 import {
+  createChapterLayoutManifestForRenderV1,
   detectChapterBoundaries,
   getChapterRenderProgress,
   shouldUseChapterRendering,
   startChapterRender,
 } from "@/lib/editron/services/chapter-renderer";
+import { hashEditronCanonicalJsonV1 } from "@/lib/editron/services/canonical-json-v1";
+import { createProjectRenderSnapshotBindingV1 } from "@/lib/editron/services/project-render-snapshot-binding-v1";
+import { createProjectRenderJobAuthorizationV1 } from "@/lib/editron/services/render-job-service";
+import {
+  createChapterLayoutManifestV1,
+  type ChapterLayoutManifestV1,
+} from "@/lib/editron/services/chapter-layout-contract-v1";
+
+const STRICT_CHAPTER_JOB_ID = "chr_123456789012";
+const STRICT_CHAPTER_PROJECT_ID = "proj_strict";
+const STRICT_CHAPTER_USER_ID = "user_1";
+const STRICT_CHAPTER_TOTAL_FRAMES = 90;
+const STRICT_CHAPTER_FPS = 29.97;
+const STRICT_CHAPTER_WIDTH = 1920;
+const STRICT_CHAPTER_HEIGHT = 1080;
+const STRICT_CHAPTER_REGION = "us-east-1";
+const STRICT_CHAPTER_BOUNDARIES = [
+  { startFrame: 0, endFrame: 30 },
+  { startFrame: 30, endFrame: 90 },
+] as const;
+
+function makeStrictChapterFixture(routeMode: "chapter" | "standard" = "chapter") {
+  const projectRevision = {
+    schemaVersion: 1 as const,
+    value: 7,
+    compatibilityUpdatedAt: "2026-08-29T00:00:00.000Z",
+  };
+  const renderContract = {
+    routeMode,
+    chapterPolicy: { boundaries: STRICT_CHAPTER_BOUNDARIES },
+  };
+  const binding = createProjectRenderSnapshotBindingV1({
+    artifactKind: "RENDERED_PREVIEW",
+    artifactId: STRICT_CHAPTER_JOB_ID,
+    ownerId: STRICT_CHAPTER_USER_ID,
+    projectId: STRICT_CHAPTER_PROJECT_ID,
+    projectRevision,
+    sequenceId: "main",
+    compositionId: "TestComponent",
+    renderContract,
+    durationInFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+    fps: STRICT_CHAPTER_FPS,
+    width: STRICT_CHAPTER_WIDTH,
+    height: STRICT_CHAPTER_HEIGHT,
+    projectRenderSource: {
+      schemaVersion: 1,
+      renderInputProps: {
+        overlays: [],
+        durationInFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+        fps: STRICT_CHAPTER_FPS,
+        width: STRICT_CHAPTER_WIDTH,
+        height: STRICT_CHAPTER_HEIGHT,
+      },
+    },
+    containedVideoTargets: [],
+  });
+  const authorization = createProjectRenderJobAuthorizationV1({
+    jobId: STRICT_CHAPTER_JOB_ID,
+    requestedByUserId: STRICT_CHAPTER_USER_ID,
+    ownerId: STRICT_CHAPTER_USER_ID,
+    projectId: STRICT_CHAPTER_PROJECT_ID,
+    projectRevision,
+    binding,
+  });
+  const manifest = createChapterLayoutManifestForRenderV1({
+    parentAdmissionId: STRICT_CHAPTER_JOB_ID,
+    bindingHash: binding.bindingHash,
+    projectId: STRICT_CHAPTER_PROJECT_ID,
+    totalFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+    fps: STRICT_CHAPTER_FPS,
+    boundaries: STRICT_CHAPTER_BOUNDARIES,
+  });
+  return {
+    binding,
+    authorization,
+    manifest,
+    options: {
+      region: STRICT_CHAPTER_REGION,
+      authorization,
+      binding,
+      chapterWebhook: {
+        url: "https://app.example.test/api/editron/chapter-webhook",
+        secret: "test-remotion-webhook-secret",
+      },
+      chapterLayoutManifest: manifest,
+    },
+  };
+}
+
+type StrictChapterFixture = ReturnType<typeof makeStrictChapterFixture>;
+
+function invokeStrictChapterStart(
+  fixture: StrictChapterFixture,
+  manifest: ChapterLayoutManifestV1 = fixture.manifest,
+) {
+  return startChapterRender(
+    STRICT_CHAPTER_JOB_ID,
+    STRICT_CHAPTER_PROJECT_ID,
+    STRICT_CHAPTER_USER_ID,
+    [],
+    STRICT_CHAPTER_TOTAL_FRAMES,
+    STRICT_CHAPTER_FPS,
+    STRICT_CHAPTER_WIDTH,
+    STRICT_CHAPTER_HEIGHT,
+    "https://remotion.example/site",
+    "remotion-fn",
+    { ...fixture.options, chapterLayoutManifest: manifest },
+  );
+}
+
+async function expectStrictManifestRejected(
+  fixture: StrictChapterFixture,
+  manifest: ChapterLayoutManifestV1,
+  errorCode?: string,
+) {
+  const start = invokeStrictChapterStart(fixture, manifest);
+  if (errorCode) {
+    await expect(start).rejects.toThrow(errorCode);
+  } else {
+    await expect(start).rejects.toThrow();
+  }
+  expect(mocks.getDatabase).not.toHaveBeenCalled();
+  expect(mocks.insertOne).not.toHaveBeenCalled();
+  expect(mocks.renderMediaOnLambda).not.toHaveBeenCalled();
+}
 
 describe("chapter renderer progress", () => {
   beforeEach(() => {
@@ -221,6 +347,160 @@ describe("chapter renderer progress", () => {
     expect(mocks.getDatabase).not.toHaveBeenCalled();
     expect(mocks.insertOne).not.toHaveBeenCalled();
     expect(mocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it("persists and returns the exact strict immutable layout manifest identity", async () => {
+    const fixture = makeStrictChapterFixture();
+    let insertedJob: any = null;
+    mocks.insertOne.mockImplementation(async (job: any) => {
+      insertedJob = job;
+      mocks.findOne.mockResolvedValue(job);
+      return { acknowledged: true };
+    });
+    mocks.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+    mocks.renderMediaOnLambda.mockResolvedValue({
+      renderId: "render_chapter",
+      bucketName: "remotion-bucket",
+    });
+
+    const result = await invokeStrictChapterStart(fixture);
+
+    expect(result).toEqual({
+      jobId: STRICT_CHAPTER_JOB_ID,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+    });
+    expect(fixture.manifest.projectTimebase).toEqual(expect.objectContaining({
+      version: "LEGACY_NUMERIC_DECIMAL_V1:READ_COMPATIBILITY_ONLY",
+      rate: { numerator: "2997", denominator: "100" },
+    }));
+    expect(insertedJob.chapterLayoutManifest).toEqual(fixture.manifest);
+    expect(insertedJob.chapterLayoutManifest).not.toBe(fixture.manifest);
+    expect(insertedJob.chapterLayoutManifest).not.toBe(insertedJob.chapters);
+    expect(Object.isFrozen(insertedJob.chapterLayoutManifest)).toBe(true);
+    expect(insertedJob.chapterLayoutManifest).toEqual(expect.objectContaining({
+      bindingHash: fixture.binding.bindingHash,
+      parentAdmissionId: STRICT_CHAPTER_JOB_ID,
+      totalFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+      chapterCount: STRICT_CHAPTER_BOUNDARIES.length,
+    }));
+    expect(insertedJob.chapters.map((chapter: any) => ({
+      index: chapter.index,
+      startFrame: chapter.startFrame,
+      endFrame: chapter.endFrame,
+      durationFrames: chapter.durationFrames,
+    }))).toEqual(fixture.manifest.chapters);
+    expect(insertedJob.chapters.every((chapter: any) => chapter.dispatch?.phase === "NOT_ATTEMPTED"))
+      .toBe(true);
+    expect(mocks.renderMediaOnLambda).toHaveBeenCalledTimes(2);
+    expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ frameRange: [0, 29] }),
+    );
+    expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ frameRange: [30, 89] }),
+    );
+  });
+
+  it("rejects a strict manifest when its hash is tampered before provider calls", async () => {
+    const fixture = makeStrictChapterFixture();
+    await expectStrictManifestRejected(
+      fixture,
+      { ...fixture.manifest, layoutManifestHash: "d".repeat(64) },
+      "CHAPTER_LAYOUT_HASH_MISMATCH",
+    );
+  });
+
+  it("rejects a strict manifest bound to a different admission binding", async () => {
+    const fixture = makeStrictChapterFixture();
+    const wrongBindingManifest = createChapterLayoutManifestForRenderV1({
+      parentAdmissionId: STRICT_CHAPTER_JOB_ID,
+      bindingHash: "f".repeat(64),
+      projectId: STRICT_CHAPTER_PROJECT_ID,
+      totalFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+      fps: STRICT_CHAPTER_FPS,
+      boundaries: STRICT_CHAPTER_BOUNDARIES,
+    });
+    await expectStrictManifestRejected(
+      fixture,
+      wrongBindingManifest,
+      "CHAPTER_RENDER_LAYOUT_MANIFEST_SCOPE_MISMATCH",
+    );
+  });
+
+  it("rejects a strict manifest with an invalid chapter count before provider calls", async () => {
+    const fixture = makeStrictChapterFixture();
+    const wrongCountUnsigned = {
+      schemaVersion: fixture.manifest.schemaVersion,
+      scope: fixture.manifest.scope,
+      parentAdmissionId: fixture.manifest.parentAdmissionId,
+      bindingHash: fixture.manifest.bindingHash,
+      totalFrames: fixture.manifest.totalFrames,
+      projectTimebase: fixture.manifest.projectTimebase,
+      policy: fixture.manifest.policy,
+      chapterCount: fixture.manifest.chapterCount + 1,
+      chapters: fixture.manifest.chapters,
+    };
+    const wrongCountManifest = {
+      ...wrongCountUnsigned,
+      layoutManifestHash: hashEditronCanonicalJsonV1(wrongCountUnsigned),
+    } as ChapterLayoutManifestV1;
+    await expectStrictManifestRejected(
+      fixture,
+      wrongCountManifest,
+      "EDITRON_CHAPTER_LAYOUT_CHAPTER_COUNT_MISMATCH",
+    );
+  });
+
+  it("rejects a strict manifest with a mismatched numeric timebase before provider calls", async () => {
+    const fixture = makeStrictChapterFixture();
+    const wrongTimebaseManifest = createChapterLayoutManifestV1({
+      parentAdmissionId: fixture.manifest.parentAdmissionId,
+      bindingHash: fixture.manifest.bindingHash,
+      totalFrames: fixture.manifest.totalFrames,
+      projectTimebase: {
+        ...fixture.manifest.projectTimebase,
+        rate: { numerator: "30", denominator: "1" },
+      },
+      policy: fixture.manifest.policy,
+      chapters: fixture.manifest.chapters,
+    });
+    await expectStrictManifestRejected(
+      fixture,
+      wrongTimebaseManifest,
+      "CHAPTER_RENDER_LAYOUT_MANIFEST_TIMEBASE_MISMATCH",
+    );
+  });
+
+  it("rejects a strict manifest with different chapter boundaries before provider calls", async () => {
+    const fixture = makeStrictChapterFixture();
+    const wrongChaptersManifest = createChapterLayoutManifestForRenderV1({
+      parentAdmissionId: STRICT_CHAPTER_JOB_ID,
+      bindingHash: fixture.binding.bindingHash,
+      projectId: STRICT_CHAPTER_PROJECT_ID,
+      totalFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+      fps: STRICT_CHAPTER_FPS,
+      boundaries: [
+        { startFrame: 0, endFrame: 30 },
+        { startFrame: 30, endFrame: 60 },
+        { startFrame: 60, endFrame: 90 },
+      ],
+    });
+    await expectStrictManifestRejected(
+      fixture,
+      wrongChaptersManifest,
+      "CHAPTER_RENDER_LAYOUT_MANIFEST_CHAPTERS_MISMATCH",
+    );
+  });
+
+  it("rejects boundaries from a standard contract even when chapter data is present", async () => {
+    const fixture = makeStrictChapterFixture("standard");
+    await expectStrictManifestRejected(
+      fixture,
+      fixture.manifest,
+      "CHAPTER_RENDER_LAYOUT_ROUTE_MODE_MISMATCH",
+    );
   });
 
   it("polls chapter progress through S3 state instead of Lambda status invocation", async () => {

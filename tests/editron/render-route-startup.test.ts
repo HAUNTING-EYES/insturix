@@ -16,6 +16,9 @@ const routeMocks = vi.hoisted(() => ({
   quarantineProjectRenderBilling: vi.fn(),
   markJobStarted: vi.fn(),
   markProjectRenderJobStarted: vi.fn(),
+  startChapterParentOrchestration: vi.fn(),
+  beginChapterParentOrchestrationRunning: vi.fn(),
+  quarantineChapterParentOrchestration: vi.fn(),
   failJob: vi.fn(),
   failProjectRenderJob: vi.fn(),
   failProjectRenderJobFromProviderTransaction: vi.fn(),
@@ -47,6 +50,7 @@ const routeMocks = vi.hoisted(() => ({
   setAwsCredentials: vi.fn(),
   shouldUseChapterRendering: vi.fn(),
   detectChapterBoundaries: vi.fn(),
+  createChapterLayoutManifestForRender: vi.fn(),
   startChapterRender: vi.fn(),
   transitionProjectStatus: vi.fn(),
   dbFindOne: vi.fn(),
@@ -96,6 +100,12 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   releaseFailedJobFinalizationRetryClaim: routeMocks.releaseFailedJobFinalizationRetryClaim,
   reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
+}));
+
+vi.mock('@/lib/editron/services/chapter-parent-orchestration-v1', () => ({
+  startChapterParentOrchestrationV1: routeMocks.startChapterParentOrchestration,
+  beginChapterParentOrchestrationRunningV1: routeMocks.beginChapterParentOrchestrationRunning,
+  quarantineChapterParentOrchestrationV1: routeMocks.quarantineChapterParentOrchestration,
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -168,6 +178,7 @@ vi.mock('@/lib/editron/utils/aws-credentials', () => ({
 vi.mock('@/lib/editron/services/chapter-renderer', () => ({
   shouldUseChapterRendering: routeMocks.shouldUseChapterRendering,
   detectChapterBoundaries: routeMocks.detectChapterBoundaries,
+  createChapterLayoutManifestForRenderV1: routeMocks.createChapterLayoutManifestForRender,
   startChapterRender: routeMocks.startChapterRender,
 }));
 
@@ -258,6 +269,57 @@ describe('Editron render startup boundary', () => {
       })));
     routeMocks.shouldUseChapterRendering.mockReturnValue(false);
     routeMocks.detectChapterBoundaries.mockReturnValue([{ startFrame: 0, endFrame: 90 }]);
+    routeMocks.createChapterLayoutManifestForRender.mockImplementation((input: {
+      parentAdmissionId: string;
+      bindingHash: string;
+      projectId: string;
+      totalFrames: number;
+      fps: number;
+      boundaries: Array<{ startFrame: number; endFrame: number }>;
+    }) => ({
+      schemaVersion: 1,
+      scope: 'EDITRON_CHAPTER_LAYOUT',
+      parentAdmissionId: input.parentAdmissionId,
+      bindingHash: input.bindingHash,
+      totalFrames: input.totalFrames,
+      projectTimebase: {
+        timebaseId: `${input.projectId}:timeline`,
+        version: 'LEGACY_NUMERIC_DECIMAL_V1:READ_COMPATIBILITY_ONLY',
+        rate: input.fps === 29.97
+          ? { numerator: '2997', denominator: '100' }
+          : { numerator: String(input.fps), denominator: '1' },
+      },
+      policy: {
+        policyId: 'chapter-layout-scene-gap-v1',
+        policyVersion: '1',
+        splitThresholdFrames: Math.ceil(900 * input.fps),
+        targetFrames: Math.ceil(150 * input.fps),
+        minimumFrames: Math.ceil(30 * input.fps),
+      },
+      chapterCount: input.boundaries.length,
+      chapters: input.boundaries.map((boundary, index) => ({
+        index,
+        startFrame: boundary.startFrame,
+        endFrame: boundary.endFrame,
+        durationFrames: boundary.endFrame - boundary.startFrame,
+      })),
+      layoutManifestHash: 'c'.repeat(64),
+    }));
+    routeMocks.startChapterParentOrchestration.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'STARTING',
+    });
+    routeMocks.beginChapterParentOrchestrationRunning.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'RUNNING',
+    });
+    routeMocks.quarantineChapterParentOrchestration.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      state: 'UNKNOWN',
+    });
     routeMocks.checkCredits.mockResolvedValue({
       allowed: true,
       deduct: routeMocks.deduct,
@@ -581,24 +643,34 @@ describe('Editron render startup boundary', () => {
 
   it('CRITICAL: reserves a chapter admission before billing and child Lambda dispatch', async () => {
     routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.detectChapterBoundaries.mockReturnValueOnce([
+      { startFrame: 0, endFrame: 30 },
+      { startFrame: 30, endFrame: 60 },
+      { startFrame: 60, endFrame: 90 },
+    ]);
     routeMocks.startChapterRender.mockImplementation(async (jobId: string) => ({
       jobId,
-      chapters: 3,
+      chapterCount: 3,
+      chapterLayoutManifestHash: 'c'.repeat(64),
     }));
 
     const response = await POST(renderRequest());
     const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
     const admissionId = reservation?.jobId;
+    const manifest = routeMocks.createChapterLayoutManifestForRender.mock.results[0]?.value;
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const responseData = await response.json();
+    expect(responseData).toMatchObject({
       type: 'success',
       data: {
+        executionKind: 'CHAPTER_ORCHESTRATION',
+        orchestrationId: admissionId,
         renderId: admissionId,
-        bucketName: 'chapter-render',
+        region: 'us-east-1',
         renderAdmissionId: admissionId,
-        isChapterRender: true,
         chapters: 3,
+        message: 'Split into 3 chapters for parallel rendering',
         trackingStatus: 'durable',
         deliveryManifest: {
           primaryArtifact: { renderId: admissionId },
@@ -610,6 +682,29 @@ describe('Editron render startup boundary', () => {
       .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
     expect(routeMocks.deduct.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.startChapterRender.mock.invocationCallOrder[0]);
+    expect(reservation).toEqual(expect.objectContaining({
+      chapterOrchestration: expect.objectContaining({
+        version: 1,
+        scope: 'CHAPTER_ORCHESTRATION',
+        aggregateJobId: admissionId,
+        bindingHash: reservation.binding.bindingHash,
+        selectedRegion: 'us-east-1',
+        state: 'NOT_STARTED',
+        reservedAt: expect.any(Date),
+      }),
+    }));
+    expect(routeMocks.createChapterLayoutManifestForRender).toHaveBeenCalledWith({
+      parentAdmissionId: admissionId,
+      bindingHash: reservation.binding.bindingHash,
+      projectId: 'project_1',
+      totalFrames: 90,
+      fps: 30,
+      boundaries: [
+        { startFrame: 0, endFrame: 30 },
+        { startFrame: 30, endFrame: 60 },
+        { startFrame: 60, endFrame: 90 },
+      ],
+    });
     expect(routeMocks.startChapterRender).toHaveBeenCalledWith(
       admissionId,
       'project_1',
@@ -644,9 +739,10 @@ describe('Editron render startup boundary', () => {
           url: 'https://app.example.test/api/services/editron/cloudrun/render/chapter-webhook',
           secret: 'test-remotion-webhook-secret',
         },
+        chapterLayoutManifest: manifest,
       },
     );
-    expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
+    expect(routeMocks.startChapterParentOrchestration).toHaveBeenCalledWith({
       authorization: expect.objectContaining({
         jobId: admissionId,
         requestedByUserId: 'user_1',
@@ -654,16 +750,203 @@ describe('Editron render startup boundary', () => {
         projectId: 'project_1',
       }),
       currentProjectRevision: projectRevision(),
-      providerRenderId: admissionId,
-      bucketName: 'chapter-render',
-      region: 'us-east-1',
-      deliveryManifest: expect.objectContaining({
-        primaryArtifact: expect.objectContaining({ renderId: admissionId }),
-      }),
-    }));
+      selectedRegion: 'us-east-1',
+    });
+    expect(routeMocks.beginChapterParentOrchestrationRunning).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: admissionId }),
+      currentProjectRevision: projectRevision(),
+      selectedRegion: 'us-east-1',
+      chapterCount: 3,
+      chapterLayoutManifestHash: 'c'.repeat(64),
+    });
+    expect(routeMocks.startChapterParentOrchestration.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.startChapterRender.mock.invocationCallOrder[0]);
+    expect(routeMocks.startChapterRender.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.beginChapterParentOrchestrationRunning.mock.invocationCallOrder[0]);
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
     expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(responseData.data).not.toHaveProperty('bucketName');
+    expect(responseData.data).not.toHaveProperty('isChapterRender');
+  });
+
+  it('quarantines a chapter parent when the STARTING response is lost', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.startChapterParentOrchestration.mockRejectedValueOnce(
+      new Error('chapter parent STARTING response lost'),
+    );
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'CHAPTER_ORCHESTRATION_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: admissionId,
+    });
+    expect(routeMocks.startChapterParentOrchestration).toHaveBeenCalledTimes(1);
+    expect(routeMocks.startChapterRender).not.toHaveBeenCalled();
+    expect(routeMocks.beginChapterParentOrchestrationRunning).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineChapterParentOrchestration).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: admissionId }),
+      currentProjectRevision: projectRevision(),
+      selectedRegion: 'us-east-1',
+      error: expect.any(Error),
+    });
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('quarantines a chapter parent when child start throws after STARTING', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.startChapterRender.mockRejectedValueOnce(new Error('child start response lost'));
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'CHAPTER_ORCHESTRATION_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: admissionId,
+    });
+    expect(routeMocks.startChapterParentOrchestration).toHaveBeenCalledTimes(1);
+    expect(routeMocks.startChapterRender).toHaveBeenCalledTimes(1);
+    expect(routeMocks.beginChapterParentOrchestrationRunning).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineChapterParentOrchestration).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: admissionId }),
+      currentProjectRevision: projectRevision(),
+      selectedRegion: 'us-east-1',
+      error: expect.any(Error),
+    });
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('quarantines a chapter parent when the child-start count does not match the manifest', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.detectChapterBoundaries.mockReturnValueOnce([
+      { startFrame: 0, endFrame: 30 },
+      { startFrame: 30, endFrame: 60 },
+      { startFrame: 60, endFrame: 90 },
+    ]);
+    routeMocks.startChapterRender.mockImplementationOnce(async (jobId: string) => ({
+      jobId,
+      chapterCount: 2,
+      chapterLayoutManifestHash: 'c'.repeat(64),
+    }));
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'CHAPTER_ORCHESTRATION_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: admissionId,
+    });
+    expect(routeMocks.startChapterParentOrchestration).toHaveBeenCalledTimes(1);
+    expect(routeMocks.startChapterRender).toHaveBeenCalledTimes(1);
+    expect(routeMocks.beginChapterParentOrchestrationRunning).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineChapterParentOrchestration).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: admissionId }),
+      currentProjectRevision: projectRevision(),
+      selectedRegion: 'us-east-1',
+      error: expect.any(Error),
+    });
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('quarantines a chapter parent when the child-start manifest hash does not match', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.detectChapterBoundaries.mockReturnValueOnce([
+      { startFrame: 0, endFrame: 30 },
+      { startFrame: 30, endFrame: 60 },
+      { startFrame: 60, endFrame: 90 },
+    ]);
+    routeMocks.startChapterRender.mockImplementationOnce(async (jobId: string) => ({
+      jobId,
+      chapterCount: 3,
+      chapterLayoutManifestHash: 'd'.repeat(64),
+    }));
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'CHAPTER_ORCHESTRATION_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: admissionId,
+    });
+    expect(routeMocks.startChapterParentOrchestration).toHaveBeenCalledTimes(1);
+    expect(routeMocks.startChapterRender).toHaveBeenCalledTimes(1);
+    expect(routeMocks.beginChapterParentOrchestrationRunning).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineChapterParentOrchestration).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: admissionId }),
+      currentProjectRevision: projectRevision(),
+      selectedRegion: 'us-east-1',
+      error: expect.any(Error),
+    });
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('quarantines and fails closed when chapter RUNNING CAS is rejected', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.detectChapterBoundaries.mockReturnValueOnce([
+      { startFrame: 0, endFrame: 30 },
+      { startFrame: 30, endFrame: 60 },
+      { startFrame: 60, endFrame: 90 },
+    ]);
+    routeMocks.startChapterRender.mockImplementation(async (jobId: string) => ({
+      jobId,
+      chapterCount: 3,
+      chapterLayoutManifestHash: 'c'.repeat(64),
+    }));
+    routeMocks.beginChapterParentOrchestrationRunning.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      reason: 'CAS_CONFLICT',
+    });
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'CHAPTER_ORCHESTRATION_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: admissionId,
+    });
+    expect(routeMocks.quarantineChapterParentOrchestration).toHaveBeenCalledTimes(1);
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderJobStarted).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
   });
 

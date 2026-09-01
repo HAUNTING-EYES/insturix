@@ -51,6 +51,14 @@ import {
   quarantineChapterChildDispatchV1,
   type ChapterChildDispatchV1,
 } from './chapter-render-dispatch-v1';
+import {
+  createChapterLayoutManifestV1,
+  parseChapterLayoutManifestV1,
+  type ChapterLayoutManifestV1,
+  type ChapterLayoutPolicyV1,
+  type ChapterLayoutProjectTimebaseV1,
+} from './chapter-layout-contract-v1';
+import { readCanonicalFrameRateV1 } from '../contracts/canonical-media-time-v1';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -118,6 +126,8 @@ interface ChapterRenderJob {
   height: number;
   /** Full server-owned PROJECT_SNAPSHOT binding for strict chapter jobs. */
   projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1;
+  /** Immutable frame layout identity for strict chapter jobs. */
+  chapterLayoutManifest?: ChapterLayoutManifestV1;
   /** Exact project owner from the snapshot binding; legacy rows may omit it. */
   ownerId?: string;
   /** Selected AWS region for this job; legacy rows may omit it. */
@@ -263,6 +273,76 @@ function assertChapterFps(fps: number): number {
   return fps;
 }
 
+const CHAPTER_LAYOUT_POLICY_ID_V1 = 'chapter-layout-scene-gap-v1';
+const CHAPTER_LAYOUT_POLICY_VERSION_V1 = '1';
+
+/**
+ * Expose the existing chapter policy owner for the immutable layout contract.
+ * This returns the same duration-derived values used by boundary detection;
+ * the manifest does not introduce a second policy implementation.
+ */
+export function getChapterLayoutPolicyV1(fps: number): ChapterLayoutPolicyV1 {
+  const policy = chapterFramePolicy(fps);
+  return {
+    policyId: CHAPTER_LAYOUT_POLICY_ID_V1,
+    policyVersion: CHAPTER_LAYOUT_POLICY_VERSION_V1,
+    splitThresholdFrames: policy.splitThresholdFrames,
+    targetFrames: policy.targetFrames,
+    minimumFrames: policy.minimumFrames,
+  };
+}
+
+/**
+ * Materialize the current project timeline identity without pretending a
+ * legacy numeric FPS is a native exact project timebase. Numeric project FPS
+ * is reduced from its decimal spelling and marked read-compatibility-only by
+ * the canonical-media-time owner.
+ */
+export function createChapterProjectTimebaseV1(
+  projectId: string,
+  fps: number,
+): ChapterLayoutProjectTimebaseV1 {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId || normalizedProjectId !== projectId) {
+    throw new Error('CHAPTER_RENDER_PROJECT_TIMEBASE_ID_INVALID');
+  }
+  const frameRate = readCanonicalFrameRateV1(assertChapterFps(fps));
+  return {
+    timebaseId: `${normalizedProjectId}:timeline`,
+    version: `${frameRate.provenance}:${frameRate.writeEligibility}`,
+    rate: frameRate.rate,
+  };
+}
+
+/**
+ * Build one provider-free immutable layout manifest from the exact boundaries
+ * already selected by this renderer. The route supplies boundaries; policy and
+ * timebase identity remain owned here.
+ */
+export function createChapterLayoutManifestForRenderV1(input: {
+  parentAdmissionId: string;
+  bindingHash: string;
+  projectId: string;
+  totalFrames: number;
+  fps: number;
+  boundaries: readonly { startFrame: number; endFrame: number }[];
+}): ChapterLayoutManifestV1 {
+  const normalizedFps = assertChapterFps(input.fps);
+  return createChapterLayoutManifestV1({
+    parentAdmissionId: input.parentAdmissionId,
+    bindingHash: input.bindingHash,
+    totalFrames: input.totalFrames,
+    projectTimebase: createChapterProjectTimebaseV1(input.projectId, normalizedFps),
+    policy: getChapterLayoutPolicyV1(normalizedFps),
+    chapters: input.boundaries.map((boundary, index) => ({
+      index,
+      startFrame: boundary.startFrame,
+      endFrame: boundary.endFrame,
+      durationFrames: boundary.endFrame - boundary.startFrame,
+    })),
+  });
+}
+
 function chapterProgressErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -271,11 +351,23 @@ function isTerminalChapterProgressError(message: string): boolean {
   return /specified bucket does not exist|NoSuchBucket/i.test(message);
 }
 
-type ChapterRenderStartOptionsV1 = {
+export type ChapterRenderStartOptionsV1 = {
   region: string;
   authorization: ProjectRenderJobAuthorizationV1;
   binding: ProjectRenderSnapshotBindingV1;
   chapterWebhook: ChapterChildWebhookConfigV1;
+  chapterLayoutManifest: ChapterLayoutManifestV1;
+};
+
+export type ChapterRenderStartResultV1 = {
+  jobId: string;
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+};
+
+type LegacyChapterRenderStartResultV1 = {
+  jobId: string;
+  chapters: number;
 };
 
 type ChapterChildWebhookConfigV1 = {
@@ -293,6 +385,12 @@ function isStrictChapterRenderJob(job: Partial<ChapterRenderJob>): boolean {
   return job.projectRenderSnapshotBinding !== undefined;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
 function resolveChapterChildWebhook(
   job: Partial<ChapterRenderJob>,
   supplied?: ChapterChildWebhookConfigV1,
@@ -308,6 +406,110 @@ function resolveChapterChildWebhook(
   const secret = supplied?.secret.trim() || process.env.REMOTION_WEBHOOK_SECRET?.trim();
   if (!secret || !isHttpsUrl(persistedUrl)) return undefined;
   return { url: persistedUrl, secret };
+}
+
+function readChapterBoundariesFromBinding(
+  binding: ProjectRenderSnapshotBindingV1,
+  totalFrames: number,
+): readonly { startFrame: number; endFrame: number }[] {
+  const renderContract = asRecord(binding.renderContract);
+  if (renderContract?.routeMode !== 'chapter') {
+    throw new Error('CHAPTER_RENDER_LAYOUT_ROUTE_MODE_MISMATCH');
+  }
+  const chapterPolicy = asRecord(renderContract?.chapterPolicy);
+  const rawBoundaries = chapterPolicy?.boundaries;
+  if (!Array.isArray(rawBoundaries) || rawBoundaries.length === 0) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_BOUNDARIES_MISSING');
+  }
+  const boundaries = rawBoundaries.map((value) => {
+    const boundary = asRecord(value);
+    const startFrame = boundary?.startFrame;
+    const endFrame = boundary?.endFrame;
+    if (
+      !boundary
+      || typeof startFrame !== 'number'
+      || typeof endFrame !== 'number'
+      || !Number.isSafeInteger(startFrame)
+      || !Number.isSafeInteger(endFrame)
+      || startFrame < 0
+      || endFrame <= startFrame
+      || endFrame > totalFrames
+    ) {
+      throw new Error('CHAPTER_RENDER_LAYOUT_BOUNDARIES_INVALID');
+    }
+    return {
+      startFrame,
+      endFrame,
+    };
+  });
+  let expectedStartFrame = 0;
+  for (const boundary of boundaries) {
+    if (boundary.startFrame !== expectedStartFrame) {
+      throw new Error('CHAPTER_RENDER_LAYOUT_BOUNDARIES_INVALID');
+    }
+    expectedStartFrame = boundary.endFrame;
+  }
+  if (expectedStartFrame !== totalFrames) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_BOUNDARIES_INVALID');
+  }
+  return boundaries;
+}
+
+function assertChapterLayoutManifestForStart(input: {
+  manifest: ChapterLayoutManifestV1;
+  jobId: string;
+  projectId: string;
+  binding: ProjectRenderSnapshotBindingV1;
+  totalFrames: number;
+  fps: number;
+}): void {
+  const { manifest, binding, totalFrames, fps } = input;
+  if (
+    manifest.parentAdmissionId !== input.jobId
+    || manifest.bindingHash !== binding.bindingHash
+    || manifest.totalFrames !== totalFrames
+    || binding.durationInFrames !== totalFrames
+    || binding.fps !== fps
+    || binding.projectId !== input.projectId
+  ) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_MANIFEST_SCOPE_MISMATCH');
+  }
+
+  const expectedTimebase = createChapterProjectTimebaseV1(input.projectId, fps);
+  if (
+    manifest.projectTimebase.timebaseId !== expectedTimebase.timebaseId
+    || manifest.projectTimebase.version !== expectedTimebase.version
+    || manifest.projectTimebase.rate.numerator !== expectedTimebase.rate.numerator
+    || manifest.projectTimebase.rate.denominator !== expectedTimebase.rate.denominator
+  ) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_MANIFEST_TIMEBASE_MISMATCH');
+  }
+
+  const expectedPolicy = getChapterLayoutPolicyV1(fps);
+  if (
+    manifest.policy.policyId !== expectedPolicy.policyId
+    || manifest.policy.policyVersion !== expectedPolicy.policyVersion
+    || manifest.policy.splitThresholdFrames !== expectedPolicy.splitThresholdFrames
+    || manifest.policy.targetFrames !== expectedPolicy.targetFrames
+    || manifest.policy.minimumFrames !== expectedPolicy.minimumFrames
+  ) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_MANIFEST_POLICY_MISMATCH');
+  }
+
+  const expectedBoundaries = readChapterBoundariesFromBinding(binding, totalFrames);
+  if (
+    manifest.chapterCount !== expectedBoundaries.length
+    || manifest.chapters.length !== expectedBoundaries.length
+    || manifest.chapters.some((chapter, index) => {
+      const boundary = expectedBoundaries[index]!;
+      return chapter.index !== index
+        || chapter.startFrame !== boundary.startFrame
+        || chapter.endFrame !== boundary.endFrame
+        || chapter.durationFrames !== boundary.endFrame - boundary.startFrame;
+    })
+  ) {
+    throw new Error('CHAPTER_RENDER_LAYOUT_MANIFEST_CHAPTERS_MISMATCH');
+  }
 }
 
 function chapterProviderIdentityIsComplete(chapter: Partial<Chapter>): boolean {
@@ -774,6 +976,34 @@ async function startPendingChapters(
   }
 }
 
+export function startChapterRender(
+  jobId: string,
+  projectId: string,
+  userId: string,
+  overlays: Overlay[],
+  totalFrames: number,
+  fps: number,
+  width: number,
+  height: number,
+  serveUrl: string,
+  functionName: string,
+  options: ChapterRenderStartOptionsV1,
+): Promise<ChapterRenderStartResultV1>;
+
+export function startChapterRender(
+  jobId: string,
+  projectId: string,
+  userId: string,
+  overlays: Overlay[],
+  totalFrames: number,
+  fps: number,
+  width: number,
+  height: number,
+  serveUrl: string,
+  functionName: string,
+  options?: undefined,
+): Promise<LegacyChapterRenderStartResultV1>;
+
 export async function startChapterRender(
   jobId: string,
   projectId: string,
@@ -786,7 +1016,7 @@ export async function startChapterRender(
   serveUrl: string,
   functionName: string,
   options?: ChapterRenderStartOptionsV1,
-): Promise<{ jobId: string; chapters: number }> {
+): Promise<ChapterRenderStartResultV1 | LegacyChapterRenderStartResultV1> {
   if (!/^chr_[A-Za-z0-9_-]{12}$/.test(jobId)) {
     throw new Error('Chapter rendering requires a caller-owned chr_ admission ID');
   }
@@ -794,6 +1024,7 @@ export async function startChapterRender(
     ? assertChapterRegion(options.region)
     : assertChapterRegion(process.env.REMOTION_AWS_REGION || 'us-east-1');
   let projectRenderSnapshotBinding: ProjectRenderSnapshotBindingV1 | undefined;
+  let chapterLayoutManifest: ChapterLayoutManifestV1 | undefined;
   if (options) {
     const authorization = ProjectRenderJobAuthorizationSchema.safeParse(options.authorization);
     if (!authorization.success) {
@@ -817,13 +1048,30 @@ export async function startChapterRender(
       || !options.chapterWebhook.secret.trim()) {
       throw new Error('CHAPTER_RENDER_CHILD_WEBHOOK_CONFIG_INVALID');
     }
+    if (options.chapterLayoutManifest === undefined) {
+      throw new Error('CHAPTER_RENDER_LAYOUT_MANIFEST_REQUIRED');
+    }
+    const parsedChapterLayoutManifest = parseChapterLayoutManifestV1(options.chapterLayoutManifest);
+    const normalizedFps = assertChapterFps(fps);
+    assertChapterLayoutManifestForStart({
+      manifest: parsedChapterLayoutManifest,
+      jobId,
+      projectId,
+      binding: options.binding,
+      totalFrames,
+      fps: normalizedFps,
+    });
+    chapterLayoutManifest = parsedChapterLayoutManifest;
     projectRenderSnapshotBinding = structuredClone(options.binding);
   }
   const normalizedFps = assertChapterFps(fps);
   const db = await getDatabase();
 
-  // Detect chapter boundaries
-  const boundaries = detectChapterBoundaries(overlays, totalFrames, normalizedFps);
+  // Strict calls use the exact, already-bound immutable layout. Legacy calls
+  // retain explicit renderer-owned boundary recomputation.
+  const boundaries = chapterLayoutManifest
+    ? chapterLayoutManifest.chapters.map(({ startFrame, endFrame }) => ({ startFrame, endFrame }))
+    : detectChapterBoundaries(overlays, totalFrames, normalizedFps);
 
   const compactRenderProps = buildLambdaRenderInputProps({
     overlays,
@@ -837,24 +1085,26 @@ export async function startChapterRender(
     ? compactRenderProps.overlays as Overlay[]
     : [];
   // Create chapter records
-  const chapters: Chapter[] = boundaries.map((b, i) => ({
-    index: i,
-    startFrame: b.startFrame,
-    endFrame: b.endFrame,
-    durationFrames: b.endFrame - b.startFrame,
-    region: selectedRegion,
-    ...(projectRenderSnapshotBinding
-      ? {
+  const chapters: Chapter[] = chapterLayoutManifest
+    ? chapterLayoutManifest.chapters.map((chapter) => ({
+        ...chapter,
+        region: selectedRegion,
+        parentAdmissionId: jobId,
+        dispatch: createChapterChildDispatchV1({
           parentAdmissionId: jobId,
-          dispatch: createChapterChildDispatchV1({
-            parentAdmissionId: jobId,
-            childIndex: i,
-            bindingHash: projectRenderSnapshotBinding.bindingHash,
-          }),
-        }
-      : {}),
-    status: 'pending' as const,
-  }));
+          childIndex: chapter.index,
+          bindingHash: projectRenderSnapshotBinding!.bindingHash,
+        }),
+        status: 'pending' as const,
+      }))
+    : boundaries.map((b, i) => ({
+        index: i,
+        startFrame: b.startFrame,
+        endFrame: b.endFrame,
+        durationFrames: b.endFrame - b.startFrame,
+        region: selectedRegion,
+        status: 'pending' as const,
+      }));
 
   // Plan-based retention: stamp when this render's transient chapter records auto-expire, so a TTL index
   // on `expiresAt` (expireAfterSeconds: 0) deletes them after the owner's plan window (base 7d/mid 30d/top 90d).
@@ -882,6 +1132,7 @@ export async function startChapterRender(
     height,
     region: selectedRegion,
     ...(projectRenderSnapshotBinding ? { projectRenderSnapshotBinding } : {}),
+    ...(chapterLayoutManifest ? { chapterLayoutManifest } : {}),
     ...(projectRenderSnapshotBinding ? { ownerId: projectRenderSnapshotBinding.ownerId } : {}),
     ...(projectRenderSnapshotBinding && options?.chapterWebhook
       ? { chapterWebhookUrl: options.chapterWebhook.url }
@@ -905,7 +1156,13 @@ export async function startChapterRender(
     ...(options?.chapterWebhook ? { chapterWebhook: options.chapterWebhook } : {}),
   });
 
-  return { jobId, chapters: chapters.length };
+  return chapterLayoutManifest
+    ? {
+        jobId,
+        chapterCount: chapterLayoutManifest.chapterCount,
+        chapterLayoutManifestHash: chapterLayoutManifest.layoutManifestHash,
+      }
+    : { jobId, chapters: chapters.length };
 }
 
 /**

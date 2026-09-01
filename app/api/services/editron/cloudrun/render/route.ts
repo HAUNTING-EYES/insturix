@@ -16,6 +16,12 @@ import {
   reserveProjectRenderJobV1,
   type ProjectRenderJobAuthorizationV1,
 } from '@/lib/editron/services/render-job-service';
+import { createRenderJobChapterOrchestrationV1 } from '@/lib/editron/schemas/render-job';
+import {
+  beginChapterParentOrchestrationRunningV1,
+  quarantineChapterParentOrchestrationV1,
+  startChapterParentOrchestrationV1,
+} from '@/lib/editron/services/chapter-parent-orchestration-v1';
 import {
   assetResolver,
   ProjectAssetSourceUnverifiableErrorV1,
@@ -72,6 +78,12 @@ export async function POST(request: Request) {
   let renderAttemptToken: string | null = null;
   let dispatchPhase: 'NOT_ATTEMPTED' | 'ATTEMPTING' | 'UNKNOWN' | 'BOUND' = 'NOT_ATTEMPTED';
   let dispatchTransitionInFlight = false;
+  let chapterParentTransitionInFlight = false;
+  let chapterParentStarted = false;
+  let chapterParentRunning = false;
+  let chapterParentQuarantined = false;
+  let renderRegion: string | null = null;
+  let chapterParentCurrentProjectRevision: unknown = null;
   let billingLedgerUncertain = false;
 
   try {
@@ -111,6 +123,7 @@ export async function POST(request: Request) {
       'us-east-1' | 'us-east-2' | 'us-west-1' | 'us-west-2' | 
       'eu-central-1' | 'eu-west-1' | 'eu-west-2' | 'ap-south-1' | 
       'ap-southeast-1' | 'ap-southeast-2' | 'ap-northeast-1';
+    renderRegion = region;
 
     if (!functionName) {
       throw new Error('REMOTION_LAMBDA_FUNCTION_NAME is not defined');
@@ -296,7 +309,12 @@ export async function POST(request: Request) {
     const renderFps = readPositiveNumber(resolvedProps.fps, 'PROJECT_RENDER_FPS_INVALID');
     const width = readPositiveInteger(resolvedProps.width, 'PROJECT_RENDER_WIDTH_INVALID');
     const height = readPositiveInteger(resolvedProps.height, 'PROJECT_RENDER_HEIGHT_INVALID');
-    const { shouldUseChapterRendering, startChapterRender, detectChapterBoundaries } =
+    const {
+      shouldUseChapterRendering,
+      startChapterRender,
+      detectChapterBoundaries,
+      createChapterLayoutManifestForRenderV1,
+    } =
       await import('@/lib/editron/services/chapter-renderer');
     const usesChapterRendering = shouldUseChapterRendering(totalFrames, renderFps);
     const preHydrationRenderOverlays = [...renderOverlays];
@@ -337,6 +355,24 @@ export async function POST(request: Request) {
       projectRenderSource,
       containedVideoTargets,
     });
+    const chapterLayoutManifest = usesChapterRendering
+      ? createChapterLayoutManifestForRenderV1({
+          parentAdmissionId: admissionId,
+          bindingHash: binding.bindingHash,
+          projectId: canonicalProjectId,
+          totalFrames,
+          fps: renderFps,
+          boundaries: chapterBoundaries!,
+        })
+      : null;
+    const chapterOrchestration = usesChapterRendering
+      ? createRenderJobChapterOrchestrationV1({
+          aggregateJobId: admissionId,
+          bindingHash: binding.bindingHash,
+          selectedRegion: region,
+          reservedAt: new Date(),
+        })
+      : undefined;
     renderAuthorization = createProjectRenderJobAuthorizationV1({
       jobId: admissionId,
       requestedByUserId: userId,
@@ -386,6 +422,7 @@ export async function POST(request: Request) {
       deliveryManifest,
       binding,
       billingWallet,
+      ...(chapterOrchestration ? { chapterOrchestration } : {}),
     });
     renderAdmissionId = admissionId;
 
@@ -495,40 +532,57 @@ export async function POST(request: Request) {
       );
     }
 
-    // Credentials are loaded only after the durable admission and credit
-    // deduction, immediately before a provider dispatch.
-    const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
-    await setAWSCredentials();
+    chapterParentCurrentProjectRevision = currentProjectRevision;
 
-    // The attempt marker is the last durable boundary before invoking the
-    // provider. A thrown CAS is intentionally left uncertain: it may have
-    // committed before the response was lost, so the outer handler quarantines
-    // the admission instead of refunding or retrying it.
-    const dispatchRevision = await projectService.getProjectRevision(
-      ownerId,
-      canonicalProjectId,
-    );
-    if (!sameProjectArtifactRevisionV1(dispatchRevision, revision)) {
-      throw new Error('Project changed after render admission and before provider dispatch');
+    if (!usesChapterRendering) {
+      // Credentials are loaded only after the durable admission and credit
+      // deduction, immediately before a standard provider dispatch.
+      const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
+      await setAWSCredentials();
+
+      // The generic attempt marker is the last durable boundary before the
+      // standard provider invocation. A thrown CAS is intentionally left
+      // uncertain so the outer handler quarantines rather than retries it.
+      const dispatchRevision = await projectService.getProjectRevision(
+        ownerId,
+        canonicalProjectId,
+      );
+      if (!sameProjectArtifactRevisionV1(dispatchRevision, revision)) {
+        throw new Error('Project changed after render admission and before provider dispatch');
+      }
+      dispatchTransitionInFlight = true;
+      const attemptResult = await markProjectRenderDispatchAttemptingV1({
+        authorization: renderAuthorization!,
+        currentProjectRevision: dispatchRevision,
+        attemptToken: renderAttemptToken!,
+      });
+      // A returned rejection proves the CAS did not advance the durable
+      // attempt state. Only a thrown/lost response is ambiguous.
+      dispatchTransitionInFlight = false;
+      if (!attemptResult.ok) {
+        throw new Error(`Render dispatch admission rejected: ${attemptResult.reason}`);
+      }
+      dispatchPhase = 'ATTEMPTING';
     }
-    dispatchTransitionInFlight = true;
-    const attemptResult = await markProjectRenderDispatchAttemptingV1({
-      authorization: renderAuthorization!,
-      currentProjectRevision: dispatchRevision,
-      attemptToken: renderAttemptToken!,
-    });
-    // A returned rejection proves the CAS did not advance the durable attempt
-    // state. Only a thrown/lost response leaves the commit outcome ambiguous.
-    dispatchTransitionInFlight = false;
-    if (!attemptResult.ok) {
-      throw new Error(`Render dispatch admission rejected: ${attemptResult.reason}`);
-    }
-    dispatchPhase = 'ATTEMPTING';
 
     if (usesChapterRendering) {
       const fps = renderFps;
 
-      const { jobId, chapters } = await startChapterRender(
+      chapterParentTransitionInFlight = true;
+      const parentStarting = await startChapterParentOrchestrationV1({
+        authorization: renderAuthorization!,
+        currentProjectRevision: chapterParentCurrentProjectRevision,
+        selectedRegion: region,
+      });
+      chapterParentTransitionInFlight = false;
+      if (!parentStarting.ok || parentStarting.state !== 'STARTING') {
+        throw new Error(
+          `Chapter parent STARTING admission rejected: ${parentStarting.ok ? 'INVALID_STATE' : parentStarting.reason}`,
+        );
+      }
+      chapterParentStarted = true;
+
+      const started = await startChapterRender(
         renderAdmissionId!,
         canonicalProjectId,
         userId,
@@ -544,72 +598,63 @@ export async function POST(request: Request) {
           authorization: renderAuthorization!,
           binding,
           chapterWebhook: chapterWebhook!,
+          chapterLayoutManifest: chapterLayoutManifest!,
         },
       );
 
-      let trackingStatus: 'durable' | 'recovery_required' = 'durable';
-      try {
-        const startedProjectRevision = await projectService.getProjectRevision(
-          ownerId,
-          canonicalProjectId,
-        );
-        const started = await markProjectRenderJobStartedV1({
-          authorization: renderAuthorization!,
-          currentProjectRevision: startedProjectRevision,
-          providerRenderId: jobId,
-          bucketName: 'chapter-render',
-          region,
-          deliveryManifest,
-          attemptToken: renderAttemptToken!,
-        });
-        if (!started.ok) {
-          trackingStatus = 'recovery_required';
-          dispatchPhase = 'UNKNOWN';
-          await quarantineRenderDispatch({
-            authorization: renderAuthorization!,
-            attemptToken: renderAttemptToken!,
-            providerRenderId: jobId,
-            bucketName: 'chapter-render',
-            region,
-            error: 'Chapter provider started but durable provider binding was rejected',
-          });
-          console.error('CRITICAL: chapter render started but admission binding failed:', started);
-        } else {
-          dispatchPhase = 'BOUND';
-        }
-      } catch (dbError) {
-        trackingStatus = 'recovery_required';
-        dispatchPhase = 'UNKNOWN';
-        await quarantineRenderDispatch({
-          authorization: renderAuthorization!,
-          attemptToken: renderAttemptToken!,
-          providerRenderId: jobId,
-          bucketName: 'chapter-render',
-          region,
-          error: dbError,
-        });
-        console.error('CRITICAL: chapter render started but admission binding failed:', {
-          renderAdmissionId,
-          error: dbError,
-        });
+      const expectedChapterLayoutManifest = chapterLayoutManifest;
+      if (
+        !expectedChapterLayoutManifest
+        || started.jobId !== renderAdmissionId
+        || started.chapterCount !== expectedChapterLayoutManifest.chapterCount
+        || started.chapterLayoutManifestHash !== expectedChapterLayoutManifest.layoutManifestHash
+        || !Number.isSafeInteger(started.chapterCount)
+        || started.chapterCount <= 0
+        || typeof started.chapterLayoutManifestHash !== 'string'
+        || !/^[a-f0-9]{64}$/.test(started.chapterLayoutManifestHash)
+      ) {
+        throw new Error('CHAPTER_RENDER_START_RESULT_INVALID');
       }
 
+      chapterParentTransitionInFlight = true;
+      const parentRunning = await beginChapterParentOrchestrationRunningV1({
+        authorization: renderAuthorization!,
+        currentProjectRevision: chapterParentCurrentProjectRevision,
+        selectedRegion: region,
+        chapterCount: started.chapterCount,
+        chapterLayoutManifestHash: started.chapterLayoutManifestHash,
+      });
+      chapterParentTransitionInFlight = false;
+      if (!parentRunning.ok || parentRunning.state !== 'RUNNING') {
+        chapterParentQuarantined = true;
+        await quarantineChapterParentOrchestration({
+          authorization: renderAuthorization!,
+          currentProjectRevision: chapterParentCurrentProjectRevision,
+          selectedRegion: region,
+          error: `Chapter parent RUNNING admission rejected: ${parentRunning.ok ? 'INVALID_STATE' : parentRunning.reason}`,
+        });
+        throw new Error(
+          `Chapter parent RUNNING admission rejected: ${parentRunning.ok ? 'INVALID_STATE' : parentRunning.reason}`,
+        );
+      }
+      chapterParentRunning = true;
+
       const mgInt = mgIntegrity as { degraded?: boolean } | null;
-      const finalTracking = trackingStatus === 'recovery_required'
-        ? 'recovery_required' as const
-        : mgInt?.degraded === true
-          ? 'degraded' as const
-          : 'durable' as const;
+      const finalTracking = mgInt?.degraded === true ? 'degraded' as const : 'durable' as const;
       return NextResponse.json({
         type: 'success',
         data: {
-          ...buildChapterRenderApiData({ jobId, region, chapters }),
+          ...buildChapterRenderApiData({
+            jobId: started.jobId,
+            region,
+            chapters: started.chapterCount,
+          }),
           renderAdmissionId,
           deliveryManifest,
           trackingStatus: finalTracking,
           ...(mgIntegrity ? { mgIntegrity } : {}),
         },
-      }, { status: finalTracking === 'recovery_required' ? 202 : 200 });
+      }, { status: 200 });
     }
 
     // Standard single-Lambda render (videos under 3 minutes)
@@ -732,11 +777,39 @@ export async function POST(request: Request) {
     }, { status: finalTracking === 'recovery_required' ? 202 : 200 });
   } catch (error: any) {
     const attemptBoundaryUncertain = dispatchTransitionInFlight || dispatchPhase !== 'NOT_ATTEMPTED';
+    const chapterParentWorkMayHaveStarted = chapterParentStarted || chapterParentTransitionInFlight;
+    const chapterParentBoundaryUncertain = chapterParentTransitionInFlight
+      || (chapterParentStarted && !chapterParentRunning);
+    const chapterParentActive = chapterParentRunning;
     if (renderAdmissionId && renderAuthorization) {
       if (billingLedgerUncertain && renderAttemptToken) {
         await quarantineRenderBilling({
           authorization: renderAuthorization,
           attemptToken: renderAttemptToken,
+          error,
+        });
+      } else if (chapterParentBoundaryUncertain) {
+        if (renderRegion && !chapterParentQuarantined) {
+          chapterParentQuarantined = true;
+          await quarantineChapterParentOrchestration({
+            authorization: renderAuthorization,
+            currentProjectRevision: chapterParentCurrentProjectRevision,
+            selectedRegion: renderRegion,
+            error,
+          });
+        } else if (!renderRegion) {
+          console.error('[Render] chapter parent uncertainty has no selected region for quarantine:', {
+            renderAdmissionId,
+            error,
+          });
+        }
+      } else if (chapterParentActive) {
+        // RUNNING is already durable and child work may be in flight. Preserve
+        // that state so the active-render route can recover the polling
+        // identity; never convert a response-construction failure into a
+        // terminal render failure or a second dispatch.
+        console.error('[Render] chapter parent is active but the start response failed:', {
+          renderAdmissionId,
           error,
         });
       } else if (attemptBoundaryUncertain && renderAttemptToken) {
@@ -753,7 +826,13 @@ export async function POST(request: Request) {
         );
       }
     }
-    if (renderCreditCheck && creditsDeducted && !attemptBoundaryUncertain && !billingLedgerUncertain) {
+    if (
+      renderCreditCheck
+      && creditsDeducted
+      && !attemptBoundaryUncertain
+      && !chapterParentWorkMayHaveStarted
+      && !billingLedgerUncertain
+    ) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
@@ -766,17 +845,28 @@ export async function POST(request: Request) {
     const hydrationError = error instanceof RenderAssetHydrationError;
     const inputPropsError = error instanceof RenderInputPropsError;
     const assetPreparationError = sourceError || hydrationError;
-    const recoveryRequired = attemptBoundaryUncertain || billingLedgerUncertain;
+    const recoveryRequired = attemptBoundaryUncertain
+      || chapterParentBoundaryUncertain
+      || chapterParentActive
+      || billingLedgerUncertain;
     const recoveryCode = billingLedgerUncertain
       ? 'RENDER_BILLING_UNKNOWN'
-      : attemptBoundaryUncertain
-        ? 'RENDER_DISPATCH_UNKNOWN'
-        : null;
+      : chapterParentBoundaryUncertain
+        ? 'CHAPTER_ORCHESTRATION_UNKNOWN'
+        : chapterParentActive
+          ? 'CHAPTER_ORCHESTRATION_ACTIVE'
+        : attemptBoundaryUncertain
+          ? 'RENDER_DISPATCH_UNKNOWN'
+          : null;
     const responseMessage = billingLedgerUncertain
       ? 'Render billing could not be confirmed; recovery is required before retry.'
-      : attemptBoundaryUncertain
-        ? 'Render provider dispatch could not be confirmed; recovery is required before retry.'
-        : error.message || 'Failed to trigger render';
+      : chapterParentBoundaryUncertain
+        ? 'Chapter orchestration could not be durably confirmed; recovery is required before retry.'
+        : chapterParentActive
+          ? 'Chapter orchestration is active; resume polling instead of starting another render.'
+        : attemptBoundaryUncertain
+          ? 'Render provider dispatch could not be confirmed; recovery is required before retry.'
+          : error.message || 'Failed to trigger render';
     return NextResponse.json(
       {
         type: 'error',
@@ -900,6 +990,25 @@ async function quarantineRenderDispatch(input: {
     }
   } catch (quarantineError) {
     console.error('[Render] provider dispatch quarantine write failed:', {
+      renderAdmissionId: input.authorization.jobId,
+      error: quarantineError,
+    });
+  }
+}
+
+async function quarantineChapterParentOrchestration(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  currentProjectRevision: unknown;
+  selectedRegion: string;
+  error: unknown;
+}): Promise<void> {
+  try {
+    const result = await quarantineChapterParentOrchestrationV1(input);
+    if (!result.ok) {
+      console.error('[Render] failed to durably quarantine uncertain chapter parent orchestration:', result);
+    }
+  } catch (quarantineError) {
+    console.error('[Render] chapter parent orchestration quarantine write failed:', {
       renderAdmissionId: input.authorization.jobId,
       error: quarantineError,
     });
