@@ -14836,3 +14836,24 @@ Queue 5 remains `OPEN`; Queues 3 and 4 remain `ACTIVE_PARTIAL`. The next
 bounded dependency is an active-artifact registry with stale marking and an
 outbox, followed by the corresponding consumer gates. This does not close
 Queue 5 or authorize certification, Stage 2.5 or Stage 3.
+
+## 2026-09-01 vertical-convergence Phase 3E checkpoint
+
+At declared commit `718577055`, ProjectService owns the canonical
+owner/project/revision/exact-target artifact binding, with a durable,
+deterministic invalidation outbox and progress CAS. The render schema supports
+optional binding/state, while the new bound current-reader and exact
+stale/history fencing are strict; immutable history remains preserved.
+ProjectService validates pending admission against the current revision before
+enqueue or progress. Authorization remains pending: no route, provider or
+generic-consumer migration and no cross-collection transaction are claimed.
+
+The focused Phase 3E suite passed 6/6; full TypeScript, ESLint (`--quiet`) and
+`git diff --check` passed. The broader unchanged render-route-startup suite
+has four pre-existing mock failures because
+`ProjectAssetSourceUnverifiableErrorV1` is not exported; this is separate
+test-harness debt and is not attributed to Phase 3E.
+
+The next bounded dependency is coherent render route/progress/history binding
+with stale-current gates. Queue 5 remains open, and this checkpoint does not
+authorize a route/provider migration, certification, Stage 2.5 or Stage 3.
