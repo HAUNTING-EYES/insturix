@@ -8,6 +8,11 @@ import {
   hashEditronCanonicalJsonV1,
 } from "./canonical-json-v1";
 import {
+  ProjectArtifactProjectRevisionSchema,
+  sameProjectArtifactRevisionV1,
+} from "./project-artifact-invalidation-v1";
+import { parseChapterLayoutManifestV1 } from "./chapter-layout-contract-v1";
+import {
   ProjectRenderSnapshotBindingSchema,
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
@@ -29,6 +34,10 @@ export const PROJECT_CHAPTER_CONCAT_ARTIFACT_KIND_V1 =
   "REMOTION_AWS_CHAPTER_CONCAT_OUTPUT" as const;
 export const PROJECT_CHAPTER_CONCAT_MAX_SOURCES_V1 = 64;
 export const PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_SCHEMA_VERSION_V1 = 1 as const;
+export const PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1 =
+  "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE" as const;
+export const PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1 =
+  "PROJECT_CHAPTER_CONCAT_LAYOUT_STALE" as const;
 
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 const PARENT_ADMISSION_ID = /^chr_[A-Za-z0-9_-]{12}$/;
@@ -81,6 +90,27 @@ export const ProjectChapterConcatTargetSchemaV1 =
 export type ProjectChapterConcatTargetV1 = z.infer<
   typeof ProjectChapterConcatTargetSchemaV1
 >;
+
+/**
+ * The live fence is projected from the immutable PROJECT_SNAPSHOT binding;
+ * this tuple is deliberately not a second persisted authority. ProjectService
+ * owns the live revision read, while the target binding owns the expected one.
+ */
+export const ProjectChapterConcatCurrentnessSchemaV1 = z.object({
+  ownerId: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  projectRevision: ProjectArtifactProjectRevisionSchema,
+  bindingHash: z.string().regex(HEX_SHA256),
+}).strict();
+export type ProjectChapterConcatCurrentnessV1 = z.infer<
+  typeof ProjectChapterConcatCurrentnessSchemaV1
+>;
+
+export type ProjectChapterConcatLayoutIdentityInputV1 = {
+  layoutManifest?: unknown;
+  layoutManifestHash?: unknown;
+  chapters?: readonly unknown[];
+};
 
 /**
  * QStash carries this immutable identity beside the job ID.  The persisted
@@ -314,6 +344,155 @@ export function assertProjectChapterConcatTargetV1(
       throw error;
     }
     throw new Error("PROJECT_CHAPTER_CONCAT_TARGET_INVALID");
+  }
+}
+
+/** ProjectService's live read must match this immutable target tuple. */
+export function projectChapterConcatCurrentnessV1(
+  target: ProjectChapterConcatTargetV1,
+): ProjectChapterConcatCurrentnessV1 {
+  assertProjectChapterConcatTargetV1(target);
+  return {
+    ownerId: target.projectRenderSnapshotBinding.ownerId,
+    projectId: target.projectRenderSnapshotBinding.projectId,
+    projectRevision: target.projectRenderSnapshotBinding.projectRevision,
+    bindingHash: target.projectRenderSnapshotBinding.bindingHash,
+  };
+}
+
+export function assertProjectChapterConcatCurrentnessV1(
+  input: unknown,
+  target: ProjectChapterConcatTargetV1,
+): asserts input is ProjectChapterConcatCurrentnessV1 {
+  const parsed = ProjectChapterConcatCurrentnessSchemaV1.safeParse(input);
+  if (!parsed.success) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CURRENTNESS_INVALID");
+  }
+  const expected = projectChapterConcatCurrentnessV1(target);
+  if (
+    parsed.data.ownerId !== expected.ownerId
+    || parsed.data.projectId !== expected.projectId
+    || parsed.data.bindingHash !== expected.bindingHash
+    || !sameProjectArtifactRevisionV1(parsed.data.projectRevision, expected.projectRevision)
+  ) {
+    throw new Error(PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1);
+  }
+}
+
+/** Check the job-side owner/project tuple without trusting requester identity. */
+export function assertProjectChapterConcatTargetBindingV1(input: {
+  target: ProjectChapterConcatTargetV1;
+  jobId: string;
+  ownerId: string;
+  projectId: string;
+}): void {
+  assertProjectChapterConcatTargetV1(input.target);
+  if (
+    input.target.parentAdmissionId !== input.jobId
+    || input.target.projectRenderSnapshotBinding.ownerId !== input.ownerId
+    || input.target.projectRenderSnapshotBinding.projectId !== input.projectId
+  ) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_JOB_BINDING_MISMATCH");
+  }
+}
+
+function recordV1(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function sameChapterBoundaryV1(left: unknown, right: unknown): boolean {
+  const leftRecord = recordV1(left);
+  const rightRecord = recordV1(right);
+  return leftRecord !== null
+    && rightRecord !== null
+    && leftRecord.startFrame === rightRecord.startFrame
+    && leftRecord.endFrame === rightRecord.endFrame
+    && (leftRecord.durationFrames === undefined
+      || rightRecord.durationFrames === undefined
+      || leftRecord.durationFrames === rightRecord.durationFrames);
+}
+
+function chapterPolicyBoundariesV1(
+  target: ProjectChapterConcatTargetV1,
+): readonly unknown[] | undefined {
+  const renderContract = recordV1(target.projectRenderSnapshotBinding.renderContract);
+  if (!renderContract || !Object.prototype.hasOwnProperty.call(renderContract, "chapterPolicy")) {
+    return undefined;
+  }
+  if (renderContract.chapterPolicy === null) return undefined;
+  const chapterPolicy = recordV1(renderContract.chapterPolicy);
+  if (!chapterPolicy || !Array.isArray(chapterPolicy.boundaries)) {
+    throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+  }
+  return chapterPolicy.boundaries;
+}
+
+/**
+ * Reuse the canonical layout-manifest owner for hash validation, then compare
+ * only identity fields owned by the persisted chapter job. No layout policy is
+ * derived here.
+ */
+export function assertProjectChapterConcatLayoutIdentityV1(
+  target: ProjectChapterConcatTargetV1,
+  input: ProjectChapterConcatLayoutIdentityInputV1,
+): void {
+  assertProjectChapterConcatTargetV1(target);
+  const expectedBoundaries = chapterPolicyBoundariesV1(target);
+  if (input.layoutManifest === undefined) {
+    if (input.layoutManifestHash !== undefined || input.chapters !== undefined || expectedBoundaries !== undefined) {
+      throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+    }
+    return;
+  }
+
+  let manifest: ReturnType<typeof parseChapterLayoutManifestV1>;
+  try {
+    manifest = parseChapterLayoutManifestV1(input.layoutManifest);
+  } catch {
+    throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+  }
+  if (
+    manifest.parentAdmissionId !== target.parentAdmissionId
+    || manifest.bindingHash !== target.projectRenderSnapshotBinding.bindingHash
+    || manifest.totalFrames !== target.projectRenderSnapshotBinding.durationInFrames
+    || manifest.chapterCount !== target.sources.length
+  ) {
+    throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+  }
+  if (
+    input.layoutManifestHash !== undefined
+    && input.layoutManifestHash !== manifest.layoutManifestHash
+  ) {
+    throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+  }
+  if (input.chapters !== undefined) {
+    if (!Array.isArray(input.chapters) || input.chapters.length !== manifest.chapters.length) {
+      throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+    }
+    for (const [index, chapter] of manifest.chapters.entries()) {
+      const persistedChapter = recordV1(input.chapters[index]);
+      if (
+        !persistedChapter
+        || persistedChapter.index !== chapter.index
+        || persistedChapter.startFrame !== chapter.startFrame
+        || persistedChapter.endFrame !== chapter.endFrame
+        || persistedChapter.durationFrames !== chapter.durationFrames
+      ) {
+        throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+      }
+    }
+  }
+  if (expectedBoundaries !== undefined) {
+    if (expectedBoundaries.length !== manifest.chapters.length) {
+      throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+    }
+    for (const [index, boundary] of manifest.chapters.entries()) {
+      if (!sameChapterBoundaryV1(expectedBoundaries[index], boundary)) {
+        throw new Error(PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1);
+      }
+    }
   }
 }
 

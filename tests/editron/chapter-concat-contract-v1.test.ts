@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertProjectChapterConcatCurrentnessV1,
+  assertProjectChapterConcatLayoutIdentityV1,
   assertProjectChapterConcatResultV1,
   assertProjectChapterConcatTargetV1,
+  assertProjectChapterConcatTargetBindingV1,
   createProjectChapterConcatWorkerMessageV1,
   createProjectChapterConcatTargetV1,
   createSignedProjectChapterConcatRequestV1,
   projectChapterConcatDispatchIdV1,
+  projectChapterConcatCurrentnessV1,
   projectChapterConcatOutputUrlV1,
   verifySignedProjectChapterConcatRequestV1,
 } from "@/lib/editron/services/chapter-concat-contract-v1";
@@ -171,5 +175,35 @@ describe("ProjectChapterConcatTargetV1", () => {
         EDITRON_CHAPTER_CONCAT_OUTPUT_REGION: "us-east-1",
       },
     })).toThrow("PROJECT_CHAPTER_CONCAT_OUTPUT_BUCKET_INVALID");
+  });
+
+  it("binds claim currentness to the exact project revision and persisted layout identity", () => {
+    const concatTarget = target();
+    const currentness = projectChapterConcatCurrentnessV1(concatTarget);
+
+    expect(() => assertProjectChapterConcatCurrentnessV1(
+      currentness,
+      concatTarget,
+    )).not.toThrow();
+    expect(() => assertProjectChapterConcatCurrentnessV1({
+      ...currentness,
+      projectRevision: {
+        ...currentness.projectRevision,
+        value: currentness.projectRevision.value + 1,
+      },
+    }, concatTarget)).toThrow("PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE");
+    expect(() => assertProjectChapterConcatTargetBindingV1({
+      target: concatTarget,
+      jobId: JOB_ID,
+      ownerId: "wrong_owner",
+      projectId: currentness.projectId,
+    })).toThrow("PROJECT_CHAPTER_CONCAT_JOB_BINDING_MISMATCH");
+    expect(() => assertProjectChapterConcatLayoutIdentityV1(
+      concatTarget,
+      {},
+    )).not.toThrow();
+    expect(() => assertProjectChapterConcatLayoutIdentityV1(concatTarget, {
+      layoutManifestHash: "c".repeat(64),
+    })).toThrow("PROJECT_CHAPTER_CONCAT_LAYOUT_STALE");
   });
 });

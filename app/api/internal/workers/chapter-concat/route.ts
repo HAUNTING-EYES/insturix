@@ -17,9 +17,15 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import {
+  assertProjectChapterConcatCurrentnessV1,
+  assertProjectChapterConcatLayoutIdentityV1,
   assertProjectChapterConcatResultV1,
   assertProjectChapterConcatWorkerMessageV1,
   assertProjectChapterConcatTargetV1,
+  assertProjectChapterConcatTargetBindingV1,
+  projectChapterConcatCurrentnessV1,
+  PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1,
+  PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1,
   type ProjectChapterConcatTargetV1,
 } from '@/lib/editron/services/chapter-concat-contract-v1';
 
@@ -37,6 +43,9 @@ type ChapterConcatJob = {
   status?: string;
   concatStatus?: 'queued' | 'running' | 'done' | 'failed';
   concatTarget?: ProjectChapterConcatTargetV1;
+  chapterLayoutManifest?: unknown;
+  chapterLayoutManifestHash?: unknown;
+  chapters?: readonly unknown[];
   concatLease?: {
     claimToken?: string;
     claimedAt?: Date;
@@ -77,6 +86,11 @@ function isTerminalError(error: unknown): boolean {
     || /returned HTTP 4(?:00|01|03|13|22)/i.test(message);
 }
 
+function isStaleErrorCode(value: unknown): boolean {
+  return value === PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1
+    || value === PROJECT_CHAPTER_CONCAT_LAYOUT_STALE_ERROR_V1;
+}
+
 function isValidDate(value: unknown): value is Date {
   return value instanceof Date && !Number.isNaN(value.getTime());
 }
@@ -96,15 +110,157 @@ function targetBindsToJob(
   // userId is the requester and ownerId is the project/billing owner. Both
   // must be present on a strict row; only ownerId is also carried by the full
   // PROJECT_SNAPSHOT binding, so never substitute one identity for the other.
-  return target.parentAdmissionId === jobId
-    && typeof job.projectId === 'string'
-    && job.projectId.length > 0
-    && typeof job.userId === 'string'
-    && job.userId.length > 0
-    && typeof job.ownerId === 'string'
-    && job.ownerId.length > 0
-    && target.projectRenderSnapshotBinding.projectId === job.projectId
-    && target.projectRenderSnapshotBinding.ownerId === job.ownerId;
+  if (
+    typeof job.projectId !== 'string'
+    || job.projectId.length === 0
+    || typeof job.userId !== 'string'
+    || job.userId.length === 0
+    || typeof job.ownerId !== 'string'
+    || job.ownerId.length === 0
+  ) return false;
+  try {
+    assertProjectChapterConcatTargetBindingV1({
+      target,
+      jobId,
+      ownerId: job.ownerId,
+      projectId: job.projectId,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function assertTargetJobIdentity(
+  job: ChapterConcatJob,
+  jobId: string,
+  target: ProjectChapterConcatTargetV1,
+): void {
+  if (!targetBindsToJob(job, jobId, target)) {
+    throw new Error('PROJECT_CHAPTER_CONCAT_JOB_BINDING_MISMATCH');
+  }
+  assertProjectChapterConcatLayoutIdentityV1(target, {
+    layoutManifest: job.chapterLayoutManifest,
+    layoutManifestHash: job.chapterLayoutManifestHash,
+    chapters: job.chapters,
+  });
+}
+
+function targetMatchesLiveRevision(
+  target: ProjectChapterConcatTargetV1,
+  liveRevision: unknown | null,
+): boolean {
+  if (liveRevision === null) return false;
+  try {
+    const expected = projectChapterConcatCurrentnessV1(target);
+    assertProjectChapterConcatCurrentnessV1({
+      ...expected,
+      projectRevision: liveRevision,
+    }, target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isProjectNotFound(error: unknown): boolean {
+  return error !== null
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'PROJECT_NOT_FOUND_OR_FORBIDDEN';
+}
+
+async function readCurrentProjectRevision(
+  target: ProjectChapterConcatTargetV1,
+): Promise<unknown | null> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  try {
+    return await projectService.getProjectRevision(
+      target.projectRenderSnapshotBinding.ownerId,
+      target.projectRenderSnapshotBinding.projectId,
+    );
+  } catch (error) {
+    if (isProjectNotFound(error)) return null;
+    throw error;
+  }
+}
+
+type StaleFenceMode = 'unclaimed' | 'claimed' | 'done';
+
+function staleFenceAdmission(
+  job: ChapterConcatJob,
+  now: Date,
+): { mode: StaleFenceMode; claimToken?: string } | null {
+  if (job.concatStatus === 'done') return { mode: 'done' };
+  if (job.concatStatus === 'queued') return { mode: 'unclaimed' };
+  if (job.concatStatus !== 'running') return null;
+  if (
+    isValidDate(job.concatLease?.leaseExpiresAt)
+    && job.concatLease.leaseExpiresAt.getTime() <= now.getTime()
+  ) {
+    return { mode: 'unclaimed' };
+  }
+  return typeof job.concatLease?.claimToken === 'string' && job.concatLease.claimToken.length > 0
+    ? { mode: 'claimed', claimToken: job.concatLease.claimToken }
+    : null;
+}
+
+async function fenceStaleChapterConcat(
+  collection: {
+    updateOne: (...args: any[]) => Promise<any>;
+    findOne: (...args: any[]) => Promise<any>;
+  },
+  input: {
+    jobId: string;
+    target: ProjectChapterConcatTargetV1;
+    mode: StaleFenceMode;
+    now: Date;
+    claimToken?: string;
+    code: string;
+  },
+): Promise<boolean> {
+  const filter: Record<string, unknown> = {
+    _id: input.jobId,
+    'concatTarget.generation': input.target.generation,
+  };
+  if (input.mode === 'claimed') {
+    filter.concatStatus = 'running';
+    filter['concatLease.claimToken'] = input.claimToken;
+  } else if (input.mode === 'done') {
+    filter.concatStatus = 'done';
+  } else {
+    filter.$or = [
+      { concatStatus: 'queued' },
+      { concatStatus: 'running', 'concatLease.leaseExpiresAt': { $lte: input.now } },
+    ];
+  }
+  const fenced = await collection.updateOne(
+    filter,
+    {
+      $set: {
+        status: 'failed',
+        concatStatus: 'failed',
+        concatError: input.code,
+        updatedAt: input.now,
+      },
+      $unset: {
+        concatLease: '',
+        concatResult: '',
+        outputUrl: '',
+      },
+    },
+  );
+  if (fenced?.modifiedCount === 1) return true;
+  const latest = await collection.findOne({ _id: input.jobId });
+  return latest?.concatStatus === 'failed'
+    && latest.concatError === input.code;
+}
+
+function staleResponse(code: string): NextResponse {
+  return NextResponse.json(
+    { success: false, status: 'stale', stale: true, error: code },
+    { status: 200 },
+  );
 }
 
 function resultMatchesTarget(
@@ -234,8 +390,9 @@ async function handler(request: NextRequest) {
         { status: 409 },
       );
     }
-    const terminalState = currentStateResponse(job, now);
-    if (terminalState) return terminalState;
+    if (job.concatStatus === 'failed') {
+      return currentStateResponse(job, now)!;
+    }
 
     if (!job.concatTarget) {
       const error = 'CHAPTER_CONCAT_LEGACY_REQUIRES_PROJECT_SNAPSHOT_MIGRATION';
@@ -267,9 +424,7 @@ async function handler(request: NextRequest) {
     let target: ProjectChapterConcatTargetV1;
     try {
       assertProjectChapterConcatTargetV1(job.concatTarget);
-      if (!targetBindsToJob(job, jobId, job.concatTarget)) {
-        throw new Error('PROJECT_CHAPTER_CONCAT_JOB_BINDING_MISMATCH');
-      }
+      assertTargetJobIdentity(job, jobId, job.concatTarget);
       if (requestedGeneration !== undefined && job.concatTarget.generation !== requestedGeneration) {
         throw new Error('CHAPTER_CONCAT_MESSAGE_TARGET_MISMATCH');
       }
@@ -291,6 +446,28 @@ async function handler(request: NextRequest) {
       }
       return NextResponse.json({ success: false, error: code }, { status: 200 });
     }
+
+    const initialLiveRevision = await readCurrentProjectRevision(target);
+    if (!targetMatchesLiveRevision(target, initialLiveRevision)) {
+      const admission = staleFenceAdmission(job, now);
+      if (!admission || !await fenceStaleChapterConcat(collection, {
+        jobId,
+        target,
+        mode: admission.mode,
+        claimToken: admission.claimToken,
+        now,
+        code: PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1,
+      })) {
+        return NextResponse.json(
+          { success: false, error: 'CHAPTER_CONCAT_STALE_FENCE_NOT_PROVED' },
+          { status: 500 },
+        );
+      }
+      return staleResponse(PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1);
+    }
+
+    const terminalState = currentStateResponse(job, now);
+    if (terminalState) return terminalState;
 
     const claimToken = randomUUID();
     const claimed = (await collection.findOneAndUpdate(
@@ -341,6 +518,47 @@ async function handler(request: NextRequest) {
     }
 
     try {
+      assertTargetJobIdentity(claimed, jobId, target);
+    } catch (error: unknown) {
+      const code = safeErrorCode(error);
+      const fenced = await fenceStaleChapterConcat(collection, {
+        jobId,
+        target,
+        mode: 'claimed',
+        claimToken,
+        now: new Date(),
+        code,
+      });
+      if (!fenced) {
+        return NextResponse.json(
+          { success: false, error: 'CHAPTER_CONCAT_TERMINAL_WRITE_UNPROVED' },
+          { status: 500 },
+        );
+      }
+      return isStaleErrorCode(code)
+        ? staleResponse(code)
+        : NextResponse.json({ success: false, error: code }, { status: 200 });
+    }
+    const claimedLiveRevision = await readCurrentProjectRevision(target);
+    if (!targetMatchesLiveRevision(target, claimedLiveRevision)) {
+      const fenced = await fenceStaleChapterConcat(collection, {
+        jobId,
+        target,
+        mode: 'claimed',
+        claimToken,
+        now: new Date(),
+        code: PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1,
+      });
+      if (!fenced) {
+        return NextResponse.json(
+          { success: false, error: 'CHAPTER_CONCAT_STALE_FENCE_NOT_PROVED' },
+          { status: 500 },
+        );
+      }
+      return staleResponse(PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1);
+    }
+
+    try {
       const result = await concatenateChapters(target);
       const completedAt = new Date();
       const completion = {
@@ -359,6 +577,34 @@ async function handler(request: NextRequest) {
       } catch {
         throw new Error('CHAPTER_CONCAT_RESULT_IDENTITY_MISMATCH');
       }
+      const publicationJob = (await collection.findOne({ _id: jobId } as any)) as ChapterConcatJob | null;
+      if (
+        !publicationJob
+        || publicationJob.concatStatus !== 'running'
+        || publicationJob.concatTarget?.generation !== target.generation
+        || publicationJob.concatLease?.claimToken !== claimToken
+      ) {
+        throw new Error('CHAPTER_CONCAT_COMPLETION_WRITE_UNPROVED');
+      }
+      assertTargetJobIdentity(publicationJob, jobId, target);
+      const publicationLiveRevision = await readCurrentProjectRevision(target);
+      if (!targetMatchesLiveRevision(target, publicationLiveRevision)) {
+        const fenced = await fenceStaleChapterConcat(collection, {
+          jobId,
+          target,
+          mode: 'claimed',
+          claimToken,
+          now: completedAt,
+          code: PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1,
+        });
+        if (!fenced) {
+          return NextResponse.json(
+            { success: false, error: 'CHAPTER_CONCAT_STALE_FENCE_NOT_PROVED' },
+            { status: 500 },
+          );
+        }
+        return staleResponse(PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE_ERROR_V1);
+      }
       const completed = await collection.updateOne(
         {
           _id: jobId,
@@ -366,6 +612,9 @@ async function handler(request: NextRequest) {
           'concatLease.claimToken': claimToken,
           'concatTarget.generation': target.generation,
           'concatLease.leaseExpiresAt': { $gt: completedAt },
+          ...(typeof publicationJob.chapterLayoutManifestHash === 'string'
+            ? { chapterLayoutManifestHash: publicationJob.chapterLayoutManifestHash }
+            : {}),
         } as any,
         {
           $set: {

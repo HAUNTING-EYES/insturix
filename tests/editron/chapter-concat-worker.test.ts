@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   collection: vi.fn(),
   getDatabase: vi.fn(),
   concatenateChapters: vi.fn(),
+  getProjectRevision: vi.fn(),
+  currentJob: null as Record<string, unknown> | null,
 }));
 
 vi.mock("@/lib/editron/security/internal-worker-auth", () => ({
@@ -23,6 +25,10 @@ vi.mock("@/lib/editron/services/chapter-renderer", () => ({
 
 vi.mock("@/lib/editron/services/chapter-concat-client", () => ({
   concatenateChapters: mocks.concatenateChapters,
+}));
+
+vi.mock("@/lib/editron/services/project-service", () => ({
+  projectService: { getProjectRevision: mocks.getProjectRevision },
 }));
 
 import { NextRequest } from "next/server";
@@ -128,14 +134,30 @@ describe("chapter concat worker", () => {
       updateOne: mocks.updateOne,
     });
     mocks.getDatabase.mockResolvedValue({ collection: mocks.collection });
-    mocks.findOne.mockResolvedValue(queuedJob());
-    mocks.findOneAndUpdate.mockImplementation(async (_filter, update) => ({
-      ...queuedJob(),
-      concatStatus: "running",
-      concatLease: update.$set.concatLease,
-    }));
-    mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    mocks.currentJob = queuedJob();
+    mocks.findOne.mockImplementation(async () => structuredClone(mocks.currentJob));
+    mocks.findOneAndUpdate.mockImplementation(async (
+      _filter: unknown,
+      update: { $set: Record<string, unknown> },
+    ) => {
+      mocks.currentJob = {
+        ...mocks.currentJob,
+        ...structuredClone(update.$set),
+      };
+      return structuredClone(mocks.currentJob);
+    });
+    mocks.updateOne.mockImplementation(async (
+      _filter: unknown,
+      update: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> },
+    ) => {
+      if (mocks.currentJob) {
+        Object.assign(mocks.currentJob, structuredClone(update.$set ?? {}));
+        for (const key of Object.keys(update.$unset ?? {})) delete mocks.currentJob[key];
+      }
+      return { matchedCount: 1, modifiedCount: 1 };
+    });
     mocks.concatenateChapters.mockResolvedValue(concatResult());
+    mocks.getProjectRevision.mockResolvedValue(target().projectRenderSnapshotBinding.projectRevision);
   });
 
   it("leases before Modal and completes only the exact generation and claim", async () => {
@@ -175,16 +197,102 @@ describe("chapter concat worker", () => {
     });
   });
 
+  it("fences a stale project before claiming or invoking Modal", async () => {
+    const expectedRevision = target().projectRenderSnapshotBinding.projectRevision;
+    mocks.getProjectRevision.mockResolvedValueOnce({
+      ...expectedRevision,
+      value: expectedRevision.value + 1,
+    });
+
+    const response = await POST(request(workerMessage()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      status: "stale",
+      stale: true,
+      error: "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE",
+    });
+    expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mocks.concatenateChapters).not.toHaveBeenCalled();
+    expect(mocks.currentJob).toMatchObject({
+      status: "failed",
+      concatStatus: "failed",
+      concatError: "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE",
+    });
+  });
+
+  it("fences a project that changes after claim but before Modal", async () => {
+    const expectedRevision = target().projectRenderSnapshotBinding.projectRevision;
+    mocks.getProjectRevision
+      .mockResolvedValueOnce(expectedRevision)
+      .mockResolvedValueOnce({ ...expectedRevision, value: expectedRevision.value + 1 });
+
+    const response = await POST(request(workerMessage()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "stale",
+      error: "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE",
+    });
+    expect(mocks.findOneAndUpdate).toHaveBeenCalledOnce();
+    expect(mocks.concatenateChapters).not.toHaveBeenCalled();
+    expect(mocks.currentJob).toMatchObject({ concatStatus: "failed" });
+    expect(mocks.currentJob).not.toHaveProperty("concatLease");
+  });
+
+  it("fences a project that changes after Modal but before publication", async () => {
+    const expectedRevision = target().projectRenderSnapshotBinding.projectRevision;
+    mocks.getProjectRevision
+      .mockResolvedValueOnce(expectedRevision)
+      .mockResolvedValueOnce(expectedRevision)
+      .mockResolvedValueOnce({ ...expectedRevision, value: expectedRevision.value + 1 });
+
+    const response = await POST(request(workerMessage()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "stale",
+      error: "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE",
+    });
+    expect(mocks.concatenateChapters).toHaveBeenCalledOnce();
+    expect(mocks.currentJob).toMatchObject({
+      status: "failed",
+      concatStatus: "failed",
+      concatError: "PROJECT_CHAPTER_CONCAT_PROJECT_REVISION_STALE",
+    });
+    expect(mocks.currentJob).not.toHaveProperty("concatResult");
+    expect(mocks.currentJob).not.toHaveProperty("outputUrl");
+  });
+
+  it("fails a drifted layout before claim or provider work", async () => {
+    mocks.currentJob = {
+      ...queuedJob(),
+      chapterLayoutManifestHash: "c".repeat(64),
+    };
+
+    const response = await POST(request(workerMessage()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: "PROJECT_CHAPTER_CONCAT_LAYOUT_STALE",
+    });
+    expect(mocks.getProjectRevision).not.toHaveBeenCalled();
+    expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mocks.concatenateChapters).not.toHaveBeenCalled();
+  });
+
   it("acknowledges an exact DONE replay without invoking Modal", async () => {
     const concatTarget = target();
-    mocks.findOne.mockResolvedValue({
+    mocks.currentJob = {
       ...queuedJob(),
       concatStatus: "done",
       concatResult: {
         ...concatResult(concatTarget),
         completedAt: new Date("2026-09-01T05:00:00.000Z"),
       },
-    });
+    };
 
     const response = await POST(request(workerMessage()));
 
@@ -195,7 +303,7 @@ describe("chapter concat worker", () => {
   });
 
   it("returns an active lease without starting a duplicate concat", async () => {
-    mocks.findOne.mockResolvedValue({
+    mocks.currentJob = {
       ...queuedJob(),
       concatStatus: "running",
       concatLease: {
@@ -203,7 +311,7 @@ describe("chapter concat worker", () => {
         claimedAt: new Date(),
         leaseExpiresAt: new Date(Date.now() + 60_000),
       },
-    });
+    };
 
     const response = await POST(request(workerMessage()));
 
@@ -215,9 +323,9 @@ describe("chapter concat worker", () => {
 
   it("reclaims an expired lease and fences completion by expiry", async () => {
     const expiredAt = new Date(Date.now() - 60_000);
-    mocks.findOne.mockResolvedValue({ ...queuedJob(), concatStatus: "running", concatLease: {
+    mocks.currentJob = { ...queuedJob(), concatStatus: "running", concatLease: {
       claimToken: "claim_expired", claimedAt: expiredAt, leaseExpiresAt: expiredAt,
-    } });
+    } };
     const response = await POST(request(workerMessage()));
     expect(response.status).toBe(200);
     expect(mocks.concatenateChapters).toHaveBeenCalledTimes(1);
@@ -228,11 +336,11 @@ describe("chapter concat worker", () => {
   });
 
   it("quarantines an unsigned legacy row before any provider call", async () => {
-    mocks.findOne.mockResolvedValue({
+    mocks.currentJob = {
       _id: JOB_ID,
       status: "rendering",
       concatStatus: "queued",
-    });
+    };
 
     const response = await POST(request({ jobId: JOB_ID }));
 
@@ -251,7 +359,7 @@ describe("chapter concat worker", () => {
   });
 
   it("rejects a target bound to a different job owner", async () => {
-    mocks.findOne.mockResolvedValue({ ...queuedJob(), ownerId: "different_owner" });
+    mocks.currentJob = { ...queuedJob(), ownerId: "different_owner" };
 
     const response = await POST(request({ jobId: JOB_ID }));
 
