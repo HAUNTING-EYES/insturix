@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { type ClientSession, type Collection, type Filter } from 'mongodb';
 import { z } from 'zod';
@@ -7,9 +7,13 @@ import {
   RenderJob,
   RenderExpectedDurationMsSchema,
   RenderFinalizerResultSchema,
+  RenderJobBillingWalletSchema,
+  RenderJobDispatchSchema,
   RenderJobSchema,
   RenderJobRequesterUserIdSchema,
   createPendingRenderJob,
+  type RenderJobBillingWalletV1,
+  type RenderJobDispatchV1,
 } from '../schemas/render-job';
 import type { RenderFinalizerResult } from './render-finalizer-client';
 import {
@@ -69,6 +73,7 @@ export type ProjectRenderJobNotCurrentReasonV1 =
   | 'PROJECT_REVISION_STALE'
   | 'JOB_NOT_CURRENT'
   | 'JOB_STATE_NOT_ACTIVE'
+  | 'DISPATCH_NOT_READY'
   | 'INPUT_INVALID';
 
 export type ProjectRenderJobNotCurrentResultV1 = {
@@ -169,6 +174,37 @@ export function createProjectRenderJobAuthorizationV1(
     projectRevision,
     bindingHash: input.binding.bindingHash,
   });
+}
+
+export type ProjectRenderDispatchIdentityV1 = {
+  attemptToken: string;
+  creditIdempotencyKey: string;
+};
+
+/**
+ * Derive stable provider-attempt and credit-deduction identities from the
+ * immutable admission. This is an application idempotency key only: the
+ * current Remotion SDK does not provide provider-side idempotent dispatch.
+ */
+export function createProjectRenderDispatchIdentityV1(input: {
+  jobId: string;
+  bindingHash: string;
+}): ProjectRenderDispatchIdentityV1 {
+  if (!PROJECT_RENDER_JOB_ID.test(input.jobId) || !PROJECT_RENDER_JOB_BINDING_HASH.test(input.bindingHash)) {
+    throw new Error('PROJECT_RENDER_DISPATCH_IDENTITY_INPUT_INVALID');
+  }
+  const digest = createHash('sha256')
+    .update(`editron-render-dispatch-v1:${input.jobId}:${input.bindingHash}`)
+    .digest('hex');
+  return {
+    attemptToken: `editron_attempt_v1_${digest}`,
+    creditIdempotencyKey: `editron_credit_v1_${digest}`,
+  };
+}
+
+function parseRenderBillingWallet(value: unknown): RenderJobBillingWalletV1 | null {
+  const parsed = RenderJobBillingWalletSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 const LEGACY_RENDER_JOB_MUTATION_EXCLUSION: Filter<RenderJob> = {
@@ -389,7 +425,9 @@ export async function reserveJob(
  * Reserve a whole-project render only after its immutable snapshot binding has
  * been issued for the current ProjectService revision.  This is intentionally
  * a separate owner path from reserveJob, whose artifact scope is legacy or
- * single-overlay ProjectArtifactBindingV1.
+ * single-overlay ProjectArtifactBindingV1. New callers must provide the
+ * server-resolved billing wallet; omission is retained only for pre-ledger
+ * callers and does not opt those rows into strict dispatch behavior.
  */
 export async function reserveProjectRenderJobV1(input: {
   jobId: string;
@@ -401,6 +439,7 @@ export async function reserveProjectRenderJobV1(input: {
   expectedDurationMs: number;
   deliveryManifest: RenderDeliveryManifest;
   binding: ProjectRenderSnapshotBindingV1;
+  billingWallet?: RenderJobBillingWalletV1;
   collection?: Collection<RenderJob>;
 }): Promise<RenderJob> {
   const authorization = createProjectRenderJobAuthorizationV1({
@@ -417,6 +456,26 @@ export async function reserveProjectRenderJobV1(input: {
   if (deliveryManifest.primaryArtifact.renderId !== authorization.jobId) {
     throw new Error('PROJECT_RENDER_DELIVERY_MANIFEST_SCOPE_MISMATCH');
   }
+  const billingWallet = input.billingWallet === undefined
+    ? undefined
+    : parseRenderBillingWallet(input.billingWallet);
+  if (input.billingWallet !== undefined && !billingWallet) {
+    throw new Error('PROJECT_RENDER_BILLING_WALLET_INVALID');
+  }
+  const dispatchIdentity = createProjectRenderDispatchIdentityV1({
+    jobId: authorization.jobId,
+    bindingHash: authorization.bindingHash,
+  });
+  const dispatch: RenderJobDispatchV1 | undefined = billingWallet
+      ? RenderJobDispatchSchema.parse({
+        version: 1,
+        phase: 'NOT_ATTEMPTED',
+        billingState: 'PENDING',
+        attemptToken: dispatchIdentity.attemptToken,
+        creditIdempotencyKey: dispatchIdentity.creditIdempotencyKey,
+        billingWallet,
+      })
+    : undefined;
   const jobs = input.collection ?? await getCollection();
   const job: RenderJob = {
     ...createPendingRenderJob(
@@ -428,6 +487,7 @@ export async function reserveProjectRenderJobV1(input: {
       undefined,
       input.binding,
       authorization.requestedByUserId,
+      dispatch,
     ),
     deliveryManifest,
   };
@@ -436,6 +496,308 @@ export async function reserveProjectRenderJobV1(input: {
     throw new Error('Failed to reserve project render job');
   }
   return job;
+}
+
+/**
+ * Record the result of the credit owner before a strict provider attempt can
+ * begin. The admission-derived idempotency key and wallet were already
+ * persisted at reservation; this CAS fills only the provider charge receipt.
+ */
+export async function recordProjectRenderJobBillingV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  billingWallet: unknown;
+  creditTransactionId: string;
+  collection?: Collection<RenderJob>;
+  session?: ClientSession;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  const billingWallet = parseRenderBillingWallet(input.billingWallet);
+  if (
+    !billingWallet
+    || !isBoundRenderInputString(input.creditTransactionId, 200)
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const identity = createProjectRenderDispatchIdentityV1({
+    jobId: validation.authorization.jobId,
+    bindingHash: validation.authorization.bindingHash,
+  });
+  const creditTransactionId = input.creditTransactionId.trim();
+  const walletFilter = billingWallet.type === 'user'
+    ? {
+        'dispatch.billingWallet.type': 'user',
+        'dispatch.billingWallet.clerkUserId': billingWallet.clerkUserId,
+      }
+    : {
+        'dispatch.billingWallet.type': 'org',
+        'dispatch.billingWallet.clerkOrgId': billingWallet.clerkOrgId,
+        'dispatch.billingWallet.actorUserId': billingWallet.actorUserId,
+      };
+  const jobs = input.collection ?? await getCollection();
+  const recorded = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: { $in: ['pending', 'queued'] },
+      'dispatch.version': 1,
+      'dispatch.phase': 'NOT_ATTEMPTED',
+      'dispatch.attemptToken': identity.attemptToken,
+      'dispatch.creditIdempotencyKey': identity.creditIdempotencyKey,
+      'dispatch.billingState': { $in: ['PENDING', 'RECORDED'] },
+      $or: [
+        { 'dispatch.creditTransactionId': { $exists: false } },
+        { 'dispatch.creditTransactionId': creditTransactionId },
+      ],
+      ...walletFilter,
+    }),
+    {
+      $set: {
+        'dispatch.creditTransactionId': creditTransactionId,
+        'dispatch.billingState': 'RECORDED',
+      },
+      $unset: {
+        'dispatch.billingUnknownAt': '',
+        'dispatch.unknownReason': '',
+      },
+    },
+    { session: input.session },
+  );
+  return recorded.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
+}
+
+/**
+ * Persist an ambiguous credit-owner outcome without pretending that the
+ * wallet write did or did not commit. This remains pre-provider-dispatch and
+ * is intentionally outside the normal failure/refund transition.
+ */
+export async function quarantineProjectRenderBillingV1(input: {
+  authorization: unknown;
+  attemptToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+  session?: ClientSession;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID');
+  }
+  if (!isBoundRenderInputString(input.attemptToken, 200)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const now = input.now ?? new Date();
+  if (!validProjectRenderDate(now)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const identity = createProjectRenderDispatchIdentityV1({
+    jobId: parsedAuthorization.data.jobId,
+    bindingHash: parsedAuthorization.data.bindingHash,
+  });
+  if (input.attemptToken.trim() !== identity.attemptToken) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const unknownReason = boundedError(input.error);
+  const jobs = input.collection ?? await getCollection();
+  const quarantined = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(parsedAuthorization.data, {
+      status: { $in: ['pending', 'queued', 'error'] },
+      providerRenderId: { $exists: false },
+      bucketName: { $exists: false },
+      'dispatch.version': 1,
+      'dispatch.phase': 'NOT_ATTEMPTED',
+      'dispatch.attemptToken': identity.attemptToken,
+      'dispatch.billingState': { $in: ['PENDING', 'RECORDED', 'UNKNOWN'] },
+    }),
+    {
+      $set: {
+        status: 'error',
+        error: unknownReason,
+        'dispatch.billingState': 'UNKNOWN',
+        'dispatch.billingUnknownAt': now,
+        'dispatch.unknownReason': unknownReason,
+      },
+      $unset: {
+        completedAt: '',
+        'dispatch.attemptStartedAt': '',
+        'dispatch.providerBoundAt': '',
+      },
+    },
+    { session: input.session },
+  );
+  return quarantined.matchedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
+}
+
+/**
+ * Mark the exact strict admission as attempting immediately before invoking
+ * the provider. A missing billing receipt or a repeated attempt is rejected.
+ */
+export async function markProjectRenderDispatchAttemptingV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  attemptToken: string;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+  session?: ClientSession;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const validation = validateProjectRenderJobAuthorization(input);
+  if ('result' in validation) return validation.result;
+  if (!isBoundRenderInputString(input.attemptToken, 200)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const now = input.now ?? new Date();
+  if (!validProjectRenderDate(now)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const identity = createProjectRenderDispatchIdentityV1({
+    jobId: validation.authorization.jobId,
+    bindingHash: validation.authorization.bindingHash,
+  });
+  if (input.attemptToken.trim() !== identity.attemptToken) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const attempting = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, {
+      status: { $in: ['pending', 'queued'] },
+      providerRenderId: { $exists: false },
+      bucketName: { $exists: false },
+      'dispatch.version': 1,
+      'dispatch.phase': 'NOT_ATTEMPTED',
+      'dispatch.attemptToken': identity.attemptToken,
+      'dispatch.billingState': 'RECORDED',
+      'dispatch.creditTransactionId': { $exists: true },
+    }),
+    {
+      $set: {
+        'dispatch.phase': 'ATTEMPTING',
+        'dispatch.attemptStartedAt': now,
+      },
+      $unset: {
+        'dispatch.unknownReason': '',
+      },
+    },
+    { session: input.session },
+  );
+  return attempting.modifiedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
+}
+
+/**
+ * Quarantine an uncertain provider boundary. This is intentionally not a
+ * failure/refund transition: the provider may have accepted the request.
+ * Keeping status rendering allows a later signed callback to reconcile it.
+ */
+export async function quarantineProjectRenderDispatchV1(input: {
+  authorization: unknown;
+  attemptToken: string;
+  error: unknown;
+  providerRenderId?: string;
+  bucketName?: string;
+  region?: string;
+  attemptMarkerUncertain?: boolean;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+  session?: ClientSession;
+}): Promise<ProjectRenderJobMutationResultV1> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID');
+  }
+  if (!isBoundRenderInputString(input.attemptToken, 200)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const hasAnyProviderValue = input.providerRenderId !== undefined
+    || input.bucketName !== undefined
+    || input.region !== undefined;
+  const hasCompleteProviderIdentity = input.providerRenderId !== undefined
+    && input.bucketName !== undefined
+    && input.region !== undefined
+    && isBoundRenderInputString(input.providerRenderId, 500)
+    && isBoundRenderInputString(input.bucketName, 500)
+    && isBoundRenderInputString(input.region, 100);
+  if (hasAnyProviderValue !== hasCompleteProviderIdentity) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const now = input.now ?? new Date();
+  if (!validProjectRenderDate(now)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const identity = createProjectRenderDispatchIdentityV1({
+    jobId: parsedAuthorization.data.jobId,
+    bindingHash: parsedAuthorization.data.bindingHash,
+  });
+  if (input.attemptToken.trim() !== identity.attemptToken) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const unknownReason = boundedError(input.error);
+  const allowedPhases = input.attemptMarkerUncertain
+    ? ['NOT_ATTEMPTED', 'ATTEMPTING', 'UNKNOWN']
+    : ['ATTEMPTING', 'UNKNOWN'];
+  const providerFilter = hasCompleteProviderIdentity
+    ? {
+        $or: [
+          {
+            providerRenderId: { $exists: false },
+            bucketName: { $exists: false },
+            region: input.region!.trim(),
+            'dispatch.providerRenderId': { $exists: false },
+            'dispatch.providerBucketName': { $exists: false },
+            'dispatch.providerRegion': { $exists: false },
+          },
+          {
+            providerRenderId: input.providerRenderId!.trim(),
+            bucketName: input.bucketName!.trim(),
+            region: input.region!.trim(),
+            'dispatch.providerRenderId': input.providerRenderId!.trim(),
+            'dispatch.providerBucketName': input.bucketName!.trim(),
+            'dispatch.providerRegion': input.region!.trim(),
+          },
+        ],
+      }
+    : {};
+  const jobs = input.collection ?? await getCollection();
+  const quarantined = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(parsedAuthorization.data, {
+      'dispatch.version': 1,
+      'dispatch.phase': { $in: allowedPhases },
+      'dispatch.attemptToken': identity.attemptToken,
+      'dispatch.billingState': 'RECORDED',
+      'dispatch.creditTransactionId': { $exists: true },
+      ...providerFilter,
+    }),
+    {
+      $set: {
+        status: 'rendering',
+        error: unknownReason,
+        'dispatch.phase': 'UNKNOWN',
+        'dispatch.attemptStartedAt': now,
+        'dispatch.unknownReason': unknownReason,
+        ...(hasCompleteProviderIdentity
+          ? {
+              providerRenderId: input.providerRenderId!.trim(),
+              bucketName: input.bucketName!.trim(),
+              region: input.region!.trim(),
+              'dispatch.providerRenderId': input.providerRenderId!.trim(),
+              'dispatch.providerBucketName': input.bucketName!.trim(),
+              'dispatch.providerRegion': input.region!.trim(),
+            }
+          : {}),
+      },
+      $unset: {
+        completedAt: '',
+        'dispatch.providerBoundAt': '',
+      },
+    },
+    { session: input.session },
+  );
+  return quarantined.modifiedCount === 1
+    ? currentProjectRenderJobMutationResult()
+    : nonCurrentProjectRenderJobResult('DISPATCH_NOT_READY');
 }
 
 function validateCurrentProjectRenderJob(
@@ -763,7 +1125,11 @@ export async function markProjectRenderJobStartedV1(input: {
   bucketName: string;
   region: string;
   deliveryManifest: RenderDeliveryManifest;
+  /** Required for the strict reserve → attempt → bind state machine. */
+  attemptToken?: string;
+  now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobCurrentResultV1 | ProjectRenderJobNotCurrentResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -778,11 +1144,63 @@ export async function markProjectRenderJobStartedV1(input: {
   if (!deliveryManifest || deliveryManifest.primaryArtifact.renderId !== validation.authorization.jobId) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
+  const strictDispatch = input.attemptToken !== undefined;
+  const now = input.now ?? new Date();
+  if (!validProjectRenderDate(now)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  let dispatchFilter: Filter<RenderJob>;
+  if (strictDispatch) {
+    if (!isBoundRenderInputString(input.attemptToken, 200)) {
+      return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+    }
+    const identity = createProjectRenderDispatchIdentityV1({
+      jobId: validation.authorization.jobId,
+      bindingHash: validation.authorization.bindingHash,
+    });
+    if (input.attemptToken.trim() !== identity.attemptToken) {
+      return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+    }
+    dispatchFilter = {
+      $and: [
+        {
+          'dispatch.version': 1,
+          'dispatch.attemptToken': identity.attemptToken,
+          'dispatch.billingState': 'RECORDED',
+          'dispatch.creditTransactionId': { $exists: true },
+        },
+        {
+          $or: [
+            {
+              'dispatch.phase': 'ATTEMPTING',
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+              region: input.region.trim(),
+            },
+            {
+              'dispatch.phase': 'BOUND',
+              providerRenderId: input.providerRenderId.trim(),
+              bucketName: input.bucketName.trim(),
+              region: input.region.trim(),
+              'dispatch.providerRenderId': input.providerRenderId.trim(),
+              'dispatch.providerBucketName': input.bucketName.trim(),
+              'dispatch.providerRegion': input.region.trim(),
+            },
+          ],
+        },
+      ],
+    };
+  } else {
+    // Explicit pre-ledger compatibility: rows created before the dispatch
+    // ledger have no dispatch field and can still be bound by the old owner.
+    dispatchFilter = { dispatch: { $exists: false } };
+  }
   const jobs = input.collection ?? await getCollection();
   const providerRenderId = input.providerRenderId.trim();
   const started = await jobs.findOneAndUpdate(
     currentProjectRenderJobMutationFilter(validation.authorization, {
       deliveryManifest,
+      ...dispatchFilter,
       $or: [
         { status: 'pending' },
         { status: 'queued' },
@@ -796,9 +1214,21 @@ export async function markProjectRenderJobStartedV1(input: {
         bucketName: input.bucketName.trim(),
         region: input.region.trim(),
         deliveryManifest,
+        ...(strictDispatch
+          ? {
+              'dispatch.phase': 'BOUND',
+              'dispatch.providerBoundAt': now,
+              'dispatch.providerRenderId': providerRenderId,
+              'dispatch.providerBucketName': input.bucketName.trim(),
+              'dispatch.providerRegion': input.region.trim(),
+            }
+          : {}),
       },
+      ...(strictDispatch
+        ? { $unset: { 'dispatch.unknownReason': '' } }
+        : {}),
     },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session: input.session },
   );
   if (!started) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(started, validation.authorization);
@@ -843,6 +1273,14 @@ export async function updateProjectRenderJobProgressV1(input: {
           bucketName: input.bucketName.trim(),
           region: input.region.trim(),
           status: { $in: ['pending', 'queued', 'rendering', 'finalizing'] },
+          $or: [
+            { dispatch: { $exists: false } },
+            {
+              'dispatch.version': 1,
+              'dispatch.phase': 'BOUND',
+              'dispatch.billingState': 'RECORDED',
+            },
+          ],
         },
       ],
     },
@@ -872,6 +1310,14 @@ export async function failProjectRenderJobV1(input: {
   const failed = await jobs.updateOne(
     currentProjectRenderJobMutationFilter(validation.authorization, {
       status: { $in: ['pending', 'queued', 'rendering'] },
+      $or: [
+        { dispatch: { $exists: false } },
+        {
+          'dispatch.version': 1,
+          'dispatch.phase': 'NOT_ATTEMPTED',
+          'dispatch.billingState': { $in: ['PENDING', 'RECORDED'] },
+        },
+      ],
     }),
     {
       $set: {
@@ -919,22 +1365,59 @@ export async function failProjectRenderJobFromProviderV1(input: {
   const bucketName = input.bucketName.trim();
   const region = input.region.trim();
   const jobs = input.collection ?? await getCollection();
+  const providerIdentityFilter = {
+    $or: [
+      {
+        providerRenderId: { $exists: false },
+        bucketName: { $exists: false },
+        region,
+      },
+      { providerRenderId, bucketName, region },
+    ],
+  };
+  const strictFailed = await jobs.updateOne(
+    {
+      $and: [
+        currentProjectRenderJobMutationFilter(validation.authorization, {
+          status: { $in: ['pending', 'queued', 'rendering'] },
+          'dispatch.version': 1,
+          'dispatch.phase': { $in: ['ATTEMPTING', 'UNKNOWN', 'BOUND'] },
+          'dispatch.billingState': 'RECORDED',
+          'dispatch.creditTransactionId': { $exists: true },
+        }),
+        providerIdentityFilter,
+      ],
+    },
+    {
+      $set: {
+        status: 'error',
+        providerRenderId,
+        bucketName,
+        region,
+        error: boundedError(input.error),
+        completedAt,
+        'dispatch.phase': 'BOUND',
+        'dispatch.providerBoundAt': completedAt,
+        'dispatch.providerRenderId': providerRenderId,
+        'dispatch.providerBucketName': bucketName,
+        'dispatch.providerRegion': region,
+      },
+      $unset: { 'dispatch.unknownReason': '' },
+    },
+    { session: input.session },
+  );
+  if (strictFailed.modifiedCount === 1) return currentProjectRenderJobMutationResult();
+
+  // Explicit pre-ledger compatibility: old rows are reconciled by the
+  // original provider-failure owner and never gain a partial dispatch record.
   const failed = await jobs.updateOne(
     {
       $and: [
         currentProjectRenderJobMutationFilter(validation.authorization, {
           status: { $in: ['pending', 'queued', 'rendering'] },
+          dispatch: { $exists: false },
         }),
-        {
-          $or: [
-            {
-              providerRenderId: { $exists: false },
-              bucketName: { $exists: false },
-              region,
-            },
-            { providerRenderId, bucketName, region },
-          ],
-        },
+        providerIdentityFilter,
       ],
     },
     {
@@ -996,6 +1479,14 @@ export async function abandonStaleProjectRenderJobAdmissionV1(input: {
       providerRenderId: { $exists: false },
       bucketName: { $exists: false },
       finalization: { $exists: false },
+      $or: [
+        { dispatch: { $exists: false } },
+        {
+          'dispatch.version': 1,
+          'dispatch.phase': 'NOT_ATTEMPTED',
+          'dispatch.billingState': { $in: ['PENDING', 'RECORDED'] },
+        },
+      ],
     }),
     {
       $set: {

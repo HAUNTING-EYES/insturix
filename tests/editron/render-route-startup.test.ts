@@ -10,6 +10,10 @@ const routeMocks = vi.hoisted(() => ({
   createProjectRenderJobAuthorization: vi.fn(),
   reserveJob: vi.fn(),
   reserveProjectRenderJob: vi.fn(),
+  recordProjectRenderJobBilling: vi.fn(),
+  markProjectRenderDispatchAttempting: vi.fn(),
+  quarantineProjectRenderDispatch: vi.fn(),
+  quarantineProjectRenderBilling: vi.fn(),
   markJobStarted: vi.fn(),
   markProjectRenderJobStarted: vi.fn(),
   failJob: vi.fn(),
@@ -37,6 +41,7 @@ const routeMocks = vi.hoisted(() => ({
   verifyAudioRights: vi.fn(),
   assertRemotionSiteFresh: vi.fn(),
   checkCredits: vi.fn(),
+  CreditDeductionRejectedError: class CreditDeductionRejectedError extends Error {},
   deduct: vi.fn(),
   refund: vi.fn(),
   setAwsCredentials: vi.fn(),
@@ -73,6 +78,10 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   createProjectRenderJobAuthorizationV1: routeMocks.createProjectRenderJobAuthorization,
   reserveJob: routeMocks.reserveJob,
   reserveProjectRenderJobV1: routeMocks.reserveProjectRenderJob,
+  recordProjectRenderJobBillingV1: routeMocks.recordProjectRenderJobBilling,
+  markProjectRenderDispatchAttemptingV1: routeMocks.markProjectRenderDispatchAttempting,
+  quarantineProjectRenderDispatchV1: routeMocks.quarantineProjectRenderDispatch,
+  quarantineProjectRenderBillingV1: routeMocks.quarantineProjectRenderBilling,
   markJobStarted: routeMocks.markJobStarted,
   markProjectRenderJobStartedV1: routeMocks.markProjectRenderJobStarted,
   failJob: routeMocks.failJob,
@@ -148,6 +157,7 @@ vi.mock('@/lib/editron/services/remotion-site-version', () => ({
 }));
 
 vi.mock('@/lib/services/creditsMiddleware', () => ({
+  CreditDeductionRejectedError: routeMocks.CreditDeductionRejectedError,
   checkCredits: routeMocks.checkCredits,
 }));
 
@@ -243,8 +253,12 @@ describe('Editron render startup boundary', () => {
       deduct: routeMocks.deduct,
       refund: routeMocks.refund,
     });
-    routeMocks.deduct.mockResolvedValue(undefined);
+    routeMocks.deduct.mockResolvedValue({ transactionId: 'txn_render_1' });
     routeMocks.refund.mockResolvedValue(undefined);
+    routeMocks.recordProjectRenderJobBilling.mockResolvedValue({ ok: true, status: 'CURRENT' });
+    routeMocks.markProjectRenderDispatchAttempting.mockResolvedValue({ ok: true, status: 'CURRENT' });
+    routeMocks.quarantineProjectRenderDispatch.mockResolvedValue({ ok: true, status: 'CURRENT' });
+    routeMocks.quarantineProjectRenderBilling.mockResolvedValue({ ok: true, status: 'CURRENT' });
     routeMocks.renderMediaOnLambda.mockResolvedValue({
       renderId: 'render_1',
       bucketName: 'bucket_1',
@@ -408,6 +422,7 @@ describe('Editron render startup boundary', () => {
         editronRenderAdmissionId: admissionId,
         projectRenderBindingHash: expect.any(String),
         renderRegion: 'us-east-1',
+        editronRenderAttemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
       },
       webhook: {
         url: 'https://app.example.test/api/services/editron/cloudrun/render/webhook',
@@ -429,7 +444,7 @@ describe('Editron render startup boundary', () => {
         isRendering: true,
       }),
     }));
-    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(2);
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(3);
     expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
       authorization: expect.objectContaining({
         jobId: admissionId,
@@ -444,6 +459,7 @@ describe('Editron render startup boundary', () => {
       deliveryManifest: expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
+      attemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
     }));
     expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
@@ -823,6 +839,111 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledTimes(1);
     expect(routeMocks.deduct).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('returns a normal billing rejection only for a definite credit-owner refusal', async () => {
+    routeMocks.deduct.mockRejectedValueOnce(
+      new routeMocks.CreditDeductionRejectedError('insufficient credits'),
+    );
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      message: 'Unable to deduct credits for render/export.',
+    });
+    expect(routeMocks.failProjectRenderJob).toHaveBeenCalledTimes(1);
+    expect(routeMocks.quarantineProjectRenderBilling).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('durably quarantines an ambiguous credit exception without refund or dispatch', async () => {
+    routeMocks.deduct.mockRejectedValueOnce(new Error('wallet response lost'));
+
+    const response = await POST(renderRequest());
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'error',
+      code: 'RENDER_BILLING_UNKNOWN',
+      renderAdmissionId: reservation?.jobId,
+      recoveryRequired: true,
+    });
+    expect(routeMocks.quarantineProjectRenderBilling).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: reservation?.jobId }),
+      attemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
+      error: expect.any(Error),
+    });
+    expect(routeMocks.failProjectRenderJob).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(routeMocks.markProjectRenderDispatchAttempting).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('refunds after a returned attempt CAS rejection because no provider call occurred', async () => {
+    routeMocks.markProjectRenderDispatchAttempting.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'DISPATCH_NOT_READY',
+    });
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(500);
+    expect(routeMocks.markProjectRenderDispatchAttempting).toHaveBeenCalledTimes(1);
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.quarantineProjectRenderDispatch).not.toHaveBeenCalled();
+    expect(routeMocks.failProjectRenderJob).toHaveBeenCalledTimes(1);
+    expect(routeMocks.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('quarantines a thrown attempt CAS because its commit outcome is unknown', async () => {
+    routeMocks.markProjectRenderDispatchAttempting.mockRejectedValueOnce(
+      new Error('attempt response lost'),
+    );
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'RENDER_DISPATCH_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: expect.any(String),
+    });
+    expect(routeMocks.quarantineProjectRenderDispatch).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: expect.any(String) }),
+      attemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
+      attemptMarkerUncertain: true,
+      error: expect.any(Error),
+    });
+    expect(routeMocks.quarantineProjectRenderBilling).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('quarantines a provider exception after the attempt boundary without refund', async () => {
+    routeMocks.renderMediaOnLambda.mockRejectedValueOnce(new Error('provider timeout'));
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'RENDER_DISPATCH_UNKNOWN',
+      recoveryRequired: true,
+      renderAdmissionId: expect.any(String),
+    });
+    expect(routeMocks.quarantineProjectRenderDispatch).toHaveBeenCalledWith({
+      authorization: expect.objectContaining({ jobId: expect.any(String) }),
+      attemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
+      attemptMarkerUncertain: false,
+      error: expect.any(Error),
+    });
     expect(routeMocks.refund).not.toHaveBeenCalled();
   });
 

@@ -6,8 +6,13 @@ import {
   abandonStaleProjectRenderJobAdmissionV1,
   calculateExpectedRenderDurationMs,
   createProjectRenderJobAuthorizationV1,
+  createProjectRenderDispatchIdentityV1,
   failProjectRenderJobV1,
+  markProjectRenderDispatchAttemptingV1,
   markProjectRenderJobStartedV1,
+  quarantineProjectRenderBillingV1,
+  quarantineProjectRenderDispatchV1,
+  recordProjectRenderJobBillingV1,
   reserveProjectRenderJobV1,
   type ProjectRenderJobAuthorizationV1,
 } from '@/lib/editron/services/render-job-service';
@@ -51,16 +56,23 @@ import {
   admitNativeMediaFinalRenderUsingRuntimeV1,
   readNativeMediaFinalRenderProjectRevisionV1,
 } from '@/lib/editron/services/native-media-final-render-admission-v1';
-import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import {
+  checkCredits,
+  CreditDeductionRejectedError,
+  type CreditCheckResult,
+} from '@/lib/services/creditsMiddleware';
 import { resolveBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export async function POST(request: Request) {
   let renderCreditCheck: CreditCheckResult | null = null;
   let creditsDeducted = false;
-  let renderStarted = false;
   let renderAdmissionId: string | null = null;
   let renderAuthorization: ProjectRenderJobAuthorizationV1 | null = null;
+  let renderAttemptToken: string | null = null;
+  let dispatchPhase: 'NOT_ATTEMPTED' | 'ATTEMPTING' | 'UNKNOWN' | 'BOUND' = 'NOT_ATTEMPTED';
+  let dispatchTransitionInFlight = false;
+  let billingLedgerUncertain = false;
 
   try {
     const { userId } = await auth();
@@ -302,15 +314,6 @@ export async function POST(request: Request) {
       inputProps: trustedInputProps,
     });
     const containedVideoTargets = buildContainedVideoTargetsV1(preHydrationRenderOverlays);
-
-    renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
-      durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
-      requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
-    }, billingWallet);
-    if (!renderCreditCheck.allowed) {
-      return renderCreditCheck.errorResponse!;
-    }
-
     const admissionId = `${usesChapterRendering ? 'chr' : 'rnd'}_${nanoid(12)}`;
     const renderContract = buildProjectRenderContract({
       usesChapterRendering,
@@ -349,6 +352,20 @@ export async function POST(request: Request) {
     const webhook = usesChapterRendering
       ? null
       : buildRemotionRenderWebhook(request, admissionId, region, binding.bindingHash);
+    const dispatchIdentity = createProjectRenderDispatchIdentityV1({
+      jobId: admissionId,
+      bindingHash: binding.bindingHash,
+    });
+    renderAttemptToken = dispatchIdentity.attemptToken;
+    renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
+      durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
+      requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
+      taskId: admissionId,
+      idempotencyKey: dispatchIdentity.creditIdempotencyKey,
+    }, billingWallet);
+    if (!renderCreditCheck.allowed) {
+      return renderCreditCheck.errorResponse!;
+    }
     await reserveProjectRenderJobV1({
       jobId: admissionId,
       requestedByUserId: userId,
@@ -359,6 +376,7 @@ export async function POST(request: Request) {
       expectedDurationMs: calculateExpectedRenderDurationMs(totalFrames, renderFps),
       deliveryManifest,
       binding,
+      billingWallet,
     });
     renderAdmissionId = admissionId;
 
@@ -381,21 +399,66 @@ export async function POST(request: Request) {
 
     const lambdaRenderProps = buildLambdaRenderInputProps({ ...resolvedProps, isRendering: true });
 
+    let creditTransactionId: string | null = null;
     try {
-      await renderCreditCheck.deduct();
+      const deduction = await renderCreditCheck.deduct();
+      if (
+        !deduction
+        || typeof deduction.transactionId !== 'string'
+        || deduction.transactionId.trim().length === 0
+      ) {
+        throw new Error('Credit owner returned no durable transaction ID');
+      }
+      creditTransactionId = deduction.transactionId.trim();
       creditsDeducted = true;
     } catch (error) {
       console.error('[Render] render/export credit deduction failed:', error);
-      if (renderAdmissionId && renderAuthorization) {
-        await markRenderAdmissionFailed(
-          renderAuthorization,
-          'Render/export credit deduction failed before provider dispatch',
+      if (error instanceof CreditDeductionRejectedError) {
+        if (renderAdmissionId && renderAuthorization) {
+          await markRenderAdmissionFailed(
+            renderAuthorization,
+            'Render/export credit deduction was rejected before provider dispatch',
+          );
+        }
+        return NextResponse.json(
+          { type: 'error', message: 'Unable to deduct credits for render/export.' },
+          { status: 402 },
         );
       }
+      if (renderAdmissionId && renderAuthorization && renderAttemptToken) {
+        await quarantineRenderBilling({
+          authorization: renderAuthorization,
+          attemptToken: renderAttemptToken,
+          error,
+        });
+      }
+      billingLedgerUncertain = true;
       return NextResponse.json(
-        { type: 'error', message: 'Unable to deduct credits for render/export.' },
-        { status: 402 },
+        {
+          type: 'error',
+          code: 'RENDER_BILLING_UNKNOWN',
+          message: 'Render billing could not be confirmed; recovery is required before retry.',
+          renderAdmissionId,
+          recoveryRequired: true,
+        },
+        { status: 202 },
       );
+    }
+
+    let billingResult: Awaited<ReturnType<typeof recordProjectRenderJobBillingV1>>;
+    try {
+      billingResult = await recordProjectRenderJobBillingV1({
+        authorization: renderAuthorization!,
+        currentProjectRevision: revision,
+        billingWallet,
+        creditTransactionId: creditTransactionId!,
+      });
+    } catch (error) {
+      billingLedgerUncertain = true;
+      throw error;
+    }
+    if (!billingResult.ok) {
+      throw new Error(`Render billing admission rejected: ${billingResult.reason}`);
     }
 
     const currentProjectRevision = await projectService.getProjectRevision(
@@ -428,6 +491,31 @@ export async function POST(request: Request) {
     const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
     await setAWSCredentials();
 
+    // The attempt marker is the last durable boundary before invoking the
+    // provider. A thrown CAS is intentionally left uncertain: it may have
+    // committed before the response was lost, so the outer handler quarantines
+    // the admission instead of refunding or retrying it.
+    const dispatchRevision = await projectService.getProjectRevision(
+      ownerId,
+      canonicalProjectId,
+    );
+    if (!sameProjectArtifactRevisionV1(dispatchRevision, revision)) {
+      throw new Error('Project changed after render admission and before provider dispatch');
+    }
+    dispatchTransitionInFlight = true;
+    const attemptResult = await markProjectRenderDispatchAttemptingV1({
+      authorization: renderAuthorization!,
+      currentProjectRevision: dispatchRevision,
+      attemptToken: renderAttemptToken!,
+    });
+    // A returned rejection proves the CAS did not advance the durable attempt
+    // state. Only a thrown/lost response leaves the commit outcome ambiguous.
+    dispatchTransitionInFlight = false;
+    if (!attemptResult.ok) {
+      throw new Error(`Render dispatch admission rejected: ${attemptResult.reason}`);
+    }
+    dispatchPhase = 'ATTEMPTING';
+
     if (usesChapterRendering) {
       const fps = renderFps;
 
@@ -448,7 +536,6 @@ export async function POST(request: Request) {
           binding,
         },
       );
-      renderStarted = true;
 
       let trackingStatus: 'durable' | 'recovery_required' = 'durable';
       try {
@@ -463,13 +550,34 @@ export async function POST(request: Request) {
           bucketName: 'chapter-render',
           region,
           deliveryManifest,
+          attemptToken: renderAttemptToken!,
         });
         if (!started.ok) {
           trackingStatus = 'recovery_required';
+          dispatchPhase = 'UNKNOWN';
+          await quarantineRenderDispatch({
+            authorization: renderAuthorization!,
+            attemptToken: renderAttemptToken!,
+            providerRenderId: jobId,
+            bucketName: 'chapter-render',
+            region,
+            error: 'Chapter provider started but durable provider binding was rejected',
+          });
           console.error('CRITICAL: chapter render started but admission binding failed:', started);
+        } else {
+          dispatchPhase = 'BOUND';
         }
       } catch (dbError) {
         trackingStatus = 'recovery_required';
+        dispatchPhase = 'UNKNOWN';
+        await quarantineRenderDispatch({
+          authorization: renderAuthorization!,
+          attemptToken: renderAttemptToken!,
+          providerRenderId: jobId,
+          bucketName: 'chapter-render',
+          region,
+          error: dbError,
+        });
         console.error('CRITICAL: chapter render started but admission binding failed:', {
           renderAdmissionId,
           error: dbError,
@@ -513,11 +621,11 @@ export async function POST(request: Request) {
         editronRenderAdmissionId: renderAdmissionId!,
         projectRenderBindingHash: renderAuthorization!.bindingHash,
         renderRegion: region,
+        editronRenderAttemptToken: renderAttemptToken!,
       },
       webhook: webhook!,
     });
 
-    renderStarted = true;
     let trackingStatus: 'durable' | 'recovery_required' = 'durable';
     try {
       const startedProjectRevision = await projectService.getProjectRevision(
@@ -531,13 +639,34 @@ export async function POST(request: Request) {
         bucketName,
         region,
         deliveryManifest,
+        attemptToken: renderAttemptToken!,
       });
       if (!started.ok) {
         trackingStatus = 'recovery_required';
+        dispatchPhase = 'UNKNOWN';
+        await quarantineRenderDispatch({
+          authorization: renderAuthorization!,
+          attemptToken: renderAttemptToken!,
+          providerRenderId: renderId,
+          bucketName,
+          region,
+          error: 'Provider started but durable provider binding was rejected',
+        });
         console.error('CRITICAL: render started but provider binding failed:', started);
+      } else {
+        dispatchPhase = 'BOUND';
       }
     } catch (dbError) {
       trackingStatus = 'recovery_required';
+      dispatchPhase = 'UNKNOWN';
+      await quarantineRenderDispatch({
+        authorization: renderAuthorization!,
+        attemptToken: renderAttemptToken!,
+        providerRenderId: renderId,
+        bucketName,
+        region,
+        error: dbError,
+      });
       console.error('CRITICAL: render started but provider binding failed:', {
         renderAdmissionId,
         renderId,
@@ -592,13 +721,29 @@ export async function POST(request: Request) {
       }
     }, { status: finalTracking === 'recovery_required' ? 202 : 200 });
   } catch (error: any) {
-    if (renderAdmissionId && renderAuthorization && !renderStarted) {
-      await markRenderAdmissionFailed(
-        renderAuthorization,
-        error instanceof Error ? error.message : 'Render failed before provider dispatch',
-      );
+    const attemptBoundaryUncertain = dispatchTransitionInFlight || dispatchPhase !== 'NOT_ATTEMPTED';
+    if (renderAdmissionId && renderAuthorization) {
+      if (billingLedgerUncertain && renderAttemptToken) {
+        await quarantineRenderBilling({
+          authorization: renderAuthorization,
+          attemptToken: renderAttemptToken,
+          error,
+        });
+      } else if (attemptBoundaryUncertain && renderAttemptToken) {
+        await quarantineRenderDispatch({
+          authorization: renderAuthorization,
+          attemptToken: renderAttemptToken,
+          attemptMarkerUncertain: dispatchTransitionInFlight,
+          error,
+        });
+      } else {
+        await markRenderAdmissionFailed(
+          renderAuthorization,
+          error instanceof Error ? error.message : 'Render failed before provider dispatch',
+        );
+      }
     }
-    if (renderCreditCheck && creditsDeducted && !renderStarted) {
+    if (renderCreditCheck && creditsDeducted && !attemptBoundaryUncertain && !billingLedgerUncertain) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
@@ -611,21 +756,38 @@ export async function POST(request: Request) {
     const hydrationError = error instanceof RenderAssetHydrationError;
     const inputPropsError = error instanceof RenderInputPropsError;
     const assetPreparationError = sourceError || hydrationError;
+    const recoveryRequired = attemptBoundaryUncertain || billingLedgerUncertain;
+    const recoveryCode = billingLedgerUncertain
+      ? 'RENDER_BILLING_UNKNOWN'
+      : attemptBoundaryUncertain
+        ? 'RENDER_DISPATCH_UNKNOWN'
+        : null;
+    const responseMessage = billingLedgerUncertain
+      ? 'Render billing could not be confirmed; recovery is required before retry.'
+      : attemptBoundaryUncertain
+        ? 'Render provider dispatch could not be confirmed; recovery is required before retry.'
+        : error.message || 'Failed to trigger render';
     return NextResponse.json(
       {
         type: 'error',
-        message: error.message || 'Failed to trigger render',
+        message: responseMessage,
         ...((rightsError || deliveryError || assetPreparationError || inputPropsError)
           ? { code: error.code }
           : {}),
+        ...(recoveryCode ? { code: recoveryCode } : {}),
         ...(error instanceof RenderAudioRightsAuthorityError
           ? { details: error.diagnostic }
           : assetPreparationError && error.diagnostic
             ? { details: error.diagnostic }
             : {}),
+        ...(recoveryRequired
+          ? { recoveryRequired: true, renderAdmissionId }
+          : {}),
       },
       {
-        status: rightsError
+        status: recoveryRequired
+          ? 202
+          : rightsError
           ? 422
           : deliveryError
             ? 400
@@ -691,6 +853,46 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
     await creditCheck.refund(reason);
   } catch (error) {
     console.error('[Render] render/export credit refund failed:', error);
+  }
+}
+
+async function quarantineRenderBilling(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  attemptToken: string;
+  error: unknown;
+}): Promise<void> {
+  try {
+    const result = await quarantineProjectRenderBillingV1(input);
+    if (!result.ok) {
+      console.error('[Render] failed to durably quarantine uncertain billing:', result);
+    }
+  } catch (quarantineError) {
+    console.error('[Render] billing quarantine write failed:', {
+      renderAdmissionId: input.authorization.jobId,
+      error: quarantineError,
+    });
+  }
+}
+
+async function quarantineRenderDispatch(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  attemptToken: string;
+  error: unknown;
+  providerRenderId?: string;
+  bucketName?: string;
+  region?: string;
+  attemptMarkerUncertain?: boolean;
+}): Promise<void> {
+  try {
+    const result = await quarantineProjectRenderDispatchV1(input);
+    if (!result.ok) {
+      console.error('[Render] failed to durably quarantine an uncertain provider dispatch:', result);
+    }
+  } catch (quarantineError) {
+    console.error('[Render] provider dispatch quarantine write failed:', {
+      renderAdmissionId: input.authorization.jobId,
+      error: quarantineError,
+    });
   }
 }
 

@@ -18,6 +18,20 @@ export interface CreditCheckResult {
 }
 
 /**
+ * The credit owner explicitly rejected the deduction before writing a usage
+ * transaction. Transport/database exceptions intentionally use a plain Error
+ * so callers can treat their outcome as ambiguous instead of refunding.
+ */
+export class CreditDeductionRejectedError extends Error {
+  readonly code = 'CREDIT_DEDUCTION_REJECTED' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'CreditDeductionRejectedError';
+  }
+}
+
+/**
  * Check and prepare credit deduction for a service action
  * Call deduct() on success, refund() on failure
  */
@@ -32,6 +46,8 @@ export async function checkCredits(
     durationMinutes?: number;
     durationSeconds?: number;
     taskId?: string;
+    /** Stable admission-derived key used to make a repeated deduction a no-op. */
+    idempotencyKey?: string;
     /** Batch/fan-out multiplier (e.g. N carousel slides => N image variations). Defaults to 1. */
     quantity?: number;
   },
@@ -111,10 +127,16 @@ export async function checkCredits(
         options
       );
       if (!result.success) {
-        throw new Error(result.error || "Failed to deduct credits");
+        throw new CreditDeductionRejectedError(result.error || "Failed to deduct credits");
       }
-      transactionId = result.transactionId || null;
-      return { transactionId: transactionId || 'unknown' };
+      transactionId = typeof result.transactionId === 'string'
+        && result.transactionId.trim().length > 0
+        ? result.transactionId.trim()
+        : null;
+      if (!transactionId) {
+        throw new Error('Credit owner returned no durable transaction ID');
+      }
+      return { transactionId };
     },
     refund: async (reason: string) => {
       if (transactionId && transactionId !== 'no_charge') {

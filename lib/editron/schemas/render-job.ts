@@ -107,6 +107,179 @@ export const RenderJobFinalizationSchema = z.object({
   error: z.string().min(1).optional(),
 });
 
+const RenderJobWalletUserIdSchema = RenderJobRequesterUserIdSchema;
+
+/**
+ * Server-owned billing target stamped on a strict render admission. The
+ * requester and the wallet that pays can differ on shared projects.
+ */
+export const RenderJobBillingWalletSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('user'),
+    clerkUserId: RenderJobWalletUserIdSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('org'),
+    clerkOrgId: RenderJobWalletUserIdSchema,
+    actorUserId: RenderJobWalletUserIdSchema,
+  }).strict(),
+]);
+
+export type RenderJobBillingWalletV1 = z.infer<typeof RenderJobBillingWalletSchema>;
+
+export const RenderJobDispatchPhaseSchema = z.enum([
+  'NOT_ATTEMPTED',
+  'ATTEMPTING',
+  'UNKNOWN',
+  'BOUND',
+]);
+
+export type RenderJobDispatchPhaseV1 = z.infer<typeof RenderJobDispatchPhaseSchema>;
+
+export const RenderJobBillingStateSchema = z.enum([
+  'PENDING',
+  'RECORDED',
+  'UNKNOWN',
+]);
+
+export type RenderJobBillingStateV1 = z.infer<typeof RenderJobBillingStateSchema>;
+
+/**
+ * Durable reserve → billing → provider dispatch ledger. It is optional only
+ * for legacy and pre-ledger project-snapshot rows. UNKNOWN is deliberately
+ * not retryable or refundable by automatic code because the provider may have
+ * accepted the request.
+ */
+export const RenderJobDispatchSchema = z.object({
+  version: z.literal(1),
+  phase: RenderJobDispatchPhaseSchema,
+  billingState: RenderJobBillingStateSchema,
+  attemptToken: z.string().min(1).max(200),
+  creditIdempotencyKey: z.string().min(1).max(200),
+  billingWallet: RenderJobBillingWalletSchema,
+  creditTransactionId: z.string().min(1).max(200).optional(),
+  billingUnknownAt: z.date().optional(),
+  attemptStartedAt: z.date().optional(),
+  providerBoundAt: z.date().optional(),
+  providerRenderId: z.string().min(1).max(500).optional(),
+  providerBucketName: z.string().min(1).max(500).optional(),
+  providerRegion: z.string().min(1).max(100).optional(),
+  unknownReason: z.string().min(1).max(1_000).optional(),
+}).strict().superRefine((dispatch, context) => {
+  const hasProviderId = dispatch.providerRenderId !== undefined;
+  const hasBucket = dispatch.providerBucketName !== undefined;
+  const hasRegion = dispatch.providerRegion !== undefined;
+  if (hasProviderId !== hasBucket || hasProviderId !== hasRegion) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['providerRenderId'],
+      message: 'Provider identity must include render ID, bucket and region together.',
+      params: { code: 'RENDER_DISPATCH_PROVIDER_IDENTITY_INCOMPLETE' },
+    });
+  }
+  if (dispatch.phase === 'NOT_ATTEMPTED' && dispatch.attemptStartedAt !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['attemptStartedAt'],
+      message: 'A not-attempted dispatch cannot have an attempt timestamp.',
+      params: { code: 'RENDER_DISPATCH_NOT_ATTEMPTED_HAS_START' },
+    });
+  }
+  if (dispatch.phase === 'NOT_ATTEMPTED' && (
+    hasProviderId
+    || dispatch.providerBoundAt !== undefined
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['phase'],
+      message: 'A not-attempted dispatch cannot carry provider-binding evidence.',
+      params: { code: 'RENDER_DISPATCH_NOT_ATTEMPTED_HAS_PROVIDER' },
+    });
+  }
+  if (dispatch.billingState === 'PENDING' && dispatch.creditTransactionId !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['creditTransactionId'],
+      message: 'A pending billing state cannot carry a credit transaction receipt.',
+      params: { code: 'RENDER_DISPATCH_PENDING_BILLING_HAS_RECEIPT' },
+    });
+  }
+  if (dispatch.billingState === 'RECORDED' && dispatch.creditTransactionId === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['creditTransactionId'],
+      message: 'A recorded billing state must carry a credit transaction receipt.',
+      params: { code: 'RENDER_DISPATCH_RECORDED_BILLING_RECEIPT_REQUIRED' },
+    });
+  }
+  if (dispatch.billingState === 'UNKNOWN' && (
+    dispatch.phase !== 'NOT_ATTEMPTED'
+    || dispatch.billingUnknownAt === undefined
+    || dispatch.unknownReason === undefined
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['billingState'],
+      message: 'Unknown billing must remain pre-dispatch and explain when recovery became required.',
+      params: { code: 'RENDER_DISPATCH_UNKNOWN_BILLING_STATE_INVALID' },
+    });
+  }
+  if (dispatch.phase !== 'NOT_ATTEMPTED' && dispatch.billingState !== 'RECORDED') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['billingState'],
+      message: 'Provider dispatch requires a recorded billing receipt.',
+      params: { code: 'RENDER_DISPATCH_BILLING_NOT_RECORDED' },
+    });
+  }
+  if (dispatch.phase !== 'NOT_ATTEMPTED' && dispatch.creditTransactionId === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['creditTransactionId'],
+      message: 'Provider dispatch requires a durable credit transaction receipt.',
+      params: { code: 'RENDER_DISPATCH_BILLING_RECEIPT_REQUIRED' },
+    });
+  }
+  if (dispatch.phase === 'ATTEMPTING' && dispatch.attemptStartedAt === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['attemptStartedAt'],
+      message: 'An attempting dispatch must carry an attempt timestamp.',
+      params: { code: 'RENDER_DISPATCH_ATTEMPT_START_REQUIRED' },
+    });
+  }
+  if (dispatch.phase === 'UNKNOWN' && dispatch.attemptStartedAt === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['attemptStartedAt'],
+      message: 'An unknown dispatch must carry the time its attempt began.',
+      params: { code: 'RENDER_DISPATCH_UNKNOWN_START_REQUIRED' },
+    });
+  }
+  if (dispatch.phase === 'BOUND' && (
+    !dispatch.attemptStartedAt
+    || !dispatch.providerBoundAt
+    || !hasProviderId
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['phase'],
+      message: 'A bound dispatch must carry attempt, provider-binding and provider identity proof.',
+      params: { code: 'RENDER_DISPATCH_BOUND_PROOF_INCOMPLETE' },
+    });
+  }
+  if (dispatch.phase === 'UNKNOWN' && !dispatch.unknownReason) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unknownReason'],
+      message: 'An unknown dispatch must explain why recovery is required.',
+      params: { code: 'RENDER_DISPATCH_UNKNOWN_REASON_REQUIRED' },
+    });
+  }
+});
+
+export type RenderJobDispatchV1 = z.infer<typeof RenderJobDispatchSchema>;
+
 // Zod schema for validation
 export const RenderJobSchema = z.object({
   _id: z.string(), // Editron-owned durable job ID (legacy rows use the Lambda render ID)
@@ -131,6 +304,8 @@ export const RenderJobSchema = z.object({
   projectRenderSourceCleanupOutboxId: ProjectRenderSourceCleanupOutboxIdSchemaV1.optional(),
   artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
   artifactInvalidatedAt: z.date().optional(),
+  /** Durable reserve → billing → provider dispatch ledger; absent on legacy and pre-ledger PROJECT_SNAPSHOT rows. */
+  dispatch: RenderJobDispatchSchema.optional(),
   startedAt: z.date(),
   completedAt: z.date().optional(),
   error: z.string().optional(),
@@ -181,6 +356,7 @@ export function createPendingRenderJob(
   artifactBinding?: ProjectArtifactBindingV1,
   projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1,
   requestedByUserId?: string,
+  dispatch?: RenderJobDispatchV1,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
@@ -200,6 +376,9 @@ export function createPendingRenderJob(
   const validatedRequestedByUserId = requestedByUserId === undefined
     ? undefined
     : RenderJobRequesterUserIdSchema.parse(requestedByUserId.trim());
+  const validatedDispatch = dispatch === undefined
+    ? undefined
+    : RenderJobDispatchSchema.parse(structuredClone(dispatch));
   if (validatedArtifactBinding !== undefined && validatedProjectRenderSnapshotBinding !== undefined) {
     throw new Error('RENDER_JOB_BINDING_SCOPES_AMBIGUOUS');
   }
@@ -228,5 +407,6 @@ export function createPendingRenderJob(
             artifactState: 'ACTIVE' as const,
           }
         : {}),
+    ...(validatedDispatch ? { dispatch: structuredClone(validatedDispatch) } : {}),
   };
 }
