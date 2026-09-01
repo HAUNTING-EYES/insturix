@@ -650,14 +650,11 @@ export async function failProjectRenderJobFromProviderV1(input: {
         }),
         {
           $or: [
-            { providerRenderId: { $exists: false } },
-            { providerRenderId },
-          ],
-        },
-        {
-          $or: [
-            { bucketName: { $exists: false } },
-            { bucketName },
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+            },
+            { providerRenderId, bucketName },
           ],
         },
       ],
@@ -1146,16 +1143,58 @@ export async function claimFailedProjectRenderJobFinalizationRetryV1(input: {
   const lease = resolveProjectRenderLease(input, 'rfl');
   if (!lease) return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   const jobs = input.collection ?? await getCollection();
+  const retryConditions: Filter<RenderJob> = {
+    status: 'error',
+    expectedDurationMs: { $exists: true, $gt: 0 },
+    providerRenderId: { $exists: true, $type: 'string', $ne: '' },
+    bucketName: { $exists: true, $type: 'string', $ne: '' },
+    'finalization.state': 'failed',
+    'finalization.sourceOutputUrl': { $regex: /^https:\/\// },
+    'finalization.sourceOutputSize': { $exists: true, $gte: 0 },
+    'finalization.attempts': { $lt: MAX_RENDER_FINALIZATION_ATTEMPTS },
+  };
+  const storedCandidate = await jobs.findOne(
+    currentProjectRenderJobMutationFilter(validation.authorization, retryConditions),
+  );
+  const parsedCandidate = RenderJobSchema.safeParse(storedCandidate);
+  if (!parsedCandidate.success) {
+    return nonCurrentProjectRenderJobResult(
+      storedCandidate ? 'JOB_NOT_CURRENT' : 'JOB_STATE_NOT_ACTIVE',
+    );
+  }
+  const candidate = parsedCandidate.data;
+  const candidateInvalidReason = validateCurrentProjectRenderJob(
+    candidate,
+    validation.authorization,
+  );
+  if (
+    candidateInvalidReason
+    || !candidate.projectRenderSnapshotBinding
+    || !candidate.deliveryManifest
+    || !candidate.expectedDurationMs
+    || !candidate.providerRenderId
+    || !candidate.bucketName
+    || !candidate.finalization?.sourceOutputUrl
+    || candidate.finalization.sourceOutputSize === undefined
+  ) {
+    return nonCurrentProjectRenderJobResult(candidateInvalidReason ?? 'JOB_NOT_CURRENT');
+  }
+  try {
+    assertHttpsUrl(candidate.finalization.sourceOutputUrl, 'Preserved provider output URL');
+  } catch {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
   const claimed = await jobs.findOneAndUpdate(
     currentProjectRenderJobMutationFilter(validation.authorization, {
-      status: 'error',
-      expectedDurationMs: { $exists: true, $gt: 0 },
-      providerRenderId: { $exists: true, $type: 'string', $ne: '' },
-      bucketName: { $exists: true, $type: 'string', $ne: '' },
-      'finalization.state': 'failed',
-      'finalization.sourceOutputUrl': { $regex: /^https:\/\// },
-      'finalization.sourceOutputSize': { $exists: true, $gte: 0 },
-      'finalization.attempts': { $lt: MAX_RENDER_FINALIZATION_ATTEMPTS },
+      ...retryConditions,
+      providerRenderId: candidate.providerRenderId,
+      bucketName: candidate.bucketName,
+      expectedDurationMs: candidate.expectedDurationMs,
+      projectRenderSnapshotBinding: candidate.projectRenderSnapshotBinding,
+      deliveryManifest: candidate.deliveryManifest,
+      'finalization.sourceOutputUrl': candidate.finalization.sourceOutputUrl,
+      'finalization.sourceOutputSize': candidate.finalization.sourceOutputSize,
+      'finalization.attempts': candidate.finalization.attempts,
     }),
     {
       $set: {

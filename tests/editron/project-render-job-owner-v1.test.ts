@@ -927,14 +927,14 @@ describe("Project render-job owner V1", () => {
       $and: expect.arrayContaining([
         expect.objectContaining({
           $or: expect.arrayContaining([
-            { providerRenderId: { $exists: false } },
-            { providerRenderId: "provider-render-1" },
-          ]),
-        }),
-        expect.objectContaining({
-          $or: expect.arrayContaining([
-            { bucketName: { $exists: false } },
-            { bucketName: "editron-render-output" },
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+            },
+            {
+              providerRenderId: "provider-render-1",
+              bucketName: "editron-render-output",
+            },
           ]),
         }),
       ]),
@@ -944,6 +944,37 @@ describe("Project render-job owner V1", () => {
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
       completedAt: now,
+    }));
+
+    collection.updateOne.mockClear();
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    const partialIdentity = await failProjectRenderJobFromProviderV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      error: "must not complete a partial identity",
+      collection,
+    });
+    expect(partialIdentity).toMatchObject({
+      ok: false,
+      reason: "JOB_STATE_NOT_ACTIVE",
+    });
+    expect(collection.updateOne.mock.calls[0]![0]).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          $or: [
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+            },
+            {
+              providerRenderId: "provider-render-1",
+              bucketName: "editron-render-output",
+            },
+          ],
+        }),
+      ]),
     }));
 
     collection.updateOne.mockClear();
@@ -959,6 +990,21 @@ describe("Project render-job owner V1", () => {
     expect(collection.updateOne).not.toHaveBeenCalled();
 
     const failedJob = makeFailedFinalizationJob(binding);
+    collection.findOne.mockResolvedValueOnce({
+      ...failedJob,
+      requestedByUserId: undefined,
+    } as RenderJob);
+    const malformedRetry = await claimFailedProjectRenderJobFinalizationRetryV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      claimToken: "must-not-claim",
+      now,
+      collection,
+    });
+    expect(malformedRetry).toMatchObject({ ok: false, reason: "JOB_NOT_CURRENT" });
+    expect(collection.findOneAndUpdate).not.toHaveBeenCalled();
+
+    collection.findOne.mockResolvedValueOnce(failedJob);
     collection.findOneAndUpdate.mockResolvedValueOnce(RenderJobSchema.parse({
       ...failedJob,
       status: "finalizing",
@@ -991,9 +1037,14 @@ describe("Project render-job owner V1", () => {
       authorization,
       binding,
     });
+    const candidateFilter = collection.findOne.mock.calls.at(-1)![0];
+    expect(JSON.stringify(candidateFilter)).toContain(
+      '"finalization.attempts":{"$lt":3}',
+    );
     const retryFilter = collection.findOneAndUpdate.mock.calls[0]![0];
     expect(JSON.stringify(retryFilter)).toContain(binding.bindingHash);
-    expect(JSON.stringify(retryFilter)).toContain('"finalization.attempts":{"$lt":3}');
+    expect(JSON.stringify(retryFilter)).toContain('"finalization.attempts":1');
+    expect(JSON.stringify(retryFilter)).toContain('"providerRenderId":"provider-render-1"');
 
     collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
     await expect(releaseFailedProjectRenderJobFinalizationRetryClaimV1({
