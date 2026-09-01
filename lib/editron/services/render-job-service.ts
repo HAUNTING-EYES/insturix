@@ -739,6 +739,143 @@ export async function abandonStaleProjectRenderJobAdmissionV1(input: {
     : nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
 }
 
+/**
+ * Fence one exact running strict finalization after ProjectService proves its
+ * bound revision is stale or the project no longer exists. This is recovery,
+ * never a success path; the preserved provider artifact remains cleanup work.
+ */
+export async function fenceStaleProjectRenderJobFinalizationV1(input: {
+  authorization: unknown;
+  observedProjectRevision: unknown | null;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'STALE' | 'ALREADY_STALE' | 'CLAIM_REPLACED' | 'ALREADY_TERMINAL';
+    }
+> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID');
+  }
+  if (!isBoundRenderInputString(input.claimToken)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  if (input.observedProjectRevision !== null) {
+    const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(
+      input.observedProjectRevision,
+    );
+    if (
+      !parsedRevision.success
+      || sameProjectArtifactRevisionV1(
+        parsedAuthorization.data.projectRevision,
+        parsedRevision.data,
+      )
+    ) {
+      return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+    }
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const message = boundedError(input.error);
+  const jobs = input.collection ?? await getCollection();
+  const fenced = await jobs.updateOne(
+    currentProjectRenderJobMutationFilter(parsedAuthorization.data, {
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': input.claimToken.trim(),
+      $or: [
+        { artifactCleanup: { $exists: false } },
+        {
+          'artifactCleanup.state': 'NOT_REQUIRED',
+          'artifactCleanup.pendingArtifactIds': { $size: 0 },
+        },
+      ],
+    }),
+    {
+      $set: {
+        status: 'error',
+        progress: 0.99,
+        error: message,
+        completedAt,
+        artifactState: 'STALE',
+        artifactCleanup: {
+          state: 'PENDING',
+          pendingArtifactIds: [parsedAuthorization.data.jobId],
+        },
+        artifactInvalidatedAt: completedAt,
+        'finalization.state': 'failed',
+        'finalization.error': message,
+        'finalization.completedAt': completedAt,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.claimedAt': '',
+        'finalization.leaseExpiresAt': '',
+      },
+    },
+  );
+  if (fenced.modifiedCount === 1) return { ok: true, status: 'STALE' };
+
+  const latest = await jobs.findOne({ _id: parsedAuthorization.data.jobId });
+  if (!latest?.projectRenderSnapshotBinding || latest.artifactBinding !== undefined) {
+    return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+  }
+  try {
+    assertProjectRenderSnapshotBindingV1(latest.projectRenderSnapshotBinding);
+  } catch {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  const binding = latest.projectRenderSnapshotBinding;
+  if (
+    latest.userId !== parsedAuthorization.data.ownerId
+    || latest.requestedByUserId !== parsedAuthorization.data.requestedByUserId
+    || latest.projectId !== parsedAuthorization.data.projectId
+    || binding.artifactId !== parsedAuthorization.data.jobId
+    || binding.ownerId !== parsedAuthorization.data.ownerId
+    || binding.projectId !== parsedAuthorization.data.projectId
+    || binding.bindingHash !== parsedAuthorization.data.bindingHash
+    || !sameProjectArtifactRevisionV1(
+      binding.projectRevision,
+      parsedAuthorization.data.projectRevision,
+    )
+  ) {
+    return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+  }
+  if (
+    latest.status === 'finalizing'
+    && latest.finalization?.state === 'running'
+    && latest.finalization.claimToken !== input.claimToken.trim()
+  ) {
+    return { ok: true, status: 'CLAIM_REPLACED' };
+  }
+  if (
+    latest.artifactState === 'STALE'
+    && latest.status === 'error'
+    && latest.finalization?.state === 'failed'
+    && latest.finalization.claimToken === undefined
+  ) {
+    return { ok: true, status: 'ALREADY_STALE' };
+  }
+  if (
+    (latest.status === 'done' && latest.finalization?.state === 'done')
+    || (
+      latest.status === 'error'
+      && latest.finalization?.state === 'failed'
+      && latest.finalization.claimToken === undefined
+    )
+  ) {
+    return { ok: true, status: 'ALREADY_TERMINAL' };
+  }
+  return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
 export interface FencedRenderJobsForProjectArtifactInvalidationV1 {
   fences: ProjectArtifactInvalidationFenceV1[];
   fencedArtifactIds: string[];

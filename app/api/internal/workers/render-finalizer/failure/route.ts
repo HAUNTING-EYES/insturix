@@ -6,6 +6,8 @@ import { projectService } from '@/lib/editron/services/project-service';
 import {
   failJobFinalization,
   failProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationV1,
+  getProjectRenderJobAuthorizationByAdmissionV1,
 } from '@/lib/editron/services/render-job-service';
 
 export const runtime = 'nodejs';
@@ -38,6 +40,12 @@ async function handler(request: NextRequest) {
         );
       } catch (error) {
         if (isProjectNotFound(error)) {
+          await requireStaleFinalizationFence({
+            authorization: strictAuthorization,
+            observedProjectRevision: null,
+            claimToken: failure.message.claimToken,
+            error: failure.error,
+          });
           return NextResponse.json({ success: true, skipped: 'project_not_current' });
         }
         throw error;
@@ -48,8 +56,28 @@ async function handler(request: NextRequest) {
         claimToken: failure.message.claimToken,
         error: failure.error,
       });
-      failed = strictFailure.ok;
+      if (!strictFailure.ok && strictFailure.reason === 'PROJECT_REVISION_STALE') {
+        await requireStaleFinalizationFence({
+          authorization: strictAuthorization,
+          observedProjectRevision: currentProjectRevision,
+          claimToken: failure.message.claimToken,
+          error: failure.error,
+        });
+        failed = true;
+      } else if (!strictFailure.ok) {
+        throw new Error(
+          `Strict render finalization failure state is not provably current: ${strictFailure.reason}.`,
+        );
+      } else {
+        failed = true;
+      }
     } else {
+      const legacyAdmission = await getProjectRenderJobAuthorizationByAdmissionV1({
+        jobId: failure.message.jobId,
+      });
+      if (legacyAdmission.status !== 'NOT_PROJECT_RENDER_JOB') {
+        throw new Error('Bound render authorization is required for failure reconciliation.');
+      }
       failed = await failJobFinalization({
         jobId: failure.message.jobId,
         claimToken: failure.message.claimToken,
@@ -69,6 +97,21 @@ async function handler(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+async function requireStaleFinalizationFence(input: {
+  authorization: NonNullable<
+    ReturnType<typeof parseRenderFinalizationFailureEnvelope>['message']['projectRenderAuthorization']
+  >;
+  observedProjectRevision: unknown | null;
+  claimToken: string;
+  error: string;
+}) {
+  const fenced = await fenceStaleProjectRenderJobFinalizationV1(input);
+  if (!fenced.ok) {
+    throw new Error(`Strict stale finalization claim could not be fenced: ${fenced.reason}.`);
+  }
+  return fenced;
 }
 
 function isProjectNotFound(error: unknown): boolean {

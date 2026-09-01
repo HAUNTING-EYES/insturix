@@ -44,6 +44,7 @@ import {
   failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1,
   failProjectRenderJobV1,
+  fenceStaleProjectRenderJobFinalizationV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
   markJobStarted,
@@ -1183,6 +1184,119 @@ describe("Project render-job owner V1", () => {
         expect.objectContaining({ requestedByUserId: "forged-requester" }),
       ]),
     }));
+  });
+
+  it("fences only the exact stale running finalization claim", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const staleRevision = { ...REVISION, value: REVISION.value + 1 };
+    const now = new Date("2026-08-31T00:06:00.000Z");
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+
+    await expect(fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: staleRevision,
+      claimToken: "claim-bound",
+      error: "project changed before finalization",
+      now,
+      collection,
+    })).resolves.toEqual({ ok: true, status: "STALE" });
+    const [filter, update] = collection.updateOne.mock.calls[0]!;
+    expect(JSON.stringify(filter)).toContain(binding.bindingHash);
+    expect(filter).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          status: "finalizing",
+          "finalization.state": "running",
+          "finalization.claimToken": "claim-bound",
+        }),
+      ]),
+    }));
+    expect(update).toEqual({
+      $set: expect.objectContaining({
+        status: "error",
+        artifactState: "STALE",
+        artifactCleanup: {
+          state: "PENDING",
+          pendingArtifactIds: [JOB_ID],
+        },
+        artifactInvalidatedAt: now,
+        "finalization.state": "failed",
+      }),
+      $unset: {
+        "finalization.claimToken": "",
+        "finalization.claimedAt": "",
+        "finalization.leaseExpiresAt": "",
+      },
+    });
+    expect(JSON.stringify(filter)).toContain('"artifactCleanup":{"$exists":false}');
+
+    collection.updateOne.mockClear();
+    const current = await fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: REVISION,
+      claimToken: "claim-bound",
+      error: "must not fence a current project",
+      collection,
+    });
+    expect(current).toMatchObject({ ok: false, reason: "INPUT_INVALID" });
+    expect(collection.updateOne).not.toHaveBeenCalled();
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    const wrongClaim = await fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: null,
+      claimToken: "wrong-claim",
+      error: "deleted project",
+      collection,
+    });
+    expect(wrongClaim).toMatchObject({ ok: false, reason: "JOB_STATE_NOT_ACTIVE" });
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    collection.findOne.mockResolvedValueOnce({
+      ...makeFailedFinalizationJob(binding),
+      artifactState: "STALE",
+      artifactCleanup: {
+        state: "PENDING",
+        pendingArtifactIds: [JOB_ID],
+      },
+      artifactInvalidatedAt: now,
+    });
+    await expect(fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: null,
+      claimToken: "claim-bound",
+      error: "repeated deleted-project callback",
+      collection,
+    })).resolves.toEqual({ ok: true, status: "ALREADY_STALE" });
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    collection.findOne.mockResolvedValueOnce(makeFinalizingJob(binding, "replacement-claim"));
+    await expect(fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: null,
+      claimToken: "claim-bound",
+      error: "superseded deleted-project callback",
+      collection,
+    })).resolves.toEqual({ ok: true, status: "CLAIM_REPLACED" });
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    collection.findOne.mockResolvedValueOnce({
+      ...makeFinalizingJob(binding, "claim-bound"),
+      artifactCleanup: {
+        state: "PENDING",
+        pendingArtifactIds: ["existing-cleanup-artifact"],
+      },
+    });
+    const existingCleanup = await fenceStaleProjectRenderJobFinalizationV1({
+      authorization,
+      observedProjectRevision: null,
+      claimToken: "claim-bound",
+      error: "must not replace existing cleanup",
+      collection,
+    });
+    expect(existingCleanup).toMatchObject({ ok: false, reason: "JOB_STATE_NOT_ACTIVE" });
   });
 
   it("requires a verified exact-duration receipt before bound finalization success", async () => {

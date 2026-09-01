@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   completeProjectRenderJobFinalization: vi.fn(),
   failJobFinalization: vi.fn(),
   failProjectRenderJobFinalization: vi.fn(),
+  fenceStaleProjectRenderJobFinalization: vi.fn(),
   getCurrentProjectRenderJob: vi.fn(),
+  getProjectRenderJobAuthorizationByAdmission: vi.fn(),
   getProjectRevision: vi.fn(),
   claimProjectRenderJobFinalization: vi.fn(),
   releaseProjectRenderJobFinalizationClaim: vi.fn(),
@@ -44,6 +46,10 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   failJobFinalization: mocks.failJobFinalization,
   failProjectRenderJobFinalizationV1:
     mocks.failProjectRenderJobFinalization,
+  fenceStaleProjectRenderJobFinalizationV1:
+    mocks.fenceStaleProjectRenderJobFinalization,
+  getProjectRenderJobAuthorizationByAdmissionV1:
+    mocks.getProjectRenderJobAuthorizationByAdmission,
   claimProjectRenderJobFinalizationV1:
     mocks.claimProjectRenderJobFinalization,
   releaseProjectRenderJobFinalizationClaimV1:
@@ -149,6 +155,32 @@ describe('render finalization orchestration', () => {
       ok: true,
       status: 'CURRENT',
     });
+    mocks.fenceStaleProjectRenderJobFinalization.mockResolvedValue({
+      ok: true,
+      status: 'STALE',
+    });
+    mocks.getProjectRenderJobAuthorizationByAdmission.mockImplementation(
+      async ({ jobId }: { jobId: string }) => {
+        const job = await mocks.getJob(jobId);
+        if (!job) {
+          return {
+            ok: false,
+            status: 'NON_CURRENT',
+            code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+            reason: 'JOB_NOT_CURRENT',
+          };
+        }
+        if (job.projectRenderSnapshotBinding !== undefined || job.artifactBinding !== undefined) {
+          return {
+            ok: false,
+            status: 'NON_CURRENT',
+            code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+            reason: 'JOB_NOT_CURRENT',
+          };
+        }
+        return { ok: false, status: 'NOT_PROJECT_RENDER_JOB', job };
+      },
+    );
     mocks.getProjectRevision.mockResolvedValue(projectRevision);
     mocks.getCurrentProjectRenderJob.mockResolvedValue({
       ok: true,
@@ -256,6 +288,26 @@ describe('render finalization orchestration', () => {
     expect(response.status).toBe(400);
     expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
     expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      expectedDurationMs: message.expectedDurationMs,
+      artifactBinding: { scope: 'TARGET_RANGE' },
+      finalization: {
+        state: 'running',
+        claimToken: message.claimToken,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      },
+    });
+    const artifactBound = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      message,
+    ));
+    expect(artifactBound.status).toBe(400);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
   });
 
   it('finalizes and publishes only through the active database claim', async () => {
@@ -316,9 +368,82 @@ describe('render finalization orchestration', () => {
     });
     expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
     expect(mocks.completeProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: message.claimToken,
+      error: 'Project changed before render finalization.',
+    });
+  });
+
+  it('fences the exact strict claim when its project was deleted before media work', async () => {
+    mocks.getProjectRevision.mockRejectedValueOnce(Object.assign(
+      new Error('Project not found'),
+      { code: 'PROJECT_NOT_FOUND_OR_FORBIDDEN' },
+    ));
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    await expect(response.json()).resolves.toMatchObject({ skipped: 'project_not_current' });
+    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: null,
+      claimToken: message.claimToken,
+      error: 'Project no longer exists before render finalization.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+  });
+
+  it('keeps a stale strict delivery retryable when its fence cannot be proved', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
+    mocks.fenceStaleProjectRenderJobFinalization.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge an unproved non-stale strict state', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
   });
 
   it('never publishes strict success when the project changes during media work', async () => {
+    const changedRevision = { ...projectRevision, value: 8 };
+    mocks.getProjectRevision
+      .mockResolvedValueOnce(projectRevision)
+      .mockResolvedValueOnce(changedRevision);
     mocks.completeProjectRenderJobFinalization.mockResolvedValueOnce({
       ok: false,
       status: 'NON_CURRENT',
@@ -336,6 +461,12 @@ describe('render finalization orchestration', () => {
     });
     expect(mocks.finalizeRenderArtifact).toHaveBeenCalledTimes(1);
     expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: changedRevision,
+      claimToken: message.claimToken,
+      error: 'Project changed during render finalization.',
+    });
   });
 
   it('does no media work for a stale or terminal delivery', async () => {
@@ -419,6 +550,111 @@ describe('render finalization orchestration', () => {
       claimToken: message.claimToken,
       error: expect.stringContaining('after 4 attempt(s)'),
     });
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not reconcile an artifact-bound failure through the legacy owner', async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      artifactBinding: { scope: 'TARGET_RANGE' },
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(message)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('fences a strict failure callback whose project revision changed', async () => {
+    const changedRevision = { ...projectRevision, value: 8 };
+    mocks.getProjectRevision.mockResolvedValueOnce(changedRevision);
+    mocks.failProjectRenderJobFinalization.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: changedRevision,
+      claimToken: message.claimToken,
+      error: expect.stringContaining('after 4 attempt(s)'),
+    });
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge a deleted-project failure callback without a proven fence', async () => {
+    mocks.getProjectRevision.mockRejectedValueOnce(Object.assign(
+      new Error('Project not found'),
+      { code: 'PROJECT_NOT_FOUND_OR_FORBIDDEN' },
+    ));
+    mocks.fenceStaleProjectRenderJobFinalization.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.failProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.failJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge an unproved strict failure state', async () => {
+    mocks.failProjectRenderJobFinalization.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_STATE_NOT_ACTIVE',
+    });
+    const envelope = {
+      sourceBody: Buffer.from(JSON.stringify(strictMessage)).toString('base64'),
+      status: 500,
+      retried: 3,
+      maxRetries: 3,
+    };
+
+    const response = await FAIL_FINALIZATION(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer/failure',
+      envelope,
+    ));
+
+    expect(response.status).toBe(500);
+    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
     expect(mocks.failJobFinalization).not.toHaveBeenCalled();
   });
 

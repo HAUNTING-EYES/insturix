@@ -10,8 +10,9 @@ import { projectService } from '@/lib/editron/services/project-service';
 import {
   completeJobFinalization,
   completeProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationV1,
   getCurrentProjectRenderJobV1,
-  getJob,
+  getProjectRenderJobAuthorizationByAdmissionV1,
 } from '@/lib/editron/services/render-job-service';
 
 export const runtime = 'nodejs';
@@ -46,6 +47,12 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
     ? await readCurrentProjectRevision(strictAuthorization.ownerId, strictAuthorization.projectId)
     : null;
   if (strictAuthorization && !initialProjectRevision) {
+    await requireStaleFinalizationFence({
+      authorization: strictAuthorization,
+      observedProjectRevision: null,
+      claimToken: message.claimToken,
+      error: 'Project no longer exists before render finalization.',
+    });
     return NextResponse.json({ success: true, skipped: 'project_not_current' });
   }
   const currentStrictJob = strictAuthorization
@@ -54,22 +61,34 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
         currentProjectRevision: initialProjectRevision,
       })
     : null;
-  if (currentStrictJob && !currentStrictJob.ok) {
-    return NextResponse.json({ success: true, skipped: 'project_render_not_current' });
+  if (strictAuthorization && currentStrictJob && !currentStrictJob.ok) {
+    if (currentStrictJob.reason === 'PROJECT_REVISION_STALE') {
+      await requireStaleFinalizationFence({
+        authorization: strictAuthorization,
+        observedProjectRevision: initialProjectRevision,
+        claimToken: message.claimToken,
+        error: 'Project changed before render finalization.',
+      });
+      return NextResponse.json({ success: true, skipped: 'project_render_not_current' });
+    }
+    throw new Error(
+      `Strict render finalization state is not provably current: ${currentStrictJob.reason}.`,
+    );
   }
-  const job = currentStrictJob?.ok
-    ? currentStrictJob.job
-    : await getJob(message.jobId);
+  const legacyAdmission = strictAuthorization
+    ? null
+    : await getProjectRenderJobAuthorizationByAdmissionV1({ jobId: message.jobId });
+  if (legacyAdmission && legacyAdmission.status !== 'NOT_PROJECT_RENDER_JOB') {
+    return NextResponse.json(
+      { success: false, error: 'Bound render authorization is required.' },
+      { status: 400 },
+    );
+  }
+  const job = currentStrictJob?.ok ? currentStrictJob.job : legacyAdmission?.job;
   if (!job) {
     return NextResponse.json(
       { success: false, error: 'Render job not found.' },
       { status: 404 },
-    );
-  }
-  if (!strictAuthorization && job.projectRenderSnapshotBinding !== undefined) {
-    return NextResponse.json(
-      { success: false, error: 'Strict render authorization is required.' },
-      { status: 400 },
     );
   }
   if (job.status === 'done' || job.status === 'error') {
@@ -118,14 +137,42 @@ async function completeStrictFinalization(input: {
     input.authorization.projectId,
   );
   if (!currentProjectRevision) {
+    await requireStaleFinalizationFence({
+      authorization: input.authorization,
+      observedProjectRevision: null,
+      claimToken: input.claimToken,
+      error: 'Project no longer exists during render finalization.',
+    });
     return { ok: false as const };
   }
-  return completeProjectRenderJobFinalizationV1({
+  const completed = await completeProjectRenderJobFinalizationV1({
     authorization: input.authorization,
     currentProjectRevision,
     claimToken: input.claimToken,
     result: input.result,
   });
+  if (!completed.ok && completed.reason === 'PROJECT_REVISION_STALE') {
+    await requireStaleFinalizationFence({
+      authorization: input.authorization,
+      observedProjectRevision: currentProjectRevision,
+      claimToken: input.claimToken,
+      error: 'Project changed during render finalization.',
+    });
+  }
+  return completed;
+}
+
+async function requireStaleFinalizationFence(input: {
+  authorization: NonNullable<RenderFinalizationJobMessage['projectRenderAuthorization']>;
+  observedProjectRevision: unknown | null;
+  claimToken: string;
+  error: string;
+}) {
+  const fenced = await fenceStaleProjectRenderJobFinalizationV1(input);
+  if (!fenced.ok) {
+    throw new Error(`Strict stale finalization claim could not be fenced: ${fenced.reason}.`);
+  }
+  return fenced;
 }
 
 async function readCurrentProjectRevision(ownerId: string, projectId: string) {
