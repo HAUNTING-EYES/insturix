@@ -16,6 +16,12 @@ import {
 } from "./canonical-json-v1";
 import { buildProjectAnalysisAssetSet } from "./project-analysis-storage";
 import { canRescueToDirectorMode } from "./assist-lane-predicates";
+import {
+  projectRevisionPredicate,
+  readProjectRevisionV1,
+  type ProjectRevisionV1,
+} from "./project-revision-v1";
+export type { ProjectRevisionV1 } from "./project-revision-v1";
 import type { NativeAudioEvidence } from "./native-audio-evidence";
 import {
   autoBgmDecisionEvidenceHashV1,
@@ -243,22 +249,6 @@ export interface EditorState {
   durationInFrames?: number;
   /** User-authored named timeline markers; omitted means preserve legacy data. */
   markers?: EditorTimelineMarker[];
-}
-
-/**
- * The ProjectService-issued optimistic-concurrency token for editor-state
- * writes. Callers treat this as an opaque receipt field; PostCommandIR is not
- * coupled to this storage implementation.
- */
-export interface ProjectRevisionV1 {
-  schemaVersion: 1;
-  value: number;
-  /**
-   * Temporary compatibility guard for existing writers that still advance
-   * updatedAt without advancing projectRevision. It is part of this write's
-   * atomic predicate and will be retired after all writers use the counter.
-   */
-  compatibilityUpdatedAt: string;
 }
 
 export interface ProjectMutationReceiptV1 {
@@ -11219,22 +11209,9 @@ function stampPersistedOverlays(
 function projectRevisionFor(
   project: Pick<Project, "projectRevision" | "updatedAt">,
 ): ProjectRevisionV1 {
-  const value = project.projectRevision;
-  const updatedAt =
-    project.updatedAt instanceof Date
-      ? project.updatedAt
-      : new Date(project.updatedAt);
-  if (Number.isNaN(updatedAt.getTime())) {
-    throw new ProjectMutationWriteError();
-  }
-  return {
-    schemaVersion: 1,
-    value:
-      typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : 0,
-    compatibilityUpdatedAt: updatedAt.toISOString(),
-  };
+  const revision = readProjectRevisionV1(project);
+  if (!revision) throw new ProjectMutationWriteError();
+  return revision;
 }
 
 function sameProjectRevisionV1(
@@ -12848,25 +12825,6 @@ function mergeBoundedMgEvidenceByMomentIdV1<T extends { momentId: string }>(
     ))
     : [];
   return [...retained, ...structuredClone(incoming)].slice(-maximum);
-}
-
-function projectRevisionPredicate(
-  expectedRevision: ProjectRevisionV1,
-): Record<string, unknown> {
-  const revisionCounterPredicate =
-    expectedRevision.value === 0
-      ? {
-          $or: [
-            { projectRevision: 0 },
-            { projectRevision: { $exists: false } },
-          ],
-        }
-      : { projectRevision: expectedRevision.value };
-
-  return {
-    ...revisionCounterPredicate,
-    updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
-  };
 }
 
 function assertProjectAnalysisRunAdmissionCommandV1(
