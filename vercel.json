@@ -45,6 +45,10 @@
       "schedule": "17 * * * *"
     },
     {
+      "path": "/api/cron/migrate-editron-render-chapters",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/cron/recover-editron-render-dispatch",
       "schedule": "*/5 * * * *"
     },
