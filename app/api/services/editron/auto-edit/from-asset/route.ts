@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
   let autoEditAnalysisStarted = false;
   let autoEditCreditTransactionId: string | undefined;
   let autoEditChargedCredits: number | undefined;
+  let analysisRunId: string | undefined;
   let assistRun: { projectId: string; userId: string; creditTransactionId: string } | null = null;
   let assistSettlementDb: Parameters<typeof settleAssistScanFailure>[0] | null = null;
   let assistReadyCommitted = false;
@@ -269,13 +270,13 @@ export async function POST(request: NextRequest) {
       styles: { opacity: 1, objectFit: 'cover' as const },
     };
 
-    await projectService.saveProject(userId, projectId, {
+    const projectSaveReceipt = await projectService.saveProjectWithReceipt(userId, projectId, {
       overlays: [videoOverlay],
       aspectRatio,
       playerDimensions: { width: w, height: h },
       fps,
       durationInFrames,
-    } as Parameters<typeof projectService.saveProject>[2]);
+    } as Parameters<typeof projectService.saveProjectWithReceipt>[2]);
 
     // 5b. Pre-warm Modal GPU containers (fire-and-forget).
     // V-JEPA + Wav2Vec run at worker Step 3.5, ~150s after QStash dispatch.
@@ -298,13 +299,13 @@ export async function POST(request: NextRequest) {
     const db = await getDatabase();
 
     assistSettlementDb = db;
+    if (!autoEditCreditTransactionId || autoEditChargedCredits === undefined) {
+      throw new Error('Auto-edit analysis deduction identity is missing after charge.');
+    }
 
     // Establish lane + paid-run identity in one CAS BEFORE any status or worker
     // dispatch. A stale/pre-used project cannot be silently repurposed.
     if (requestedEditMode === 'assist') {
-      if (!autoEditCreditTransactionId || autoEditChargedCredits === undefined) {
-        throw new Error('Assist scan deduction identity is missing after charge.');
-      }
       const admission = await admitAssistScanCharge(db, {
         projectId,
         userId,
@@ -317,35 +318,26 @@ export async function POST(request: NextRequest) {
       assistRun = { projectId, userId, creditTransactionId: autoEditCreditTransactionId };
     }
 
-    const queued = await db.collection('projects').updateOne(
-      requestedEditMode === 'assist'
-        ? {
-            projectId,
-            userId,
-            editMode: 'assist',
-            assistCreditTransactionId: autoEditCreditTransactionId,
-            assistChargedCredits: autoEditChargedCredits,
-            $or: [{ autoEditStatus: { $exists: false } }, { autoEditStatus: null }],
-          }
-        : { projectId, userId },
-      {
-        $set: {
-          autoEditMode: 'asset',
-          autoEditStatus: 'queued',
-          sourceAssetId: assetId,
-          ...(referenceAssetId && { referenceAssetId }),
-          ...(referenceVideoUrlMetadata && {
-            referenceVideoSource: referenceVideoUrlMetadata,
-          }),
-          ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
-          ...(editorialPreferences && { editorialPreferences }),
-          updatedAt: new Date(),
-        },
+    const analysisAdmission = await projectService.admitProjectAnalysisRunV1(userId, projectId, {
+      expectedRevision: projectSaveReceipt.revision,
+      sourceAssetId: assetId,
+      creditTransactionId: autoEditCreditTransactionId,
+      chargedCredits: autoEditChargedCredits,
+      lane: requestedEditMode,
+      queueFacts: {
+        ...(referenceAssetId && { referenceAssetId }),
+        ...(referenceVideoUrlMetadata && { referenceVideoSource: referenceVideoUrlMetadata }),
+        ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
+        ...(editorialPreferences && { editorialPreferences: { ...editorialPreferences } }),
       },
-    );
-    if (queued.modifiedCount !== 1) {
-      throw new Error('Auto-edit queue admission lost its current project state.');
+    });
+    if (
+      analysisAdmission.disposition !== 'ADMITTED'
+      && analysisAdmission.disposition !== 'ALREADY_ADMITTED'
+    ) {
+      throw new Error(`Auto-edit analysis admission was rejected: ${analysisAdmission.disposition}`);
     }
+    analysisRunId = analysisAdmission.run.runId;
 
     // Dispatch to video-analysis worker via QStash
     const baseUrl = process.env.VERCEL_URL
@@ -383,6 +375,7 @@ export async function POST(request: NextRequest) {
           pacingFeel,
           musicPreference,
           editorialPreferences,
+          analysisRunId,
           creditTransactionId: autoEditCreditTransactionId,
           chargedCredits: autoEditChargedCredits,
         }),
@@ -427,6 +420,8 @@ export async function POST(request: NextRequest) {
             userId,
             editMode: 'assist',
             autoEditStatus: 'queued',
+            'autoEditAnalysisRunV1.runId': analysisRunId,
+            'autoEditAnalysisRunV1.state': 'queued',
             assistCreditTransactionId: autoEditCreditTransactionId,
             assistChargedCredits: autoEditChargedCredits,
           },
@@ -434,6 +429,8 @@ export async function POST(request: NextRequest) {
             $set: {
               ...(ssb && { syntheticStoryboard: ssb }),
               autoEditStatus: 'analysis_complete',
+              'autoEditAnalysisRunV1.state': 'analysis_complete',
+              'autoEditAnalysisRunV1.updatedAt': new Date().toISOString(),
               updatedAt: new Date(),
             },
           },

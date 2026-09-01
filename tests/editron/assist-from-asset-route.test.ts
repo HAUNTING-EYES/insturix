@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
   checkCredits: vi.fn(),
   deduct: vi.fn(),
   createProject: vi.fn(),
-  saveProject: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
+  admitProjectAnalysisRunV1: vi.fn(),
   claimDirectorRunV1: vi.fn(),
   updateOne: vi.fn(),
   admitAssistScanCharge: vi.fn(),
@@ -36,7 +37,8 @@ vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
-    saveProject: mocks.saveProject,
+    saveProjectWithReceipt: mocks.saveProjectWithReceipt,
+    admitProjectAnalysisRunV1: mocks.admitProjectAnalysisRunV1,
     claimDirectorRunV1: mocks.claimDirectorRunV1,
   },
 }));
@@ -90,7 +92,16 @@ beforeEach(() => {
   });
   mocks.deduct.mockResolvedValue({ transactionId: 'tx_asset_1' });
   mocks.createProject.mockResolvedValue({ projectId: 'proj_asset_1' });
-  mocks.saveProject.mockResolvedValue(undefined);
+  mocks.saveProjectWithReceipt.mockResolvedValue({
+    schemaVersion: 1,
+    projectId: 'proj_asset_1',
+    revision: { schemaVersion: 1, value: 1, compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z' },
+    committedAt: '2026-09-01T00:00:00.000Z',
+  });
+  mocks.admitProjectAnalysisRunV1.mockResolvedValue({
+    disposition: 'ADMITTED',
+    run: { runId: 'analysis_run_asset_1' },
+  });
   mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   mocks.admitAssistScanCharge.mockResolvedValue({ disposition: 'admitted' });
   mocks.settleAssistScanFailure.mockResolvedValue('refunded');
@@ -128,7 +139,7 @@ describe('from-asset assist intake handler', () => {
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.deduct).not.toHaveBeenCalled();
     expect(mocks.createProject).not.toHaveBeenCalled();
-    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).not.toHaveBeenCalled();
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
     expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
   });
@@ -149,7 +160,7 @@ describe('from-asset assist intake handler', () => {
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.deduct).not.toHaveBeenCalled();
     expect(mocks.createProject).not.toHaveBeenCalled();
-    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.saveProjectWithReceipt).not.toHaveBeenCalled();
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
     expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
   });
@@ -165,6 +176,22 @@ describe('from-asset assist intake handler', () => {
       creditTransactionId: 'tx_asset_1',
       chargedCredits: 12,
     });
+    expect(mocks.admitProjectAnalysisRunV1).toHaveBeenCalledWith('user_1', 'proj_asset_1', {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 1,
+        compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z',
+      },
+      sourceAssetId: 'a1',
+      creditTransactionId: 'tx_asset_1',
+      chargedCredits: 12,
+      lane: 'assist',
+      queueFacts: {},
+    });
+    const rawQueuedWrite = mocks.updateOne.mock.calls.find(([, u]) => (
+      (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'queued'
+    ));
+    expect(rawQueuedWrite).toBeFalsy();
 
     const analyzedWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'analysis_complete');
     expect(analyzedWrite?.[0]).toMatchObject({
@@ -172,6 +199,8 @@ describe('from-asset assist intake handler', () => {
       userId: 'user_1',
       editMode: 'assist',
       autoEditStatus: 'queued',
+      'autoEditAnalysisRunV1.runId': 'analysis_run_asset_1',
+      'autoEditAnalysisRunV1.state': 'queued',
       assistCreditTransactionId: 'tx_asset_1',
       assistChargedCredits: 12,
     });
