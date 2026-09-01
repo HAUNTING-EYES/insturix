@@ -16313,3 +16313,69 @@ Queues 3 and 4, which alone may be worked in parallel under the founder's
 current authorization; (3) implement Queue 6 serially; and (4) certify the
 agency verticals serially unless the founder explicitly authorizes further
 parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4L checkpoint
+
+Commits `f3d8d12e1`, `3f803d8c1`, `34d5c2b3f`, `78f692af4`,
+`78ceaacc5`, `c0305fa8f` and `c0e1284b0` close the recovery, migration
+and known legacy metadata-helper callers identified by Phase 4K. All listed
+commits are pushed on `infrastructure-improvs-+Editron`.
+
+Stale auto-edit recovery now acts only on an exact analysis run, Director run
+token or queued delivery identity. Tokenless legacy records are reported as
+unverifiable and left unchanged. The one-time audio-overlay migration now
+requires its dedicated migration secret, reads projects through owner scope,
+uses exact ProjectService revisions, processes bounded batches and is
+idempotent; its former raw project update is gone.
+
+Manual quality review now loads one owner-scoped project snapshot, builds the
+existing persisted review form and commits it through one exact
+`saveProjectWithReceipt` call. Clickatron stores a task-side pending binding
+before project publication, binds thumbnail source identity and project
+revision, records a bounded replay receipt, preserves later pipeline stages and
+separates blocked/unverifiable projection from thumbnail selection. UploaderX
+validates linked-project ownership before object upload, binds object/content
+identity and byte/type evidence, stores pending and terminal projection state,
+advances only through ProjectService and never regresses a completed project.
+
+Pipeline-video batch completion no longer calls the ownerless status-refresh
+helper. Exact terminal counters now publish a bounded ProjectService receipt;
+failed, partial and duplicate-counter-overrun batches set
+`needs-attention`, while clean completion does not erase an existing attention
+state. The receipt's observed revision is the direct predecessor for signed
+Director-dispatch preparation. Contradictory or malformed terminal evidence
+blocks dispatch instead of being labelled complete. After all active callers
+were removed, the separate `c0e1284b0` Step-0 cleanup deleted
+`updateProjectMetadata`, `deriveProjectStatus` and `refreshProjectStatus` from
+ProjectService so the project-ID-only bypass cannot be reintroduced by a new
+caller.
+
+Focused proof passed 32 stale-recovery tests, 54 migration tests, 23 quality
+review tests, 10 Clickatron tests, 10 UploaderX tests and 12 pipeline-terminal
+and Director-dispatch tests. The final aggregate legacy-owner check passed
+28/28. Targeted quiet ESLint, `git diff --check` and repeated full 8-GB
+TypeScript checks passed. Full-repository quiet ESLint remains required at the
+aggregate Queue 5 closure and is not claimed here. No live provider call,
+storage spend, wallet mutation, render, paid cohort rerun or model inference
+occurred.
+
+This is closure of the exact raw-writer and known legacy-helper inventory from
+Phase 4K, not universal Queue 5 convergence. The remaining Queue 5 work is a
+fresh broad classification of alternate Mongo/Mongoose write spellings,
+repository/service re-exports, tests and mocks, plus any authoritative writer
+families that inventory exposes. Each finding must be proved canonical,
+migrated behind an exact owner or removed. Full-repository quiet ESLint and the
+aggregate mutation-owner suite must pass before Queue 5 can be considered for
+closure.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) complete the broad Queue 5 writer inventory and
+close every verified authoritative finding serially; (2) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (3) implement Queue 6 serially; and (4) certify the
+agency verticals serially unless the founder explicitly authorizes further
+parallel execution.
