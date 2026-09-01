@@ -875,7 +875,7 @@ async function completedRenderResponse(
       { status: 409 },
     );
   }
-  await runVerifiedCompletionEffects(renderId, strictAuthorization);
+  const completionEffectsStatus = await runVerifiedCompletionEffects(renderId, strictAuthorization);
   if (strictAuthorization && !await readCurrentProjectRenderJob(strictAuthorization)) {
     return projectRenderNotCurrentResponse();
   }
@@ -888,6 +888,7 @@ async function completedRenderResponse(
       outputFile: job.outputUrl,
       outputSize: job.outputSize ?? 0,
       deliveryManifest: job.deliveryManifest,
+      completionEffectsStatus,
       renderMetadata: {
         estimatedTotalLambdaInvokations: 0,
         actualLambdaInvokations: 0,
@@ -924,13 +925,13 @@ function finalizingResponse(
 async function runVerifiedCompletionEffects(
   renderId: string,
   strictAuthorization?: ProjectRenderJobAuthorizationV1,
-): Promise<void> {
+): Promise<'NO_CLAIM' | 'COMMITTED' | 'RECOVERY_REQUIRED'> {
   const claim = strictAuthorization
     ? await projectService.claimProjectRenderCompletionEffectsTransactionV1({
         authorization: strictAuthorization,
       })
     : await claimRenderCompletionEffects({ renderId });
-  if (!claim || !('jobId' in claim)) return;
+  if (!claim || !('jobId' in claim)) return 'NO_CLAIM';
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const { emitBrandEvent } = await import('@/lib/shared/brand-events');
@@ -946,7 +947,17 @@ async function runVerifiedCompletionEffects(
     const qualityScore = typeof project?.qualityScore === 'number' ? project.qualityScore : undefined;
     const deliveredRenderId = claim.providerRenderId ?? claim.jobId;
 
-    await transitionProjectStatus(claim.projectId, claim.userId, 'rendered', 'render_complete');
+    const statusTransition = await transitionProjectStatus(
+      claim.projectId,
+      claim.userId,
+      'rendered',
+      'render_complete',
+    );
+    if (!statusTransition.success) {
+      throw new Error(
+        `Project status transition rejected: ${statusTransition.error ?? 'unknown reason'}`,
+      );
+    }
     await addVideoToLink(claim.userId, claim.projectId, deliveredRenderId);
     await emitBrandEvent({
       userId: claim.userId,
@@ -975,6 +986,7 @@ async function runVerifiedCompletionEffects(
       });
       if (!completed) throw new Error('Completion-effects lease changed before commit.');
     }
+    return 'COMMITTED';
   } catch (error) {
     if (strictAuthorization) {
       await projectService.releaseProjectRenderCompletionEffectsTransactionV1({
@@ -988,6 +1000,7 @@ async function runVerifiedCompletionEffects(
       }).catch(() => false);
     }
     console.warn(`[RenderProgress] Verified completion effects failed: ${errorMessage(error)}`);
+    return 'RECOVERY_REQUIRED';
   }
 }
 
@@ -1020,13 +1033,18 @@ function projectRenderNotCurrentResponse() {
 async function transitionRenderFailure(job: RenderJob, message: string): Promise<void> {
   try {
     const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-    await transitionProjectStatus(
+    const statusTransition = await transitionProjectStatus(
       job.projectId,
       job.userId,
       'failed',
       'render_error',
       { message, service: 'editron' },
     );
+    if (!statusTransition.success) {
+      console.warn(
+        `[RenderProgress] Failure status transition rejected: ${statusTransition.error ?? 'unknown reason'}`,
+      );
+    }
   } catch (error) {
     console.warn(`[RenderProgress] Brand failure wiring failed: ${errorMessage(error)}`);
   }

@@ -17,7 +17,16 @@ const mocks = vi.hoisted(() => ({
   releaseRenderCompletionEffects: vi.fn(async () => true),
   addVideoToLink: vi.fn(async () => false),
   emitBrandEvent: vi.fn(async () => "event_1"),
-  transitionProjectStatus: vi.fn(async () => {}),
+  transitionProjectStatus: vi.fn(async (): Promise<{
+    success: boolean;
+    previousStatus: string;
+    disposition?: string;
+    error?: string;
+  }> => ({
+    success: true,
+    previousStatus: "rendering",
+    disposition: "COMMITTED",
+  })),
   findProject: vi.fn(),
   loadProjectForRenderSnapshot: vi.fn(),
   updateProjectRenderJobProgressTransactionV1: vi.fn(),
@@ -877,6 +886,7 @@ describe("Editron chapter render progress route", () => {
     const body = await response.json();
 
     expect(body.data).toMatchObject({ done: true, outputUrl: finalUrl, outputFile: finalUrl });
+    expect(body.data.completionEffectsStatus).toBe("COMMITTED");
     expect(mocks.getChapterRenderProgress).not.toHaveBeenCalled();
     expect(mocks.addVideoToLink).toHaveBeenCalledWith("user_1", "project_1", "chr_provider");
     expect(mocks.emitBrandEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -887,6 +897,60 @@ describe("Editron chapter render progress route", () => {
       jobId: "chr_done",
       claimToken: "rce_1",
     });
+  });
+
+  it("releases completion effects and exposes recovery when project status CAS is rejected", async () => {
+    const finalUrl = "https://video.example/finalized.mp4";
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
+      _id: "chr_done",
+      providerRenderId: "chr_provider",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "done",
+      outputUrl: finalUrl,
+      outputSize: 42_000,
+      deliveryManifest: {
+        ...DELIVERY_MANIFEST,
+        completedAt: "2026-07-26T00:05:00.000Z",
+        primaryArtifact: { ...DELIVERY_MANIFEST.primaryArtifact, status: "ready", url: finalUrl },
+      },
+      finalization: {
+        state: "done",
+        outputUrl: finalUrl,
+        receipt: { expectedDurationMs: 10_000 },
+      },
+    });
+    mocks.claimRenderCompletionEffects.mockResolvedValueOnce({
+      jobId: "chr_done",
+      providerRenderId: "chr_provider",
+      userId: "user_1",
+      projectId: "project_1",
+      outputUrl: finalUrl,
+      outputSize: 42_000,
+      claimToken: "rce_1",
+    });
+    mocks.findProject.mockResolvedValueOnce({ brandId: "brand_1", name: "Project" });
+    mocks.transitionProjectStatus.mockResolvedValueOnce({
+      success: false,
+      previousStatus: "rendering",
+      error: "Status changed concurrently",
+    });
+
+    const response = await GET(chapterProgressRequest("chr_done"));
+    const body = await response.json();
+
+    expect(body.data).toMatchObject({
+      done: true,
+      outputUrl: finalUrl,
+      completionEffectsStatus: "RECOVERY_REQUIRED",
+    });
+    expect(mocks.releaseRenderCompletionEffects).toHaveBeenCalledWith({
+      jobId: "chr_done",
+      claimToken: "rce_1",
+    });
+    expect(mocks.addVideoToLink).not.toHaveBeenCalled();
+    expect(mocks.emitBrandEvent).not.toHaveBeenCalled();
+    expect(mocks.completeRenderCompletionEffects).not.toHaveBeenCalled();
   });
 
   it("fails loud instead of returning a legacy raw done artifact", async () => {
