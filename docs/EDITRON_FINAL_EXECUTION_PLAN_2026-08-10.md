@@ -15611,3 +15611,69 @@ Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
 Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
 chapter-path convergence, agency-class completion, live recovery proof,
 successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Z checkpoint
+
+Commits `0ddc19d8c`, `b2048dd6e`, `22791bfd8`, `8de3a05f8`,
+`f2cfbf5a6` and `fb6768a4f` extend the provider-free parent contract into an
+immutable chapter layout, complete local parent lifecycle, browser polling
+identity, active-render recovery, provider-free finalization dispatch and the
+real render-admission route.
+
+The immutable chapter layout binds the parent admission, project-snapshot
+binding hash, exact contiguous frame boundaries, reduced rational project
+timebase and the existing chapter policy under one canonical SHA-256 identity.
+For a legacy numeric project rate such as `29.97`, the manifest records the
+truthful reduced decimal ratio `2997/100` with read-compatibility provenance;
+it does not pretend the rate was `30000/1001`. Strict chapter startup consumes
+the already-bound layout and rejects project, binding, rate, policy, boundary,
+count or hash drift before a database or provider write.
+
+The live render route now reserves the provider-free parent atomically,
+advances it through dedicated `STARTING` and `RUNNING` owners, compares the
+exact renderer start receipt with the route-created layout and returns a
+first-class `CHAPTER_ORCHESTRATION` polling identity. It no longer binds the
+chapter parent as the synthetic provider tuple
+`(jobId, "chapter-render", region)`. Lost lifecycle responses and any failure
+after child work may have begun suppress refund and generic provider recovery;
+a durably running parent remains resumable rather than being converted into a
+terminal failure. Standard single-provider admission retains its existing
+attempt/bind path.
+
+The active route and client hook preserve the orchestration ID, aggregate
+render ID and selected region across start, poll and reload. Malformed,
+provider-bearing or legacy bucket-only rows are not promoted into strict
+chapter identity. The finalization dispatcher can claim an exact provider-free
+`chr_*` admission without inventing provider evidence, while partial provider
+tuples and provider-free standard admissions fail closed.
+
+The final adjacent closure passed 166/166 tests across immutable layout,
+parent lifecycle, admission, renderer progress, active recovery, client
+payload/resume and finalization worker suites. The full repository TypeScript
+check passed with an 8 GB Node heap; targeted and full quiet ESLint plus
+`git diff --check` passed before push. No live render, provider deletion,
+wallet mutation, paid cohort rerun, model inference, project-content mutation
+or external spend occurred.
+
+This is chapter admission and identity convergence, not complete chapter
+render-chain convergence. The strict progress route still has to consume the
+provider-free orchestration identity, validate the persisted layout and drive
+the parent progress/concat/finalization lifecycle without a synthetic provider
+tuple. Provider-free stale output still needs the ProjectService cleanup
+materializer, and terminal worker completion still needs to close the parent
+lifecycle. Current project revision/invalidation must remain fenced through
+child polling, concat publication, finalization and cleanup. Expired concat
+leases, post-invalidation writes, retention, legacy migration/backfill and
+deployed IAM/Modal/Vercel/live deletion proof also remain open.
+
+The next bounded order is: (1) strict provider-free progress and parent
+lifecycle integration, (2) provider-free stale-output cleanup and terminal
+finalization completion, (3) live revision/invalidation fences through child
+polling and concat, (4) concat publish/expired-lease recovery, (5) retention
+and post-invalidation fencing, then (6) migration/backfill and deployed
+IAM/Modal/Vercel/live deletion proof.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path completion, agency-class certification, live recovery proof,
+successor receipt or `GO` is claimed.
