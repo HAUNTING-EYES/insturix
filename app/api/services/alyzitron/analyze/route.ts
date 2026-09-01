@@ -7,7 +7,8 @@ import { getCreditCost } from "@/lib/config/creditCosts";
 import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
-import { projectService } from "@/lib/editron/services/project-service";
+import { ProjectNotFoundOrForbiddenError } from "@/lib/editron/services/project-service";
+import { bindAlyzitronProjectAnalysisV1 } from "@/lib/editron/services/alyzitron-project-publication-v1";
 import {
   AlyzitronBrandContextError,
   buildAlyzitronAnalysisContext,
@@ -150,9 +151,15 @@ export async function POST(request: Request) {
 
     const { userId, orgId } = session;
     const body = await request.json();
-    const { video_url, context, metadata, storage, editronProjectId, brandId } = body;
+    const { video_url, context, metadata, storage, editronProjectId: rawEditronProjectId, brandId } = body;
+    const editronProjectId = typeof rawEditronProjectId === 'string' && rawEditronProjectId.trim()
+      ? rawEditronProjectId.trim()
+      : undefined;
 
     if (typeof video_url !== "string" || !video_url.trim()) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
+    if (rawEditronProjectId !== undefined && !editronProjectId) {
+      return NextResponse.json({ error: "Invalid Editron project ID" }, { status: 400 });
+    }
 
     const backend = (storage || detectStorageBackend(video_url)) as AlyzitronStorageBackend;
     const mediaSourceKind = inferAlyzitronMediaSourceKind({
@@ -257,6 +264,27 @@ export async function POST(request: Request) {
       throw mediaError;
     }
 
+    const taskId = new ObjectId();
+    let editronProjectBindingV1 = null;
+    if (editronProjectId) {
+      try {
+        editronProjectBindingV1 = await bindAlyzitronProjectAnalysisV1({
+          userId,
+          projectId: editronProjectId,
+          taskId: taskId.toString(),
+          sourceUrl: finalVideoUrl,
+          sourceBackend: backend,
+          mediaKind: isImageFile ? 'image' : 'video',
+          durationMs: Math.round(videoDuration * 1_000),
+        });
+      } catch (error) {
+        if (error instanceof ProjectNotFoundOrForbiddenError) {
+          return NextResponse.json({ error: "Editron project not found" }, { status: 404 });
+        }
+        throw error;
+      }
+    }
+
     const usageMinutes = isImageFile ? 1 : Math.ceil(videoDuration / 60);
     const analysisChargedCredits = getCreditCost('alyzitron', 'video_analysis', { durationMinutes: usageMinutes });
     const creditCheck = await checkCredits(userId, 'alyzitron', 'video_analysis', { durationMinutes: usageMinutes });
@@ -265,8 +293,6 @@ export async function POST(request: Request) {
     const analysisDeduct = await creditCheck.deduct();
 
     let analyses: any;
-    const taskId = new ObjectId();
-
     try {
       const collections = await getCollections();
       analyses = collections.analyses;
@@ -317,16 +343,8 @@ export async function POST(request: Request) {
           usageMinutes,
         },
         ...(editronProjectId ? { editronProjectId } : {}),
+        ...(editronProjectBindingV1 ? { editronProjectBindingV1 } : {}),
       });
-
-      // If triggered from Editron, move project to "analyze" stage (fail-open)
-      if (editronProjectId) {
-        try {
-          await projectService.updateProjectMetadata(editronProjectId, { pipelineStage: 'analyze' });
-        } catch (stageErr: any) {
-          console.error(`[Alyzitron] Failed to update project stage (non-blocking): ${stageErr.message}`);
-        }
-      }
 
       const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 

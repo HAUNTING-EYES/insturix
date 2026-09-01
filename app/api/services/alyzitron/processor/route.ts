@@ -23,6 +23,11 @@ import {
   resolveAlyzitronContentIntent,
 } from "@/lib/alyzitron/analysis-intent";
 import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
+import {
+  AlyzitronProjectPublicationBlockedErrorV1,
+  commitAlyzitronProjectAnalysisV1,
+  readAlyzitronProjectAnalysisBindingV1,
+} from "@/lib/editron/services/alyzitron-project-publication-v1";
 
 const ALYZITRON_ANALYSIS_PROVIDER = "gemini";
 const ALYZITRON_ANALYSIS_OPERATION = "video_analysis";
@@ -118,6 +123,127 @@ function getAnalysisResultMode(result: any): string {
   return "structured_json";
 }
 
+async function publishCompletedAnalysisToEditron(input: {
+  analyses: { updateOne(filter: unknown, update: unknown): Promise<unknown> };
+  task: any;
+  userId: string;
+  taskId: string;
+  analysisResults: unknown;
+  contentIntent: unknown;
+}): Promise<Record<string, unknown> | null> {
+  const editronProjectId = cleanString(input.task.editronProjectId);
+  if (!editronProjectId) return null;
+
+  const existingPublication = asRecord(input.task.editronProjectPublicationV1);
+  const existingStatus = cleanString(existingPublication?.status);
+  const existingReason = cleanString(existingPublication?.reason);
+  if (
+    existingStatus === 'COMMITTED'
+    || existingStatus === 'BLOCKED'
+    || (existingStatus === 'UNVERIFIABLE'
+      && existingReason !== 'PROJECT_PUBLICATION_INFRASTRUCTURE_ERROR')
+  ) return existingPublication;
+
+  const attemptedAt = new Date().toISOString();
+  const binding = readAlyzitronProjectAnalysisBindingV1(input.task.editronProjectBindingV1);
+  const result = asRecord(input.analysisResults);
+  let publication: Record<string, unknown>;
+  if (!binding) {
+    publication = {
+      schemaVersion: 1,
+      status: 'UNVERIFIABLE',
+      reason: 'LEGACY_BINDING_MISSING',
+      projectId: editronProjectId,
+      taskId: input.taskId,
+      attemptedAt,
+    };
+  } else if (!result) {
+    publication = {
+      schemaVersion: 1,
+      status: 'UNVERIFIABLE',
+      reason: 'COMPLETED_RESULT_MISSING',
+      projectId: editronProjectId,
+      taskId: input.taskId,
+      attemptedAt,
+    };
+  } else {
+    try {
+      const committed = await commitAlyzitronProjectAnalysisV1({
+        userId: input.userId,
+        taskId: input.taskId,
+        taskSourceUrl: input.task.videoUrl,
+        binding,
+        result: {
+          overallScore: result.overall_score ?? null,
+          category: result.category ?? null,
+          strengths: result.strengths ?? [],
+          weaknesses: result.weaknesses ?? [],
+          contentIntent: input.contentIntent,
+        },
+      });
+      publication = {
+        schemaVersion: 1,
+        status: 'COMMITTED',
+        projectId: editronProjectId,
+        taskId: input.taskId,
+        attemptedAt,
+        replayed: committed.replayed,
+        observedProjectRevision: committed.observedProjectRevision,
+        ...(committed.receipt ? { receipt: committed.receipt } : {}),
+      };
+      logger.info('[Alyzitron] Results committed to the bound Editron project revision', {
+        data: {
+          editronProjectId,
+          taskId: input.taskId,
+          revision: committed.observedProjectRevision.value,
+          replayed: committed.replayed,
+        },
+      });
+    } catch (writeError) {
+      publication = writeError instanceof AlyzitronProjectPublicationBlockedErrorV1
+        ? {
+            schemaVersion: 1,
+            status: 'BLOCKED',
+            reason: writeError.reason,
+            projectId: editronProjectId,
+            taskId: input.taskId,
+            attemptedAt,
+          }
+        : {
+            schemaVersion: 1,
+            status: 'UNVERIFIABLE',
+            reason: 'PROJECT_PUBLICATION_INFRASTRUCTURE_ERROR',
+            projectId: editronProjectId,
+            taskId: input.taskId,
+            attemptedAt,
+          };
+      logger.error('[Alyzitron] Project result publication did not commit', {
+        data: {
+          editronProjectId,
+          taskId: input.taskId,
+          status: publication.status,
+          reason: publication.reason,
+          errorClass: writeError instanceof Error ? writeError.name : typeof writeError,
+        },
+      });
+    }
+  }
+
+  await input.analyses.updateOne(
+    { _id: input.task._id },
+    { $set: { editronProjectPublicationV1: publication, updatedAt: new Date() } },
+  ).catch((publicationError: unknown) => {
+    logger.error('[Alyzitron] Failed to persist project publication status', {
+      data: {
+        editronProjectId,
+        taskId: input.taskId,
+        errorClass: publicationError instanceof Error ? publicationError.name : typeof publicationError,
+      },
+    });
+  });
+  return publication;
+}
+
 async function recordAlyzitronGeminiAnalysisCost(input: AlyzitronGeminiAnalysisCostDraft & {
   status: ProviderCostEventStatus;
   userId: string;
@@ -171,7 +297,7 @@ async function handler(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { taskId, editronProjectId } = body;
+    const { taskId } = body;
     currentTaskId = taskId;
 
     if (!taskId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
@@ -184,7 +310,20 @@ async function handler(request: NextRequest) {
     const userId = cleanString(task.clerkUserId);
     if (!userId) return NextResponse.json({ error: "Task owner missing" }, { status: 400 });
     currentUserId = userId;
-    if (task.status === "completed" || task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
+    if (task.status === "completed") {
+      await publishCompletedAnalysisToEditron({
+        analyses,
+        task,
+        userId,
+        taskId,
+        analysisResults: task.results,
+        contentIntent:
+          cleanString(asRecord(task.intentResolution)?.contentIntent)
+          ?? cleanString(task.contentIntent),
+      });
+      return NextResponse.json({ success: true, message: "Already processed; project publication reconciled" });
+    }
+    if (task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
 
     const taskBrandId =
       cleanString(body.brandId) ??
@@ -216,7 +355,7 @@ async function handler(request: NextRequest) {
       mediaSourceKind,
       videoUrl: task.videoUrl,
       brandId: taskBrandId,
-      editronProjectId: editronProjectId ?? task.editronProjectId,
+      editronProjectId: task.editronProjectId,
       metadata: task.metadata,
       context: task.context,
     });
@@ -477,6 +616,8 @@ async function handler(request: NextRequest) {
       }
       analysisResults = normalizedResults;
 
+      const editronProjectId = cleanString(task.editronProjectId);
+
       await analyses.updateOne(
         { _id: task._id },
         {
@@ -489,6 +630,15 @@ async function handler(request: NextRequest) {
             "metadata.mimeType": updatedMimeType,
             ...brandCompletionFields,
             ...intentCompletionFields,
+            ...(editronProjectId ? {
+              editronProjectPublicationV1: {
+                schemaVersion: 1,
+                status: 'PENDING',
+                projectId: editronProjectId,
+                taskId,
+                admittedAt: new Date(),
+              },
+            } : {}),
             completedAt: new Date(),
             updatedAt: new Date()
           }
@@ -497,34 +647,14 @@ async function handler(request: NextRequest) {
 
       await recordPendingGeminiAnalysisCost("success");
 
-      // Write analysis results back to Editron project (fail-open)
-      if (editronProjectId && analysisResults) {
-        try {
-          const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
-          const editronDb = await getDatabase();
-          await editronDb.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: editronProjectId, userId },
-            {
-              $set: {
-                alyzitronAnalysis: {
-                  taskId,
-                  overallScore: analysisResults.overall_score ?? null,
-                  category: analysisResults.category ?? null,
-                  strengths: analysisResults.strengths ?? [],
-                  weaknesses: analysisResults.weaknesses ?? [],
-                  contentIntent: intentResolution.contentIntent,
-                  completedAt: new Date(),
-                },
-                qualityScore: analysisResults.overall_score ?? null,
-                updatedAt: new Date(),
-              },
-            },
-          );
-          logger.info('[Alyzitron] Results written to Editron project', { data: { editronProjectId, taskId } });
-        } catch (writeErr: any) {
-          logger.error('[Alyzitron] Failed to write results to Editron project (non-blocking)', { data: { editronProjectId, error: writeErr.message } });
-        }
-      }
+      await publishCompletedAnalysisToEditron({
+        analyses,
+        task,
+        userId,
+        taskId,
+        analysisResults,
+        contentIntent: intentResolution.contentIntent,
+      });
 
       try {
         const { emitBrandEvent } = await import('@/lib/shared/brand-events');
