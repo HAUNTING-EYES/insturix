@@ -431,6 +431,7 @@ describe('Editron render startup boundary', () => {
           editronRenderAdmissionId: admissionId,
           projectRenderBindingHash: expect.any(String),
           renderRegion: 'us-east-1',
+          editronRenderAttemptToken: expect.stringMatching(/^editron_attempt_v1_[a-f0-9]{64}$/),
         },
       },
       inputProps: expect.objectContaining({

@@ -349,14 +349,20 @@ export async function POST(request: Request) {
       plan: deliveryPlan,
       renderId: admissionId,
     });
-    const webhook = usesChapterRendering
-      ? null
-      : buildRemotionRenderWebhook(request, admissionId, region, binding.bindingHash);
     const dispatchIdentity = createProjectRenderDispatchIdentityV1({
       jobId: admissionId,
       bindingHash: binding.bindingHash,
     });
     renderAttemptToken = dispatchIdentity.attemptToken;
+    const webhook = usesChapterRendering
+      ? null
+      : buildRemotionRenderWebhook(
+          request,
+          admissionId,
+          region,
+          binding.bindingHash,
+          dispatchIdentity.attemptToken,
+        );
     renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
       durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
       requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
@@ -1042,7 +1048,8 @@ function buildRemotionRenderWebhook(
   request: Request,
   admissionId: string,
   region: string,
-  bindingHash?: string,
+  bindingHash: string,
+  attemptToken: string,
 ) {
   const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
   if (!secret) {
@@ -1061,7 +1068,8 @@ function buildRemotionRenderWebhook(
     customData: {
       editronRenderAdmissionId: admissionId,
       renderRegion: region,
-      ...(bindingHash ? { projectRenderBindingHash: bindingHash } : {}),
+      projectRenderBindingHash: bindingHash,
+      editronRenderAttemptToken: attemptToken,
     },
   };
 }
