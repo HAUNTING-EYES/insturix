@@ -110,6 +110,7 @@ function conditionedBgmResult(
       evidence: {
         kind: 'generated-provider',
         sourceAssetId: assetId,
+        licenseId: `fixture-license-${assetId}`,
       },
     },
     gcsPath,
@@ -580,6 +581,11 @@ describe('chat Phase 3G operation contracts', () => {
           { ...duplicate, assetId: 'bgm_new', metadata: { musicCoverage: { sectionIndex: 1 } } },
         ],
       } as any);
+    mocks.projectFindOne.mockResolvedValueOnce({
+      ...BASE_PROJECT,
+      projectRevision: 0,
+      overlays: [voice, primary, duplicate],
+    });
     const update = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
     const add = vi.spyOn(projectService, 'addOverlayAtRevisionV1');
     const remove = vi.spyOn(projectService, 'deleteOverlayAtRevisionV1');
@@ -720,7 +726,7 @@ describe('chat Phase 3G operation contracts', () => {
     expect(mocks.projectUpdateOne).toHaveBeenCalledTimes(1);
   });
 
-  it('stores one analyzed beat grid and realigns ordinary video/image cuts when the flag is enabled', async () => {
+  it('stores one analyzed beat grid and defers picture-cut realignment to its mutation owner', async () => {
     process.env.EDITRON_MUSIC_CHANGE_BEAT_REALIGN = 'true';
     mocks.analyzeBeatsFull.mockResolvedValueOnce({
       beats: [{ timeMs: 2_100, strength: 1, isDownbeat: true }],
@@ -742,8 +748,8 @@ describe('chat Phase 3G operation contracts', () => {
       .mockResolvedValueOnce({
         ...BASE_PROJECT,
         overlays: [
-          { ...first, durationInFrames: 63 },
-          { ...second, from: 63, durationInFrames: 57 },
+          first,
+          second,
           {
             ...currentBgm,
             assetId: 'bgm_beats',
@@ -751,6 +757,11 @@ describe('chat Phase 3G operation contracts', () => {
           },
         ],
       } as any);
+    mocks.projectFindOne.mockResolvedValueOnce({
+      ...BASE_PROJECT,
+      projectRevision: 0,
+      overlays: [first, second, currentBgm],
+    });
     mocks.generateBackgroundMusic.mockResolvedValue(conditionedBgmResult('bgm_beats'));
 
     const result = parseEnvelope(await toolNamed('regenerate_bgm').invoke({ mood: 'rhythmic' }));
@@ -758,7 +769,13 @@ describe('chat Phase 3G operation contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        beatRealignment: { enabled: true, snappedCutCount: 1, beatCount: 1 },
+        beatRealignment: {
+          enabled: false,
+          requested: true,
+          deferred: true,
+          snappedCutCount: 0,
+          beatCount: 1,
+        },
       },
     });
     expect(mocks.mediaAssetUpdateOne).toHaveBeenCalledWith(
@@ -768,8 +785,8 @@ describe('chat Phase 3G operation contracts', () => {
     );
     const nextOverlays = mocks.projectUpdateOne.mock.calls[0][1].$set.overlays;
     expect(nextOverlays).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 1, durationInFrames: 63 }),
-      expect.objectContaining({ id: 2, from: 63, durationInFrames: 57 }),
+      expect.objectContaining({ id: 1, durationInFrames: 60 }),
+      expect.objectContaining({ id: 2, from: 60, durationInFrames: 60 }),
       expect.objectContaining({
         id: 70,
         assetId: 'bgm_beats',

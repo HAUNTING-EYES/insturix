@@ -4804,8 +4804,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return errorEnvelope('The project has no renderable duration, so its music cannot be replaced safely.', 'BGM_INVALID_PROJECT_DURATION', { totalFrames }, 'stop');
         }
         const totalDurationSec = Math.max(1, Math.ceil(totalFrames / fps));
-        const expectedProjectRevision = projectPolicyRecord.updatedAt;
-        if (!(expectedProjectRevision instanceof Date) || Number.isNaN(expectedProjectRevision.getTime())) {
+        const expectedProjectRevision = readProjectRevisionV1(projectPolicyRecord);
+        if (!expectedProjectRevision) {
           return errorEnvelope(
             'The project revision is missing, so background music cannot be replaced without risking a concurrent edit.',
             'BGM_PROJECT_REVISION_MISSING',
@@ -4972,13 +4972,14 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           ...conditioning,
         };
 
-        const beatRealignEnabled = (
+        const beatRealignRequested = (
           process.env.EDITRON_MUSIC_CHANGE_BEAT_REALIGN === 'true'
           || projectPolicyRecord.featureFlags?.musicChangeBeatRealign === true
         );
+        const beatRealignEnabled = false;
         let beatAnalysis: any = null;
         let beatGrid: any = null;
-        if (beatRealignEnabled) {
+        if (beatRealignRequested) {
           const { analyzeConditionedMusicBeatGrid } = await import(
             '@/lib/editron/services/music-beat-grid'
           );
@@ -5060,11 +5061,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         });
         if (replacementIndex < 0) nextOverlays.push(...replacementCandidates);
 
-        let snappedCutCount = 0;
-        if (beatGrid) {
-          const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
-          snappedCutCount = alignCutsToBeats(nextOverlays, beatGrid.beats, fps);
-        }
+        const snappedCutCount = 0;
 
         const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -5099,24 +5096,28 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         );
 
         const replacedInPlace = bgmOverlays.length > 0;
-        const committed = await projectService.replaceOverlayFamilyAtomic(userId, projectId, {
-          expectedUpdatedAt: expectedProjectRevision,
-          overlays: nextOverlays,
-          projectUpdates: {
+        try {
+          await projectService.replaceBackgroundMusicAtRevisionV1(userId, projectId, {
+            expectedRevision: expectedProjectRevision,
+            actorKind: 'AGENT',
+            candidateOverlays: nextOverlays,
             musicCoveragePlan,
-            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
-            'intelligence.audio.lastMusicChange': {
-              version: 'chat-music-change-v1',
-              assetId: bgm.audioAssetId,
-              replacementOverlayIds: replacementIds,
-              beatRealignEnabled,
-              snappedCutCount,
-              beatCount: beatGrid?.beats.length ?? 0,
-              generatedAt,
+            evidence: {
+              kind: 'CHAT_CHANGE',
+              receipt: {
+                version: 'chat-music-change-v1',
+                assetId: bgm.audioAssetId,
+                replacementOverlayIds: replacementIds,
+                beatRealignEnabled,
+                beatRealignDeferred: beatRealignRequested,
+                snappedCutCount,
+                beatCount: beatGrid?.beats.length ?? 0,
+                generatedAt,
+              },
             },
-          },
-        });
-        if (!committed) {
+          });
+        } catch (error) {
+          if (!(error instanceof ProjectMutationConflictError)) throw error;
           return errorEnvelope(
             'The project changed while new music was being prepared. Existing timeline music was kept; retry from the latest edit.',
             'BGM_PROJECT_CONFLICT',
@@ -5164,6 +5165,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           musicCoveragePlan,
           beatRealignment: {
             enabled: beatRealignEnabled,
+            requested: beatRealignRequested,
+            deferred: beatRealignRequested,
             snappedCutCount,
             beatCount: beatGrid?.beats.length ?? 0,
           },
