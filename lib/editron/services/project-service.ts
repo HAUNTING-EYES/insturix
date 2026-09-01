@@ -1051,7 +1051,8 @@ export type ProjectAnalysisRunStateV1 =
   | "computing_params"
   | "analysis_complete"
   | "analyzing_deep"
-  | "directing_queued";
+  | "directing_queued"
+  | "failed";
 
 export interface ProjectAnalysisRunV1 {
   schemaVersion: 1;
@@ -1100,6 +1101,49 @@ export type ProjectAnalysisRunAdmissionResultV1 =
     }
   | { disposition: "PROJECT_NOT_FOUND" }
   | { disposition: "NOT_ELIGIBLE" };
+
+export interface ProjectAnalysisRunAdvanceCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  fromState: Exclude<ProjectAnalysisRunStateV1, "failed">;
+  toState: Exclude<ProjectAnalysisRunStateV1, "queued" | "failed">;
+}
+
+export type ProjectAnalysisRunAdvanceResultV1 =
+  | {
+      disposition: "ADVANCED";
+      run: ProjectAnalysisRunV1;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_ADVANCED";
+      run: ProjectAnalysisRunV1;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "OWNERSHIP_LOST" };
+
+export interface ProjectAnalysisRunFailureCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  errorMessage: string;
+}
+
+export type ProjectAnalysisRunFailureResultV1 =
+  | {
+      disposition: "RECORDED";
+      run: ProjectAnalysisRunV1;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_RECORDED";
+      run: ProjectAnalysisRunV1;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "OWNERSHIP_LOST" };
 
 export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
   expectedRevision: ProjectRevisionV1;
@@ -5487,6 +5531,205 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return { disposition: "ADMITTED", run: structuredClone(returnedRun), receipt };
+  }
+
+  /**
+   * Advances only the exact admitted analysis run through the public lifecycle
+   * graph. The caller supplies the last ProjectService revision it observed;
+   * unrelated user, rescue or worker writes therefore invalidate the command.
+   */
+  async advanceProjectAnalysisRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisRunAdvanceCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisRunAdvanceCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(
+      projectRecordValueV1(current, "autoEditAnalysisRunV1"),
+    );
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === input.toState
+      && projectRecordValueV1(current, "autoEditStatus") === input.toState
+    ) {
+      return {
+        disposition: "ALREADY_ADVANCED",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== input.fromState
+      || projectRecordValueV1(current, "autoEditStatus") !== input.fromState
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const committedAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      state: input.toState,
+      updatedAt: committedAt.toISOString(),
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: input.fromState,
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": input.fromState,
+      },
+      {
+        $set: {
+          autoEditStatus: input.toState,
+          autoEditAnalysisRunV1: nextRun,
+          ...(input.toState === "analyzing" ? { autoEditStartedAt: committedAt } : {}),
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /**
+   * Terminalizes only an automatic analysis run that still owns the project.
+   * Assist failures retain their separate refund-and-status transaction owner.
+   */
+  async failProjectAnalysisRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisRunFailureCommandV1,
+  ): Promise<ProjectAnalysisRunFailureResultV1> {
+    assertProjectAnalysisRunFailureCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(
+      projectRecordValueV1(current, "autoEditAnalysisRunV1"),
+    );
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.lane === "auto"
+      && currentRun.state === "failed"
+      && projectRecordValueV1(current, "autoEditStatus") === "failed"
+    ) {
+      return {
+        disposition: "ALREADY_RECORDED",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.lane !== "auto"
+      || currentRun.state === "failed"
+      || projectRecordValueV1(current, "autoEditStatus") !== currentRun.state
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const committedAt = new Date();
+    const failedRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      state: "failed",
+      updatedAt: committedAt.toISOString(),
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: currentRun.state,
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": currentRun.state,
+        editMode: { $ne: "assist" },
+      },
+      {
+        $set: {
+          autoEditStatus: "failed",
+          autoEditError: input.errorMessage,
+          autoEditFailedAt: committedAt,
+          autoEditAnalysisRunV1: failedRun,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "RECORDED", run: structuredClone(failedRun), receipt };
   }
 
   /**
@@ -11490,7 +11733,7 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
     || !Number.isFinite(value.chargedCredits)
     || (value.chargedCredits as number) < 0
     || (value.lane !== "auto" && value.lane !== "assist")
-    || value.state !== "queued"
+    || !isProjectAnalysisRunStateV1(value.state)
     || !isPlainRecord(value.admittedRevision)
     || !isBoundedNonEmptyStringV1(value.admittedAt, 100)
     || !isBoundedNonEmptyStringV1(value.updatedAt, 100)
@@ -11509,6 +11752,76 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
     return null;
   }
   return structuredClone(value) as unknown as ProjectAnalysisRunV1;
+}
+
+const PROJECT_ANALYSIS_RUN_TRANSITIONS_V1: Readonly<
+  Record<Exclude<ProjectAnalysisRunStateV1, "failed">, readonly ProjectAnalysisRunStateV1[]>
+> = {
+  queued: ["analyzing"],
+  analyzing: ["transcribing"],
+  transcribing: ["analyzing_visual_cuts", "cleaning", "computing_params", "analysis_complete"],
+  analyzing_visual_cuts: ["cleaning", "computing_params", "analysis_complete"],
+  cleaning: ["computing_params", "analysis_complete"],
+  computing_params: ["analysis_complete"],
+  analysis_complete: ["analyzing_deep", "directing_queued"],
+  analyzing_deep: ["directing_queued"],
+  directing_queued: [],
+};
+
+function isProjectAnalysisRunStateV1(value: unknown): value is ProjectAnalysisRunStateV1 {
+  return typeof value === "string" && [
+    "queued",
+    "analyzing",
+    "transcribing",
+    "analyzing_visual_cuts",
+    "cleaning",
+    "computing_params",
+    "analysis_complete",
+    "analyzing_deep",
+    "directing_queued",
+    "failed",
+  ].includes(value);
+}
+
+function assertProjectAnalysisRunAdvanceCommandV1(
+  input: ProjectAnalysisRunAdvanceCommandV1,
+): void {
+  const fromState: unknown = input.fromState;
+  const toState: unknown = input.toState;
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isProjectAnalysisRunStateV1(fromState)
+    || fromState === "failed"
+    || !isProjectAnalysisRunStateV1(toState)
+    || toState === "queued"
+    || toState === "failed"
+    || !PROJECT_ANALYSIS_RUN_TRANSITIONS_V1[fromState].includes(toState)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Analysis advancement requires one exact revision, run, source and legal state transition.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisRunFailureCommandV1(
+  input: ProjectAnalysisRunFailureCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.errorMessage, 2_000)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Analysis failure requires one exact revision, run, source and bounded error.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
 }
 
 function assertCheckpointRestoreFields(
