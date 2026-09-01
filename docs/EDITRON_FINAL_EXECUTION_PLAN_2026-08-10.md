@@ -15429,3 +15429,75 @@ recovery and deployed IAM/live deletion proof remain open. Queue 5 remains
 `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains
 `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No convergence,
 agency-class completion, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3U checkpoint
+
+Commits `8e666a9e3`, `57649a2b3` and `e533647c3` close the local ownership gap
+between a terminal chapter outcome and its child/concat cleanup outboxes. The
+concat cleanup runtime no longer consumes ambient or direct deletion
+credentials. It requires cleanup-specific base credentials and assumes one
+exact cleanup-only IAM role through STS for a bounded 900-second session. A
+missing, mismatched or unassumable role fails closed; there is no direct AWS
+credential fallback. This supersedes the Phase 3S description of direct
+cleanup credentials while preserving that checkpoint as historical truth.
+
+The ProjectService finalization transaction now validates and materializes the
+exact chapter child and concat cleanup descriptors for current success, stale
+finalization/provider output and exhausted terminal-finalization failure. It
+does not clean retryable, ambiguous or in-flight work. Replays reuse the
+durable materialization boundary and timestamps instead of inventing new
+receipts. The finalization worker routes synthetic chapter orchestration away
+from the generic render cleanup owner and accepts a terminal chapter replay
+only after ProjectService has proved/materialized the same terminal cleanup;
+standard terminal rows remain rejected.
+
+The direct materializer and worker closure proves multi/single child cleanup,
+concat cleanup, deterministic replay IDs/timestamps, boundary conflicts,
+missing/mismatched evidence with no writes, current terminal chapter replay
+and standard-row rejection. No deployed role was created or assumed and no
+S3 object was deleted. The live environment still lacks the required cleanup
+role/environment bindings, so least-privilege deletion and a live idempotent
+receipt remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3V checkpoint
+
+Commit `cfcc3216d` adds the durable per-child dispatch ledger that Phase 3T
+identified as missing. Every child moves through `NOT_ATTEMPTED`,
+`ATTEMPTING`, `UNKNOWN` or `BOUND` under a deterministic attempt token bound
+to its parent, child and project snapshot. The attempt marker must be durably
+written with `modifiedCount === 1` before the provider call. A returned exact
+provider tuple can bind only to the corresponding attempt; exact `BOUND`
+replay is read-only and preserves the original provider-acceptance timestamp.
+Malformed tuples, tuple attachment to `NOT_ATTEMPTED`, and `UNKNOWN` rows
+without a durable attempt timestamp fail closed.
+
+The combined adjacent closure passed 92/92 tests across ten chapter dispatch,
+cleanup, concat, progress and finalization files. The full 8-GB TypeScript
+check, full `npx eslint . --quiet` and `git diff --check` passed before the
+commit was pushed. No provider call, wallet mutation, refund, rerender,
+deletion, paid cohort run, model inference or project-content mutation
+occurred.
+
+This is a child dispatch fence, not complete chapter recovery. The signed
+child callback path is still absent; the parent chapter row is still using a
+synthetic `(jobId, "chapter-render", region)` tuple that must not be treated as
+provider evidence; current project revision/invalidation is not yet enforced
+through child progress and concat execution; billing-only reconciliation,
+concat publish/lease recovery and retention fencing remain open. The next
+bounded order is: (1) signed child callback plus explicit parent-orchestration
+routing, (2) billing-only reconciliation, (3) parent revision/invalidation
+recovery, (4) concat transport/lease recovery, (5) retention/index fencing,
+then (6) migration/backfill and deployed IAM/live deletion proof.
+
+Deployment preflight found the concat endpoint/token configured in Vercel but
+the fixed concat destination and cleanup-specific STS inputs absent. The
+current Modal deployment predates the September source and its writer still
+requires deployment/configuration review. The available AWS caller cannot
+inspect, create or assume the intended cleanup role and cannot inspect the
+bucket ownership/versioning/public-access configuration. These are explicit
+external deployment blockers, not reasons to weaken the local contract.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+chapter-path convergence, agency-class completion, deployed cleanup proof,
+successor receipt or `GO` is claimed.
