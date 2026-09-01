@@ -530,25 +530,60 @@ describe('durable MG render job runner', () => {
     const result = providerFallbackResult(queued._id, 'terminal');
     const completeJob = vi.fn(async () => true);
     const failJob = vi.fn();
+    const revision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-07-13T00:00:00.000Z',
+    };
+    const loadProjectForMutation = vi.fn(async () => ({
+      project: { overlays: [], intelligence: {} } as any,
+      revision,
+    }));
+    const commitMgRenderDelivery = vi.fn(async () => ({
+      delivered: true,
+      receipt: {
+        schemaVersion: 1 as const,
+        projectId: 'project-1',
+        revision: { ...revision, value: 8 },
+        committedAt: '2026-07-13T00:01:01.000Z',
+      },
+    }));
+    const reconcileParent = vi.fn(async () => undefined);
 
-    await expect(runDurableMgRenderJob(input(), {
+    await expect(executeQueuedMgRenderJob(queued._id, {
       env: ENV,
       now: NOW,
       dependencies: {
-        createOrGetJob: vi.fn(async () => queued),
+        getJobState: vi.fn(async () => queuedJobState()),
+        waitForProjectReady: vi.fn(async () => true),
         claimJob: vi.fn(async (args) => ({
           ...queued,
           status: 'running' as const,
           leaseId: args.leaseId ?? 'lease-terminal-provider-fallback',
         })),
         executeSandbox: vi.fn(async () => result),
+        loadProjectForMutation,
+        commitMgRenderDelivery,
         completeJob,
         failJob,
+        reconcileParent,
       },
-    })).resolves.toEqual(result);
+    })).resolves.toEqual({ status: 'completed', result });
 
     expect(completeJob).toHaveBeenCalledOnce();
     expect(failJob).not.toHaveBeenCalled();
+    expect(commitMgRenderDelivery).toHaveBeenCalledWith('user-1', 'project-1', {
+      expectedRevision: revision,
+      jobId: queued._id,
+      overlays: [],
+      outcome: expect.objectContaining({
+        jobId: queued._id,
+        status: 'fallback',
+        reason: 'component provider unavailable',
+      }),
+    });
+    expect(commitMgRenderDelivery.mock.invocationCallOrder[0]).toBeLessThan(completeJob.mock.invocationCallOrder[0]);
+    expect(completeJob.mock.invocationCallOrder[0]).toBeLessThan(reconcileParent.mock.invocationCallOrder[0]);
   });
 
   it('records authorization failures after a lease is claimed', async () => {

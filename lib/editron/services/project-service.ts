@@ -626,10 +626,10 @@ export interface ProjectAudioRightsAttestationCommitV1 {
 }
 
 /**
- * The durable MG worker's generated-result ledger entry. This is deliberately
- * a narrow project mutation rather than a generic worker field-update port.
+ * The durable MG worker's outcome ledger entry. This is deliberately a narrow
+ * project mutation rather than a generic worker field-update port.
  */
-export interface ProjectMgRenderDeliveryOutcomeV1 {
+export interface ProjectMgRenderGeneratedOutcomeV1 {
   jobId: string;
   status: "generated";
   candidateId: string;
@@ -638,6 +638,20 @@ export interface ProjectMgRenderDeliveryOutcomeV1 {
   sequenceId: string;
   completedAt: Date;
 }
+
+export interface ProjectMgRenderNonGeneratedOutcomeV1 {
+  jobId: string;
+  status: "declined" | "fallback";
+  candidateId: string;
+  factKind: string;
+  frame: number;
+  reason: string;
+  completedAt: Date;
+}
+
+export type ProjectMgRenderDeliveryOutcomeV1 =
+  | ProjectMgRenderGeneratedOutcomeV1
+  | ProjectMgRenderNonGeneratedOutcomeV1;
 
 /**
  * The one ProjectService command that lands an asynchronous MG result. The
@@ -6939,8 +6953,9 @@ export class ProjectService {
   }
 
   /**
-   * Atomically land one generated MG delivery and its worker outcome at the
-   * caller's project snapshot. A replay that has already landed the same job
+   * Atomically land one MG worker outcome at the caller's project snapshot.
+   * Generated outcomes also land their overlays; declined and fallback
+   * outcomes are evidence-only. A replay that has already landed the same job
    * is idempotent; a different concurrent project write is a real conflict.
    */
   async commitMgRenderDelivery(
@@ -6958,20 +6973,28 @@ export class ProjectService {
     const overlayIds = input.overlays.map((overlay) => String(overlay.id));
     if (
       !input.jobId.trim()
-      || input.overlays.length === 0
       || new Set(overlayIds).size !== overlayIds.length
-      || !hasExactlyOneDeliveryOverlay
       || input.outcome.jobId !== input.jobId
-      || input.outcome.status !== "generated"
       || !input.outcome.candidateId.trim()
       || !input.outcome.factKind.trim()
       || !Number.isSafeInteger(input.outcome.frame)
-      || !input.outcome.sequenceId.trim()
       || !(input.outcome.completedAt instanceof Date)
       || Number.isNaN(input.outcome.completedAt.getTime())
     ) {
       throw new ProjectMutationWriteError("MG render delivery input is invalid.");
     }
+    if (input.outcome.status === "generated") {
+      if (input.overlays.length === 0 || !hasExactlyOneDeliveryOverlay || !input.outcome.sequenceId.trim()) {
+        throw new ProjectMutationWriteError("MG render delivery input is invalid.");
+      }
+    } else if (
+      input.overlays.length !== 0
+      || !input.outcome.reason.trim()
+      || input.outcome.reason.length > 8_000
+    ) {
+      throw new ProjectMutationWriteError("MG render delivery input is invalid.");
+    }
+    const generated = input.outcome.status === "generated";
 
     const db = await getDatabase();
     const committedAt = new Date();
@@ -6982,21 +7005,25 @@ export class ProjectService {
         reason: "generated MG delivery was attached through ProjectService",
       })
     ));
+    const outcomePush = {
+      $each: [input.outcome],
+      $slice: -100,
+    } as never;
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
         projectId,
         userId,
-        "overlays.metadata.mgRenderJobId": { $ne: input.jobId },
+        "intelligence.mgCodegenRun.asyncOutcomes.jobId": { $ne: input.jobId },
+        ...(generated ? { "overlays.metadata.mgRenderJobId": { $ne: input.jobId } } : {}),
         ...projectRevisionPredicate(input.expectedRevision),
       },
       {
-        $push: {
-          overlays: { $each: persistedOverlays } as never,
-          "intelligence.mgCodegenRun.asyncOutcomes": {
-            $each: [input.outcome],
-            $slice: -100,
-          } as never,
-        },
+        $push: generated
+          ? {
+            overlays: { $each: persistedOverlays } as never,
+            "intelligence.mgCodegenRun.asyncOutcomes": outcomePush,
+          }
+          : { "intelligence.mgCodegenRun.asyncOutcomes": outcomePush },
         $set: { updatedAt: committedAt },
         $inc: { projectRevision: 1 },
       },
@@ -7004,13 +7031,21 @@ export class ProjectService {
     if (result.matchedCount === 0) {
       const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
         { projectId, userId },
-        { projection: { overlays: 1, projectRevision: 1, updatedAt: 1 } },
-      )) as Pick<Project, "overlays" | "projectRevision" | "updatedAt"> | null;
+        { projection: { overlays: 1, intelligence: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as (
+        Pick<Project, "overlays" | "projectRevision" | "updatedAt">
+        & { intelligence?: { mgCodegenRun?: { asyncOutcomes?: Array<{ jobId?: unknown }> } } }
+      ) | null;
       if (!current) throw new ProjectNotFoundOrForbiddenError();
-      const alreadyDelivered = current.overlays?.some((overlay) => (
+      const overlayAlreadyDelivered = current.overlays?.some((overlay) => (
         (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId === input.jobId
       ));
-      if (alreadyDelivered) return { delivered: false };
+      const outcomeAlreadyDelivered = current.intelligence?.mgCodegenRun?.asyncOutcomes
+        ?.some((outcome) => outcome.jobId === input.jobId) ?? false;
+      if (generated && overlayAlreadyDelivered !== outcomeAlreadyDelivered) {
+        throw new ProjectMutationWriteError("MG render delivery is partially persisted.");
+      }
+      if (outcomeAlreadyDelivered) return { delivered: false };
       throw new ProjectMutationConflictError(projectRevisionFor(current));
     }
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();

@@ -1360,6 +1360,7 @@ describe("Editron project save payload compaction", () => {
       {
         projectId: "proj_1",
         userId: "user_1",
+        "intelligence.mgCodegenRun.asyncOutcomes.jobId": { $ne: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         "overlays.metadata.mgRenderJobId": { $ne: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         projectRevision: 7,
         updatedAt: new Date(updatedAt),
@@ -1389,6 +1390,11 @@ describe("Editron project save payload compaction", () => {
       projectRevision: 8,
       updatedAt: new Date(updatedAt),
       overlays: [{ metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }],
+      intelligence: {
+        mgCodegenRun: {
+          asyncOutcomes: [{ jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }],
+        },
+      },
     });
     const { projectService } = await import(
       "@/lib/editron/services/project-service",
@@ -1423,6 +1429,63 @@ describe("Editron project save payload compaction", () => {
     ));
 
     expect(captured).toEqual({ value: { delivered: false }, receipts: [] });
+  });
+
+  it("commits a terminal MG fallback as revision-fenced evidence without overlays", async () => {
+    const updatedAt = "2026-08-11T06:03:30.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.commitMgRenderDelivery("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        jobId: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        overlays: [],
+        outcome: {
+          jobId: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          status: "fallback",
+          candidateId: "candidate_2",
+          factKind: "comparison",
+          frame: 75,
+          reason: "provider authentication rejected",
+          completedAt: new Date("2026-08-11T06:03:31.000Z"),
+        },
+      })
+    ));
+
+    expect(captured.value).toMatchObject({
+      delivered: true,
+      receipt: { projectId: "proj_1", revision: { value: 8 } },
+    });
+    expect(captured.receipts).toHaveLength(1);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        "intelligence.mgCodegenRun.asyncOutcomes.jobId": {
+          $ne: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      },
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+        $push: {
+          "intelligence.mgCodegenRun.asyncOutcomes": expect.objectContaining({
+            $each: [expect.objectContaining({
+              jobId: "mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              status: "fallback",
+            })],
+          }),
+        },
+      }),
+    );
   });
 
   it("rejects a stale MG delivery without changing project state", async () => {

@@ -408,6 +408,14 @@ async function deliverMgRenderJobResult(
   if (!job.request) throw new Error(`MG render job ${job._id} is missing its executable request`);
   const request = job.request;
   const candidate = request.input.candidate;
+  const projectMutationPort = dependencies.loadProjectForMutation && dependencies.commitMgRenderDelivery
+    ? null
+    : await resolveProjectMutationPort();
+  const mutationTarget = await (dependencies.loadProjectForMutation ?? projectMutationPort!.loadProjectForMutation)(
+    job.userId,
+    job.projectId,
+  );
+  const commitDelivery = dependencies.commitMgRenderDelivery ?? projectMutationPort!.commitMgRenderDelivery;
 
   if (result.status !== 'generated') {
     const outcome = {
@@ -419,25 +427,12 @@ async function deliverMgRenderJobResult(
       reason: result.reason,
       completedAt: new Date(result.completedAt),
     };
-    const db = await getDatabase();
-    const projects = db.collection(COLLECTIONS.PROJECTS);
-    const write = await projects.updateOne(
-      {
-        projectId: job.projectId,
-        userId: job.userId,
-        'intelligence.mgCodegenRun.asyncOutcomes.jobId': { $ne: job._id },
-      },
-      {
-        $push: {
-          'intelligence.mgCodegenRun.asyncOutcomes': { $each: [outcome], $slice: -100 } as never,
-        },
-        $set: { updatedAt: new Date() },
-      },
-    );
-    if (write.matchedCount === 0) {
-      const project = await projects.findOne({ projectId: job.projectId, userId: job.userId }, { projection: { _id: 1 } });
-      if (!project) throw new Error('MG render delivery: project missing or ownership mismatch');
-    }
+    await commitDelivery(job.userId, job.projectId, {
+      expectedRevision: mutationTarget.revision,
+      jobId: job._id,
+      overlays: [],
+      outcome,
+    });
     return;
   }
 
@@ -465,13 +460,6 @@ async function deliverMgRenderJobResult(
     },
   });
   const overlayId = asyncOverlayId(job._id);
-  const projectMutationPort = dependencies.loadProjectForMutation && dependencies.commitMgRenderDelivery
-    ? null
-    : await resolveProjectMutationPort();
-  const mutationTarget = await (dependencies.loadProjectForMutation ?? projectMutationPort!.loadProjectForMutation)(
-    job.userId,
-    job.projectId,
-  );
   const kineticSfxContext = resolveMgKineticSfxContext(mutationTarget.project, request.input.momentId);
   let kineticService: typeof import('@/lib/editron/services/kinetic-sfx-service') | null = null;
   let kineticSfxEvents: import('@/lib/editron/services/kinetic-sfx-service').KineticSfxEvent[] = [];
@@ -548,7 +536,7 @@ async function deliverMgRenderJobResult(
     }
   }
 
-  await (dependencies.commitMgRenderDelivery ?? projectMutationPort!.commitMgRenderDelivery)(job.userId, job.projectId, {
+  await commitDelivery(job.userId, job.projectId, {
     expectedRevision: mutationTarget.revision,
     jobId: job._id,
     overlays: deliveryOverlays,
