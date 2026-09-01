@@ -26,6 +26,9 @@ import type { GateResult } from '@/lib/editron/services/quality-gate';
 import type { ExecutionResult } from '@/lib/editron/services/edl-executor';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import {
+  ProjectMutationConflictError,
+  ProjectMutationWriteError,
+  ProjectNotFoundOrForbiddenError,
   projectService,
   type ProjectMutationReceiptV1,
   type ProjectPhase0ProofFactsV1,
@@ -1946,8 +1949,8 @@ export async function executeDirectorPlan(
           });
           try {
             const {
+              autoBgmDecisionEvidenceHashV1,
               buildAutoBgmDecisionEvidence,
-              persistAutoBgmDecisionEvidence,
             } = await import('@/lib/editron/services/auto-bgm-decision');
             const bgmFps = project.fps || 30;
             const bgmTotalFrames = overlays.reduce(
@@ -1966,7 +1969,24 @@ export async function executeDirectorPlan(
                 musicGenerationPolicy,
                 ...evidenceInput,
               });
-              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              if (!directorLeaseId) {
+                throw new ProjectMutationWriteError('Auto-BGM evidence requires the active Director lease.');
+              }
+              const receipt = await projectService.recordDirectorAutoBgmDecisionV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  evidence,
+                  evidenceHash: autoBgmDecisionEvidenceHashV1(evidence),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [receipt],
+              });
               return evidence;
             };
 
@@ -2007,6 +2027,12 @@ export async function executeDirectorPlan(
                 // Signal-driven BGM levels, bounded by the CKG solo/under-speech dB ranges, from THIS video's
                 // energy_baseline — replaces the fixed 0.75/0.20 literals (music was ~9dB too hot in gaps).
                 const bgmMix = resolveBgmMixLevels({ energyBaseline: bgmEnergy });
+                await persistAutoBgmEvidence({
+                  providerAvailable,
+                  mood: bgmMood,
+                  pacing: bgmPacing,
+                  musicPrompt: bgmMusicPrompt,
+                });
                 const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
@@ -2036,8 +2062,8 @@ export async function executeDirectorPlan(
             console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
             try {
               const {
+                autoBgmDecisionEvidenceHashV1,
                 buildAutoBgmDecisionEvidence,
-                persistAutoBgmDecisionEvidence,
               } = await import('@/lib/editron/services/auto-bgm-decision');
               const bgmFps = project.fps || 30;
               const bgmTotalFrames = overlays.reduce(
@@ -2054,9 +2080,26 @@ export async function executeDirectorPlan(
                 musicGenerationPolicy,
                 error: bgmErr,
               });
-              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              if (!directorLeaseId) {
+                throw new ProjectMutationWriteError('Auto-BGM failure evidence requires the active Director lease.');
+              }
+              const receipt = await projectService.recordDirectorAutoBgmDecisionV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  evidence,
+                  evidenceHash: autoBgmDecisionEvidenceHashV1(evidence),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [receipt],
+              });
             } catch (persistBgmErr: any) {
-              console.warn(`[Director] Auto-BGM evidence persistence failed (non-fatal): ${persistBgmErr?.message ?? persistBgmErr}`);
+              throw persistBgmErr;
             }
           }
           pathDHandled = true;
@@ -2066,7 +2109,12 @@ export async function executeDirectorPlan(
             `${unifiedDecisionBundle.edl.totalDecisions} decisions applied`
           );
         } catch (bundleErr: any) {
-          if (isCanonicalDecisionTimelineError(bundleErr)) {
+          if (
+            isCanonicalDecisionTimelineError(bundleErr)
+            || bundleErr instanceof ProjectMutationConflictError
+            || bundleErr instanceof ProjectMutationWriteError
+            || bundleErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
             result.warnings.push(bundleErr.message);
             throw bundleErr;
           }

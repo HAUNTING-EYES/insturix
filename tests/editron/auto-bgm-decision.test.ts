@@ -1,20 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-
-const mocks = vi.hoisted(() => {
-  const updateOne = vi.fn(async () => ({ acknowledged: true }));
-  const collection = vi.fn(() => ({ updateOne }));
-  return { collection, updateOne };
-});
-
-vi.mock('@/lib/editron/db/mongodb', () => ({
-  getDatabase: vi.fn(async () => ({ collection: mocks.collection })),
-}));
+import { describe, expect, it } from 'vitest';
 
 import {
+  assertAutoBgmDecisionEvidenceV1,
+  autoBgmDecisionEvidenceHashV1,
   buildAutoBgmDecisionEvidence,
-  persistAutoBgmDecisionEvidence,
 } from '@/lib/editron/services/auto-bgm-decision';
 import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
 import { resolveMusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
@@ -164,7 +155,7 @@ describe('Auto-BGM decision evidence', () => {
     });
   });
 
-  it('persists BGM evidence in both current and audio-scoped intelligence paths', async () => {
+  it('issues a canonical hash and rejects contradictory dispatch evidence', () => {
     const evidence = buildAutoBgmDecisionEvidence({
       recommendation: { shouldAddBgm: true, reason: 'speech-heavy casual edit' },
       providerAvailable: true,
@@ -172,22 +163,25 @@ describe('Auto-BGM decision evidence', () => {
       evaluatedAt,
     });
 
-    await persistAutoBgmDecisionEvidence('proj_auto_bgm', evidence);
-
-    expect(mocks.updateOne).toHaveBeenCalledWith(
-      { projectId: 'proj_auto_bgm' },
-      {
-        $set: {
-          'intelligence.autoBgmDecision': evidence,
-          'intelligence.audio.autoBgmDecision': evidence,
-        },
+    expect(() => assertAutoBgmDecisionEvidenceV1(evidence)).not.toThrow();
+    expect(autoBgmDecisionEvidenceHashV1(evidence)).toMatch(/^[a-f0-9]{64}$/);
+    expect(() => assertAutoBgmDecisionEvidenceV1({
+      ...evidence,
+      status: 'dispatched',
+      dispatch: {
+        version: 'audio-dispatch-result-v1',
+        label: 'BGM(auto-edit)',
+        url: 'https://example.com/api/internal/workers/pipeline/audio',
+        dispatched: false,
+        method: 'none',
       },
-    );
+    })).toThrow('AUTO_BGM_DECISION_EVIDENCE_INVALID');
   });
 
   it('wires Director auto-edit BGM through persisted evidence, not console logs only', () => {
     const directorSource = readFileSync(join(process.cwd(), 'lib/editron/agent/director-agent.ts'), 'utf8');
     const dispatchSource = readFileSync(join(process.cwd(), 'lib/editron/services/audio-worker-dispatch.ts'), 'utf8');
+    const decisionSource = readFileSync(join(process.cwd(), 'lib/editron/services/auto-bgm-decision.ts'), 'utf8');
     const videoAnalysisSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/video-analysis/route.ts'), 'utf8');
     const tribeSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/tribe-analysis/route.ts'), 'utf8');
 
@@ -198,8 +192,14 @@ describe('Auto-BGM decision evidence', () => {
     expect(directorSource).toContain('!musicGenerationPolicy.allowed');
     expect(directorSource).toContain('musicGenerationPolicy,');
     expect(directorSource).toContain('editorialPolicy: musicEditorialPolicy');
-    expect(directorSource).toContain('persistAutoBgmDecisionEvidence(projectId, evidence)');
+    expect(directorSource).toContain('projectService.recordDirectorAutoBgmDecisionV1(');
+    expect(directorSource).toContain('directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({');
     expect(directorSource).toContain('const dispatchResult = await dispatchAudioJob');
+    expect(directorSource.indexOf('await persistAutoBgmEvidence({\n                  providerAvailable,')).toBeLessThan(
+      directorSource.indexOf('const dispatchResult = await dispatchAudioJob'),
+    );
+    expect(decisionSource).not.toContain("collection('projects').updateOne");
+    expect(decisionSource).not.toContain('persistAutoBgmDecisionEvidence');
     expect(directorSource).toContain('musicPreference: musicGenerationPolicy.musicPreference');
     expect(directorSource).toContain('editorialPreferences: musicGenerationPolicy.editorialPreferences');
     expect(videoAnalysisSource).toContain('editorialPreferences?: EditorialPreferences');

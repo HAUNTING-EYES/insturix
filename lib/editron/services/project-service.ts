@@ -12,6 +12,10 @@ import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 import {
+  autoBgmDecisionEvidenceHashV1,
+  type AutoBgmDecisionEvidence,
+} from "./auto-bgm-decision";
+import {
   MAX_RENDER_FINALIZATION_ATTEMPTS,
   PROJECT_ARTIFACT_NOT_CURRENT,
   PROJECT_RENDER_JOBS_COLLECTION_V1,
@@ -1043,6 +1047,13 @@ export interface ProjectDirectorProgressCommandV1 {
   directorLeaseId: string;
   stagePercent: number;
   stageDescription: string;
+}
+
+export interface ProjectDirectorAutoBgmDecisionCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  directorLeaseId: string;
+  evidence: AutoBgmDecisionEvidence;
+  evidenceHash: string;
 }
 
 /**
@@ -4921,6 +4932,78 @@ export class ProjectService {
       throw new ProjectMutationConflictError(
         projectRevisionFor(latest),
         "Director progress is stale or no longer owns this project.",
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
+  }
+
+  /**
+   * Records one Auto-BGM decision while the originating Director still owns
+   * the exact project revision. This is non-renderable decision metadata: it
+   * neither attaches audio nor licenses a later audio delivery.
+   */
+  async recordDirectorAutoBgmDecisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorAutoBgmDecisionCommandV1,
+  ): Promise<ProjectMutationReceiptV1> {
+    assertProjectDirectorAutoBgmDecisionCommandV1(input);
+
+    const db = await getDatabase();
+    const committedAt = new Date();
+    const evidence = structuredClone(input.evidence);
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        directorLock: true,
+        directorLockToken: input.directorLeaseId,
+        autoEditStatus: "directing",
+      },
+      {
+        $set: {
+          "intelligence.autoBgmDecision": evidence,
+          "intelligence.audio.autoBgmDecision": evidence,
+          "intelligence.autoBgmDecisionBinding": {
+            schemaVersion: 1,
+            evidenceHash: input.evidenceHash,
+            sourceProjectRevision: structuredClone(input.expectedRevision),
+            predecessor: "ACTIVE_DIRECTOR_LEASE",
+            affectedRange: null,
+            affectedRangeReason: "PROJECT_WIDE_NON_RENDERABLE_DECISION_METADATA",
+            rightsRequirement: "NOT_APPLICABLE_NO_MEDIA_ATTACHED",
+            invalidationRequirement: "NOT_REQUIRED_NO_RENDERABLE_STATE_CHANGE",
+            recordedAt: committedAt,
+          },
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(
+        projectRevisionFor(latest),
+        "Auto-BGM decision evidence is stale or its Director lease is no longer active.",
       );
     }
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
@@ -10024,6 +10107,31 @@ function assertProjectDirectorProgressCommandV1(
   ) {
     throw new ProjectMutationWriteError(
       "Director progress must carry one bounded stage and an active lease-bound revision.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectDirectorAutoBgmDecisionCommandV1(
+  input: ProjectDirectorAutoBgmDecisionCommandV1,
+): void {
+  let computedEvidenceHash = "";
+  try {
+    computedEvidenceHash = autoBgmDecisionEvidenceHashV1(input.evidence);
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Auto-BGM decision evidence must be one valid bounded V1 record.",
+    );
+  }
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.directorLeaseId, 200)
+    || !/^[a-f0-9]{64}$/.test(input.evidenceHash)
+    || input.evidenceHash !== computedEvidenceHash
+  ) {
+    throw new ProjectMutationWriteError(
+      "Auto-BGM decision evidence must carry its exact revision, lease, and canonical hash.",
     );
   }
   assertProjectRevision(input.expectedRevision);
