@@ -15121,3 +15121,57 @@ history, chapter and recovery consumers under the same binding gates. Queue 5
 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
 agency-class completion, convergence, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3N checkpoint
+
+Commits `bab9aa3e1`, `e2731f251`, `355c06d0f` and `29884c031` replace the
+generic whole-project stale-render cleanup marker identified in Phases 3K–3M
+with an immutable provider cleanup handoff and its production consumer. The
+descriptor binds the exact `PROJECT_SNAPSHOT`, provider render ID, S3 bucket,
+AWS region, provider-derived `renders/<renderId>/` prefix, source-output audit
+URL/size and a deterministic descriptor hash. URL is never deletion
+authority. Standard Remotion renders use the official provider identity;
+`chapter-render` aggregate jobs are rejected because their child-render
+identities require a separate chapter cleanup contract.
+
+The strict stale-finalization owner and stale-before-finalization provider-
+success owner now mark the exact bound render stale, insert the immutable
+cleanup outbox row and link its ID back to the render job in the same Mongo
+session and ProjectService transaction. Missing or conflicting provider,
+source, authorization, binding or handoff identity aborts the transaction.
+Stale provider output is returned to the finalization dispatcher as
+`PROJECT_ARTIFACT_NOT_CURRENT`, never as an enqueueable success claim.
+Historical render rows may still be read without the new optional link; new
+strict cleanup handoffs must belong to a stale project-snapshot render.
+
+The cleanup runtime atomically leases pending or expired-running rows before
+any provider call. It prepares the existing Remotion AWS credential owner and
+calls installed Remotion 4.0.509 `deleteRender` with the exact region, bucket
+and render ID. Exact claim token plus descriptor hash gates completion; the
+completion receipt records `freedBytes`. Provider failures are sanitized and
+rescheduled with deterministic capped exponential backoff. Lost completion or
+release ownership fails loudly. A fail-closed Bearer-`CRON_SECRET` route runs
+a bounded batch every five minutes, and Mongo indexes cover pending-ready and
+expired-running discovery.
+
+The combined cleanup contract, render owner, ProjectService transaction and
+runtime/cron suites passed 34/34 tests. The full repository TypeScript check
+passed with the project compiler and an 8 GB Node heap; full
+`npx eslint . --quiet` and `git diff --check` passed before `29884c031` was
+committed and pushed. No live provider deletion, project content mutation,
+model inference, historical cohort rerun or external spend occurred.
+
+This closes the source-code and local-proof part of the standard Remotion
+stale-render orphan chain; it does not prove deployed cleanup. The deployed
+AWS role still needs verified `s3:DeleteObject` authority and one live
+idempotent deletion receipt. Chapter aggregate child renders still need their
+own exact cleanup descriptor/consumer. Strict progress, active, history,
+chapter and ambiguous-dispatch recovery consumers remain to be migrated and
+proved; therefore render-chain convergence, Queue 5 completion, agency-class
+certification and Stage 2.5 `GO` are not claimed.
+
+The next bounded order is strict progress, active and history consumption,
+then chapter child-render cleanup and ambiguous-dispatch recovery, followed
+by deployed IAM/live deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues
+3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`.
