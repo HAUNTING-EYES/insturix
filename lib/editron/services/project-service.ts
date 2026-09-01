@@ -8641,86 +8641,9 @@ export class ProjectService {
   }
 
   /**
-   * Add an overlay atomically
-   */
-  async addOverlay(
-    userId: string,
-    projectId: string,
-    overlay: Overlay,
-  ): Promise<void> {
-    const db = await getDatabase();
-    const project = (await db
-      .collection(COLLECTIONS.PROJECTS)
-      .findOne(
-        { projectId, userId },
-        { projection: { fps: 1, projectRevision: 1, updatedAt: 1 } },
-      )) as unknown as Pick<
-        Project,
-        "fps" | "projectRevision" | "updatedAt"
-      > | null;
-    if (!project) throw new ProjectNotFoundOrForbiddenError();
-    const expectedRevision = projectRevisionFor(project);
-    const overlayWithReceipt = ensureAtomicOverlayReceipt(overlay, {
-      source: "project-service-add-overlay",
-      intent: `persist-${overlay.type}`,
-      reason: "overlay persisted through ProjectService.addOverlay",
-    });
-    const committedAt = new Date();
-    const afterRevision: ProjectRevisionV1 = {
-      schemaVersion: 1,
-      value: expectedRevision.value + 1,
-      compatibilityUpdatedAt: committedAt.toISOString(),
-    };
-    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
-      receiptId: `timeline-overlay-add_${nanoid(18)}`,
-      projectId,
-      operation: "ADD_OVERLAY",
-      fps: project.fps || 30,
-      beforeProjectRevision: expectedRevision,
-      afterProjectRevision: afterRevision,
-      committedAt: committedAt.toISOString(),
-      beforeOverlay: null,
-      afterOverlay: overlayWithReceipt,
-    });
-    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      {
-        projectId,
-        userId,
-        ...projectRevisionPredicate(expectedRevision),
-      },
-      {
-        $push: {
-          overlays: overlayWithReceipt,
-          timelineRangeChangeReceipts: {
-            $each: [timelineChangeReceipt],
-            $slice: -200,
-          },
-        } as any,
-        $set: { updatedAt: committedAt },
-        $inc: { projectRevision: 1 },
-      },
-    );
-    if (result.matchedCount === 0) {
-      throw new ProjectMutationConflictError(
-        await this.getProjectRevision(userId, projectId),
-      );
-    }
-    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
-
-    const receipt: ProjectMutationReceiptV1 = {
-      schemaVersion: 1,
-      projectId,
-      revision: afterRevision,
-      committedAt: committedAt.toISOString(),
-    };
-    this.publishMutationReceipt(receipt);
-  }
-
-  /**
    * Add one overlay only at the caller's exact project snapshot. Unlike the
-   * legacy compatibility method above, this owner never converts a stale
-   * editing decision into a fresh write by loading the latest revision on the
-   * caller's behalf.
+   * retired legacy method, this owner never converts a stale editing decision
+   * into a fresh write by loading the latest revision on the caller's behalf.
    */
   async addOverlayAtRevisionV1(
     userId: string,
@@ -8849,6 +8772,20 @@ export class ProjectService {
     };
     this.publishMutationReceipt(mutationReceipt);
     return { mutationReceipt, timelineChangeReceipt };
+  }
+
+  /**
+   * Fail-closed compatibility tombstone for test doubles that have not yet
+   * migrated to `addOverlayAtRevisionV1`. It is not a mutation path.
+   */
+  async addOverlay(
+    _userId: string,
+    _projectId: string,
+    _overlay: Overlay,
+  ): Promise<void> {
+    throw new ProjectMutationWriteError(
+      "ProjectService.addOverlay is retired; supply an expected revision through addOverlayAtRevisionV1.",
+    );
   }
 
   /**

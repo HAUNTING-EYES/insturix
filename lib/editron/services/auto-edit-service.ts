@@ -12,6 +12,7 @@
  */
 
 import { projectService } from './project-service';
+import { readProjectRevisionV1 } from './project-revision-v1';
 import { getTranscription } from './media';
 import { FILLER_WORDS } from './media/types';
 import type { TranscriptionWord, TranscriptionData } from './media/types';
@@ -450,6 +451,13 @@ export async function executeAutoEdit(
   // Delete the original overlay
   await projectService.deleteOverlay(userId, projectId, sourceOverlay.id);
 
+  const projectAfterDelete = await projectService.loadProject(userId, projectId);
+  if (!projectAfterDelete) throw new Error('Project disappeared after removing the source overlay.');
+  let expectedRevision = readProjectRevisionV1(projectAfterDelete);
+  if (!expectedRevision) {
+    throw new Error('The project revision is unavailable after removing the source overlay.');
+  }
+
   // Create new clips in script order, placed sequentially
   let currentFrame = sourceOverlay.from || 0; // Start where the original video was
 
@@ -466,7 +474,16 @@ export async function executeAutoEdit(
       videoStartTime: cut.sourceStartFrame,
     };
 
-    await projectService.addOverlay(userId, projectId, newOverlay as any);
+    const addResult = await projectService.addOverlayAtRevisionV1(
+      userId,
+      projectId,
+      {
+        expectedRevision,
+        actorKind: 'SYSTEM',
+        overlay: newOverlay as any,
+      },
+    );
+    expectedRevision = addResult.mutationReceipt.revision;
     currentFrame += clipDurationFrames;
   }
 

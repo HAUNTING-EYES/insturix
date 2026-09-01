@@ -6,6 +6,7 @@ import {
   projectService,
   ProjectMutationConflictError,
 } from "../services/project-service";
+import { readProjectRevisionV1 } from "../services/project-revision-v1";
 import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
@@ -379,6 +380,21 @@ export const createTools = (userId: string, projectId: string) => {
     const project = await projectService.loadProject(userId, projectId);
     if (!project) throw new Error("Project not found or unauthorized.");
     return project;
+  };
+
+  const addOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlay: any,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before adding the overlay.");
+    }
+    return projectService.addOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlay,
+    });
   };
 
   // Helper to recalculate project duration after edits
@@ -822,7 +838,7 @@ Call with no arguments to get full timeline.`,
           project,
           overlayId: id,
         });
-        await projectService.addOverlay(userId, projectId, overlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, overlay as any);
         return JSON.stringify({
           status: 'success',
           id,
@@ -1145,7 +1161,11 @@ TYPE-SPECIFIC FIELDS:
           }),
         };
         
-        await projectService.addOverlay(userId, projectId, secondOverlay as any);
+        const projectAfterFirstSplitWrite = await loadProject();
+        await addOverlayAtLoadedProjectRevisionV1(
+          projectAfterFirstSplitWrite,
+          secondOverlay as any,
+        );
 
         await recalculateProjectDuration();
 
@@ -1612,7 +1632,7 @@ CAPABILITIES:
           }
         };
 
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
         
         // Return a SANITIZED message to the main agent so it doesn't see (and repeat) the code.
         return JSON.stringify({ 
@@ -1940,7 +1960,7 @@ FORBIDDEN:
           }
         };
 
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
         return JSON.stringify({ 
           status: 'success', 
           id,
@@ -2801,7 +2821,7 @@ Linked captions are automatically moved with their videos.`,
           },
         };
 
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
 
         return JSON.stringify({
           status: 'success',
@@ -3790,7 +3810,11 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               styles: { opacity: 1 },
               metadata: { isTransition: true, source: 'tool', transitionType: transId },
             };
-            await projectService.addOverlay(userId, projectId, transOverlay as any);
+            const projectAfterTransitionUpdates = await loadProject();
+            await addOverlayAtLoadedProjectRevisionV1(
+              projectAfterTransitionUpdates,
+              transOverlay as any,
+            );
 
             applied++;
           }
@@ -4571,7 +4595,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             },
           };
 
-          await projectService.addOverlay(userId, projectId, newOverlay as any);
+          await addOverlayAtLoadedProjectRevisionV1(project, newOverlay as any);
           return successEnvelope({
             id,
             templateUsed: 'composition-engine',
@@ -5557,7 +5581,7 @@ Examples:
 
         const { nanoid: nid } = await import('nanoid');
         const overlayId = Date.now() + parseInt(nid(4), 36);
-        await projectService.addOverlay(userId, projectId, {
+        await addOverlayAtLoadedProjectRevisionV1(project, {
           id: overlayId,
           type: 'sound',
           from: startFrame,

@@ -1193,14 +1193,22 @@ describe("Editron project save payload compaction", () => {
     );
 
     const captured = await projectService.captureMutationReceipts(async () => {
-      await projectService.addOverlay("user_1", "proj_1", {
-        id: 2,
-        type: "text",
-        from: 0,
-        row: 0,
-        durationInFrames: 30,
-        content: "added",
-      } as any);
+      await projectService.addOverlayAtRevisionV1("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: addedAt,
+        },
+        actorKind: "SYSTEM",
+        overlay: {
+          id: 2,
+          type: "text",
+          from: 0,
+          row: 0,
+          durationInFrames: 30,
+          content: "added",
+        } as any,
+      });
       await projectService.updateOverlay("user_1", "proj_1", 1, {
         content: "after",
       } as any);
@@ -2153,6 +2161,8 @@ describe("Editron project save payload compaction", () => {
     persistenceMocks.findOne.mockResolvedValueOnce({
       projectId: "proj_1",
       userId: "user_1",
+      fps: 30,
+      overlays: [],
       updatedAt: new Date(updatedAt),
       projectRevision: 7,
     });
@@ -2167,14 +2177,22 @@ describe("Editron project save payload compaction", () => {
 
     await expect(
       projectService.captureMutationReceipts(
-        () => projectService.addOverlay("user_1", "proj_1", {
-          id: 2,
-          type: "text",
-          from: 0,
-          row: 0,
-          durationInFrames: 30,
-          content: "uncommitted",
-        } as any),
+        () => projectService.addOverlayAtRevisionV1("user_1", "proj_1", {
+          expectedRevision: {
+            schemaVersion: 1,
+            value: 7,
+            compatibilityUpdatedAt: updatedAt,
+          },
+          actorKind: "SYSTEM",
+          overlay: {
+            id: 2,
+            type: "text",
+            from: 0,
+            row: 0,
+            durationInFrames: 30,
+            content: "uncommitted",
+          } as any,
+        }),
         (receipts) => {
           observedReceipts = receipts;
         },
