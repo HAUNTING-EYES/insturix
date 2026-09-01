@@ -16379,3 +16379,67 @@ Queues 3 and 4, which alone may be worked in parallel under the founder's
 current authorization; (3) implement Queue 6 serially; and (4) certify the
 agency verticals serially unless the founder explicitly authorizes further
 parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4M checkpoint
+
+Commits `d32b391df`, `efe9e617a`, `8a9f9347c`, `3752c0b58` and
+`e50566ca7` close the broad raw-writer inventory and shared lifecycle-owner
+slice left open by Phase 4L. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The shared project lifecycle state machine no longer performs a raw
+`findOneAndUpdate` against the project collection. It loads the authenticated
+ProjectService mutation snapshot, validates bounded history and error evidence,
+and commits through the exact project revision with a writer receipt. A
+same-state replay is explicitly `ALREADY_CURRENT` and does not duplicate
+history or events. Concurrent revision loss, malformed history and invalid
+transitions remain distinct non-success results.
+
+Every live caller now consumes that result. Render startup preserves a provider
+render that already started but returns `recovery_required` instead of durable
+tracking when the lifecycle CAS is rejected. Verified render completion releases
+its effects lease and blocks link, brand-event and effects-complete writes until
+status reconciliation succeeds. Storyboard finalization and Director completion
+preserve their already-committed primary work, suppress dependent completion
+events, and surface explicit recovery debt rather than silently treating a
+rejected projection as committed.
+
+The permanent mutation-owner inventory gate recursively scans Editron,
+pipeline, shared and adjacent runtime namespaces. It detects direct collection
+writes, local collection aliases, injected `collections.projects` aliases and
+Mongoose-style project-model writes. Only ProjectService, the separately
+revision-certified Assist money/status owner and explicit battle-fixture cleanup
+are classified writers. Removed `updateProjectMetadata`, `deriveProjectStatus`
+and `refreshProjectStatus` helpers are also forbidden from runtime source. A
+fresh source scan finds no other live Editron raw project writer; remaining
+literal project collection uses outside those owners are reads.
+
+Focused verification passed 51 lifecycle/brand/UploaderX tests, 104 lifecycle
+and render-start tests, 22 progress/completion-effects tests, 24
+finalize/Director tests and the two broad inventory gates. Targeted quiet ESLint,
+`git diff --check` and repeated full 8-GB TypeScript checks passed for these
+phases. Full-repository quiet ESLint remains required at the aggregate Queue 5
+closure and is not claimed here. No provider call, render, storage spend, wallet
+mutation, paid-cohort rerun or model inference occurred.
+
+This closes the broad direct-writer/bypass inventory, not universal Queue 5
+enforcement. ProjectService contains many authoritative writer families whose
+prerequisites are operation-specific. The remaining Queue 5 work is to classify
+each real writer and prove that every applicable evidence, project/source
+revision, coordinate range, lock, rights, predecessor and invalidation rule is
+checked before dispatch and independently at the writer CAS. Metadata-only,
+lease-only and fixture operations must declare non-applicable dimensions rather
+than receiving fabricated media evidence. The timeline-cut pilot and selected
+media/relink owners do not by themselves prove that universal surface.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) inventory and enforce the applicable universal
+Queue 5 prerequisite envelope across remaining ProjectService writer families
+serially; (2) return to unfinished Queues 3 and 4, which alone may be worked in
+parallel under the founder's current authorization; (3) implement Queue 6
+serially; and (4) certify agency verticals serially unless the founder explicitly
+authorizes additional parallel execution.
