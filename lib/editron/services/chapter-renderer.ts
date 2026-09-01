@@ -25,6 +25,12 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
+import {
+  assertProjectChapterConcatTargetV1,
+  createProjectChapterConcatTargetV1,
+  type ProjectChapterConcatSourceV1,
+  type ProjectChapterConcatTargetV1,
+} from './chapter-concat-contract-v1';
 import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
 import { assertRemotionSiteFresh } from './remotion-site-version';
 import {
@@ -101,10 +107,35 @@ interface ChapterRenderJob {
   height: number;
   /** Full server-owned PROJECT_SNAPSHOT binding for strict chapter jobs. */
   projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1;
+  /** Exact project owner from the snapshot binding; legacy rows may omit it. */
+  ownerId?: string;
   /** Selected AWS region for this job; legacy rows may omit it. */
   region?: string;
   /** Final concatenated video URL */
   outputUrl?: string;
+  /** Immutable strict concat input/output identity, persisted before QStash dispatch. */
+  concatTarget?: ProjectChapterConcatTargetV1;
+  /** Lease fencing prevents duplicate concat deliveries from running concurrently. */
+  concatLease?: {
+    claimToken: string;
+    claimedAt: Date;
+    leaseExpiresAt: Date;
+  };
+  concatAttempts?: number;
+  /** Exact Modal result identity retained for finalization and delivery audits. */
+  concatResult?: {
+    generation: string;
+    sourceManifestHash: string;
+    outputBucket: string;
+    outputRegion: string;
+    outputKey: string;
+    url: string;
+    sizeBytes: number;
+    chapters: number;
+    completedAt: Date;
+  };
+  concatStatus?: 'queued' | 'running' | 'done' | 'failed';
+  concatError?: string;
   createdAt: Date;
   updatedAt: Date;
   /** Plan-based auto-expiry (base 7d / mid 30d / top 90d). A TTL index on this field deletes the job. */
@@ -267,6 +298,42 @@ function isHttpsUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+function buildProjectChapterConcatTargetV1(
+  job: ChapterRenderJob,
+  statuses: ReadonlyArray<{ index: number; outputUrl?: unknown; outputSize?: unknown }>,
+): ProjectChapterConcatTargetV1 {
+  if (!job.projectRenderSnapshotBinding) {
+    throw new Error('CHAPTER_CONCAT_PROJECT_SNAPSHOT_BINDING_MISSING');
+  }
+  const orderedStatuses = [...statuses].sort((left, right) => left.index - right.index);
+  const sources: ProjectChapterConcatSourceV1[] = orderedStatuses.map((status, index) => {
+    const chapter = job.chapters.find((candidate) => candidate.index === status.index);
+    if (
+      !chapter
+      || chapter.index !== index
+      || !chapterProviderIdentityIsComplete(chapter)
+      || !isHttpsUrl(status.outputUrl)
+      || !readChapterOutputSize(status.outputSize)
+      || readChapterOutputSize(status.outputSize)! <= 0
+    ) {
+      throw new Error('CHAPTER_CONCAT_SOURCE_IDENTITY_MISSING');
+    }
+    return {
+      index,
+      providerRenderId: chapter.renderId!.trim(),
+      bucketName: chapter.bucketName!.trim(),
+      region: chapter.region!.trim(),
+      sourceUrl: status.outputUrl,
+      sourceSizeBytes: readChapterOutputSize(status.outputSize)!,
+    };
+  });
+  return createProjectChapterConcatTargetV1({
+    parentAdmissionId: job._id,
+    projectRenderSnapshotBinding: job.projectRenderSnapshotBinding,
+    sources,
+  });
 }
 
 async function failChapter(
@@ -550,6 +617,7 @@ export async function startChapterRender(
     height,
     region: selectedRegion,
     ...(projectRenderSnapshotBinding ? { projectRenderSnapshotBinding } : {}),
+    ...(projectRenderSnapshotBinding ? { ownerId: projectRenderSnapshotBinding.ownerId } : {}),
     createdAt,
     updatedAt: createdAt,
     expiresAt: renderChapterExpiresAt(createdAt, planType),
@@ -769,28 +837,103 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
         { $set: { status: 'failed', concatStatus: 'failed', error: completedError, updatedAt: new Date() } },
       );
     } else if (isChapterConcatConfigured()) {
-      // Claim the concat atomically so only ONE poll enqueues the durable (QStash-retried) job,
-      // then keep reporting in-progress until the worker writes status/outputUrl back.
-      const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
-        { _id: jobId, concatStatus: { $exists: false } } as any,
-        { $set: { concatStatus: 'queued', updatedAt: new Date() } },
-      );
-      if (claim.modifiedCount === 1) {
+      // Strict rows persist one immutable target before the durable dispatch. The
+      // worker reads that target rather than reconstructing it from mutable child
+      // rows, so every retry uses the same generation and output key.
+      if (isStrictChapterRenderJob(job)) {
+        let concatTarget: ProjectChapterConcatTargetV1 | undefined;
         try {
-          await enqueueChapterConcat(jobId);
-          console.log(`[ChapterRenderer] Job ${jobId}: enqueued concat of ${chapterStatuses.length} chapters`);
+          if (job.concatTarget) {
+            assertProjectChapterConcatTargetV1(job.concatTarget);
+            concatTarget = job.concatTarget;
+          } else {
+            concatTarget = buildProjectChapterConcatTargetV1(job, chapterStatuses);
+          }
         } catch (err: unknown) {
-          // Release the claim so a later poll retries instead of hanging in 'queued' forever.
+          computedStatus = 'failed';
+          completedError = err instanceof Error ? err.message : String(err);
+          completedOutputUrl = undefined;
           await db.collection(CHAPTERS_COLLECTION).updateOne(
             { _id: jobId } as any,
-            { $unset: { concatStatus: '' }, $set: { updatedAt: new Date() } },
-          );
-          console.warn(
-            `[ChapterRenderer] Job ${jobId}: concat enqueue failed: ${err instanceof Error ? err.message : String(err)}`,
+            {
+              $set: {
+                status: 'failed',
+                concatStatus: 'failed',
+                concatError: completedError,
+                updatedAt: new Date(),
+              },
+            },
           );
         }
+
+        if (concatTarget) {
+          // The target is written in the same atomic claim that changes the
+          // status. A racing poll can observe either the old state or the full
+          // target, never a queued job without its immutable input identity.
+          const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
+            {
+              _id: jobId,
+              concatStatus: { $exists: false },
+              $or: [
+                { concatTarget: { $exists: false } },
+                { 'concatTarget.generation': concatTarget.generation },
+              ],
+            } as any,
+            {
+              $set: {
+                concatTarget,
+                concatStatus: 'queued',
+                updatedAt: new Date(),
+              },
+            },
+          );
+          if (claim.modifiedCount === 1) {
+            try {
+              await enqueueChapterConcat(jobId, concatTarget.generation);
+              console.log(`[ChapterRenderer] Job ${jobId}: enqueued concat of ${chapterStatuses.length} chapters`);
+            } catch (err: unknown) {
+              // Preserve the target: the next poll can re-queue the exact same
+              // generation instead of making a new destination identity.
+              await db.collection(CHAPTERS_COLLECTION).updateOne(
+                {
+                  _id: jobId,
+                  concatStatus: 'queued',
+                  'concatTarget.generation': concatTarget.generation,
+                } as any,
+                { $unset: { concatStatus: '' }, $set: { updatedAt: new Date() } },
+              );
+              console.warn(
+                `[ChapterRenderer] Job ${jobId}: concat enqueue failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+        }
+      } else {
+        // Genuine legacy rows have no PROJECT_SNAPSHOT binding. Do not enqueue
+        // a raw URL job just to have the worker reject it: destination identity,
+        // source revision and owner scope cannot be recovered safely. Keep the
+        // row explicit for migration and stop before any provider dispatch.
+        const legacyError = 'CHAPTER_CONCAT_LEGACY_REQUIRES_PROJECT_SNAPSHOT_MIGRATION';
+        computedStatus = 'failed';
+        completedError = legacyError;
+        completedOutputUrl = undefined;
+        const quarantine = await db.collection(CHAPTERS_COLLECTION).updateOne(
+          { _id: jobId, concatStatus: { $exists: false } } as any,
+          {
+            $set: {
+              status: 'failed',
+              concatStatus: 'failed',
+              concatError: legacyError,
+              updatedAt: new Date(),
+            },
+          },
+        );
+        if (quarantine.modifiedCount !== 1) {
+          console.warn(`[ChapterRenderer] Job ${jobId}: legacy concat quarantine was not claimed`);
+        }
       }
-      // computedStatus stays in-progress (job.status) → the client keeps polling.
+      // Strict queued/running jobs remain in progress; legacy rows above are
+      // terminal migration failures and are surfaced immediately.
     } else {
       // No concat worker configured → fail loud rather than ship a truncated chapter 0.
       computedStatus = 'failed';
