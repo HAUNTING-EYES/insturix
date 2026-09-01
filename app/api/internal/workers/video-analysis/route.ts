@@ -1250,12 +1250,17 @@ async function handler(request: NextRequest) {
       { projection: { editMode: 1 } },
     );
     if (isAssistLaneProject(assistLaneOwner)) {
-      await db.collection('projects').updateOne(
-        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
-        { $set: { autoEditStatus: assistReadyStatus, autoEditCompletedAt: new Date() } },
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const assistCompletion = await projectService.claimDirectorRunV1(userId, projectId);
+      if (assistCompletion.disposition !== 'ASSIST_PROJECT') {
+        throw new Error(
+          `Assist completion lost current project ownership (${assistCompletion.disposition}).`,
+        );
+      }
+      console.log(
+        `[DirectorMode] Assist scan complete at project revision ${assistCompletion.receipt.revision.value}`
+        + ` — inline director skipped (project ${projectId}).`,
       );
-      console.log(`[DirectorMode] Assist scan complete — inline director skipped (project ${projectId}).`);
       return NextResponse.json({ success: true, projectId, status: assistReadyStatus, directorSkipped: true });
     }
 

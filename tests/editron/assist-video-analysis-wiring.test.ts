@@ -48,6 +48,13 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).toContain('const settlement = await settleAssistScanFailure(db, trackedProjectId, msg)');
   });
 
+  it('commits the inline Assist ready state through the ProjectService claim receipt', () => {
+    expect(source).toContain('const assistCompletion = await projectService.claimDirectorRunV1(userId, projectId)');
+    expect(source).toContain("assistCompletion.disposition !== 'ASSIST_PROJECT'");
+    expect(source).toContain('assistCompletion.receipt.revision.value');
+    expect(source).not.toContain("{ projectId, autoEditStatus: { $ne: 'scan_failed' } }");
+  });
+
   it('requires the shared dynamic QStash guard for both queued analysis stages', () => {
     expect(source).toContain("withInternalQStashWorkerAuth(handler, 'video-analysis')");
     expect(source).not.toContain('verifySignatureAppRouter(handler)');
