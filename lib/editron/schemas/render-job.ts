@@ -19,6 +19,7 @@ import {
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
 } from '@/lib/editron/services/project-render-snapshot-binding-v1';
+import { ProjectRenderSourceCleanupOutboxIdSchemaV1 } from '@/lib/editron/services/project-render-source-cleanup-v1';
 
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
@@ -127,6 +128,7 @@ export const RenderJobSchema = z.object({
   projectRenderSnapshotBinding: ProjectRenderSnapshotBindingSchema.optional(),
   artifactState: ProjectArtifactStateSchema.optional(),
   artifactCleanup: ProjectArtifactCleanupSchema.optional(),
+  projectRenderSourceCleanupOutboxId: ProjectRenderSourceCleanupOutboxIdSchemaV1.optional(),
   artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
   artifactInvalidatedAt: z.date().optional(),
   startedAt: z.date(),
@@ -144,6 +146,23 @@ export const RenderJobSchema = z.object({
       path: ['projectRenderSnapshotBinding'],
       message: 'A render job cannot carry both artifact binding scopes.',
       params: { code: 'RENDER_JOB_BINDING_SCOPES_AMBIGUOUS' },
+    });
+  }
+  if (
+    job.projectRenderSourceCleanupOutboxId !== undefined
+    && (
+      job.projectRenderSnapshotBinding === undefined
+      || job.artifactBinding !== undefined
+      || job.artifactState !== 'STALE'
+      || job.artifactCleanup === undefined
+      || job.artifactCleanup.state === 'NOT_REQUIRED'
+    )
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['projectRenderSourceCleanupOutboxId'],
+      message: 'A render source cleanup handoff requires one stale project-snapshot render.',
+      params: { code: 'RENDER_SOURCE_CLEANUP_SCOPE_INVALID' },
     });
   }
 });

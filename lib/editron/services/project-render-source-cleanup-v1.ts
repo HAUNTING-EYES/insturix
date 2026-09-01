@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ClientSession, Collection } from "mongodb";
 
 import {
   cloneCanonicalEditronJsonV1,
@@ -45,6 +46,9 @@ export const ProjectRenderSourceCleanupAwsRegionSchemaV1 = z.enum([
   "sa-east-1",
 ]);
 
+export const ProjectRenderSourceCleanupOutboxIdSchemaV1 = z.string()
+  .regex(CLEANUP_OUTBOX_ID);
+
 const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.object({
   schemaVersion: z.literal(1),
   scope: z.literal("PROJECT_RENDER_SOURCE_CLEANUP"),
@@ -78,7 +82,7 @@ const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.object({
 
 export const ProjectRenderSourceCleanupDescriptorSchemaV1 =
   ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1.safeExtend({
-    descriptorId: z.string().regex(CLEANUP_OUTBOX_ID),
+    descriptorId: ProjectRenderSourceCleanupOutboxIdSchemaV1,
     descriptorHash: z.string().regex(HEX_SHA256),
   }).strict();
 export type ProjectRenderSourceCleanupDescriptorV1 = z.infer<
@@ -105,7 +109,7 @@ const ProjectRenderSourceCleanupCompletionSchemaV1 = z.object({
 }).strict();
 
 export const ProjectRenderSourceCleanupOutboxSchemaV1 = z.object({
-  _id: z.string().regex(CLEANUP_OUTBOX_ID),
+  _id: ProjectRenderSourceCleanupOutboxIdSchemaV1,
   schemaVersion: z.literal(1),
   descriptor: ProjectRenderSourceCleanupDescriptorSchemaV1,
   status: z.enum(["PENDING", "RUNNING", "DONE"]),
@@ -223,5 +227,24 @@ export function assertProjectRenderSourceCleanupOutboxV1(
     || descriptorId !== `project-render-source-cleanup_${expectedHash}`
   ) {
     throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_DESCRIPTOR_HASH_MISMATCH");
+  }
+}
+
+export async function enqueueProjectRenderSourceCleanupOutboxV1(input: {
+  outbox: ProjectRenderSourceCleanupOutboxV1;
+  collection: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  session: ClientSession;
+}): Promise<void> {
+  assertProjectRenderSourceCleanupOutboxV1(input.outbox);
+  const persisted = await input.collection.updateOne(
+    {
+      _id: input.outbox._id,
+      "descriptor.descriptorHash": input.outbox.descriptor.descriptorHash,
+    },
+    { $setOnInsert: structuredClone(input.outbox) },
+    { upsert: true, session: input.session },
+  );
+  if (persisted.matchedCount !== 1 && persisted.upsertedCount !== 1) {
+    throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_WRITE_UNPROVED");
   }
 }

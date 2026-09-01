@@ -34,6 +34,11 @@ import {
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
 } from './project-render-snapshot-binding-v1';
+import {
+  createProjectRenderSourceCleanupOutboxV1,
+  enqueueProjectRenderSourceCleanupOutboxV1,
+  type ProjectRenderSourceCleanupOutboxV1,
+} from './project-render-source-cleanup-v1';
 
 const COLLECTION_NAME = 'editron_render_jobs';
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
@@ -875,6 +880,325 @@ export async function fenceStaleProjectRenderJobFinalizationV1(input: {
     return { ok: true, status: 'ALREADY_TERMINAL' };
   }
   return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+}
+
+function staleProjectRenderJobMatchesCleanupAuthorizationV1(
+  job: RenderJob,
+  authorization: ProjectRenderJobAuthorizationV1,
+): boolean {
+  const binding = job.projectRenderSnapshotBinding;
+  if (
+    job._id !== authorization.jobId
+    || job.userId !== authorization.ownerId
+    || job.requestedByUserId !== authorization.requestedByUserId
+    || job.projectId !== authorization.projectId
+    || job.artifactState !== 'STALE'
+    || job.artifactBinding !== undefined
+    || job.status !== 'error'
+    || job.finalization?.state !== 'failed'
+    || job.finalization.claimToken !== undefined
+    || job.artifactCleanup?.state !== 'PENDING'
+    || !job.artifactCleanup.pendingArtifactIds.includes(authorization.jobId)
+    || !binding
+  ) {
+    return false;
+  }
+  try {
+    assertProjectRenderSnapshotBindingV1(binding);
+  } catch {
+    return false;
+  }
+  return binding.artifactId === authorization.jobId
+    && binding.ownerId === authorization.ownerId
+    && binding.projectId === authorization.projectId
+    && binding.bindingHash === authorization.bindingHash
+    && sameProjectArtifactRevisionV1(
+      binding.projectRevision,
+      authorization.projectRevision,
+    );
+}
+
+/**
+ * Persist the exact provider cleanup descriptor and link it to one already
+ * stale project render. Callers must keep this in the same transaction as the
+ * stale transition so neither side can commit without the other.
+ */
+export async function materializeProjectRenderSourceCleanupHandoffV1(input: {
+  authorization: unknown;
+  collection: Collection<RenderJob>;
+  cleanupCollection: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  session: ClientSession;
+  expectedProviderOutput?: {
+    providerRenderId: string;
+    bucketName: string;
+    sourceOutputUrl: string;
+    sourceOutputSize: number;
+  };
+}): Promise<ProjectRenderSourceCleanupOutboxV1> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_AUTHORIZATION_INVALID');
+  }
+  const authorization = parsedAuthorization.data;
+  const stored = await input.collection.findOne(
+    { _id: authorization.jobId },
+    { session: input.session },
+  );
+  const parsedJob = RenderJobSchema.safeParse(stored);
+  if (
+    !parsedJob.success
+    || !staleProjectRenderJobMatchesCleanupAuthorizationV1(
+      parsedJob.data,
+      authorization,
+    )
+  ) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_STALE_JOB_NOT_FOUND');
+  }
+  const job = parsedJob.data;
+  if (
+    !job.providerRenderId
+    || !job.bucketName
+    || !job.projectRenderSnapshotBinding
+    || !job.finalization
+    || !validProjectRenderDate(job.artifactInvalidatedAt!)
+  ) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_IDENTITY_INCOMPLETE');
+  }
+  const expected = input.expectedProviderOutput;
+  if (
+    expected
+    && (
+      job.providerRenderId !== expected.providerRenderId.trim()
+      || job.bucketName !== expected.bucketName.trim()
+      || job.finalization.sourceOutputUrl !== expected.sourceOutputUrl
+      || job.finalization.sourceOutputSize !== expected.sourceOutputSize
+    )
+  ) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_PROVIDER_OUTPUT_MISMATCH');
+  }
+  const outbox = createProjectRenderSourceCleanupOutboxV1({
+    binding: job.projectRenderSnapshotBinding,
+    providerRenderId: job.providerRenderId,
+    bucketName: job.bucketName,
+    region: job.region,
+    sourceOutputUrl: job.finalization.sourceOutputUrl,
+    sourceOutputSize: job.finalization.sourceOutputSize,
+    now: job.artifactInvalidatedAt,
+  });
+  if (
+    job.projectRenderSourceCleanupOutboxId !== undefined
+    && job.projectRenderSourceCleanupOutboxId !== outbox._id
+  ) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_HANDOFF_CONFLICT');
+  }
+  await enqueueProjectRenderSourceCleanupOutboxV1({
+    outbox,
+    collection: input.cleanupCollection,
+    session: input.session,
+  });
+  const linked = await input.collection.updateOne(
+    {
+      _id: authorization.jobId,
+      artifactState: 'STALE',
+      'projectRenderSnapshotBinding.bindingHash': authorization.bindingHash,
+      $or: [
+        { projectRenderSourceCleanupOutboxId: { $exists: false } },
+        { projectRenderSourceCleanupOutboxId: outbox._id },
+      ],
+    },
+    { $set: { projectRenderSourceCleanupOutboxId: outbox._id } },
+    { session: input.session },
+  );
+  if (linked.matchedCount !== 1) {
+    throw new Error('PROJECT_RENDER_SOURCE_CLEANUP_HANDOFF_WRITE_UNPROVED');
+  }
+  return outbox;
+}
+
+/**
+ * Strict stale-finalization fence. Unlike the compatibility owner above, this
+ * owner cannot succeed without atomically materializing provider cleanup work.
+ */
+export async function fenceStaleProjectRenderJobFinalizationWithCleanupV1(input: {
+  authorization: unknown;
+  observedProjectRevision: unknown | null;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection: Collection<RenderJob>;
+  cleanupCollection: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  session: ClientSession;
+}): Promise<
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'STALE' | 'ALREADY_STALE';
+      cleanupOutboxId: string;
+    }
+  | {
+      ok: true;
+      status: 'CLAIM_REPLACED' | 'ALREADY_TERMINAL';
+    }
+> {
+  const fenced = await fenceStaleProjectRenderJobFinalizationV1(input);
+  if (!fenced.ok) return fenced;
+  if (fenced.status === 'CLAIM_REPLACED' || fenced.status === 'ALREADY_TERMINAL') {
+    return { ok: true, status: fenced.status };
+  }
+  const outbox = await materializeProjectRenderSourceCleanupHandoffV1({
+    authorization: input.authorization,
+    collection: input.collection,
+    cleanupCollection: input.cleanupCollection,
+    session: input.session,
+  });
+  return { ...fenced, cleanupOutboxId: outbox._id };
+}
+
+/**
+ * Fence a provider output that arrives after its project snapshot became
+ * stale, before a finalization lease could be claimed. Provider output and
+ * cleanup work are persisted together; no artifact may become orphaned.
+ */
+export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(input: {
+  authorization: unknown;
+  observedProjectRevision: unknown | null;
+  providerRenderId: string;
+  bucketName: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  error: unknown;
+  now?: Date;
+  collection: Collection<RenderJob>;
+  cleanupCollection: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  session: ClientSession;
+}): Promise<
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'STALE' | 'ALREADY_STALE';
+      cleanupOutboxId: string;
+    }
+> {
+  const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+  if (!parsedAuthorization.success) {
+    return nonCurrentProjectRenderJobResult('AUTHORIZATION_INVALID');
+  }
+  if (input.observedProjectRevision !== null) {
+    const parsedRevision = ProjectArtifactProjectRevisionSchema.safeParse(
+      input.observedProjectRevision,
+    );
+    if (
+      !parsedRevision.success
+      || sameProjectArtifactRevisionV1(
+        parsedAuthorization.data.projectRevision,
+        parsedRevision.data,
+      )
+    ) {
+      return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+    }
+  }
+  if (
+    !isBoundRenderInputString(input.providerRenderId)
+    || !isBoundRenderInputString(input.bucketName)
+    || typeof input.sourceOutputUrl !== 'string'
+    || !Number.isInteger(input.sourceOutputSize)
+    || input.sourceOutputSize < 0
+  ) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  try {
+    assertHttpsUrl(input.sourceOutputUrl, 'Provider output URL');
+  } catch {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const completedAt = input.now ?? new Date();
+  if (!validProjectRenderDate(completedAt)) {
+    return nonCurrentProjectRenderJobResult('INPUT_INVALID');
+  }
+  const providerRenderId = input.providerRenderId.trim();
+  const bucketName = input.bucketName.trim();
+  const message = boundedError(input.error);
+  const authorization = parsedAuthorization.data;
+  const fenced = await input.collection.updateOne(
+    {
+      $and: [
+        currentProjectRenderJobMutationFilter(authorization, {
+          status: { $in: ['pending', 'rendering'] },
+          expectedDurationMs: { $exists: true, $gt: 0 },
+          finalization: { $exists: false },
+        }),
+        {
+          $or: [
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+            },
+            { providerRenderId, bucketName },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        status: 'error',
+        progress: 0.99,
+        providerRenderId,
+        bucketName,
+        error: message,
+        completedAt,
+        artifactState: 'STALE',
+        artifactCleanup: {
+          state: 'PENDING',
+          pendingArtifactIds: [authorization.jobId],
+        },
+        artifactInvalidatedAt: completedAt,
+        finalization: {
+          version: 'editron-render-finalization-v1',
+          state: 'failed',
+          sourceOutputUrl: input.sourceOutputUrl,
+          sourceOutputSize: input.sourceOutputSize,
+          attempts: 0,
+          completedAt,
+          error: message,
+        },
+      },
+    },
+    { session: input.session },
+  );
+  const expectedProviderOutput = {
+    providerRenderId,
+    bucketName,
+    sourceOutputUrl: input.sourceOutputUrl,
+    sourceOutputSize: input.sourceOutputSize,
+  };
+  if (fenced.modifiedCount !== 1) {
+    const latest = await input.collection.findOne(
+      { _id: authorization.jobId },
+      { session: input.session },
+    );
+    const parsedLatest = RenderJobSchema.safeParse(latest);
+    if (
+      !parsedLatest.success
+      || !staleProjectRenderJobMatchesCleanupAuthorizationV1(
+        parsedLatest.data,
+        authorization,
+      )
+    ) {
+      return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
+    }
+  }
+  const outbox = await materializeProjectRenderSourceCleanupHandoffV1({
+    authorization,
+    collection: input.collection,
+    cleanupCollection: input.cleanupCollection,
+    session: input.session,
+    expectedProviderOutput,
+  });
+  return {
+    ok: true,
+    status: fenced.modifiedCount === 1 ? 'STALE' : 'ALREADY_STALE',
+    cleanupOutboxId: outbox._id,
+  };
 }
 
 export interface FencedRenderJobsForProjectArtifactInvalidationV1 {

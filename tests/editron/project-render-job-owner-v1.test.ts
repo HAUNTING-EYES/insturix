@@ -20,6 +20,9 @@ import {
   createProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
 } from "@/lib/editron/services/project-render-snapshot-binding-v1";
+import type {
+  ProjectRenderSourceCleanupOutboxV1,
+} from "@/lib/editron/services/project-render-source-cleanup-v1";
 
 const databaseMocks = vi.hoisted(() => ({
   collection: vi.fn(),
@@ -45,8 +48,11 @@ import {
   failProjectRenderJobFinalizationV1,
   failProjectRenderJobV1,
   fenceStaleProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationWithCleanupV1,
+  fenceStaleProjectRenderJobProviderOutputWithCleanupV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
+  materializeProjectRenderSourceCleanupHandoffV1,
   markJobStarted,
   markProjectRenderJobStartedV1,
   releaseFailedProjectRenderJobFinalizationRetryClaimV1,
@@ -139,6 +145,20 @@ function makeCollection(): Collection<RenderJob> & TestCollection {
     updateOne: vi.fn(async () => ({ matchedCount: 0, modifiedCount: 0 })),
     find: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
   } as unknown as Collection<RenderJob> & TestCollection;
+}
+
+function makeCleanupCollection(): Collection<ProjectRenderSourceCleanupOutboxV1> & {
+  updateOne: ReturnType<typeof vi.fn>;
+} {
+  return {
+    updateOne: vi.fn(async () => ({
+      matchedCount: 0,
+      modifiedCount: 0,
+      upsertedCount: 1,
+    })),
+  } as unknown as Collection<ProjectRenderSourceCleanupOutboxV1> & {
+    updateOne: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeBinding(
@@ -238,6 +258,25 @@ function makeFailedFinalizationJob(
       completedAt: FINALIZATION_COMPLETED_AT,
       error: "finalizer failed",
     },
+  });
+}
+
+function makeStaleCleanupJob(
+  binding: ProjectRenderSnapshotBindingV1 = makeBinding(),
+  invalidatedAt: Date = FINALIZATION_COMPLETED_AT,
+  cleanupOutboxId?: string,
+): RenderJob {
+  return RenderJobSchema.parse({
+    ...makeFailedFinalizationJob(binding),
+    artifactState: "STALE",
+    artifactCleanup: {
+      state: "PENDING",
+      pendingArtifactIds: [binding.artifactId],
+    },
+    artifactInvalidatedAt: invalidatedAt,
+    ...(cleanupOutboxId
+      ? { projectRenderSourceCleanupOutboxId: cleanupOutboxId }
+      : {}),
   });
 }
 
@@ -1321,6 +1360,168 @@ describe("Project render-job owner V1", () => {
       collection,
     });
     expect(existingCleanup).toMatchObject({ ok: false, reason: "JOB_STATE_NOT_ACTIVE" });
+  });
+
+  it("atomically links provider cleanup when a running finalization becomes stale", async () => {
+    const collection = makeCollection();
+    const cleanupCollection = makeCleanupCollection();
+    const session = {} as ClientSession;
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const staleRevision = { ...REVISION, value: REVISION.value + 1 };
+    const now = new Date("2026-08-31T00:06:00.000Z");
+    const staleJob = makeStaleCleanupJob(binding, now);
+    collection.updateOne
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    collection.findOne.mockResolvedValueOnce(staleJob);
+
+    const result = await fenceStaleProjectRenderJobFinalizationWithCleanupV1({
+      authorization,
+      observedProjectRevision: staleRevision,
+      claimToken: "claim-bound",
+      error: "project changed before finalization",
+      now,
+      collection,
+      cleanupCollection,
+      session,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: "STALE",
+      cleanupOutboxId: expect.stringMatching(/^project-render-source-cleanup_[a-f0-9]{64}$/),
+    });
+    const cleanupOutboxId = result.ok && "cleanupOutboxId" in result
+      ? result.cleanupOutboxId
+      : "";
+    expect(cleanupCollection.updateOne).toHaveBeenCalledWith(
+      {
+        _id: cleanupOutboxId,
+        "descriptor.descriptorHash": expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      {
+        $setOnInsert: expect.objectContaining({
+          _id: cleanupOutboxId,
+          descriptor: expect.objectContaining({
+            providerRenderId: "provider-render-1",
+            bucketName: "editron-render-output",
+            region: "us-east-1",
+            renderPrefix: "renders/provider-render-1/",
+          }),
+        }),
+      },
+      { upsert: true, session },
+    );
+    expect(collection.updateOne.mock.calls[1]).toEqual([
+      expect.objectContaining({
+        _id: JOB_ID,
+        artifactState: "STALE",
+        "projectRenderSnapshotBinding.bindingHash": binding.bindingHash,
+      }),
+      { $set: { projectRenderSourceCleanupOutboxId: cleanupOutboxId } },
+      { session },
+    ]);
+  });
+
+  it("persists provider-before-claim stale output and cleanup as one transaction", async () => {
+    const collection = makeCollection();
+    const cleanupCollection = makeCleanupCollection();
+    const session = {} as ClientSession;
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const staleRevision = { ...REVISION, value: REVISION.value + 1 };
+    const now = new Date("2026-08-31T00:07:00.000Z");
+    collection.updateOne
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    collection.findOne.mockResolvedValueOnce(makeStaleCleanupJob(binding, now));
+
+    await expect(fenceStaleProjectRenderJobProviderOutputWithCleanupV1({
+      authorization,
+      observedProjectRevision: staleRevision,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      sourceOutputUrl: FINALIZATION_SOURCE_URL,
+      sourceOutputSize: 100,
+      error: "provider completed after project revision changed",
+      now,
+      collection,
+      cleanupCollection,
+      session,
+    })).resolves.toMatchObject({ ok: true, status: "STALE" });
+
+    expect(collection.updateOne.mock.calls[0]![1]).toEqual({
+      $set: expect.objectContaining({
+        status: "error",
+        artifactState: "STALE",
+        providerRenderId: "provider-render-1",
+        bucketName: "editron-render-output",
+        artifactCleanup: { state: "PENDING", pendingArtifactIds: [JOB_ID] },
+        finalization: expect.objectContaining({
+          state: "failed",
+          sourceOutputUrl: FINALIZATION_SOURCE_URL,
+          sourceOutputSize: 100,
+          attempts: 0,
+        }),
+      }),
+    });
+    expect(collection.updateOne.mock.calls[0]![2]).toEqual({ session });
+    expect(cleanupCollection.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the same cleanup identity and rejects conflicts or chapter aggregates", async () => {
+    const collection = makeCollection();
+    const cleanupCollection = makeCleanupCollection();
+    const session = {} as ClientSession;
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const staleJob = makeStaleCleanupJob(binding);
+    collection.findOne.mockResolvedValueOnce(staleJob);
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+
+    const first = await materializeProjectRenderSourceCleanupHandoffV1({
+      authorization,
+      collection,
+      cleanupCollection,
+      session,
+    });
+    collection.findOne.mockResolvedValueOnce(makeStaleCleanupJob(
+      binding,
+      FINALIZATION_COMPLETED_AT,
+      first._id,
+    ));
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 0 });
+    await expect(materializeProjectRenderSourceCleanupHandoffV1({
+      authorization,
+      collection,
+      cleanupCollection,
+      session,
+    })).resolves.toEqual(first);
+
+    collection.findOne.mockResolvedValueOnce(makeStaleCleanupJob(
+      binding,
+      FINALIZATION_COMPLETED_AT,
+      `project-render-source-cleanup_${"f".repeat(64)}`,
+    ));
+    await expect(materializeProjectRenderSourceCleanupHandoffV1({
+      authorization,
+      collection,
+      cleanupCollection,
+      session,
+    })).rejects.toThrow("PROJECT_RENDER_SOURCE_CLEANUP_HANDOFF_CONFLICT");
+
+    collection.findOne.mockResolvedValueOnce({
+      ...staleJob,
+      bucketName: "chapter-render",
+    });
+    await expect(materializeProjectRenderSourceCleanupHandoffV1({
+      authorization,
+      collection,
+      cleanupCollection,
+      session,
+    })).rejects.toThrow();
+    expect(cleanupCollection.updateOne).toHaveBeenCalledTimes(2);
   });
 
   it("requires a verified exact-duration receipt before bound finalization success", async () => {
