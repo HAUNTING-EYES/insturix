@@ -61,7 +61,9 @@ describe('CAP-2 current-truth reissue V13', () => {
       catalogAuthorityUnchanged: true,
       runtimeAuthorityDenied: true,
     });
-    expect(() => assertCap2CurrentTruthSourcesMatchV13()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV13()).toThrow(
+      'CAP-2 v13 pipeline-video pilot source snapshot drift.',
+    );
   });
 
   it('records truthful duration, selected-source, queue and authority boundaries', () => {
