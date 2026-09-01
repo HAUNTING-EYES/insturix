@@ -15759,3 +15759,47 @@ universal Queue 5 mutation owners serially, then (4) return to the unfinished
 Queue 3-4 media chain, where parallel execution is permitted by the founder.
 Queue 6 and agency verticals remain after those items and must stay serial
 unless the founder explicitly authorizes further parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4B checkpoint
+
+Commits `c05b6d629`, `29a4dc0e6`, `843c26fdf`, `68bce0d7d`,
+`53daff7d2` and `8c2acd3ab` migrate every remaining Director-owned project
+fact away from direct Mongo project writes. Auto-BGM decisions are committed
+before dispatch; unified-bundle and post-bundle policy facts, intelligence
+run/skip status, bounded V-JEPA coverage evidence and the bounded calibration
+decision log now pass through exact ProjectService compare-and-set owners.
+
+The decision-log owner requires the active Director lease, exact user/project
+identity and current project revision. It persists at most 100 deterministic
+technique-and-timeline-stratified snapshots, omits unbounded decision params,
+bounds signal context and strings, records source identity and truncation, and
+publishes a mutation receipt only after the project revision advances. A stale
+or lost lease cannot fall through into another Director path. Source inspection
+and tests prove that `director-agent.ts` now contains zero direct
+`projects.updateOne` calls.
+
+The focused final decision-log closure passed 25/25 tests, including bounded
+sampling, malformed-input rejection, exact lease/revision predicates, stale
+conflict with no receipt and cross-project rejection. The full 8-GB TypeScript
+check and targeted quiet ESLint passed on the final code. No provider call,
+render, wallet mutation, project-content edit, paid-cohort rerun, model
+inference or external spend occurred.
+
+This closes the Director's direct project-document bypasses only. It does not
+close universal Queue 5: assist-lane settlement, EDL/MG evidence and remaining
+route/worker lifecycle writers still require owner-by-owner inventory,
+prerequisite enforcement, CAS receipts and consumer proof. The existing
+`p6-provider-coverage-starvation` first-case failure is tracked as a separate
+current-tree regression; it was reproduced in isolation and was not caused by
+the Director persistence changes, but must be resolved before a repository
+completion claim.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order remains: (1) continue universal Queue 5 owners serially,
+(2) finish the Queue 3-4 media chain, where founder-authorized parallel work is
+permitted, (3) implement Queue 6 serially, then (4) certify agency verticals
+serially unless the founder explicitly authorizes further parallelization.
