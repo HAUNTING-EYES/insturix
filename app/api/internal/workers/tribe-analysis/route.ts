@@ -27,10 +27,15 @@ import {
 } from '@/lib/editron/security/internal-worker-auth';
 import { encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
+  ProjectAnalysisDirectorPublicationError,
+  publishProjectAnalysisDirectorDispatchV1,
+} from '@/lib/editron/services/project-analysis-director-publication';
+import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { CanonicalDirectorRunResultV1 } from '@/lib/editron/services/canonical-director-run';
 import type { ProjectAnalysisDirectorDispatchV1 } from '@/lib/editron/services/project-service';
 
 export const runtime = 'nodejs';
@@ -56,6 +61,15 @@ class TribeAnalysisOwnershipLostError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'TribeAnalysisOwnershipLostError';
+  }
+}
+
+class TribeAnalysisRetryableError extends Error {
+  readonly code = 'TRIBE_ANALYSIS_RETRYABLE';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'TribeAnalysisRetryableError';
   }
 }
 
@@ -126,9 +140,16 @@ async function handler(request: NextRequest) {
     }
     if (claim.disposition === 'DIRECTOR_DISPATCH_PENDING') {
       if (!isInternalQStashDispatchConfigured()) {
-        throw new TribeAnalysisOwnershipLostError(
-          'A prepared Director dispatch cannot resume without the configured production queue.',
-        );
+        const directorResult = await runPreparedDirectorInline({
+          projectId,
+          userId,
+          sourceAssetId,
+          analysisRunId,
+          directorPayload,
+          dispatch: claim.run.directorDispatch!,
+          onClaimed: () => { directorDispatched = true; },
+        });
+        return inlineDirectorResponse(directorResult, Date.now() - startMs);
       }
       await publishPreparedDirectorDispatch({
         payload,
@@ -478,40 +499,26 @@ async function handler(request: NextRequest) {
 
     // ─── Dev fallback: no QStash → run Director inline ────────────
     console.warn(`[TribeWorker] No QSTASH_TOKEN — running Director inline`);
-    const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
-    const directorResult = await runCanonicalDirectorV1({
+    const directorResult = await runPreparedDirectorInline({
       projectId,
       userId,
-      profileId: typeof directorPayload.profileId === 'string' ? directorPayload.profileId : 'G-01',
-      platform: typeof directorPayload.platform === 'string' ? directorPayload.platform : 'youtube',
-      userIntent: typeof directorPayload.userIntent === 'string' ? directorPayload.userIntent : undefined,
-      captionStyle: directorPayload.captionStyle,
-      transitionPreference: directorPayload.transitionPreference,
-      zoomBehavior: directorPayload.zoomBehavior,
-      motionGraphics: directorPayload.motionGraphics,
-      pacingFeel: directorPayload.pacingFeel,
-      musicPreference: directorPayload.musicPreference,
-      editorialPreferences: directorPayload.editorialPreferences,
-    }, {
+      sourceAssetId,
+      analysisRunId,
+      directorPayload,
+      dispatch: preparedDispatch,
       onClaimed: () => { directorDispatched = true; },
     });
-    const totalMs = Date.now() - startMs;
-    if (directorResult.disposition === 'ASSIST_READY') {
-      return NextResponse.json({ success: true, totalMs, status: directorResult.status, directorSkipped: true });
-    }
-    if (directorResult.disposition === 'ALREADY_PROCESSED' || directorResult.disposition === 'OWNERSHIP_LOST') {
-      return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
-    }
-    return NextResponse.json({ success: true, totalMs });
+    return inlineDirectorResponse(directorResult, Date.now() - startMs);
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     const ownershipLost = error instanceof TribeAnalysisOwnershipLostError;
+    const retryable = error instanceof TribeAnalysisRetryableError;
     console.error(`[TribeWorker] Failed: ${msg}`);
 
     // Mark project as failed — but only if Director hasn't already been dispatched
     // (if dispatched, the Director worker owns the final status)
-    if (trackedScan && !directorDispatched && !ownershipLost) {
+    if (trackedScan && !directorDispatched && !ownershipLost && !retryable) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -549,7 +556,7 @@ async function handler(request: NextRequest) {
 
     return NextResponse.json(
       { success: false, error: msg },
-      { status: ownershipLost ? 409 : 500 },
+      { status: retryable ? 503 : ownershipLost ? 409 : 500 },
     );
   }
 }
@@ -561,58 +568,107 @@ async function publishPreparedDirectorDispatch(input: {
   dispatch: ProjectAnalysisDirectorDispatchV1;
   onProviderAccepted(): void;
 }): Promise<void> {
-  const qstashBaseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-  const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
-  const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
-  const dispatchRes = await fetch(qstashUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-      'Content-Type': 'application/json',
-      'Upstash-Retries': '0',
-      'Upstash-Delay': '3s',
-      'Upstash-Deduplication-Id': input.dispatch.deduplicationId,
-    },
-    body: JSON.stringify(input.directorPayload),
-  });
-  if (dispatchRes.ok) input.onProviderAccepted();
-  await recordTribeCostEvent(input.payload, {
-    stage: 'director_qstash',
-    status: dispatchRes.ok ? 'success' : 'failed',
-    provider: 'upstash-qstash',
-    operation: 'queue_message',
-    units: { queueMessages: 1, requestCount: 1 },
-    metadata: { httpStatus: dispatchRes.status, deduplicationId: input.dispatch.deduplicationId },
-  });
-  if (!dispatchRes.ok) {
-    const errBody = await dispatchRes.text().catch(() => 'no body');
-    throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+  try {
+    const publication = await publishProjectAnalysisDirectorDispatchV1({
+      projectId: input.payload.projectId,
+      userId: input.payload.userId,
+      analysisRunId: input.payload.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+      directorPayload: input.directorPayload,
+      dispatch: input.dispatch,
+      onProviderAccepted: input.onProviderAccepted,
+    });
+    await recordTribeCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: 'success',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publication.httpStatus,
+        deduplicationId: publication.deduplicationId,
+        providerMessageId: publication.providerMessageId,
+      },
+    });
+  } catch (error: unknown) {
+    const publicationError = error instanceof ProjectAnalysisDirectorPublicationError
+      ? error
+      : undefined;
+    await recordTribeCostEvent(input.payload, {
+      stage: 'director_qstash',
+      status: publicationError?.providerAccepted ? 'success' : 'failed',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publicationError?.httpStatus,
+        deduplicationId: input.dispatch.deduplicationId,
+        providerAccepted: publicationError?.providerAccepted ?? false,
+      },
+    });
+    throw new TribeAnalysisRetryableError(error instanceof Error ? error.message : String(error));
   }
-  const dispatchData = await dispatchRes.json() as { messageId?: unknown };
-  if (typeof dispatchData.messageId !== 'string' || dispatchData.messageId.length === 0) {
-    throw new Error('Director QStash dispatch succeeded without a provider message receipt.');
-  }
+}
 
+async function runPreparedDirectorInline(input: {
+  projectId: string;
+  userId: string;
+  sourceAssetId: string;
+  analysisRunId: string;
+  directorPayload: Record<string, unknown>;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onClaimed(): void;
+}): Promise<CanonicalDirectorRunResultV1> {
   const { projectService } = await import('@/lib/editron/services/project-service');
-  const snapshot = await projectService.loadProjectForMutation(input.payload.userId, input.payload.projectId);
-  const recorded = await projectService.recordProjectAnalysisDirectorDispatchPublishedV1(
-    input.payload.userId,
-    input.payload.projectId,
+  const snapshot = await projectService.loadProjectForMutation(input.userId, input.projectId);
+  const activated = await projectService.recordProjectAnalysisDirectorDispatchInlineReadyV1(
+    input.userId,
+    input.projectId,
     {
       expectedRevision: snapshot.revision,
-      runId: input.payload.analysisRunId,
+      runId: input.analysisRunId,
       sourceAssetId: input.sourceAssetId,
       deduplicationId: input.dispatch.deduplicationId,
-      providerMessageId: dispatchData.messageId,
     },
   );
-  if (recorded.disposition !== 'ADVANCED' && recorded.disposition !== 'ALREADY_ADVANCED') {
+  if (activated.disposition !== 'ADVANCED' && activated.disposition !== 'ALREADY_ADVANCED') {
     throw new TribeAnalysisOwnershipLostError(
-      `Director publication receipt lost current run ownership (${recorded.disposition}).`,
+      `Inline Director activation lost current run ownership (${activated.disposition}).`,
     );
   }
+  const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+  return runCanonicalDirectorV1({
+    projectId: input.projectId,
+    userId: input.userId,
+    analysisRunId: input.analysisRunId,
+    analysisDirectorDispatchId: input.dispatch.deduplicationId,
+    profileId: typeof input.directorPayload.profileId === 'string' ? input.directorPayload.profileId : 'G-01',
+    platform: typeof input.directorPayload.platform === 'string' ? input.directorPayload.platform : 'youtube',
+    userIntent: typeof input.directorPayload.userIntent === 'string' ? input.directorPayload.userIntent : undefined,
+    captionStyle: input.directorPayload.captionStyle,
+    transitionPreference: input.directorPayload.transitionPreference,
+    zoomBehavior: input.directorPayload.zoomBehavior,
+    motionGraphics: input.directorPayload.motionGraphics,
+    pacingFeel: input.directorPayload.pacingFeel,
+    musicPreference: input.directorPayload.musicPreference,
+    editorialPreferences: input.directorPayload.editorialPreferences,
+  }, { onClaimed: input.onClaimed });
+}
+
+function inlineDirectorResponse(
+  result: CanonicalDirectorRunResultV1,
+  totalMs: number,
+) {
+  if (result.disposition === 'DISPATCH_PENDING') {
+    return NextResponse.json({ success: false, error: 'Inline Director dispatch remained pending.' }, { status: 503 });
+  }
+  if (result.disposition === 'ASSIST_READY') {
+    return NextResponse.json({ success: true, totalMs, status: result.status, directorSkipped: true });
+  }
+  if (result.disposition === 'ALREADY_PROCESSED' || result.disposition === 'OWNERSHIP_LOST') {
+    return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
+  }
+  return NextResponse.json({ success: true, totalMs });
 }
 
 async function recordTribeCostEvent(

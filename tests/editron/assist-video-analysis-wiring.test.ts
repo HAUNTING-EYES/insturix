@@ -25,6 +25,10 @@ const tribeSource = readFileSync(
   join(process.cwd(), 'app/api/internal/workers/tribe-analysis/route.ts'),
   'utf8',
 ).replaceAll('\r\n', '\n');
+const publicationSource = readFileSync(
+  join(process.cwd(), 'lib/editron/services/project-analysis-director-publication.ts'),
+  'utf8',
+).replaceAll('\r\n', '\n');
 
 describe('video-analysis worker zero-edit wiring', () => {
   it('reads the assist lane once, up front, from editMode', () => {
@@ -133,9 +137,13 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(tribeSource).toContain('analysisRunId: string');
     expect(tribeSource).toContain('claimProjectAnalysisDeepRunV1');
     expect(tribeSource).toContain('commitProjectAnalysisPhase2V1');
-    expect(tribeSource).toContain('recordProjectAnalysisDirectorDispatchPublishedV1');
-    expect(tribeSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
-    expect(tribeSource).toContain('if (trackedScan && !directorDispatched && !ownershipLost)');
+    expect(tribeSource).toContain('publishProjectAnalysisDirectorDispatchV1');
+    expect(tribeSource).toContain('recordProjectAnalysisDirectorDispatchInlineReadyV1');
+    expect(tribeSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
+    expect(publicationSource).toContain('recordProjectAnalysisDirectorDispatchPublishedV1');
+    expect(publicationSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
+    expect(publicationSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
+    expect(tribeSource).toContain('if (trackedScan && !directorDispatched && !ownershipLost && !retryable)');
     expect(tribeSource).not.toContain('tribeLockAt');
     for (const rawStatus of [
       "autoEditStatus: 'analyzing_deep'",
