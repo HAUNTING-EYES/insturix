@@ -17,7 +17,15 @@ import {
   buildSubjectAwareReframePlan,
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
-import type { ProjectRevisionV1 } from "../services/project-service";
+import type {
+  ProjectOverlayIdentityV1,
+  ProjectRevisionV1,
+  ProjectService,
+} from "../services/project-service";
+import {
+  readProjectRevisionV1,
+  type ProjectRevisionDocumentV1,
+} from "../services/project-revision-v1";
 import { resolveAtomicZoomForm } from "../services/zoom-form";
 import { evaluateAllTracks } from "../utils/keyframe-math";
 
@@ -702,6 +710,35 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
+async function applyVisualOverlayUpdatesAtRevisionV1(input: {
+  projectService: Pick<ProjectService, "updateOverlayAtRevisionV1">;
+  userId: string;
+  projectId: string;
+  project: ProjectRevisionDocumentV1;
+  updates: readonly {
+    overlayId: ProjectOverlayIdentityV1;
+    updates: Record<string, unknown>;
+  }[];
+}): Promise<void> {
+  let expectedRevision = readProjectRevisionV1(input.project);
+  if (!expectedRevision) {
+    throw new Error("The project revision is unavailable; reload before applying visual changes.");
+  }
+  for (const update of input.updates) {
+    const result = await input.projectService.updateOverlayAtRevisionV1(
+      input.userId,
+      input.projectId,
+      {
+        expectedRevision,
+        actorKind: "AGENT",
+        overlayId: update.overlayId,
+        updates: update.updates as any,
+      },
+    );
+    expectedRevision = result.mutationReceipt.revision;
+  }
+}
+
 export function createChatVisualTools({
   userId,
   projectId,
@@ -923,11 +960,16 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
           "apply_camera_shake",
         );
 
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { keyframeTracks: update.nextKeyframeTracks },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1055,11 +1097,16 @@ Partial curves, slow motion, mixed-track reconform and arbitrary ramps are expli
           "apply_fade",
         );
 
-        for (const update of plan.updates) {
-          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
-            keyframeTracks: update.nextKeyframeTracks,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { keyframeTracks: update.nextKeyframeTracks },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1095,16 +1142,19 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
           "reorder_layer",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
-            row: update.nextRow,
-            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: {
+              row: update.nextRow,
+              ...(update.nextStyles ? { styles: update.nextStyles } : {}),
+            },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1148,13 +1198,16 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
           "move_retime_overlay",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, update.nextUpdates as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: update.nextUpdates,
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
@@ -1189,15 +1242,16 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
           "apply_filter",
         );
 
-        for (const update of plan.updates) {
-          const numericOverlayId = Number(update.overlayId);
-          if (!Number.isFinite(numericOverlayId)) {
-            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
-          }
-          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
-            styles: update.nextStyles,
-          } as any);
-        }
+        await applyVisualOverlayUpdatesAtRevisionV1({
+          projectService,
+          userId,
+          projectId,
+          project,
+          updates: plan.updates.map((update) => ({
+            overlayId: update.overlayId,
+            updates: { styles: update.nextStyles },
+          })),
+        });
 
         return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
