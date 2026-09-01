@@ -11,8 +11,10 @@ import {
   RenderJobDispatchSchema,
   RenderJobSchema,
   RenderJobRequesterUserIdSchema,
+  RenderJobChapterOrchestrationSchema,
   createPendingRenderJob,
   type RenderJobBillingWalletV1,
+  type RenderJobChapterOrchestrationV1,
   type RenderJobDispatchV1,
 } from '../schemas/render-job';
 import type { RenderFinalizerResult } from './render-finalizer-client';
@@ -458,6 +460,7 @@ export async function reserveProjectRenderJobV1(input: {
   deliveryManifest: RenderDeliveryManifest;
   binding: ProjectRenderSnapshotBindingV1;
   billingWallet?: RenderJobBillingWalletV1;
+  chapterOrchestration?: RenderJobChapterOrchestrationV1;
   collection?: Collection<RenderJob>;
 }): Promise<RenderJob> {
   const authorization = createProjectRenderJobAuthorizationV1({
@@ -480,6 +483,22 @@ export async function reserveProjectRenderJobV1(input: {
   if (input.billingWallet !== undefined && !billingWallet) {
     throw new Error('PROJECT_RENDER_BILLING_WALLET_INVALID');
   }
+  const chapterOrchestration = input.chapterOrchestration === undefined
+    ? undefined
+    : RenderJobChapterOrchestrationSchema.parse(structuredClone(input.chapterOrchestration));
+  if (chapterOrchestration !== undefined) {
+    if (!billingWallet) {
+      throw new Error('PROJECT_RENDER_CHAPTER_BILLING_WALLET_REQUIRED');
+    }
+    if (
+      chapterOrchestration.state !== 'NOT_STARTED'
+      || chapterOrchestration.aggregateJobId !== authorization.jobId
+      || chapterOrchestration.bindingHash !== authorization.bindingHash
+      || chapterOrchestration.selectedRegion !== input.region
+    ) {
+      throw new Error('PROJECT_RENDER_CHAPTER_ORCHESTRATION_SCOPE_MISMATCH');
+    }
+  }
   const dispatchIdentity = createProjectRenderDispatchIdentityV1({
     jobId: authorization.jobId,
     bindingHash: authorization.bindingHash,
@@ -495,7 +514,7 @@ export async function reserveProjectRenderJobV1(input: {
       })
     : undefined;
   const jobs = input.collection ?? await getCollection();
-  const job: RenderJob = {
+  const job = RenderJobSchema.parse({
     ...createPendingRenderJob(
       authorization.jobId,
       authorization.ownerId,
@@ -506,9 +525,10 @@ export async function reserveProjectRenderJobV1(input: {
       input.binding,
       authorization.requestedByUserId,
       dispatch,
+      chapterOrchestration,
     ),
     deliveryManifest,
-  };
+  });
   const result = await jobs.insertOne(job as any);
   if (!result.acknowledged) {
     throw new Error('Failed to reserve project render job');

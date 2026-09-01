@@ -280,6 +280,391 @@ export const RenderJobDispatchSchema = z.object({
 
 export type RenderJobDispatchV1 = z.infer<typeof RenderJobDispatchSchema>;
 
+export const RENDER_JOB_CHAPTER_ORCHESTRATION_CONTRACT_VERSION_V1 = 1 as const;
+export const RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1 = 'CHAPTER_ORCHESTRATION' as const;
+
+export const RenderJobChapterOrchestrationStateSchema = z.enum([
+  'NOT_STARTED',
+  'STARTING',
+  'RUNNING',
+  'CONCATENATING',
+  'READY_FOR_FINALIZATION',
+  'FINALIZING',
+  'COMPLETED',
+  'FAILED',
+  'STALE',
+  'UNKNOWN',
+]);
+export type RenderJobChapterOrchestrationStateV1 = z.infer<
+  typeof RenderJobChapterOrchestrationStateSchema
+>;
+
+const RenderJobChapterAggregateIdSchema = z.string()
+  .regex(/^chr_[A-Za-z0-9_-]{12}$/);
+const RenderJobChapterBindingHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const RenderJobChapterRegionSchema = z.string()
+  .regex(/^[a-z]{2}(?:-[a-z0-9]+)+-\d+$/);
+const RenderJobChapterCountSchema = z.number().int().positive().max(100_000);
+const RenderJobChapterProgressSchema = z.number().finite().min(0).max(1);
+const RenderJobChapterManifestHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const RenderJobChapterOutputSchema = z.object({
+  url: z.string().url().refine(
+    (value) => value.startsWith('https://'),
+    'Chapter orchestration output must use HTTPS.',
+  ),
+  sizeBytes: z.number().int().positive().safe(),
+}).strict();
+const RenderJobChapterFailureSchema = z.object({
+  code: z.string().min(1).max(200),
+  message: z.string().min(1).max(10_000),
+}).strict();
+
+/**
+ * Aggregate lifecycle identity for a long-form chapter render.
+ *
+ * This is deliberately not a provider dispatch record.  Child Remotion
+ * identities live in their own child ledger; the parent admission keeps this
+ * contract provider-free so a parent callback cannot be mistaken for a
+ * provider acceptance.  The initial factory state is the only state allowed
+ * to be inserted with the strict render admission.
+ */
+export const RenderJobChapterOrchestrationSchema = z.object({
+  version: z.literal(RENDER_JOB_CHAPTER_ORCHESTRATION_CONTRACT_VERSION_V1),
+  scope: z.literal(RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1),
+  aggregateJobId: RenderJobChapterAggregateIdSchema,
+  bindingHash: RenderJobChapterBindingHashSchema,
+  selectedRegion: RenderJobChapterRegionSchema,
+  state: RenderJobChapterOrchestrationStateSchema,
+  reservedAt: z.date(),
+  startingAt: z.date().optional(),
+  runningAt: z.date().optional(),
+  concatenatingAt: z.date().optional(),
+  readyForFinalizationAt: z.date().optional(),
+  finalizingAt: z.date().optional(),
+  completedAt: z.date().optional(),
+  failedAt: z.date().optional(),
+  staleAt: z.date().optional(),
+  unknownAt: z.date().optional(),
+  chapterCount: RenderJobChapterCountSchema.optional(),
+  progress: RenderJobChapterProgressSchema.optional(),
+  manifestHash: RenderJobChapterManifestHashSchema.optional(),
+  output: RenderJobChapterOutputSchema.optional(),
+  failure: RenderJobChapterFailureSchema.optional(),
+}).strict().superRefine((orchestration, context) => {
+  const successfulStateIndex: Partial<Record<RenderJobChapterOrchestrationStateV1, number>> = {
+    NOT_STARTED: 0,
+    STARTING: 1,
+    RUNNING: 2,
+    CONCATENATING: 3,
+    READY_FOR_FINALIZATION: 4,
+    FINALIZING: 5,
+    COMPLETED: 6,
+  };
+  const healthyStates = new Set<RenderJobChapterOrchestrationStateV1>([
+    'RUNNING',
+    'CONCATENATING',
+    'READY_FOR_FINALIZATION',
+    'FINALIZING',
+    'COMPLETED',
+  ]);
+  const terminalFailureStates = new Set<RenderJobChapterOrchestrationStateV1>([
+    'FAILED',
+    'STALE',
+    'UNKNOWN',
+  ]);
+  const successfulTimestampFields: Array<[
+    keyof typeof orchestration,
+    Date | undefined,
+    RenderJobChapterOrchestrationStateV1,
+  ]> = [
+    ['startingAt', orchestration.startingAt, 'STARTING'],
+    ['runningAt', orchestration.runningAt, 'RUNNING'],
+    ['concatenatingAt', orchestration.concatenatingAt, 'CONCATENATING'],
+    ['readyForFinalizationAt', orchestration.readyForFinalizationAt, 'READY_FOR_FINALIZATION'],
+    ['finalizingAt', orchestration.finalizingAt, 'FINALIZING'],
+    ['completedAt', orchestration.completedAt, 'COMPLETED'],
+  ];
+
+  for (const [field, timestamp] of successfulTimestampFields) {
+    if (timestamp && Number.isNaN(timestamp.getTime())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: 'Orchestration timestamps must be valid dates.',
+        params: { code: 'CHAPTER_ORCHESTRATION_TIMESTAMP_INVALID' },
+      });
+    }
+  }
+
+  const successfulIndex = successfulStateIndex[orchestration.state];
+  if (successfulIndex !== undefined) {
+    for (const [field, timestamp, requiredState] of successfulTimestampFields) {
+      const requiredIndex = successfulStateIndex[requiredState]!;
+      if (successfulIndex >= requiredIndex && !timestamp) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${String(field)} is required once the orchestration reaches ${requiredState}.`,
+          params: { code: 'CHAPTER_ORCHESTRATION_STATE_TIMESTAMP_REQUIRED' },
+        });
+      }
+      if (successfulIndex < requiredIndex && timestamp) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${String(field)} cannot exist before the orchestration reaches ${requiredState}.`,
+          params: { code: 'CHAPTER_ORCHESTRATION_STATE_TIMESTAMP_EARLY' },
+        });
+      }
+    }
+  }
+
+  const failureTimestampFields: Array<[
+    keyof typeof orchestration,
+    Date | undefined,
+    RenderJobChapterOrchestrationStateV1,
+  ]> = [
+    ['failedAt', orchestration.failedAt, 'FAILED'],
+    ['staleAt', orchestration.staleAt, 'STALE'],
+    ['unknownAt', orchestration.unknownAt, 'UNKNOWN'],
+  ];
+  const terminalFailureState = terminalFailureStates.has(orchestration.state);
+  for (const [field, timestamp, timestampState] of failureTimestampFields) {
+    if (timestamp && Number.isNaN(timestamp.getTime())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: 'Orchestration timestamps must be valid dates.',
+        params: { code: 'CHAPTER_ORCHESTRATION_TIMESTAMP_INVALID' },
+      });
+    }
+    if (terminalFailureState && orchestration.state === timestampState && !timestamp) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${String(field)} is required for ${timestampState}.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_TIMESTAMP_REQUIRED' },
+      });
+    }
+    if ((!terminalFailureState || orchestration.state !== timestampState) && timestamp) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${String(field)} is not valid for orchestration state ${orchestration.state}.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_TIMESTAMP_INVALID' },
+      });
+    }
+  }
+
+  const healthyTimestampSequence = [
+    ['reservedAt', orchestration.reservedAt],
+    ['startingAt', orchestration.startingAt],
+    ['runningAt', orchestration.runningAt],
+    ['concatenatingAt', orchestration.concatenatingAt],
+    ['readyForFinalizationAt', orchestration.readyForFinalizationAt],
+    ['finalizingAt', orchestration.finalizingAt],
+    ['completedAt', orchestration.completedAt],
+  ] as const;
+  for (let index = 1; index < healthyTimestampSequence.length; index += 1) {
+    const [field, timestamp] = healthyTimestampSequence[index]!;
+    const previous = healthyTimestampSequence[index - 1]![1];
+    if (
+      timestamp
+      && previous
+      && !Number.isNaN(timestamp.getTime())
+      && !Number.isNaN(previous.getTime())
+      && timestamp.getTime() < previous.getTime()
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: 'Orchestration state timestamps must be monotonic.',
+        params: { code: 'CHAPTER_ORCHESTRATION_TIMESTAMP_ORDER_INVALID' },
+      });
+    }
+  }
+  for (const [field, timestamp] of failureTimestampFields) {
+    if (!timestamp || Number.isNaN(timestamp.getTime())) continue;
+    const priorTimestamps = healthyTimestampSequence
+      .map(([, value]) => value)
+      .filter((value): value is Date => value !== undefined);
+    const latestPrior = priorTimestamps.at(-1);
+    if (latestPrior && !Number.isNaN(latestPrior.getTime()) && timestamp.getTime() < latestPrior.getTime()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: 'Failure timestamps cannot precede the latest retained lifecycle timestamp.',
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_TIMESTAMP_ORDER_INVALID' },
+      });
+    }
+  }
+
+  if (orchestration.state === 'NOT_STARTED') {
+    for (const field of [
+      'chapterCount',
+      'progress',
+      'manifestHash',
+      'output',
+      'failure',
+    ] as const) {
+      if (orchestration[field] !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} cannot exist before chapter orchestration starts.`,
+          params: { code: 'CHAPTER_ORCHESTRATION_NOT_STARTED_HAS_PROGRESS' },
+        });
+      }
+    }
+  }
+
+  if (orchestration.state === 'STARTING') {
+    for (const field of [
+      'chapterCount',
+      'progress',
+      'manifestHash',
+      'output',
+      'failure',
+    ] as const) {
+      if (orchestration[field] !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} requires the chapter manifest to be bound in RUNNING.`,
+          params: { code: 'CHAPTER_ORCHESTRATION_STARTING_HAS_PROGRESS' },
+        });
+      }
+    }
+  }
+
+  if (healthyStates.has(orchestration.state)) {
+    if (orchestration.chapterCount === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterCount'],
+        message: `${orchestration.state} requires an exact chapter count.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_CHAPTER_COUNT_REQUIRED' },
+      });
+    }
+    if (orchestration.progress === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['progress'],
+        message: `${orchestration.state} requires bounded progress.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_PROGRESS_REQUIRED' },
+      });
+    }
+    if (orchestration.manifestHash === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['manifestHash'],
+        message: `${orchestration.state} requires an exact chapter manifest hash.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_MANIFEST_HASH_REQUIRED' },
+      });
+    }
+    if (orchestration.failure !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['failure'],
+        message: `${orchestration.state} cannot carry a failure record.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_HEALTHY_STATE_HAS_FAILURE' },
+      });
+    }
+  }
+
+  if (orchestration.state === 'READY_FOR_FINALIZATION'
+    || orchestration.state === 'FINALIZING'
+    || orchestration.state === 'COMPLETED') {
+    if (orchestration.progress !== 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['progress'],
+        message: `${orchestration.state} requires progress 1.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_FINAL_PROGRESS_REQUIRED' },
+      });
+    }
+    if (orchestration.output === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['output'],
+        message: `${orchestration.state} requires a materialized output.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_OUTPUT_REQUIRED' },
+      });
+    }
+  }
+
+  if (terminalFailureStates.has(orchestration.state)) {
+    if (orchestration.failure === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['failure'],
+        message: `${orchestration.state} requires a bounded failure record.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_REQUIRED' },
+      });
+    }
+    if (orchestration.output !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['output'],
+        message: `${orchestration.state} cannot claim a successful output.`,
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_HAS_OUTPUT' },
+      });
+    }
+    if ((orchestration.chapterCount === undefined) !== (orchestration.manifestHash === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['manifestHash'],
+        message: 'Failure states must retain chapter count and manifest hash together when present.',
+        params: { code: 'CHAPTER_ORCHESTRATION_FAILURE_MANIFEST_INCOMPLETE' },
+      });
+    }
+  }
+
+  if (orchestration.state === 'UNKNOWN' && orchestration.startingAt === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['startingAt'],
+      message: 'An unknown chapter orchestration must retain its durable start boundary.',
+      params: { code: 'CHAPTER_ORCHESTRATION_UNKNOWN_START_REQUIRED' },
+    });
+  }
+
+});
+
+export type RenderJobChapterOrchestrationV1 = z.infer<
+  typeof RenderJobChapterOrchestrationSchema
+>;
+
+export type RenderJobChapterOrchestrationFactoryInputV1 = {
+  aggregateJobId: string;
+  bindingHash: string;
+  selectedRegion: string;
+  reservedAt: Date;
+};
+
+/** Pure, provider-free constructor for the initial parent lifecycle record. */
+export function createRenderJobChapterOrchestrationV1(
+  input: RenderJobChapterOrchestrationFactoryInputV1,
+): RenderJobChapterOrchestrationV1 {
+  const orchestration = RenderJobChapterOrchestrationSchema.parse({
+    version: RENDER_JOB_CHAPTER_ORCHESTRATION_CONTRACT_VERSION_V1,
+    scope: RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1,
+    aggregateJobId: input.aggregateJobId.trim(),
+    bindingHash: input.bindingHash.trim(),
+    selectedRegion: input.selectedRegion.trim(),
+    state: 'NOT_STARTED',
+    reservedAt: new Date(input.reservedAt.getTime()),
+  });
+  return structuredClone(orchestration);
+}
+
+/** Clear assertion alias used by mutation owners and defensive readers. */
+export function assertRenderJobChapterOrchestrationV1(
+  input: unknown,
+): asserts input is RenderJobChapterOrchestrationV1 {
+  RenderJobChapterOrchestrationSchema.parse(input);
+}
+
 // Zod schema for validation
 export const RenderJobSchema = z.object({
   _id: z.string(), // Editron-owned durable job ID (legacy rows use the Lambda render ID)
@@ -306,6 +691,8 @@ export const RenderJobSchema = z.object({
   artifactInvalidatedAt: z.date().optional(),
   /** Durable reserve → billing → provider dispatch ledger; absent on legacy and pre-ledger PROJECT_SNAPSHOT rows. */
   dispatch: RenderJobDispatchSchema.optional(),
+  /** Provider-free aggregate lifecycle; child provider ledgers remain separate. */
+  chapterOrchestration: RenderJobChapterOrchestrationSchema.optional(),
   startedAt: z.date(),
   completedAt: z.date().optional(),
   error: z.string().optional(),
@@ -340,6 +727,60 @@ export const RenderJobSchema = z.object({
       params: { code: 'RENDER_SOURCE_CLEANUP_SCOPE_INVALID' },
     });
   }
+  if (job.chapterOrchestration !== undefined) {
+    if (
+      job.projectRenderSnapshotBinding === undefined
+      || job.artifactBinding !== undefined
+      || job.chapterOrchestration.bindingHash
+        !== job.projectRenderSnapshotBinding.bindingHash
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterOrchestration', 'bindingHash'],
+        message: 'A chapter orchestration parent requires its exact project snapshot binding.',
+        params: { code: 'CHAPTER_ORCHESTRATION_BINDING_MISMATCH' },
+      });
+    }
+    if (job.providerRenderId !== undefined || job.bucketName !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterOrchestration'],
+        message: 'A chapter orchestration parent cannot carry top-level provider identity.',
+        params: { code: 'CHAPTER_ORCHESTRATION_PARENT_HAS_PROVIDER_IDENTITY' },
+      });
+    }
+    if (
+      job.dispatch === undefined
+      || job.dispatch.phase !== 'NOT_ATTEMPTED'
+      || job.dispatch.providerRenderId !== undefined
+      || job.dispatch.providerBucketName !== undefined
+      || job.dispatch.providerRegion !== undefined
+      || job.dispatch.providerBoundAt !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterOrchestration'],
+        message: 'A chapter orchestration parent cannot carry provider dispatch evidence.',
+        params: { code: 'CHAPTER_ORCHESTRATION_PARENT_HAS_PROVIDER_DISPATCH' },
+      });
+    }
+    if (job.chapterOrchestration.aggregateJobId !== job._id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterOrchestration', 'aggregateJobId'],
+        message: 'Chapter orchestration aggregate ID must equal the render admission ID.',
+        params: { code: 'CHAPTER_ORCHESTRATION_AGGREGATE_ID_MISMATCH' },
+      });
+    }
+    if (job.chapterOrchestration.selectedRegion !== job.region) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['chapterOrchestration', 'selectedRegion'],
+        message: 'Chapter orchestration region must equal the render admission region.',
+        params: { code: 'CHAPTER_ORCHESTRATION_REGION_MISMATCH' },
+      });
+    }
+  }
 });
 
 export type RenderJob = z.infer<typeof RenderJobSchema>;
@@ -357,6 +798,7 @@ export function createPendingRenderJob(
   projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1,
   requestedByUserId?: string,
   dispatch?: RenderJobDispatchV1,
+  chapterOrchestration?: RenderJobChapterOrchestrationV1,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
@@ -379,8 +821,17 @@ export function createPendingRenderJob(
   const validatedDispatch = dispatch === undefined
     ? undefined
     : RenderJobDispatchSchema.parse(structuredClone(dispatch));
+  const validatedChapterOrchestration = chapterOrchestration === undefined
+    ? undefined
+    : RenderJobChapterOrchestrationSchema.parse(structuredClone(chapterOrchestration));
   if (validatedArtifactBinding !== undefined && validatedProjectRenderSnapshotBinding !== undefined) {
     throw new Error('RENDER_JOB_BINDING_SCOPES_AMBIGUOUS');
+  }
+  if (
+    validatedChapterOrchestration !== undefined
+    && validatedChapterOrchestration.state !== 'NOT_STARTED'
+  ) {
+    throw new Error('CHAPTER_ORCHESTRATION_RESERVATION_STATE_INVALID');
   }
 
   return {
@@ -408,5 +859,8 @@ export function createPendingRenderJob(
           }
         : {}),
     ...(validatedDispatch ? { dispatch: structuredClone(validatedDispatch) } : {}),
+    ...(validatedChapterOrchestration
+      ? { chapterOrchestration: structuredClone(validatedChapterOrchestration) }
+      : {}),
   };
 }
