@@ -1828,7 +1828,7 @@ export async function fenceStaleProjectRenderJobFinalizationWithCleanupV1(input:
  * stale, before a finalization lease could be claimed. Provider output and
  * cleanup work are persisted together; no artifact may become orphaned.
  */
-export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(input: {
+export async function fenceStaleProjectRenderJobProviderOutputV1(input: {
   authorization: unknown;
   observedProjectRevision: unknown | null;
   providerRenderId: string;
@@ -1839,14 +1839,12 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
   error: unknown;
   now?: Date;
   collection: Collection<RenderJob>;
-  cleanupCollection: Collection<ProjectRenderSourceCleanupOutboxV1>;
   session: ClientSession;
 }): Promise<
   | ProjectRenderJobNotCurrentResultV1
   | {
       ok: true;
       status: 'STALE' | 'ALREADY_STALE';
-      cleanupOutboxId: string;
     }
 > {
   const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
@@ -1939,13 +1937,6 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
     },
     { session: input.session },
   );
-  const expectedProviderOutput = {
-    providerRenderId,
-    bucketName,
-    region,
-    sourceOutputUrl: input.sourceOutputUrl,
-    sourceOutputSize: input.sourceOutputSize,
-  };
   if (fenced.modifiedCount !== 1) {
     const latest = await input.collection.findOne(
       { _id: authorization.jobId },
@@ -1962,18 +1953,54 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
       return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
     }
   }
-  const outbox = await materializeProjectRenderSourceCleanupHandoffV1({
-    authorization,
-    collection: input.collection,
-    cleanupCollection: input.cleanupCollection,
-    session: input.session,
-    expectedProviderOutput,
-  });
   return {
     ok: true,
     status: fenced.modifiedCount === 1 ? 'STALE' : 'ALREADY_STALE',
-    cleanupOutboxId: outbox._id,
   };
+}
+
+/**
+ * Standard-render compatibility wrapper. Chapter admissions use the state
+ * transition above and their own materializer; this wrapper remains the only
+ * owner that can enqueue the generic Remotion source-cleanup outbox.
+ */
+export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(input: {
+  authorization: unknown;
+  observedProjectRevision: unknown | null;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  error: unknown;
+  now?: Date;
+  collection: Collection<RenderJob>;
+  cleanupCollection: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  session: ClientSession;
+}): Promise<
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: 'STALE' | 'ALREADY_STALE';
+      cleanupOutboxId: string;
+    }
+> {
+  const fenced = await fenceStaleProjectRenderJobProviderOutputV1(input);
+  if (!fenced.ok) return fenced;
+  const outbox = await materializeProjectRenderSourceCleanupHandoffV1({
+    authorization: input.authorization,
+    collection: input.collection,
+    cleanupCollection: input.cleanupCollection,
+    session: input.session,
+    expectedProviderOutput: {
+      providerRenderId: input.providerRenderId.trim(),
+      bucketName: input.bucketName.trim(),
+      region: input.region.trim(),
+      sourceOutputUrl: input.sourceOutputUrl,
+      sourceOutputSize: input.sourceOutputSize,
+    },
+  });
+  return { ...fenced, cleanupOutboxId: outbox._id };
 }
 
 export interface FencedRenderJobsForProjectArtifactInvalidationV1 {

@@ -241,11 +241,27 @@ async function chapterRenderProgress(input: {
     );
   }
   if (progress.status === 'completed' && progress.outputUrl) {
+    const persistedOutputSize = await readChapterFinalizationOutputSize(
+      input.renderId,
+      progress,
+    );
+    if (persistedOutputSize === undefined && input.strictAuthorization) {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'CHAPTER_RENDER_OUTPUT_IDENTITY_MISSING',
+          message: 'Chapter completion is missing a positive persisted output size.',
+        },
+        { status: 409 },
+      );
+    }
     const finalizationInput = {
       providerRenderId: input.persistedJob.providerRenderId ?? input.renderId,
       bucketName: input.bucketName,
       sourceOutputUrl: progress.outputUrl,
-      sourceOutputSize: 0,
+      // Legacy chapter rows predate persisted byte identity. Keep their
+      // compatibility path intact; strict rows never reach this fallback.
+      sourceOutputSize: persistedOutputSize ?? 0,
     };
     if (input.strictAuthorization) {
       const result = await beginProjectRenderFinalizationV1({
@@ -307,6 +323,43 @@ async function chapterRenderProgress(input: {
       },
     },
   });
+}
+
+async function readChapterFinalizationOutputSize(
+  renderId: string,
+  progress: {
+    chapters: Array<{ outputSize?: unknown }>;
+  } & Record<string, unknown>,
+): Promise<number | undefined> {
+  const progressConcatResult = progress.concatResult;
+  if (
+    progressConcatResult
+    && typeof progressConcatResult === 'object'
+    && !Array.isArray(progressConcatResult)
+    && Number.isSafeInteger((progressConcatResult as { sizeBytes?: unknown }).sizeBytes)
+    && ((progressConcatResult as { sizeBytes: number }).sizeBytes) > 0
+  ) {
+    return (progressConcatResult as { sizeBytes: number }).sizeBytes;
+  }
+  if (progress.chapters.length === 1) {
+    const childSize = progress.chapters[0]?.outputSize;
+    if (Number.isSafeInteger(childSize) && (childSize as number) > 0) {
+      return childSize as number;
+    }
+  }
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const { CHAPTERS_COLLECTION } = await import('@/lib/editron/services/chapter-renderer');
+    const db = await getDatabase();
+    const row = await db.collection(CHAPTERS_COLLECTION).findOne(
+      { _id: renderId as any },
+      { projection: { concatResult: 1 } },
+    ) as { concatResult?: { sizeBytes?: unknown } } | null;
+    const size = row?.concatResult?.sizeBytes;
+    return Number.isSafeInteger(size) && (size as number) > 0 ? size as number : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function completedRenderResponse(

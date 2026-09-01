@@ -9,7 +9,6 @@ import { finalizeRenderArtifact } from '@/lib/editron/services/render-finalizer-
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   completeJobFinalization,
-  fenceStaleProjectRenderJobFinalizationV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
 } from '@/lib/editron/services/render-job-service';
@@ -91,6 +90,20 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
     );
   }
   if (job.status === 'done' || job.status === 'error') {
+    if (strictAuthorization && job.artifactCleanup?.state === 'PENDING') {
+      const fenced = await requireStaleFinalizationFence({
+        authorization: strictAuthorization,
+        observedProjectRevision: initialProjectRevision,
+        claimToken: message.claimToken,
+        error: 'Terminal render retains pending cleanup work.',
+      });
+      if (
+        fenced.status === 'ALREADY_TERMINAL'
+        && !strictAuthorization.jobId.startsWith('chr_')
+      ) {
+        throw new Error('Strict terminal render cleanup handoff was not proved.');
+      }
+    }
     return NextResponse.json({ success: true, skipped: 'job_already_terminal' });
   }
   if (
@@ -143,7 +156,7 @@ async function requireStaleFinalizationFence(input: {
   claimToken: string;
   error: string;
 }) {
-  const fenced = await fenceStaleProjectRenderJobFinalizationV1(input);
+  const fenced = await projectService.fenceStaleProjectRenderJobFinalizationTransactionV1(input);
   if (!fenced.ok) {
     throw new Error(`Strict stale finalization claim could not be fenced: ${fenced.reason}.`);
   }

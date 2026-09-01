@@ -12,6 +12,7 @@ import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 import {
+  MAX_RENDER_FINALIZATION_ATTEMPTS,
   PROJECT_ARTIFACT_NOT_CURRENT,
   PROJECT_RENDER_JOBS_COLLECTION_V1,
   ProjectRenderJobAuthorizationSchema,
@@ -23,7 +24,9 @@ import {
   completeProjectRenderJobFinalizationV1 as completeBoundProjectRenderJobFinalizationV1,
   failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1 as failBoundProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationV1,
   fenceStaleProjectRenderJobFinalizationWithCleanupV1,
+  fenceStaleProjectRenderJobProviderOutputV1,
   fenceStaleProjectRenderJobProviderOutputWithCleanupV1,
   releaseFailedProjectRenderJobFinalizationRetryClaimV1,
   releaseProjectRenderCompletionEffectsV1,
@@ -36,6 +39,15 @@ import {
   type ProjectRenderJobNotCurrentResultV1,
 } from "./render-job-service";
 import {
+  CHAPTER_RENDER_CLEANUP_CHAPTERS_COLLECTION_V1,
+  materializeChapterRenderCleanupV1,
+  type ChapterRenderCleanupBoundaryV1,
+  type ChapterRenderCleanupChapterDocumentV1,
+  type ChapterRenderCleanupMaterializerResultV1,
+  type ChapterRenderCleanupParentDocumentV1,
+  type ChapterRenderCleanupProviderOutputV1,
+} from "./chapter-render-cleanup-materializer-v1";
+import {
   RenderJobSchema,
   type RenderJob,
 } from "../schemas/render-job";
@@ -44,6 +56,10 @@ import {
   ProjectRenderSourceCleanupAwsRegionSchemaV1,
   type ProjectRenderSourceCleanupOutboxV1,
 } from "./project-render-source-cleanup-v1";
+import {
+  PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
+  type ProjectChapterConcatCleanupOutboxV1,
+} from "./chapter-concat-cleanup-v1";
 import type {
   Keyframe,
   KeyframeTrack,
@@ -1411,13 +1427,16 @@ type ProjectRenderJobTransactionKindV1 =
   | "completion-effects-claim"
   | "completion-effects-complete"
   | "completion-effects-release"
-  | "dispatch-recovery-bind";
+  | "dispatch-recovery-bind"
+  | "stale-finalization";
 
 interface ProjectRenderJobTransactionContextV1 {
   authorization: ProjectRenderJobAuthorizationV1;
   currentProjectRevision: ProjectRevisionV1;
   renderJobs: Collection<RenderJob>;
   renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  chapterRenderJobs?: Collection<ChapterRenderCleanupChapterDocumentV1>;
+  chapterConcatCleanupOutbox?: Collection<ProjectChapterConcatCleanupOutboxV1>;
   session: ClientSession;
   transactionAt: Date;
 }
@@ -1427,6 +1446,8 @@ interface StaleProjectRenderJobTransactionContextV1 {
   observedProjectRevision: ProjectRevisionV1 | null;
   renderJobs: Collection<RenderJob>;
   renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  chapterRenderJobs?: Collection<ChapterRenderCleanupChapterDocumentV1>;
+  chapterConcatCleanupOutbox?: Collection<ProjectChapterConcatCleanupOutboxV1>;
   session: ClientSession;
   transactionAt: Date;
 }
@@ -1440,6 +1461,79 @@ type ProjectRenderFinalizationTransactionResultV1 =
 
 const PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1 =
   "renderFinalizationTransactionFenceV1";
+
+function isChapterRenderAuthorizationV1(
+  authorization: ProjectRenderJobAuthorizationV1,
+): boolean {
+  return /^chr_[A-Za-z0-9_-]{12}$/.test(authorization.jobId);
+}
+
+async function materializeChapterCleanupAtBoundaryV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  chapterRenderJobs?: Collection<ChapterRenderCleanupChapterDocumentV1>;
+  chapterConcatCleanupOutbox?: Collection<ProjectChapterConcatCleanupOutboxV1>;
+  renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  renderJobs: Collection<RenderJob>;
+  session: ClientSession;
+  boundary: ChapterRenderCleanupBoundaryV1;
+  expectedProviderOutput?: ChapterRenderCleanupProviderOutputV1;
+  now: Date;
+}): Promise<ChapterRenderCleanupMaterializerResultV1 | null> {
+  if (!isChapterRenderAuthorizationV1(input.authorization)) return null;
+  if (!input.chapterRenderJobs || !input.chapterConcatCleanupOutbox) {
+    throw new Error("CHAPTER_RENDER_CLEANUP_COLLECTIONS_UNAVAILABLE");
+  }
+  return materializeChapterRenderCleanupV1({
+    authorization: input.authorization,
+    chapterCollection: input.chapterRenderJobs,
+    childCleanupCollection: input.renderSourceCleanupOutbox,
+    concatCleanupCollection: input.chapterConcatCleanupOutbox,
+    parentRenderJobs: input.renderJobs as unknown as Collection<ChapterRenderCleanupParentDocumentV1>,
+    session: input.session,
+    boundary: input.boundary,
+    expectedProviderOutput: input.expectedProviderOutput,
+    now: input.now,
+  });
+}
+
+async function materializeTerminalChapterCleanupV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  chapterRenderJobs?: Collection<ChapterRenderCleanupChapterDocumentV1>;
+  chapterConcatCleanupOutbox?: Collection<ProjectChapterConcatCleanupOutboxV1>;
+  renderSourceCleanupOutbox: Collection<ProjectRenderSourceCleanupOutboxV1>;
+  renderJobs: Collection<RenderJob>;
+  session: ClientSession;
+  now: Date;
+}): Promise<boolean> {
+  const latest = await input.renderJobs.findOne(
+    { _id: input.authorization.jobId },
+    { session: input.session },
+  );
+  const finalization = latest?.finalization;
+  let boundary: ChapterRenderCleanupBoundaryV1 | undefined;
+  if (latest?.status === "done" && finalization?.state === "done") {
+    boundary = "CURRENT_SUCCESS";
+  } else if (
+    latest?.status === "error"
+    && finalization?.state === "failed"
+    && Number.isInteger(finalization.attempts)
+    && finalization.attempts >= MAX_RENDER_FINALIZATION_ATTEMPTS
+  ) {
+    boundary = "TERMINAL_FINALIZATION_FAILURE";
+  }
+  if (!boundary) return false;
+  await materializeChapterCleanupAtBoundaryV1({
+    authorization: input.authorization,
+    chapterRenderJobs: input.chapterRenderJobs,
+    chapterConcatCleanupOutbox: input.chapterConcatCleanupOutbox,
+    renderSourceCleanupOutbox: input.renderSourceCleanupOutbox,
+    renderJobs: input.renderJobs,
+    session: input.session,
+    boundary,
+    now: input.now,
+  });
+  return true;
+}
 
 export interface ProjectListItem {
   projectId: string;
@@ -2134,6 +2228,113 @@ export class ProjectService {
     });
   }
 
+  /**
+   * Fence a finalizer callback whose project snapshot is no longer current.
+   * The route-facing owner is deliberately transactional; chapter admissions
+   * also require their child/concat cleanup outboxes before this can succeed.
+   */
+  async fenceStaleProjectRenderJobFinalizationTransactionV1(input: {
+    authorization: unknown;
+    observedProjectRevision: unknown | null;
+    claimToken: string;
+    error: unknown;
+    now?: Date;
+  }): Promise<ProjectRenderFinalizationTransactionResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: "stale-finalization", now: input.now },
+      async ({
+        authorization,
+        renderJobs,
+        renderSourceCleanupOutbox,
+        chapterRenderJobs,
+        chapterConcatCleanupOutbox,
+        session,
+        transactionAt,
+      }) => {
+        if (
+          isChapterRenderAuthorizationV1(authorization)
+          && await materializeTerminalChapterCleanupV1({
+            authorization,
+            chapterRenderJobs,
+            chapterConcatCleanupOutbox,
+            renderSourceCleanupOutbox,
+            renderJobs,
+            session,
+            now: transactionAt,
+          })
+        ) {
+          return { ok: true as const, status: "ALREADY_TERMINAL" as const };
+        }
+        return {
+          ok: false as const,
+          status: "NON_CURRENT" as const,
+          code: PROJECT_ARTIFACT_NOT_CURRENT,
+          reason: "JOB_STATE_NOT_ACTIVE" as const,
+        };
+      },
+      async ({
+        authorization,
+        observedProjectRevision,
+        renderJobs,
+        renderSourceCleanupOutbox,
+        chapterRenderJobs,
+        chapterConcatCleanupOutbox,
+        session,
+        transactionAt,
+      }) => {
+        const fenced = isChapterRenderAuthorizationV1(authorization)
+          ? await fenceStaleProjectRenderJobFinalizationV1({
+              authorization,
+              observedProjectRevision,
+              claimToken: input.claimToken,
+              error: input.error,
+              now: transactionAt,
+              collection: renderJobs,
+              session,
+            })
+          : await fenceStaleProjectRenderJobFinalizationWithCleanupV1({
+              authorization,
+              observedProjectRevision,
+              claimToken: input.claimToken,
+              error: input.error,
+              now: transactionAt,
+              collection: renderJobs,
+              cleanupCollection: renderSourceCleanupOutbox,
+              session,
+            });
+        if (!fenced.ok) return fenced;
+        if (isChapterRenderAuthorizationV1(authorization)) {
+          if (fenced.status === "STALE" || fenced.status === "ALREADY_STALE") {
+            await materializeChapterCleanupAtBoundaryV1({
+              authorization,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
+              renderSourceCleanupOutbox,
+              renderJobs,
+              session,
+              boundary: "STALE_FINALIZATION",
+              now: transactionAt,
+            });
+          } else if (
+            fenced.status === "ALREADY_TERMINAL"
+            && !await materializeTerminalChapterCleanupV1({
+              authorization,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
+              renderSourceCleanupOutbox,
+              renderJobs,
+              session,
+              now: transactionAt,
+            })
+          ) {
+            throw new Error("CHAPTER_RENDER_TERMINAL_CLEANUP_NOT_PROVABLE");
+          }
+        }
+        return fenced;
+      },
+    );
+  }
+
   /** Reconcile one signed provider failure only while its project is current. */
   async failProjectRenderJobFromProviderTransactionV1(input: {
     authorization: unknown;
@@ -2291,24 +2492,59 @@ export class ProjectService {
             observedProjectRevision,
             renderJobs,
             renderSourceCleanupOutbox,
+            chapterRenderJobs,
+            chapterConcatCleanupOutbox,
             session,
             transactionAt,
           }) => {
-            const stale = await fenceStaleProjectRenderJobProviderOutputWithCleanupV1({
-              authorization,
-              observedProjectRevision,
-              providerRenderId: input.providerRenderId!,
-              bucketName: input.bucketName!,
-              region: input.region!,
-              sourceOutputUrl: input.sourceOutputUrl,
-              sourceOutputSize: input.sourceOutputSize,
-              error: "Project changed before provider output finalization.",
-              now: transactionAt,
-              collection: renderJobs,
-              cleanupCollection: renderSourceCleanupOutbox,
-              session,
-            });
+            const stale = isChapterRenderAuthorizationV1(authorization)
+              ? await fenceStaleProjectRenderJobProviderOutputV1({
+                  authorization,
+                  observedProjectRevision,
+                  providerRenderId: input.providerRenderId!,
+                  bucketName: input.bucketName!,
+                  region: input.region!,
+                  sourceOutputUrl: input.sourceOutputUrl,
+                  sourceOutputSize: input.sourceOutputSize,
+                  error: "Project changed before provider output finalization.",
+                  now: transactionAt,
+                  collection: renderJobs,
+                  session,
+                })
+              : await fenceStaleProjectRenderJobProviderOutputWithCleanupV1({
+                  authorization,
+                  observedProjectRevision,
+                  providerRenderId: input.providerRenderId!,
+                  bucketName: input.bucketName!,
+                  region: input.region!,
+                  sourceOutputUrl: input.sourceOutputUrl,
+                  sourceOutputSize: input.sourceOutputSize,
+                  error: "Project changed before provider output finalization.",
+                  now: transactionAt,
+                  collection: renderJobs,
+                  cleanupCollection: renderSourceCleanupOutbox,
+                  session,
+                });
             if (!stale.ok) return stale;
+            if (isChapterRenderAuthorizationV1(authorization)) {
+              await materializeChapterCleanupAtBoundaryV1({
+                authorization,
+                chapterRenderJobs,
+                chapterConcatCleanupOutbox,
+                renderSourceCleanupOutbox,
+                renderJobs,
+                session,
+                boundary: "STALE_PROVIDER_OUTPUT",
+                expectedProviderOutput: {
+                  providerRenderId: input.providerRenderId!,
+                  bucketName: input.bucketName!,
+                  region: input.region!,
+                  sourceOutputUrl: input.sourceOutputUrl,
+                  sourceOutputSize: input.sourceOutputSize,
+                },
+                now: transactionAt,
+              });
+            }
             return {
               ok: false as const,
               status: "NON_CURRENT" as const,
@@ -2400,9 +2636,18 @@ export class ProjectService {
   ): Promise<ProjectRenderFinalizationTransactionResultV1> {
     return this.runProjectRenderJobTransactionV1(
       { authorization: input.authorization, kind: input.kind, now: input.now },
-      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
-        input.kind === "complete"
-          ? completeBoundProjectRenderJobFinalizationV1({
+      async ({
+        authorization,
+        currentProjectRevision,
+        renderJobs,
+        renderSourceCleanupOutbox,
+        chapterRenderJobs,
+        chapterConcatCleanupOutbox,
+        session,
+        transactionAt,
+      }) => {
+        const result = input.kind === "complete"
+          ? await completeBoundProjectRenderJobFinalizationV1({
               authorization,
               currentProjectRevision,
               claimToken: input.claimToken,
@@ -2411,7 +2656,7 @@ export class ProjectService {
               collection: renderJobs,
               session,
             })
-          : failBoundProjectRenderJobFinalizationV1({
+          : await failBoundProjectRenderJobFinalizationV1({
               authorization,
               currentProjectRevision,
               claimToken: input.claimToken,
@@ -2419,27 +2664,108 @@ export class ProjectService {
               now: transactionAt,
               collection: renderJobs,
               session,
-            }),
-      ({
+            });
+        if (result.ok && result.status === "CURRENT") {
+          if (input.kind === "complete") {
+            await materializeChapterCleanupAtBoundaryV1({
+              authorization,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
+              renderSourceCleanupOutbox,
+              renderJobs,
+              session,
+              boundary: "CURRENT_SUCCESS",
+              now: transactionAt,
+            });
+          } else {
+            const latest = await renderJobs.findOne(
+              { _id: authorization.jobId },
+              { session },
+            );
+            const finalization = latest?.finalization;
+            if (
+              Number.isInteger(finalization?.attempts)
+              && (finalization?.attempts as number) >= MAX_RENDER_FINALIZATION_ATTEMPTS
+            ) {
+              await materializeChapterCleanupAtBoundaryV1({
+                authorization,
+                chapterRenderJobs,
+                chapterConcatCleanupOutbox,
+                renderSourceCleanupOutbox,
+                renderJobs,
+                session,
+                boundary: "TERMINAL_FINALIZATION_FAILURE",
+                now: transactionAt,
+              });
+            }
+          }
+        }
+        return result;
+      },
+      async ({
         authorization,
         observedProjectRevision,
         renderJobs,
         renderSourceCleanupOutbox,
+        chapterRenderJobs,
+        chapterConcatCleanupOutbox,
         session,
         transactionAt,
-      }) =>
-        fenceStaleProjectRenderJobFinalizationWithCleanupV1({
-          authorization,
-          observedProjectRevision,
-          claimToken: input.claimToken,
-          error: input.kind === "failure"
-            ? input.error
-            : "Project changed before final render publication.",
-          now: transactionAt,
-          collection: renderJobs,
-          cleanupCollection: renderSourceCleanupOutbox,
-          session,
-        }),
+      }) => {
+        const fenced = isChapterRenderAuthorizationV1(authorization)
+          ? await fenceStaleProjectRenderJobFinalizationV1({
+              authorization,
+              observedProjectRevision,
+              claimToken: input.claimToken,
+              error: input.kind === "failure"
+                ? input.error
+                : "Project changed before final render publication.",
+              now: transactionAt,
+              collection: renderJobs,
+              session,
+            })
+          : await fenceStaleProjectRenderJobFinalizationWithCleanupV1({
+              authorization,
+              observedProjectRevision,
+              claimToken: input.claimToken,
+              error: input.kind === "failure"
+                ? input.error
+                : "Project changed before final render publication.",
+              now: transactionAt,
+              collection: renderJobs,
+              cleanupCollection: renderSourceCleanupOutbox,
+              session,
+            });
+        if (!fenced.ok) return fenced;
+        if (isChapterRenderAuthorizationV1(authorization)) {
+          if (fenced.status === "STALE" || fenced.status === "ALREADY_STALE") {
+            await materializeChapterCleanupAtBoundaryV1({
+              authorization,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
+              renderSourceCleanupOutbox,
+              renderJobs,
+              session,
+              boundary: "STALE_FINALIZATION",
+              now: transactionAt,
+            });
+          } else if (
+            fenced.status === "ALREADY_TERMINAL"
+            && !await materializeTerminalChapterCleanupV1({
+              authorization,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
+              renderSourceCleanupOutbox,
+              renderJobs,
+              session,
+              now: transactionAt,
+            })
+          ) {
+            throw new Error("CHAPTER_RENDER_TERMINAL_CLEANUP_NOT_PROVABLE");
+          }
+        }
+        return fenced;
+      },
     );
   }
 
@@ -2479,6 +2805,16 @@ export class ProjectService {
     const renderSourceCleanupOutbox = db.collection<ProjectRenderSourceCleanupOutboxV1>(
       PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
     );
+    const chapterRenderJobs = isChapterRenderAuthorizationV1(authorization)
+      ? db.collection<ChapterRenderCleanupChapterDocumentV1>(
+          CHAPTER_RENDER_CLEANUP_CHAPTERS_COLLECTION_V1,
+        )
+      : undefined;
+    const chapterConcatCleanupOutbox = chapterRenderJobs
+      ? db.collection<ProjectChapterConcatCleanupOutboxV1>(
+          PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
+        )
+      : undefined;
     try {
       const result = await session.withTransaction(async () => {
         const projects = db.collection(COLLECTIONS.PROJECTS);
@@ -2526,6 +2862,8 @@ export class ProjectService {
               observedProjectRevision,
               renderJobs,
               renderSourceCleanupOutbox,
+              chapterRenderJobs,
+              chapterConcatCleanupOutbox,
               session,
               transactionAt,
             });
@@ -2544,6 +2882,8 @@ export class ProjectService {
           currentProjectRevision,
           renderJobs,
           renderSourceCleanupOutbox,
+          chapterRenderJobs,
+          chapterConcatCleanupOutbox,
           session,
           transactionAt,
         });
