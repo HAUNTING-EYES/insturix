@@ -15281,3 +15281,82 @@ deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
 `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
 `BLOCKED_NOT_AUTHORIZED`. No convergence, agency-class completion, successor
 receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3Q checkpoint
+
+Commits `c403d96dc` and `dce906b5e` replace mutable, URL-authorized chapter
+concatenation with one immutable server-owned concat target. The target binds
+the complete `PROJECT_SNAPSHOT`, parent admission, ordered child provider
+tuples and URLs/sizes, source-manifest hash, fixed deployment-owned bucket and
+region, deterministic generation and `editron-concat/v1/<generation>.mp4`
+object key. It is persisted before QStash dispatch and its generation is the
+deduplication identity. Genuine legacy multi-chapter rows that lack the
+snapshot identity are quarantined locally; they are not converted into raw
+URL jobs.
+
+The internal worker requires exact project, requester and owner scope, leases
+one generation, rejects incomplete or mismatched completion receipts and
+supports exact DONE replay. Modal accepts only the HMAC-signed canonical
+target, rechecks the fixed destination, validates every source redirect and
+byte size, and uses `HeadObject` metadata/size to reuse only the exact existing
+generation after a lost response. A conflicting object is rejected instead of
+overwritten or accepted. URL remains presentation/audit data, never deletion
+authority.
+
+The TypeScript contract/renderer suites passed 15/15 tests and the Modal pure-
+helper suite passed 7/7. Full TypeScript, targeted lint, full repository lint
+and `git diff --check` passed across the combined worktree. No provider upload,
+live render, deletion, IAM change, paid cohort rerun, model inference, project
+content mutation or external spend occurred.
+
+This closes immutable concat identity and local idempotent worker plumbing, not
+the chapter cleanup chain. There is still no isolated concat `DeleteObject`
+outbox/consumer, transactionally safe child/concat cleanup materialization,
+recovery sweep for an expired lease after exhausted delivery, deployed IAM
+proof or live deletion receipt. The Modal writer still uses its configured
+deployment credential and `upload_file`; deployed least-privilege and
+concurrent-writer behavior remain external proof work.
+
+## 2026-09-01 vertical-convergence Phase 3R checkpoint
+
+Commits `51f0a6fe1` and `7018cb47d` add a durable strict render billing/provider-
+dispatch ledger. Every new route-owned `PROJECT_SNAPSHOT` admission persists a
+stable binding-derived credit idempotency key, provider attempt token and exact
+billing wallet before deduction. Billing states distinguish `PENDING`,
+`RECORDED` and `UNKNOWN`; dispatch phases distinguish `NOT_ATTEMPTED`,
+`ATTEMPTING`, `UNKNOWN` and `BOUND`. Provider dispatch requires a recorded
+credit transaction receipt. The first provider bind is fenced to the region
+reserved by the admission, and an already-bound replay is accepted only for
+the same full provider tuple.
+
+A definite credit-owner rejection remains a normal pre-dispatch failure. A
+wallet/database response that may have been lost is quarantined as
+`RENDER_BILLING_UNKNOWN` without automatic refund or provider dispatch. The
+attempt marker is written immediately before the provider call. A returned CAS
+rejection proves that no provider call occurred and remains refundable; a
+thrown/lost CAS response or provider response is quarantined without refund or
+automatic rerender. Those ambiguous outcomes return HTTP 202 with
+`RENDER_DISPATCH_UNKNOWN`, the durable admission ID and `recoveryRequired`, so
+generic 500 retry behavior cannot silently create a second admission/spend.
+
+The focused route and render-owner closure passed 62/62 tests. The full
+8-GB TypeScript check, full `npx eslint . --quiet` and `git diff --check`
+passed. No provider call, wallet mutation, live render, paid cohort rerun,
+model inference, project content mutation or external spend occurred.
+
+This ledger prevents blind refund/retry at ambiguous boundaries; it does not
+itself recover them. The installed Remotion dispatch API still exposes no
+provider idempotency/lookup token, so automatic provider rerender remains
+forbidden until a signed callback or provider lookup proves the result. Chapter
+children still need equivalent per-child attempt/recovery state. Concat-object
+cleanup, safe cleanup materialization, recovery sweeps, deployed IAM/live
+deletion proof and complete chapter finalization remain open.
+
+The next bounded order is therefore: (1) isolated leased concat-object
+`DeleteObject` cleanup, (2) transactionally safe child/concat cleanup
+materialization in success and stale paths, (3) proof-based standard and
+chapter ambiguous-dispatch recovery without blind provider retry, then
+(4) deployed IAM/live deletion proof. Queue 5 remains `ACTIVE_PARTIAL`;
+Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3
+remains `BLOCKED_NOT_AUTHORIZED`. No render-chain convergence, agency-class
+completion, successor receipt or `GO` is claimed.
