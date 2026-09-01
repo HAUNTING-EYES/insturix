@@ -85,7 +85,7 @@ describe('SaaS reference video production wiring', () => {
     expect(videoWorkerSource).toContain("if (referenceVideoAnalysis?.status === 'failed') return false;");
     expect(tribeWorkerSource).toContain('referenceEditDNA: 1');
     expect(tribeWorkerSource).toContain('referenceVideoAnalysis: 1');
-    expect(tribeWorkerSource).toContain('const editDNA = projectDoc?.referenceEditDNA;');
+    expect(tribeWorkerSource).toContain("import('@/lib/editron/services/canonical-director-run')");
     expect(directorWorkerSource).toContain('const editDNA = asRecord(projectDoc.referenceEditDNA);');
     expect(directorWorkerSource).toContain('executeDirectorPlan(');
     expect(directorWorkerSource).toContain('input.projectId, input.userId, input.profileId, brief');
