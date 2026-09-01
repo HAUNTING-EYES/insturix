@@ -15228,3 +15228,56 @@ The next bounded order is chapter child-render cleanup with separate concat-
 object cleanup, then ambiguous-dispatch recovery and deployed IAM/live
 deletion proof. No certification, agency-class completion, convergence,
 successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3P checkpoint
+
+Commits `1cbd1a754` and `6acbfcf5a` add the first bounded chapter-child
+identity and cleanup-contract slice without treating the aggregate chapter
+job or concat output as a Remotion render.
+
+The existing leased source-cleanup outbox now has a backward-compatible
+discriminated child artifact kind. Each child descriptor binds the full
+server-owned `PROJECT_SNAPSHOT` identity, parent admission, bounded chapter
+index, exact `(providerRenderId, bucketName, region)` tuple, derived Remotion
+prefix and provider-reported HTTPS output URL/size. The synthetic
+`chapter-render` aggregate bucket is rejected. Child descriptor identity is
+stable across retry timestamps, while the pre-existing standard-render hash
+contract remains unchanged. The cleanup runtime accepts only the two declared
+Remotion artifact kinds and passes their exact persisted tuple to
+`deleteRender`; concat objects remain outside this consumer.
+
+Strict chapter startup now validates and clones the server-owned render
+authorization/binding, persists the selected region and parent admission, and
+records the exact child render ID, bucket, region, output URL and output size.
+Strict polling consumes only the persisted tuple and fails closed when the
+provider or completed-output identity is incomplete. Genuine legacy chapter
+rows retain an explicit environment-derived compatibility path. Completion
+does not automatically enqueue child deletion: a single child may be the
+final delivered source, and multi-child sources remain necessary until concat
+and finalization are durably proved.
+
+The cleanup contract/runtime suites passed 10/10 tests; render startup and
+chapter progress-route suites passed 48/48; the broader chapter-renderer,
+credit and delivery-manifest suites passed 47/47. The full repository
+TypeScript check passed with an 8 GB Node heap; full
+`npx eslint . --quiet`, targeted lint and `git diff --check` passed. No
+provider deletion, deployed IAM change, live render, project content mutation,
+model inference, historical cohort rerun or external spend occurred.
+
+This is exact child identity plus local cleanup-consumer capability, not a
+complete chapter cleanup chain. The concat result is a separate S3 object and
+still lacks a server-owned immutable target, leased worker identity, isolated
+`DeleteObject` cleanup outbox and recovery proof. Child cleanup still needs a
+safe materialization point after concat/finalization or stale fencing; strict
+chapter progress/finalization recovery and ambiguous provider-dispatch
+reconciliation remain open. Deployed delete authority and one live idempotent
+receipt also remain unproved.
+
+The next bounded order is: (1) immutable server-owned concat identity and
+idempotent concat worker, (2) isolated leased concat-object cleanup,
+(3) transactionally safe child/concat cleanup materialization in finalization
+and stale paths, (4) ambiguous-dispatch recovery, then (5) deployed IAM/live
+deletion proof. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No convergence, agency-class completion, successor
+receipt or `GO` is claimed.
