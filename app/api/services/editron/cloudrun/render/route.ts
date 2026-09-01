@@ -49,8 +49,6 @@ export async function POST(request: Request) {
   let creditsDeducted = false;
   let renderStarted = false;
   let renderAdmissionId: string | null = null;
-  let renderDeliveryManifest: ReturnType<typeof buildRenderDeliveryManifest> | null = null;
-  let standardWebhook: ReturnType<typeof buildRemotionRenderWebhook> | null = null;
 
   try {
     const { userId } = await auth();
@@ -266,8 +264,6 @@ export async function POST(request: Request) {
       deliveryManifest,
     );
     renderAdmissionId = admissionId;
-    renderDeliveryManifest = deliveryManifest;
-    standardWebhook = webhook;
 
     try {
       await renderCreditCheck.deduct();
@@ -313,7 +309,7 @@ export async function POST(request: Request) {
           jobId,
           'chapter-render',
           region,
-          renderDeliveryManifest!,
+          deliveryManifest,
         );
       } catch (dbError) {
         trackingStatus = 'degraded';
@@ -330,7 +326,7 @@ export async function POST(request: Request) {
         data: {
           ...buildChapterRenderApiData({ jobId, region, chapters }),
           renderAdmissionId,
-          deliveryManifest: renderDeliveryManifest!,
+          deliveryManifest,
           trackingStatus: finalTracking,
           ...(mgIntegrity ? { mgIntegrity } : {}),
         },
@@ -355,7 +351,7 @@ export async function POST(request: Request) {
       metadata: {
         editronRenderAdmissionId: renderAdmissionId!,
       },
-      webhook: standardWebhook!,
+      webhook: webhook!,
     });
 
     renderStarted = true;
@@ -367,7 +363,7 @@ export async function POST(request: Request) {
         renderId,
         bucketName,
         region,
-        renderDeliveryManifest!,
+        deliveryManifest,
       );
     } catch (dbError) {
       trackingStatus = 'degraded';
@@ -412,7 +408,7 @@ export async function POST(request: Request) {
         bucketName,
         region,
         functionName,
-        deliveryManifest: renderDeliveryManifest!,
+        deliveryManifest,
         renderAdmissionId,
         trackingStatus: finalTracking,
         ...(mgIntegrity ? { mgIntegrity } : {}),
