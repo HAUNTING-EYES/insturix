@@ -16489,3 +16489,81 @@ serial Queue 5 slice is caller-bound overlay update/delete, followed by
 complete-family replacement and the remaining specialized ProjectService
 writers. Only after Queue 5's applicable prerequisites close does work return
 to Queues 3 and 4 under the existing parallelization authorization.
+
+## 2026-09-02 vertical-convergence Phase 4P checkpoint
+
+Commits `1bdf16eed`, `6b842c9f3`, `2730d1cab`, `8eb51d96b`,
+`76b1f2139`, `8b17cf6dd`, `f3d566fe6`, `5328255d5` and `20df97d01`
+close the caller-bound direct overlay update/delete slice and its adjacent
+auto-edit and HTML-scene writers. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+`updateOverlayAtRevisionV1` and `deleteOverlayAtRevisionV1` now require the
+caller's exact project revision, explicit actor and exact stable overlay
+identity. ProjectService rechecks supported FPS, exact positive before/after
+timeline ranges, the active Director lease, overlapping range locks, project
+revision and overlay identity before and inside the Mongo compare-and-swap.
+Every live agent, visual-tool, audio-tool and HTML-scene update/delete caller
+now binds the revision of the project/scene state that produced its proposal.
+Sequential mutations advance only from writer-issued receipts. The obsolete
+inferred-current `updateOverlay` and `deleteOverlay` methods and every compiled
+caller were removed, so a new runtime caller cannot silently reacquire a newer
+revision after doing work against stale state.
+
+The script auto-edit replacement is also no longer a delete/add/duration
+multi-write chain. `applyAutoEditAssemblyV1` validates one exact source video,
+source handles, stable child identities, non-overlap, project duration, active
+lease/range locks and the caller's revision, then replaces the source with its
+ordered cuts, ripples later unaffected overlays and advances project duration
+under one ProjectService CAS and one range receipt. The HTML-scene edit route
+separately verifies the persisted scene and current HTML before its provider
+call and commits only through the revision-bound overlay owner; stale body,
+scene or project state is rejected rather than refreshed behind the caller.
+
+The historical Stage 2.5 conflict proof now identifies the direct edit actor as
+`USER` and supplies its observed revision. Its disjoint safe-rebase, overlapping
+block, range-lock, stale-input and lost-final-CAS scenarios remain intact. CAP-2
+current truth is reissued as V14 in
+`lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v14.ts`.
+V14 chains immutable V13 manifest
+`ff5803ede99bb3b3770b79ce1f1f3151dfe3ee58a62611f06195194125beb61a`,
+binds landed commit `5328255d51d4e1687821836bc73015e2e19428f5`, the inherited 351-path
+issuance snapshot
+`0f71cbaacb28d72f42246d3db615eb117b0a2e58750ffca36c3bedbf8c24be45`
+and the 16-path live Queue 5 overlay-writer snapshot
+`64859075041a6bc092e6e3d2a978667646ea20066f9a957132d7d7784463df8b`.
+V5, V11 and V13 remain immutable historical records; their old live-source
+assertions are not rewritten to bless current code.
+
+Focused verification passed the 77-test ProjectService/conflict closure, the
+27-test V13/V14 and owner-reconciliation closure, the earlier 32-test
+visual/audio caller closure, 60-test atomic auto-edit closure and 3-test
+HTML-scene route closure. Repeated 8-GB repository TypeScript checks, targeted
+quiet ESLint and `git diff --check` passed before the corresponding pushes.
+Full-repository quiet ESLint remains required at the aggregate Queue 5 closure
+and is not claimed here. No live provider call, render, storage spend, wallet
+mutation, project-content edit, paid cohort rerun or model inference occurred.
+
+This is direct overlay update/delete and selected adjacent-writer closure, not
+universal Queue 5 enforcement. Direct overlay receipts still declare
+`UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN`. Complete-family replacement,
+`addOverlayIfAbsent`, whole-state save/autosave/checkpoint paths and remaining
+specialized ProjectService writers still require operation-by-operation
+classification and enforcement of every applicable evidence, project/source
+revision, coordinate range, lease/lock, rights, predecessor and invalidation
+prerequisite. Metadata-only and lease-only owners must explicitly declare
+non-applicable media dimensions rather than receive fabricated evidence.
+Multi-write transition/split families still need dedicated composite owners.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) classify and close complete-family,
+`addOverlayIfAbsent`, whole-state and remaining specialized ProjectService
+writers serially; (2) run the aggregate mutation-owner suite plus full
+repository quiet ESLint; (3) return to unfinished Queues 3 and 4, which alone
+may be worked in parallel under the founder's current authorization; (4)
+implement Queue 6 serially; and (5) certify agency verticals serially unless
+the founder explicitly authorizes additional parallel execution.
