@@ -15075,3 +15075,49 @@ active, history and chapter consumers under the same binding gates. Queue 5
 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
 agency-class completion, convergence, successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 3M checkpoint
+
+Commits `20d920d65` and `5303cb7ff` extend the ProjectService transaction
+boundary from final artifact publication to the remaining strict provider and
+failed-finalization-retry mutations. Strict provider failure, initial
+finalization claim, compensating claim release, failed-finalization retry
+claim and compensating retry release now validate the exact Project document
+revision and mutate the exact bound render job in one Mongo session and
+transaction. The specialized render-job owners remain responsible for their
+operation-specific provider, bucket, binding, claim and job-state predicates;
+ProjectService remains the revision/write-fence authority.
+
+The signed Remotion webhook and authenticated retry route now consume those
+transaction owners. Their early ProjectService reads remain read-only
+preflights for access and inexpensive rejection; they are not mutation
+authority and their revision is not passed into the write. QStash publication
+remains outside the database transaction. If publication fails after a claim,
+the exact claim is restored through a second ProjectService transaction.
+Genuine unbound legacy jobs retain their explicit legacy path, while project-
+snapshot-bound or target-bound jobs cannot fall back to it.
+
+The coupled dispatcher, webhook/retry, transaction-owner and render-job-owner
+run passed 78/78 tests. The full repository TypeScript check passed using the
+project compiler with an 8 GB Node heap, and `npx eslint . --quiet` plus
+`git diff --check` passed before `5303cb7ff` was committed and pushed. No live
+provider call, historical cohort rerun, model inference, project content
+mutation or external spend occurred.
+
+This closes the known caller-read-revision/write-later race for those strict
+provider and retry consumers; it does not establish render-chain convergence.
+A provider success rejected by the read-only preflight because the project is
+already stale is not yet converted into an immutable source-artifact cleanup
+descriptor. Stale rows that do reach the strict owner still contain only the
+generic `artifactCleanup: PENDING` marker, with no provider/source identity
+contract and no durable idempotent cleanup consumer. Progress, active,
+history, chapter and recovery consumers also remain outside this completed
+slice.
+
+The next dependency is therefore the truthful whole-project source-artifact
+cleanup descriptor and durable idempotent consumer, including the stale-
+before-claim provider-success case. After that, migrate progress, active,
+history, chapter and recovery consumers under the same binding gates. Queue 5
+remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
+agency-class completion, convergence, successor receipt or `GO` is claimed.
