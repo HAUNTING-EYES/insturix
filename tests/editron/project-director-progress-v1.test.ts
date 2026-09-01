@@ -214,7 +214,7 @@ describe("Director receipt revision chain V1", () => {
 describe("Director worker progress ownership migration", () => {
   it("does not retain a fire-and-forget raw progress writer", () => {
     const routeSource = readFileSync(
-      resolve(process.cwd(), "app/api/internal/workers/director/route.ts"),
+      resolve(process.cwd(), "lib/editron/services/canonical-director-run.ts"),
       "utf8",
     );
 

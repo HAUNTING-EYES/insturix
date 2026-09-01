@@ -273,6 +273,7 @@ describe("ProjectService pipeline Director dispatch V1", () => {
   it("wires pipeline completion only to the signed internal worker and never clears project fields directly", () => {
     const pipelineWorker = readFileSync('app/api/internal/workers/pipeline/video/route.ts', 'utf8');
     const directorWorker = readFileSync('app/api/internal/workers/director/route.ts', 'utf8');
+    const canonicalDirector = readFileSync('lib/editron/services/canonical-director-run.ts', 'utf8');
 
     expect(pipelineWorker).toContain('preparePipelineDirectorDispatchV1');
     expect(pipelineWorker).toContain('/api/internal/workers/director');
@@ -281,7 +282,8 @@ describe("ProjectService pipeline Director dispatch V1", () => {
     expect(pipelineWorker).not.toContain('/api/services/editron/director/execute');
     expect(pipelineWorker).not.toContain('fetch(directorUrl');
     expect(pipelineWorker).not.toContain('$unset: { pendingDirectorProfileId');
-    expect(directorWorker).toContain('pipelineDirectorDispatchToken');
-    expect(directorWorker).toContain('claimDirectorRunV1(');
+    expect(directorWorker).toContain('runCanonicalDirectorV1(payload)');
+    expect(canonicalDirector).toContain('pipelineDirectorDispatchToken');
+    expect(canonicalDirector).toContain('claimDirectorRunV1(');
   });
 });

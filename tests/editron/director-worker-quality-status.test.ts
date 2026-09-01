@@ -102,11 +102,11 @@ describe('director worker completion health', () => {
   });
 
   it('does not persist bad-quality Director completions as successful auto-edits', () => {
-    const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
+    const directorSource = readFileSync(join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'), 'utf8');
     const dashboardSource = readFileSync(join(process.cwd(), 'components/editron/project/project-dashboard.tsx'), 'utf8');
     const learningGateSource = readFileSync(join(process.cwd(), 'lib/editron/services/editron-learning-gate.ts'), 'utf8');
 
-    expect(directorSource).toContain("import { resolveDirectorCompletionHealth }");
+    expect(directorSource).toContain('resolveDirectorCompletionHealth,');
     expect(directorSource).toContain("autoEditStatus: completionHealth.autoEditStatus");
     expect(learningGateSource).toContain("autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete'");
     expect(dashboardSource).toContain("if (status === 'needs_review')");
@@ -133,12 +133,12 @@ describe('director worker completion health', () => {
   });
 
   it('passes rendered quality evidence into the Director worker bandit write', () => {
-    const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
+    const directorSource = readFileSync(join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'), 'utf8');
 
     expect(directorSource).toContain('intelligence.renderedQualityEvidence');
     expect(directorSource).toContain('const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence');
     expect(directorSource).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-    expect(directorSource).toContain('renderedQualityEvidence?.renderedAestheticStatus ??');
+    expect(directorSource).toContain('renderedQualityEvidence?.renderedAestheticStatus');
   });
 
   it('propagates fatal Director errors after lock cleanup instead of returning fake completion', () => {

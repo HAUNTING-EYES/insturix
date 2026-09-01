@@ -68,15 +68,17 @@ describe('SaaS reference video production wiring', () => {
       'utf8',
     );
     const directorWorkerSource = readFileSync(
-      join(process.cwd(), 'app/api/internal/workers/director/route.ts'),
+      join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'),
       'utf8',
     );
 
-    const editDnaPersistIndex = videoWorkerSource.indexOf('...(editDNA && { referenceEditDNA: editDNA })');
-    const analysisPersistIndex = videoWorkerSource.indexOf('...(referenceVideoAnalysis && { referenceVideoAnalysis })');
+    const phase1OwnerIndex = videoWorkerSource.indexOf('commitProjectAnalysisPhase1V1');
+    const editDnaPersistIndex = videoWorkerSource.indexOf('...(editDNA ? { referenceEditDNA: editDNA } : {})');
+    const analysisPersistIndex = videoWorkerSource.indexOf('...(referenceVideoAnalysis ? { referenceVideoAnalysis } : {})');
     const directorPayloadIndex = videoWorkerSource.indexOf('const directorPayload = {');
 
-    expect(editDnaPersistIndex).toBeGreaterThan(0);
+    expect(phase1OwnerIndex).toBeGreaterThan(0);
+    expect(editDnaPersistIndex).toBeGreaterThan(phase1OwnerIndex);
     expect(analysisPersistIndex).toBeGreaterThan(editDnaPersistIndex);
     expect(directorPayloadIndex).toBeGreaterThan(analysisPersistIndex);
     expect(videoWorkerSource).toContain("if (referenceVideoAnalysis?.status === 'rejected') return false;");
@@ -84,9 +86,9 @@ describe('SaaS reference video production wiring', () => {
     expect(tribeWorkerSource).toContain('referenceEditDNA: 1');
     expect(tribeWorkerSource).toContain('referenceVideoAnalysis: 1');
     expect(tribeWorkerSource).toContain('const editDNA = projectDoc?.referenceEditDNA;');
-    expect(directorWorkerSource).toContain('const editDNA = projectDoc.referenceEditDNA;');
+    expect(directorWorkerSource).toContain('const editDNA = asRecord(projectDoc.referenceEditDNA);');
     expect(directorWorkerSource).toContain('executeDirectorPlan(');
-    expect(directorWorkerSource).toContain('projectId, userId, profileId, brief');
+    expect(directorWorkerSource).toContain('input.projectId, input.userId, input.profileId, brief');
   });
 });
 
