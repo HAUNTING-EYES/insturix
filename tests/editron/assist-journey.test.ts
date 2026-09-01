@@ -49,6 +49,12 @@ import { buildAssistBriefing } from '@/lib/editron/services/assist-briefing';
 // ── Minimal stateful in-memory Mongo (real operator semantics for what we use) ──
 function matches(doc: Record<string, unknown>, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([k, cond]) => {
+    if (k === '$and') {
+      return (cond as Record<string, unknown>[]).every((clause) => matches(doc, clause));
+    }
+    if (k === '$or') {
+      return (cond as Record<string, unknown>[]).some((clause) => matches(doc, clause));
+    }
     const v = doc[k];
     if (cond && typeof cond === 'object' && !Array.isArray(cond)) {
       const c = cond as Record<string, unknown>;
@@ -57,11 +63,16 @@ function matches(doc: Record<string, unknown>, filter: Record<string, unknown>):
       if ('$in' in c) return (c.$in as unknown[]).includes(v);
       if ('$exists' in c) return (v !== undefined) === c.$exists;
     }
+    if (v instanceof Date && cond instanceof Date) return v.getTime() === cond.getTime();
     return v === cond;
   });
 }
 function makeDb(seed: Record<string, unknown>[]) {
-  const projects = seed.map((d) => ({ ...d }));
+  const projects: Record<string, unknown>[] = seed.map((d) => ({
+    projectRevision: 0,
+    updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    ...d,
+  }));
   const collection = (name: string) => {
     if (name !== 'projects') return { findOne: async () => null, updateOne: async () => ({ matchedCount: 0, modifiedCount: 0 }) };
     return {
@@ -78,6 +89,9 @@ function makeDb(seed: Record<string, unknown>[]) {
         if (!doc) return { matchedCount: 0, modifiedCount: 0 };
         for (const [k, val] of Object.entries((update.$set as Record<string, unknown>) ?? {})) doc[k] = val;
         for (const k of Object.keys((update.$unset as Record<string, unknown>) ?? {})) delete doc[k];
+        for (const [k, val] of Object.entries((update.$inc as Record<string, number>) ?? {})) {
+          doc[k] = Number(doc[k] ?? 0) + val;
+        }
         return { matchedCount: 1, modifiedCount: 1 };
       },
     };

@@ -46,6 +46,7 @@ describe('recoverAssistScanSettlements', () => {
     const candidate = {
       projectId: 'p_pending', userId: 'u', editMode: 'assist', autoEditStatus: 'scan_failed',
       assistRefundPending: true, assistCreditTransactionId: 'tx_1', assistChargedCredits: 12,
+      projectRevision: 4, updatedAt: new Date('2026-08-31T00:00:00.000Z'),
     };
     mocks.toArray.mockResolvedValue([candidate]);
     mocks.findOne.mockResolvedValue(candidate);
@@ -64,6 +65,7 @@ describe('recoverAssistScanSettlements', () => {
     const updatedAt = new Date('2026-08-31T00:00:00.000Z');
     mocks.toArray.mockResolvedValue([{
       projectId: 'p_no_charge', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing', updatedAt,
+      projectRevision: 6,
     }]);
 
     const result = await recoverAssistScanSettlements(db as never, { staleBefore });
@@ -73,10 +75,14 @@ describe('recoverAssistScanSettlements', () => {
     expect(mocks.updateOne).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: 'p_no_charge',
+        projectRevision: 6,
         autoEditStatus: 'analyzing',
         updatedAt,
       }),
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }),
+        $inc: { projectRevision: 1 },
+      }),
     );
   });
 

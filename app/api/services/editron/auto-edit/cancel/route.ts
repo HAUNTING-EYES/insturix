@@ -5,12 +5,11 @@
  *
  *   scanning ──cancel──► scan_failed (terminal, refunded where deducted)
  *
- * Cancel WINS every race: the status write is atomic (only fires while the scan
- * is still cancellable), and every assist ready_for_chat writer filters on
- * autoEditStatus $ne scan_failed. Refund fires only when THIS request performed
- * the transition (matchedCount === 1) and a deduction was persisted — from-asset
- * deducts at intake (refund due); from-batch deducts at lay-down (cancelling
- * before that means nothing was charged, nothing to refund).
+ * Cancellation and charge registration are serialized by the project revision.
+ * A confirmed cancellation blocks every assist ready_for_chat writer through
+ * `scan_failed`; an unrelated project change returns conflict rather than false
+ * success. From-asset deducts at intake (refund due), while from-batch deducts at
+ * lay-down (cancelling before that means no wallet operation).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -18,6 +17,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   ASSIST_STATUS_READY,
   ASSIST_STATUS_SCAN_FAILED,
+  cancelUnchargedAssistScan,
   isAssistProject,
   settleAssistScanFailure,
 } from '@/lib/editron/services/assist-lane';
@@ -79,7 +79,17 @@ export async function POST(request: NextRequest) {
         creditTransactionId: txId,
       });
       if (settlement === 'transition-lost') {
-        return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_SCAN_FAILED, alreadyCancelled: true });
+        const latest = await db.collection(COLLECTIONS.PROJECTS).findOne(
+          { projectId, userId },
+          { projection: { autoEditStatus: 1 } },
+        );
+        if (latest?.autoEditStatus === ASSIST_STATUS_SCAN_FAILED) {
+          return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_SCAN_FAILED, alreadyCancelled: true });
+        }
+        return NextResponse.json(
+          { success: false, error: 'The project changed before cancellation could be committed.', code: 'project_revision_changed' },
+          { status: 409 },
+        );
       }
       if (settlement === 'unverifiable-run' || settlement === 'not-assist') {
         return NextResponse.json(
@@ -92,29 +102,69 @@ export async function POST(request: NextRequest) {
       // Batch assist is intentionally charged only when composition begins. A
       // cancel before that point has no wallet operation, but still requires an
       // exact absence-of-charge transition so it cannot race a new deduction.
-      const transition = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        {
-          projectId,
-          userId,
-          editMode: 'assist',
-          autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
-          $and: [
-            { $or: [{ assistCreditTransactionId: { $exists: false } }, { assistCreditTransactionId: null }] },
-            { $or: [{ assistChargedCredits: { $exists: false } }, { assistChargedCredits: null }] },
-          ],
-        },
-        {
-          $set: {
-            autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
-            autoEditError: 'Cancelled by user',
-            updatedAt: new Date(),
-          },
-        },
-      );
-      if (transition.matchedCount === 0) {
+      const cancellation = await cancelUnchargedAssistScan(db, {
+        projectId,
+        userId,
+        reason: 'Cancelled by user',
+      });
+      if (cancellation === 'already-cancelled') {
         return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_SCAN_FAILED, alreadyCancelled: true });
       }
-      console.log(`[DirectorMode] Cancelled without refund — no deduction had occurred (project ${projectId}).`);
+      if (cancellation === 'already-ready') {
+        return NextResponse.json(
+          { success: false, error: 'The scan already finished — the project is ready.', code: 'already_ready' },
+          { status: 409 },
+        );
+      }
+      if (cancellation === 'charge-present') {
+        const latest = await db.collection(COLLECTIONS.PROJECTS).findOne(
+          { projectId, userId },
+          { projection: { assistCreditTransactionId: 1, autoEditStatus: 1 } },
+        );
+        const latestTransactionId = typeof latest?.assistCreditTransactionId === 'string'
+          ? latest.assistCreditTransactionId.trim()
+          : '';
+        if (!latestTransactionId) {
+          return NextResponse.json(
+            { success: false, error: 'The scan accounting changed before cancellation could be committed.', code: 'scan_identity_changed' },
+            { status: 409 },
+          );
+        }
+        const settlement = await settleAssistScanFailure(db, {
+          projectId,
+          userId,
+          reason: 'Director Mode scan cancelled — full refund',
+          creditTransactionId: latestTransactionId,
+        });
+        if (settlement === 'transition-lost') {
+          const postSettlement = await db.collection(COLLECTIONS.PROJECTS).findOne(
+            { projectId, userId },
+            { projection: { autoEditStatus: 1 } },
+          );
+          if (postSettlement?.autoEditStatus === ASSIST_STATUS_SCAN_FAILED) {
+            return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_SCAN_FAILED, alreadyCancelled: true });
+          }
+          return NextResponse.json(
+            { success: false, error: 'The project changed before cancellation could be committed.', code: 'project_revision_changed' },
+            { status: 409 },
+          );
+        }
+        if (settlement === 'unverifiable-run' || settlement === 'not-assist') {
+          return NextResponse.json(
+            { success: false, error: 'The active scan changed before cancellation could be committed.', code: 'scan_identity_changed' },
+            { status: 409 },
+          );
+        }
+        refunded = settlement === 'refunded';
+      } else if (cancellation !== 'cancelled') {
+        return NextResponse.json(
+          { success: false, error: 'The project changed before cancellation could be committed.', code: 'project_revision_changed' },
+          { status: 409 },
+        );
+      }
+      if (cancellation === 'cancelled') {
+        console.log(`[DirectorMode] Cancelled without refund — no deduction had occurred (project ${projectId}).`);
+      }
     }
 
     // Stop the batch orchestration loop from ever composing this project

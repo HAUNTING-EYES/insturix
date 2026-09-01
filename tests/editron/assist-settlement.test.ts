@@ -19,6 +19,11 @@ import {
 } from '@/lib/editron/services/assist-lane';
 
 const db = { collection: () => ({ findOne: mocks.findOne, updateOne: mocks.updateOne }) };
+const revisioned = <T extends Record<string, unknown>>(project: T, projectRevision = 7) => ({
+  projectRevision,
+  updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+  ...project,
+});
 const settlement = (overrides: Record<string, unknown> = {}) => settleAssistScanFailure(db as never, {
   projectId: 'p',
   userId: 'u',
@@ -29,6 +34,7 @@ const settlement = (overrides: Record<string, unknown> = {}) => settleAssistScan
 
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
+  mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', userId: 'u' }));
   mocks.updateOne.mockResolvedValue({ modifiedCount: 1, matchedCount: 1 });
   mocks.refundForWallet.mockResolvedValue({ success: true });
 });
@@ -52,38 +58,38 @@ describe('admitAssistScanCharge', () => {
           { $or: [{ autoEditStatus: { $exists: false } }, { autoEditStatus: null }] },
         ]),
       }),
-      {
-        $set: {
+      expect.objectContaining({
+        $set: expect.objectContaining({
           editMode: 'assist',
           assistCreditTransactionId: 'tx_1',
           assistChargedCredits: 20,
-        },
-      },
+        }),
+        $inc: { projectRevision: 1 },
+      }),
     );
   });
 
   it('accepts only an exact pre-status replay without writing twice', async () => {
-    mocks.updateOne.mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 });
-    mocks.findOne.mockResolvedValue({
+    mocks.findOne.mockResolvedValue(revisioned({
       projectId: 'p', userId: 'u', editMode: 'assist',
       assistCreditTransactionId: 'tx_1', assistChargedCredits: 20,
-    });
+    }));
     expect(await admit()).toEqual({ disposition: 'already-admitted' });
-    expect(mocks.updateOne).toHaveBeenCalledTimes(1);
+    expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('rejects an occupied status, competing charge, wrong lane, and malformed identity', async () => {
     mocks.updateOne.mockResolvedValue({ modifiedCount: 0, matchedCount: 0 });
     mocks.findOne
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce(revisioned({
         projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'queued',
         assistCreditTransactionId: 'tx_1', assistChargedCredits: 20,
-      })
-      .mockResolvedValueOnce({
+      }))
+      .mockResolvedValueOnce(revisioned({
         projectId: 'p', userId: 'u', editMode: 'assist',
         assistCreditTransactionId: 'tx_new', assistChargedCredits: 20,
-      })
-      .mockResolvedValueOnce({ projectId: 'p', userId: 'u', editMode: 'auto' });
+      }))
+      .mockResolvedValueOnce(revisioned({ projectId: 'p', userId: 'u', editMode: 'auto' }));
     expect(await admit()).toEqual({ disposition: 'conflict' });
     expect(await admit()).toEqual({ disposition: 'conflict' });
     expect(await admit()).toEqual({ disposition: 'not-assist' });
@@ -102,43 +108,49 @@ describe('registerAssistScanCharge', () => {
   });
 
   it('binds a deduction only to an active Assist scan', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' }));
     expect(await register()).toEqual({ disposition: 'registered', terminal: false });
     expect(mocks.updateOne).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'p', userId: 'u', editMode: 'assist' }),
-      { $set: { assistCreditTransactionId: 'tx_1', assistChargedCredits: 20 } },
+      expect.objectContaining({
+        $set: expect.objectContaining({ assistCreditTransactionId: 'tx_1', assistChargedCredits: 20 }),
+        $inc: { projectRevision: 1 },
+      }),
     );
   });
 
   it('turns a cancel-during-registration race into a durable pending refund', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' });
+    mocks.findOne
+      .mockResolvedValueOnce(revisioned({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing' }, 7))
+      .mockResolvedValueOnce(revisioned({ projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'scan_failed' }, 8));
     mocks.updateOne
       .mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 })
       .mockResolvedValueOnce({ modifiedCount: 1, matchedCount: 1 });
     expect(await register()).toEqual({ disposition: 'registered', terminal: true });
-    expect(mocks.updateOne.mock.calls[1]?.[1]).toEqual({
+    expect(mocks.updateOne.mock.calls[1]?.[1]).toMatchObject({
       $set: {
         assistCreditTransactionId: 'tx_1',
         assistChargedCredits: 20,
         assistRefundPending: true,
       },
+      $inc: { projectRevision: 1 },
     });
   });
 
   it('replays the exact registered charge without writing it twice', async () => {
-    mocks.findOne.mockResolvedValue({
+    mocks.findOne.mockResolvedValue(revisioned({
       projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'scan_failed',
       assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, assistRefundPending: true,
-    });
+    }));
     expect(await register()).toEqual({ disposition: 'already-registered', terminal: true });
     expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('rejects a competing transaction and malformed charge without mutation', async () => {
-    mocks.findOne.mockResolvedValue({
+    mocks.findOne.mockResolvedValue(revisioned({
       projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'analyzing',
       assistCreditTransactionId: 'tx_new', assistChargedCredits: 20,
-    });
+    }));
     expect(await register()).toEqual({ disposition: 'conflict' });
     expect(await registerAssistScanCharge(db as never, {
       projectId: 'p', userId: 'u', creditTransactionId: ' ', chargedCredits: Number.NaN,
@@ -149,13 +161,13 @@ describe('registerAssistScanCharge', () => {
 
 describe('settleAssistScanFailure', () => {
   it('returns not-assist for auto projects and never refunds', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'auto' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'auto' }));
     expect(await settlement()).toBe('not-assist');
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
   it('refunds once when it wins the atomic transition, then consumes the tx', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' }));
     expect(await settlement()).toBe('refunded');
     expect(mocks.refundForWallet).toHaveBeenCalledWith({ type: 'user', clerkUserId: 'u' }, 20, 'boom',
       { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: 'tx_1', projectId: 'p' });
@@ -163,42 +175,44 @@ describe('settleAssistScanFailure', () => {
     expect(consumed).toBe(true);
     expect(mocks.updateOne.mock.calls[0]?.[1]).toMatchObject({
       $set: { autoEditStatus: 'scan_failed', assistRefundPending: true },
+      $inc: { projectRevision: 1 },
     });
+    expect(mocks.updateOne.mock.calls[1]?.[0]).toMatchObject({ projectRevision: 8 });
   });
 
   it('LOST TRANSITION (QStash redelivery / cancel already settled) → no refund', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' }));
     mocks.updateOne.mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 }); // the transition
     expect(await settlement()).toBe('transition-lost');
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
   it('missing worker identity fails closed without changing the project or wallet', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', userId: 'u' }));
     expect(await settlement({ creditTransactionId: undefined })).toBe('unverifiable-run');
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
     expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('a stale worker cannot fail or refund a newer charged scan', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_new', assistChargedCredits: 20, userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_new', assistChargedCredits: 20, userId: 'u' }));
     expect(await settlement()).toBe('unverifiable-run');
     expect(mocks.updateOne).not.toHaveBeenCalled();
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
   it('resumes a durable pending refund without repeating the terminal transition', async () => {
-    mocks.findOne.mockResolvedValue({
+    mocks.findOne.mockResolvedValue(revisioned({
       projectId: 'p', editMode: 'assist', autoEditStatus: 'scan_failed', assistRefundPending: true,
       assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u',
-    });
+    }));
     expect(await settlement()).toBe('refunded');
     expect(mocks.updateOne).toHaveBeenCalledTimes(1);
     expect(mocks.refundForWallet).toHaveBeenCalledTimes(1);
   });
 
   it('refundForWallet returning success:false → refund-pending, tx pointer preserved', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' }));
     mocks.refundForWallet.mockResolvedValue({ success: false, error: 'txn not found' });
     expect(await settlement()).toBe('refund-pending');
     const consumed = mocks.updateOne.mock.calls.some(([, u]) => (u as { $unset?: Record<string, unknown> })?.$unset?.assistCreditTransactionId !== undefined);
@@ -206,7 +220,7 @@ describe('settleAssistScanFailure', () => {
   });
 
   it('refundForWallet throwing → refund-pending + support flag', async () => {
-    mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
+    mocks.findOne.mockResolvedValue(revisioned({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' }));
     mocks.refundForWallet.mockRejectedValue(new Error('infra down'));
     expect(await settlement()).toBe('refund-pending');
     expect(mocks.updateOne.mock.calls[0]?.[1]).toMatchObject({ $set: { assistRefundPending: true } });

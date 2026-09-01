@@ -754,7 +754,11 @@ describe('from-batch storyline route handoff', () => {
       orchestrationStatus: 'waiting_analysis',
       orchestrationRequestedAt: new Date(),
     };
-    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
+    mocks.findProject.mockResolvedValue({
+      editMode: 'assist',
+      projectRevision: 2,
+      updatedAt: new Date('2026-09-01T00:00:01.000Z'),
+    });
 
     const response = await POST(request({
       uploadBatchId: 'batch_1',
@@ -820,16 +824,26 @@ describe('from-batch storyline route handoff', () => {
       orchestrationStatus: 'waiting_analysis',
       orchestrationRequestedAt: new Date(),
     };
-    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
     mocks.findProject
-      .mockResolvedValueOnce({ editMode: 'assist' })
-      .mockResolvedValueOnce({ editMode: 'assist', autoEditStatus: 'composing' })
+      .mockResolvedValueOnce({
+        editMode: 'assist',
+        projectRevision: 2,
+        updatedAt: new Date('2026-09-01T00:00:01.000Z'),
+      })
+      .mockResolvedValueOnce({
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        projectRevision: 3,
+        updatedAt: new Date('2026-09-01T00:00:02.000Z'),
+      })
       .mockResolvedValue({
         editMode: 'assist',
         autoEditStatus: 'composing',
         assistCreditTransactionId: 'credit_tx_1',
         assistChargedCredits: 10,
         userId: 'user_1',
+        projectRevision: 4,
+        updatedAt: new Date('2026-09-01T00:00:03.000Z'),
       });
     mocks.saveProject.mockRejectedValue(new Error('storage write exploded'));
 

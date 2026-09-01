@@ -42,6 +42,8 @@ const assistScanning = (over: Record<string, unknown> = {}) => ({
   projectId: 'proj_1',
   editMode: 'assist',
   autoEditStatus: 'transcribing',
+  projectRevision: 7,
+  updatedAt: new Date('2026-09-01T00:00:00.000Z'),
   ...over,
 });
 
@@ -100,9 +102,13 @@ describe('assist cancel route', () => {
       expect.objectContaining({
         projectId: 'proj_1',
         userId: 'user_1',
+        projectRevision: 7,
         autoEditStatus: { $nin: ['scan_failed', 'ready_for_chat', 'complete'] },
       }),
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }),
+        $inc: { projectRevision: 1 },
+      }),
     );
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_1' },
@@ -135,12 +141,14 @@ describe('assist cancel route', () => {
     expect(mocks.findProject).not.toHaveBeenCalled();
   });
 
-  it('a lost transition race never refunds (the winner already did the accounting)', async () => {
+  it('an unexplained lost transition is a revision conflict, not false cancellation success', async () => {
     mocks.findProject.mockResolvedValue(assistScanning({ assistCreditTransactionId: 'tx_9', assistChargedCredits: 12 }));
     mocks.updateProject.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
 
-    const payload = await (await POST(request({ projectId: 'proj_1' }))).json();
-    expect(payload).toMatchObject({ success: true, alreadyCancelled: true });
+    const response = await POST(request({ projectId: 'proj_1' }));
+    const payload = await response.json();
+    expect(response.status).toBe(409);
+    expect(payload).toMatchObject({ success: false, code: 'project_revision_changed' });
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
@@ -149,6 +157,31 @@ describe('assist cancel route', () => {
     const payload = await (await POST(request({ projectId: 'proj_1' }))).json();
     expect(payload).toMatchObject({ success: true, refunded: false });
     expect(mocks.refundForWallet).not.toHaveBeenCalled();
+  });
+
+  it('routes a registration-wins race through exact charged settlement', async () => {
+    const uncharged = assistScanning({ sourceUploadBatchId: 'batch_1' });
+    const charged = assistScanning({
+      sourceUploadBatchId: 'batch_1',
+      assistCreditTransactionId: 'tx_race',
+      assistChargedCredits: 9,
+      projectRevision: 8,
+    });
+    mocks.findProject
+      .mockResolvedValueOnce(uncharged)
+      .mockResolvedValueOnce(charged)
+      .mockResolvedValueOnce(charged)
+      .mockResolvedValueOnce(charged);
+
+    const payload = await (await POST(request({ projectId: 'proj_1' }))).json();
+
+    expect(payload).toMatchObject({ success: true, refunded: true, status: 'scan_failed' });
+    expect(mocks.refundForWallet).toHaveBeenCalledWith(
+      { type: 'user', clerkUserId: 'user_1' },
+      9,
+      'Director Mode scan cancelled — full refund',
+      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: 'tx_race', projectId: 'proj_1' },
+    );
   });
 
   it('a refund THROW is loud: cancel succeeds, refunded=false, support flag set', async () => {

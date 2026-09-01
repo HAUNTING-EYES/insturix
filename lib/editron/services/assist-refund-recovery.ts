@@ -3,6 +3,10 @@ import {
   settleAssistScanFailure,
   type AssistScanFailureSettlementDisposition,
 } from '@/lib/editron/services/assist-lane';
+import {
+  projectRevisionPredicate,
+  readProjectRevisionV1,
+} from '@/lib/editron/services/project-revision-v1';
 
 const ACTIVE_ASSIST_SCAN_STATES = [
   'queued',
@@ -23,6 +27,7 @@ type AssistRecoveryProject = {
   assistCreditTransactionId?: unknown;
   assistChargedCredits?: unknown;
   assistRefundPending?: unknown;
+  projectRevision?: unknown;
 };
 
 export interface AssistRefundRecoveryDetail {
@@ -68,6 +73,7 @@ export async function recoverAssistScanSettlements(
       assistCreditTransactionId: 1,
       assistChargedCredits: 1,
       assistRefundPending: 1,
+      projectRevision: 1,
     })
     .limit(limit)
     .toArray() as AssistRecoveryProject[];
@@ -111,13 +117,20 @@ export async function recoverAssistScanSettlements(
         continue;
       }
 
+      const candidateRevision = readProjectRevisionV1(candidate);
+      if (!candidateRevision) {
+        result.pending += 1;
+        result.details.push({ projectId, outcome: 'invalid-recovery-record' });
+        continue;
+      }
+      const terminalizedAt = new Date();
       const terminal = await projects.updateOne(
         {
           projectId,
           userId,
+          ...projectRevisionPredicate(candidateRevision),
           editMode: 'assist',
           autoEditStatus: candidate.autoEditStatus,
-          updatedAt: candidate.updatedAt,
           $and: [
             { $or: [{ assistCreditTransactionId: { $exists: false } }, { assistCreditTransactionId: null }] },
             { $or: [{ assistChargedCredits: { $exists: false } }, { assistChargedCredits: null }] },
@@ -127,8 +140,9 @@ export async function recoverAssistScanSettlements(
           $set: {
             autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
             autoEditError: `Assist scan recovery: stale in '${String(candidate.autoEditStatus ?? 'unknown')}' before any charge`,
-            updatedAt: new Date(),
+            updatedAt: terminalizedAt,
           },
+          $inc: { projectRevision: 1 },
         },
       );
       if (terminal.modifiedCount === 1) {
