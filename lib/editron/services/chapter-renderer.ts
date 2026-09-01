@@ -27,6 +27,15 @@ import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
 import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
 import { assertRemotionSiteFresh } from './remotion-site-version';
+import {
+  ProjectRenderJobAuthorizationSchema,
+  type ProjectRenderJobAuthorizationV1,
+} from './render-job-service';
+import {
+  assertProjectRenderSnapshotBindingV1,
+  type ProjectRenderSnapshotBindingV1,
+} from './project-render-snapshot-binding-v1';
+import { sameProjectArtifactRevisionV1 } from './project-artifact-invalidation-v1';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -64,6 +73,12 @@ interface Chapter {
   renderId?: string;
   /** Real Remotion bucket for this chapter render. */
   bucketName?: string;
+  /** Exact AWS region returned to the child provider invocation. */
+  region?: string;
+  /** Exact provider output size, persisted when progress reports completion. */
+  outputSize?: number;
+  /** Deterministic handoff linkage for a later child-cleanup owner. */
+  parentAdmissionId?: string;
   /** Render status */
   status: 'pending' | 'rendering' | 'completed' | 'failed';
   /** Output URL (set after render completes) */
@@ -84,6 +99,10 @@ interface ChapterRenderJob {
   fps: number;
   width: number;
   height: number;
+  /** Full server-owned PROJECT_SNAPSHOT binding for strict chapter jobs. */
+  projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1;
+  /** Selected AWS region for this job; legacy rows may omit it. */
+  region?: string;
   /** Final concatenated video URL */
   outputUrl?: string;
   createdAt: Date;
@@ -208,6 +227,66 @@ function isTerminalChapterProgressError(message: string): boolean {
   return /specified bucket does not exist|NoSuchBucket/i.test(message);
 }
 
+type ChapterRenderStartOptionsV1 = {
+  region: string;
+  authorization: ProjectRenderJobAuthorizationV1;
+  binding: ProjectRenderSnapshotBindingV1;
+};
+
+function assertChapterRegion(region: string): string {
+  const normalized = region.trim();
+  if (!normalized) throw new Error('Chapter rendering requires a selected AWS region');
+  return normalized;
+}
+
+function isStrictChapterRenderJob(job: Partial<ChapterRenderJob>): boolean {
+  return job.projectRenderSnapshotBinding !== undefined;
+}
+
+function chapterProviderIdentityIsComplete(chapter: Partial<Chapter>): boolean {
+  return typeof chapter.renderId === 'string'
+    && chapter.renderId.trim().length > 0
+    && typeof chapter.bucketName === 'string'
+    && chapter.bucketName.trim().length > 0
+    && typeof chapter.region === 'string'
+    && chapter.region.trim().length > 0;
+}
+
+function readChapterOutputSize(value: unknown): number | undefined {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    ? value
+    : undefined;
+}
+
+function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+async function failChapter(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  jobId: string,
+  chapter: Chapter,
+  error: string,
+): Promise<void> {
+  await db.collection(CHAPTERS_COLLECTION).updateOne(
+    { _id: jobId, 'chapters.index': chapter.index } as any,
+    {
+      $set: {
+        'chapters.$.status': 'failed',
+        'chapters.$.error': error,
+        updatedAt: new Date(),
+      },
+    },
+  );
+}
+
 /**
  * Start a chapter-based render job.
  * Splits the composition, starts parallel Lambda renders,
@@ -222,12 +301,27 @@ async function startSingleChapterRender(
   db: Awaited<ReturnType<typeof getDatabase>>,
   jobId: string,
   chapter: Chapter,
-  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number; totalFrames: number; overlays: Overlay[] },
+  ctx: {
+    serveUrl: string;
+    functionName: string;
+    region: string;
+    fps: number;
+    width: number;
+    height: number;
+    totalFrames: number;
+    overlays: Overlay[];
+  },
 ): Promise<void> {
   // Atomic claim: only proceed if this chapter is still pending (prevents a racing poll double-starting it).
   const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
     { _id: jobId, chapters: { $elemMatch: { index: chapter.index, status: 'pending' } } } as any,
-    { $set: { 'chapters.$.status': 'rendering', updatedAt: new Date() } },
+    {
+      $set: {
+        'chapters.$.status': 'rendering',
+        'chapters.$.region': ctx.region,
+        updatedAt: new Date(),
+      },
+    },
   );
   if (claim.modifiedCount === 0) return; // a concurrent poll already claimed it
 
@@ -244,7 +338,7 @@ async function startSingleChapterRender(
       isRendering: true,
     });
     const { renderId, bucketName } = await renderMediaOnLambda({
-      region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
+      region: ctx.region as any,
       functionName: ctx.functionName,
       serveUrl: ctx.serveUrl,
       composition: REMOTION_COMPOSITION_ID,
@@ -257,11 +351,23 @@ async function startSingleChapterRender(
       audioCodec: REMOTION_AUDIO_CODEC,
       frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
     });
+    const providerRenderId = typeof renderId === 'string' ? renderId.trim() : '';
+    const providerBucketName = typeof bucketName === 'string' ? bucketName.trim() : '';
+    if (!providerRenderId || !providerBucketName) {
+      throw new Error('CHAPTER_RENDER_PROVIDER_IDENTITY_INVALID');
+    }
     await db.collection(CHAPTERS_COLLECTION).updateOne(
       { _id: jobId, 'chapters.index': chapter.index } as any,
-      { $set: { 'chapters.$.renderId': renderId, 'chapters.$.bucketName': bucketName, updatedAt: new Date() } },
+      {
+        $set: {
+          'chapters.$.renderId': providerRenderId,
+          'chapters.$.bucketName': providerBucketName,
+          'chapters.$.region': ctx.region,
+          updatedAt: new Date(),
+        },
+      },
     );
-    console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${renderId}`);
+    console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${providerRenderId}`);
   } catch (err: any) {
     console.error(`[ChapterRenderer] Chapter ${chapter.index} failed to start: ${err.message}`);
     await db.collection(CHAPTERS_COLLECTION).updateOne(
@@ -279,7 +385,7 @@ async function startSingleChapterRender(
  */
 export async function startPendingChapters(
   jobId: string,
-  opts?: { serveUrl?: string; functionName?: string },
+  opts?: { serveUrl?: string; functionName?: string; region?: string },
 ): Promise<void> {
   const db = await getDatabase();
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
@@ -306,6 +412,24 @@ export async function startPendingChapters(
   }
   if (pending.length === 0) return;
 
+  // A strict chapter job is bound to the region selected at admission. Never
+  // repair a missing strict region from current process configuration: doing
+  // so could poll or start a child in a different provider account/region.
+  const strictJob = isStrictChapterRenderJob(job);
+  const persistedRegion = typeof job.region === 'string' && job.region.trim()
+    ? job.region.trim()
+    : undefined;
+  const region = strictJob
+    ? persistedRegion
+    : persistedRegion || (opts?.region ? assertChapterRegion(opts.region) : undefined)
+      || assertChapterRegion(process.env.REMOTION_AWS_REGION || 'us-east-1');
+  if (!region) {
+    for (const chapter of pending) {
+      await failChapter(db, jobId, chapter, 'CHAPTER_RENDER_PROVIDER_REGION_MISSING');
+    }
+    return;
+  }
+
   const serveUrl = opts?.serveUrl || process.env.REMOTION_LAMBDA_SERVE_URL;
   const functionName = opts?.functionName || process.env.REMOTION_LAMBDA_FUNCTION_NAME;
   if (!serveUrl || !functionName) {
@@ -320,6 +444,7 @@ export async function startPendingChapters(
   const ctx = {
     serveUrl,
     functionName,
+    region,
     fps: job.fps,
     width: job.width,
     height: job.height,
@@ -342,9 +467,34 @@ export async function startChapterRender(
   height: number,
   serveUrl: string,
   functionName: string,
+  options?: ChapterRenderStartOptionsV1,
 ): Promise<{ jobId: string; chapters: number }> {
   if (!/^chr_[A-Za-z0-9_-]{12}$/.test(jobId)) {
     throw new Error('Chapter rendering requires a caller-owned chr_ admission ID');
+  }
+  const selectedRegion = options
+    ? assertChapterRegion(options.region)
+    : assertChapterRegion(process.env.REMOTION_AWS_REGION || 'us-east-1');
+  let projectRenderSnapshotBinding: ProjectRenderSnapshotBindingV1 | undefined;
+  if (options) {
+    const authorization = ProjectRenderJobAuthorizationSchema.safeParse(options.authorization);
+    if (!authorization.success) {
+      throw new Error('CHAPTER_RENDER_PROJECT_RENDER_AUTHORIZATION_INVALID');
+    }
+    assertProjectRenderSnapshotBindingV1(options.binding);
+    if (
+      authorization.data.jobId !== jobId
+      || authorization.data.projectId !== projectId
+      || authorization.data.requestedByUserId !== userId
+      || authorization.data.bindingHash !== options.binding.bindingHash
+      || options.binding.artifactId !== jobId
+      || options.binding.projectId !== projectId
+      || options.binding.ownerId !== authorization.data.ownerId
+      || !sameProjectArtifactRevisionV1(options.binding.projectRevision, authorization.data.projectRevision)
+    ) {
+      throw new Error('CHAPTER_RENDER_PROJECT_RENDER_BINDING_SCOPE_MISMATCH');
+    }
+    projectRenderSnapshotBinding = structuredClone(options.binding);
   }
   const normalizedFps = assertChapterFps(fps);
   const db = await getDatabase();
@@ -369,6 +519,8 @@ export async function startChapterRender(
     startFrame: b.startFrame,
     endFrame: b.endFrame,
     durationFrames: b.endFrame - b.startFrame,
+    region: selectedRegion,
+    ...(projectRenderSnapshotBinding ? { parentAdmissionId: jobId } : {}),
     status: 'pending' as const,
   }));
 
@@ -396,6 +548,8 @@ export async function startChapterRender(
     fps: normalizedFps,
     width,
     height,
+    region: selectedRegion,
+    ...(projectRenderSnapshotBinding ? { projectRenderSnapshotBinding } : {}),
     createdAt,
     updatedAt: createdAt,
     expiresAt: renderChapterExpiresAt(createdAt, planType),
@@ -409,7 +563,7 @@ export async function startChapterRender(
   // getChapterRenderProgress() as each running chapter finishes — keeping total renderer Lambdas under
   // the AWS account limit instead of firing every chapter at once (which throttled the chunks and timed
   // out the per-chapter main function after 600s).
-  await startPendingChapters(jobId, { serveUrl, functionName });
+  await startPendingChapters(jobId, { serveUrl, functionName, region: selectedRegion });
 
   return { jobId, chapters: chapters.length };
 }
@@ -426,6 +580,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     status: string;
     progress: number;
     outputUrl?: string;
+    outputSize?: number;
     error?: string;
   }>;
   outputUrl?: string;
@@ -445,24 +600,39 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     let progress = 0;
     let chapterStatus = chapter.status;
     let chapterOutputUrl = chapter.outputUrl;
+    let chapterOutputSize = chapter.outputSize;
     let chapterError = chapter.error;
 
     if (chapter.status === 'completed') {
       progress = 1;
     } else if (chapter.status === 'failed') {
       progress = 0;
+    } else if (
+      isStrictChapterRenderJob(job)
+      && chapter.status !== 'pending'
+      && !chapterProviderIdentityIsComplete(chapter)
+    ) {
+      chapterStatus = 'failed';
+      chapterError = 'CHAPTER_RENDER_PROVIDER_IDENTITY_MISSING';
+      await failChapter(db, jobId, chapter, chapterError);
     } else if (chapter.renderId) {
       // Poll Lambda for this chapter's progress
       try {
         await setAWSCredentials();
-        const chapterBucketName = typeof chapter.bucketName === 'string' && chapter.bucketName.trim()
-          ? chapter.bucketName
-          : `remotionlambda-${process.env.REMOTION_AWS_REGION || 'us-east-1'}-vqv91tlyik`;
+        const strictJob = isStrictChapterRenderJob(job);
+        const chapterBucketName = strictJob
+          ? chapter.bucketName!.trim()
+          : typeof chapter.bucketName === 'string' && chapter.bucketName.trim()
+            ? chapter.bucketName
+            : `remotionlambda-${process.env.REMOTION_AWS_REGION || 'us-east-1'}-vqv91tlyik`;
+        const chapterRegion = strictJob
+          ? chapter.region!.trim()
+          : process.env.REMOTION_AWS_REGION || 'us-east-1';
 
         const renderProgress = await getRenderProgress({
           renderId: chapter.renderId,
           bucketName: chapterBucketName,
-          region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
+          region: chapterRegion as any,
           functionName: process.env.REMOTION_LAMBDA_FUNCTION_NAME || '',
           skipLambdaInvocation: true,
         });
@@ -470,20 +640,30 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
         progress = renderProgress.overallProgress || 0;
 
         if (renderProgress.done) {
-          // Chapter completed — update DB
-          await db.collection(CHAPTERS_COLLECTION).updateOne(
-            { _id: jobId, 'chapters.index': chapter.index } as any,
-            {
-              $set: {
-                'chapters.$.status': 'completed',
-                'chapters.$.outputUrl': renderProgress.outputFile,
-                updatedAt: new Date(),
+          const outputSize = readChapterOutputSize(renderProgress.outputSizeInBytes);
+          if (strictJob && (!isHttpsUrl(renderProgress.outputFile) || outputSize === undefined)) {
+            chapterStatus = 'failed';
+            chapterError = 'CHAPTER_RENDER_OUTPUT_IDENTITY_MISSING';
+            await failChapter(db, jobId, chapter, chapterError);
+          } else {
+            // Chapter completed — persist the exact provider output identity for
+            // the later child-cleanup materializer. Concat output is separate.
+            await db.collection(CHAPTERS_COLLECTION).updateOne(
+              { _id: jobId, 'chapters.index': chapter.index } as any,
+              {
+                $set: {
+                  'chapters.$.status': 'completed',
+                  'chapters.$.outputUrl': renderProgress.outputFile,
+                  ...(outputSize === undefined ? {} : { 'chapters.$.outputSize': outputSize }),
+                  updatedAt: new Date(),
+                },
               },
-            },
-          );
-          chapterStatus = 'completed';
-          chapterOutputUrl = renderProgress.outputFile;
-          progress = 1;
+            );
+            chapterStatus = 'completed';
+            chapterOutputUrl = renderProgress.outputFile;
+            chapterOutputSize = outputSize;
+            progress = 1;
+          }
         } else if (renderProgress.fatalErrorEncountered) {
           chapterStatus = 'failed';
           chapterError = renderProgress.errors?.[0]?.message || 'Render failed';
@@ -526,6 +706,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
       status: chapterStatus,
       progress,
       outputUrl: chapterOutputUrl,
+      outputSize: chapterOutputSize,
       error: chapterError,
     });
   }

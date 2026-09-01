@@ -560,7 +560,8 @@ describe('Editron render startup boundary', () => {
     }));
 
     const response = await POST(renderRequest());
-    const admissionId = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0]?.jobId;
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -593,6 +594,26 @@ describe('Editron render startup boundary', () => {
       1080,
       'https://remotion.example.test/site',
       'editron-render-test',
+      {
+        region: 'us-east-1',
+        authorization: expect.objectContaining({
+          schemaVersion: 1,
+          jobId: admissionId,
+          requestedByUserId: 'user_1',
+          ownerId: 'user_1',
+          projectId: 'project_1',
+          projectRevision: projectRevision(),
+          bindingHash: reservation.binding.bindingHash,
+        }),
+        binding: expect.objectContaining({
+          scope: 'PROJECT_SNAPSHOT',
+          artifactId: admissionId,
+          ownerId: 'user_1',
+          projectId: 'project_1',
+          projectRevision: projectRevision(),
+          bindingHash: reservation.binding.bindingHash,
+        }),
+      },
     );
     expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
       authorization: expect.objectContaining({

@@ -442,6 +442,11 @@ export async function POST(request: Request) {
         height,
         serveUrl,
         functionName,
+        {
+          region,
+          authorization: renderAuthorization!,
+          binding,
+        },
       );
       renderStarted = true;
 
