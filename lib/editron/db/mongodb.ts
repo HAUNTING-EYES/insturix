@@ -13,6 +13,8 @@ import { EDITORIAL_PLAN_REVISION_COLLECTION_V1 }
   from '@/lib/editron/services/editorial-plan-v1';
 import { PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/project-render-source-cleanup-v1';
+import { PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1 }
+  from '@/lib/editron/services/chapter-concat-cleanup-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -79,6 +81,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
+  PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX: PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
@@ -192,6 +195,13 @@ export async function initializeIndexes(): Promise<void> {
   await db.collection(COLLECTIONS.PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX).createIndexes([
     { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'status_available_createdAt' },
     { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'status_leaseExpiresAt' },
+  ]);
+
+  // Concat output is a separate S3 object and has its own leased cleanup owner.
+  // Each claim branch has a matching index so expired leases cannot strand work.
+  await db.collection(COLLECTIONS.PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX).createIndexes([
+    { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'chapter_concat_status_available_createdAt' },
+    { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'chapter_concat_status_leaseExpiresAt' },
   ]);
 
   // Project-scoped documents and public URLs attached to AI chat. The extracted content is persisted
