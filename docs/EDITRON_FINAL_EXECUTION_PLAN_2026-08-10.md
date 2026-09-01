@@ -15677,3 +15677,85 @@ Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
 Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
 chapter-path completion, agency-class certification, live recovery proof,
 successor receipt or `GO` is claimed.
+
+## 2026-09-01 vertical-convergence Phase 4A checkpoint
+
+Commits `d07753ed0`, `3a010b2b7`, `5b54f71f8`, `6f1429ec4`,
+`57653536b`, `883f9b855`, `c03ff5687`, `04ae0c5bf`, `f2dca8bb0`,
+`22b70b013`, `a1750faf9` and `8d881378f` close the remaining local
+Phase 3Z chapter-lifecycle order through progress, terminal ownership,
+revision fences, post-invalidation fencing, receipt-gated retention and
+legacy-safe lifecycle migration. `b693e9593` is the required separate Step-0
+Mongo registry cleanup that preceded those structural index additions.
+
+Strict provider-free progress now consumes the immutable parent/layout
+identity. Expired concat leases can be reclaimed only under the exact target
+generation. ProjectService is the sole parent terminal-finalization owner and
+commits the project final output, chapter-parent terminal state and cleanup
+materialization in one transaction. Route-side duplicate terminal writes were
+removed. Child callback/poll completion and concat claim/publication re-read
+the current project revision and retain exact binding, target, lease and
+generation predicates at their mutation boundaries. This is strong repeated
+fencing, not a false claim that the project document and every provider row
+share one cross-collection transaction.
+
+New strict chapter aggregates carry lifecycle version 1 and begin
+`ACTIVE/RETAINED`. Cleanup materialization atomically changes the aggregate to
+`STALE/CLEANUP_PENDING`; all child and concat writers require the exact active
+lifecycle and reject late callbacks, DONE replays, claims, publications,
+terminal failures and retry releases after invalidation. Missing lifecycle is
+not treated as active.
+
+The former retention description was incorrect: `expiresAt` was stamped but
+no chapter TTL index existed, and adding one would have been unsafe because a
+Mongo TTL delete cannot prove that external Remotion/S3 resources were
+deleted. The production owner now requires the plan expiry plus every linked
+child and concat cleanup outbox to validate cryptographically as `DONE` with a
+completion receipt. It then writes a hashed retention tombstone and deletes
+the exact transient chapter aggregate in the same Mongo transaction. A
+bounded Bearer-`CRON_SECRET` sweep and non-TTL candidate/tombstone indexes are
+registered in repository configuration.
+
+Lifecycle migration is explicit and non-inferential. A pre-lifecycle row is
+promoted to `ACTIVE/RETAINED` only when its project-snapshot binding, immutable
+layout, child dispatch ledgers, scope and live project revision all validate.
+A strict row with an already-materialized cleanup is restored only as
+`STALE/CLEANUP_PENDING`; it is never reopened for writes. Unbound legacy,
+malformed-contract and stale-project rows receive auditable blocked
+assessments and remain without an active lifecycle. Partial/mixed lifecycle
+state fails loudly. A bounded protected migration sweep and candidate index
+are registered; this is safe classification/backfill, not fabricated evidence
+for genuinely unbound historical rows.
+
+Focused proof passed across the terminal, dispatch, concat, invalidation,
+retention and migration owners, including 81/81 adjacent lifecycle tests,
+23/23 cleanup/retention contract tests, 13/13 retention runtime tests, 18/18
+migration-plus-retention tests and 8/8 migration runtime tests. The full 8-GB
+TypeScript check and full repository quiet ESLint passed after the final code.
+Deployed/live proof is still required before the next production closure
+receipt. No live provider render, Modal concat, S3 delete,
+wallet mutation, refund, project-content mutation, paid cohort rerun, model
+inference or external spend occurred in this slice.
+
+Repository schedules are not deployment proof. The cleanup-only IAM role,
+real Vercel environment bindings, current Modal deployment/destination,
+deployed indexes, real legacy-row assessment, live child/concat deletion,
+retention tombstone, interruption recovery and idempotent replay still need
+authorized environment execution. Genuine unbound rows remain blocked for
+manual/source-backed reconstruction or safe retirement; the migration owner
+does not guess their project snapshot.
+
+Queue 5 therefore remains `ACTIVE_PARTIAL`: the chapter chain is locally
+closed through retention and migration, but deployed proof and the remaining
+non-chapter mutation owners are still open. Queues 3 and 4 remain
+`ACTIVE_PARTIAL`. Stage 2.5 remains `MODIFY`; Stage 3 remains
+`BLOCKED_NOT_AUTHORIZED`. No chapter-path production convergence,
+agency-class certification, successor receipt or `GO` is claimed.
+
+The next exact order is: (1) run full repository verification and push this
+checkpoint, (2) execute deployed IAM/Modal/Vercel/index/live-deletion proof
+when the required environment authority exists, (3) continue the remaining
+universal Queue 5 mutation owners serially, then (4) return to the unfinished
+Queue 3-4 media chain, where parallel execution is permitted by the founder.
+Queue 6 and agency verticals remain after those items and must stay serial
+unless the founder explicitly authorizes further parallelization.
