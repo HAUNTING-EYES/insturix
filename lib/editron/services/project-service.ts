@@ -13605,7 +13605,7 @@ function batchAutoEditLifecycleEligibleStatusesV1(
       return new Set(["analyzing"]);
     case "PRE_DIRECTOR_REFUND_PENDING":
     case "PRE_DIRECTOR_REFUND_RECORDED":
-      return new Set(["analysis_complete", "directing_queued"]);
+      return new Set(["analyzing", "analysis_complete", "directing_queued"]);
     case "ORCHESTRATION_FAILED":
       return new Set(["analyzing", "analysis_complete", "directing_queued"]);
     default:

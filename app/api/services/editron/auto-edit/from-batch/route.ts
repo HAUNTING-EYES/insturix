@@ -34,6 +34,7 @@ import {
 } from '@/lib/editron/storyline/storyline-llm';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
@@ -238,6 +239,73 @@ async function commitBatchAutoEditProjectLifecycleV1(input: {
     throw new Error(`Batch project lifecycle ownership was rejected (${result.disposition}).`);
   }
   return result.receipt;
+}
+
+type BatchCreditChargeV1 = Readonly<{
+  transactionId: string;
+  chargedCredits: number;
+}>;
+
+type BatchAutoEditRefundSettlementV1 =
+  | 'refunded'
+  | 'refund-pending'
+  | 'refund-record-pending'
+  | 'refund-ownership-rejected';
+
+async function settleBatchAutoEditRefundV1(input: {
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  creditCheck: Pick<CreditCheckResult, 'refund'>;
+  charge: BatchCreditChargeV1;
+  reason: string;
+}): Promise<BatchAutoEditRefundSettlementV1> {
+  const transitionId = randomUUID();
+  let pendingReceipt: ProjectMutationReceiptV1;
+  try {
+    pendingReceipt = await commitBatchAutoEditProjectLifecycleV1({
+      userId: input.userId,
+      projectId: input.projectId,
+      uploadBatchId: input.uploadBatchId,
+      transitionId,
+      event: {
+        kind: 'PRE_DIRECTOR_REFUND_PENDING',
+        creditTransactionId: input.charge.transactionId,
+        chargedCredits: input.charge.chargedCredits,
+        reason: input.reason,
+      },
+    });
+  } catch (error) {
+    console.error('[auto-edit/from-batch] refund ownership was rejected before wallet mutation:', error);
+    return 'refund-ownership-rejected';
+  }
+
+  try {
+    await input.creditCheck.refund(input.reason);
+  } catch (error) {
+    console.error('[auto-edit/from-batch] wallet refund failed after durable pending receipt:', error);
+    return 'refund-pending';
+  }
+
+  try {
+    await commitBatchAutoEditProjectLifecycleV1({
+      userId: input.userId,
+      projectId: input.projectId,
+      uploadBatchId: input.uploadBatchId,
+      transitionId,
+      expectedRevision: pendingReceipt.revision,
+      event: {
+        kind: 'PRE_DIRECTOR_REFUND_RECORDED',
+        creditTransactionId: input.charge.transactionId,
+        chargedCredits: input.charge.chargedCredits,
+        reason: input.reason,
+      },
+    });
+  } catch (error) {
+    console.error('[auto-edit/from-batch] wallet refund succeeded but project finalization is pending:', error);
+    return 'refund-record-pending';
+  }
+  return 'refunded';
 }
 
 const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
@@ -1007,9 +1075,11 @@ export async function POST(request: NextRequest) {
   let body: FromBatchRequest | null = null;
   let uploadBatchId: string | null = null;
   let activeProjectId: string | null = null;
-  let assistCharge: { transactionId: string; chargedCredits: number } | null = null;
+  let batchCharge: BatchCreditChargeV1 | null = null;
+  let assistCharge: BatchCreditChargeV1 | null = null;
   let assistChargeRegistered = false;
   let assistReadyCommitted = false;
+  let autoRefundSettlement: BatchAutoEditRefundSettlementV1 | null = null;
   let baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   try {
@@ -1730,13 +1800,13 @@ export async function POST(request: NextRequest) {
     }
     const deduction = await creditCheck.deduct();
     creditsDeducted = true;
+    batchCharge = {
+      transactionId: deduction.transactionId,
+      chargedCredits: getCreditCost('editron', 'auto_edit_analysis', creditOptions),
+    };
 
     if (assistLaneActive) {
-      const { getCreditCost } = await import('@/lib/config/creditCosts');
-      assistCharge = {
-        transactionId: deduction.transactionId,
-        chargedCredits: getCreditCost('editron', 'auto_edit_analysis', creditOptions),
-      };
+      assistCharge = batchCharge;
       const registration = await registerAssistScanCharge(db, {
         projectId: activeProjectId,
         userId,
@@ -2142,25 +2212,26 @@ export async function POST(request: NextRequest) {
         error: message,
       }, { status: 500 });
     }
-    if (creditCheck && creditsDeducted && !queuedOrRanDirector && !assistLaneActive) {
-      await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
-        console.error('[auto-edit/from-batch] credit refund failed:', refundError);
+    if (
+      creditCheck
+      && batchCharge
+      && creditsDeducted
+      && !queuedOrRanDirector
+      && !assistLaneActive
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      autoRefundSettlement = await settleBatchAutoEditRefundV1({
+        userId: caller.userId,
+        projectId: activeProjectId,
+        uploadBatchId,
+        creditCheck,
+        charge: batchCharge,
+        reason: 'Multi-upload auto-edit failed before Director dispatch',
       });
-      // MONEY (battle-lane P0): the timeline + analysis may already be persisted at
-      // this point (saveProject + hydration run before the director dispatch), which
-      // would make this REFUNDED project pass canRescueToDirectorMode → a free
-      // reopen of an edit the user was refunded for. Mark it so the rescue gate
-      // excludes it.
-      if (activeProjectId) {
-        try {
-          const refundDb = await getDatabase();
-          await refundDb.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId },
-            { $set: { autoEditRefunded: true } },
-          );
-        } catch (markError) {
-          console.error('[auto-edit/from-batch] failed to mark project refunded:', markError instanceof Error ? markError.message : markError);
-        }
+      if (autoRefundSettlement === 'refunded' || autoRefundSettlement === 'refund-record-pending') {
+        creditsDeducted = false;
       }
     }
 
@@ -2209,6 +2280,7 @@ export async function POST(request: NextRequest) {
             status: terminalStatus,
             error: message,
             scriptCoverage: coverageAudit,
+            ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
           });
         }
         const nextFailureCount = caller.failureCount + 1;
@@ -2272,6 +2344,10 @@ export async function POST(request: NextRequest) {
     const status = message === 'Unauthorized' || message.includes('signature')
       ? 401
       : message.includes('QSTASH_TOKEN') ? 503 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    return NextResponse.json({
+      success: false,
+      error: message,
+      ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
+    }, { status });
   }
 }

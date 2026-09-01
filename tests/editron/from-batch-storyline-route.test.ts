@@ -1285,6 +1285,19 @@ describe('from-batch storyline route handoff', () => {
       }));
       expect(mocks.saveProject).not.toHaveBeenCalled();
       expect(mocks.refundCredits).toHaveBeenCalledOnce();
+      expect(mocks.recordBatchAutoEditLifecycleV1.mock.calls.map((call) => call[2].event.kind)).toEqual([
+        'PRE_DIRECTOR_REFUND_PENDING',
+        'PRE_DIRECTOR_REFUND_RECORDED',
+      ]);
+      expect(mocks.recordBatchAutoEditLifecycleV1.mock.calls[1][2]).toEqual(expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 2 }),
+        transitionId: mocks.recordBatchAutoEditLifecycleV1.mock.calls[0][2].transitionId,
+        event: expect.objectContaining({
+          kind: 'PRE_DIRECTOR_REFUND_RECORDED',
+          creditTransactionId: 'credit_tx_1',
+          chargedCredits: 15,
+        }),
+      }));
       expect(mocks.updateBatch).toHaveBeenCalledWith(
         { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
         expect.objectContaining({
