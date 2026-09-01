@@ -15,6 +15,7 @@ import {
   hashEditronCanonicalJsonV1,
 } from "./canonical-json-v1";
 import { buildProjectAnalysisAssetSet } from "./project-analysis-storage";
+import { canRescueToDirectorMode } from "./assist-lane-predicates";
 import type { NativeAudioEvidence } from "./native-audio-evidence";
 import {
   autoBgmDecisionEvidenceHashV1,
@@ -1405,6 +1406,24 @@ export type ProjectDirectorRunClaimResultV1 =
   | {
       disposition: "NOT_ELIGIBLE";
     };
+
+export interface ProjectAssistRescueCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+}
+
+export type ProjectAssistRescueResultV1 =
+  | {
+      disposition: "RESCUED";
+      project: Project;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_RESCUED";
+      project: Project;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "NOT_ELIGIBLE" };
 
 export interface ProjectDirectorRunCompletionCommandV1 {
   directorRunToken: string;
@@ -6998,6 +7017,121 @@ export class ProjectService {
     return {
       disposition: "PREPARED",
       dispatch: structuredClone(returnedDispatch),
+      receipt,
+    };
+  }
+
+  /** Reopens one paid failed auto edit as an Assist project without re-running analysis. */
+  async rescueFailedAutoEditToAssistV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAssistRescueCommandV1,
+  ): Promise<ProjectAssistRescueResultV1> {
+    if (
+      !isBoundedNonEmptyStringV1(userId, 500)
+      || !isBoundedNonEmptyStringV1(projectId, 500)
+      || !isPlainRecord(input)
+      || !input.expectedRevision
+    ) {
+      throw new ProjectMutationWriteError(
+        "Assist rescue requires one exact user, project and revision.",
+      );
+    }
+    assertProjectRevision(input.expectedRevision);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    if (
+      projectRecordValueV1(current, "editMode") === "assist"
+      && projectRecordValueV1(current, "autoEditStatus") === "ready_for_chat"
+    ) {
+      return {
+        disposition: "ALREADY_RESCUED",
+        project: structuredClone(current),
+        currentRevision,
+      };
+    }
+    if (!canRescueToDirectorMode(current)) return { disposition: "NOT_ELIGIBLE" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const rescuedAt = new Date();
+    const rescuedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        editMode: { $ne: "assist" },
+        autoEditStatus: "failed",
+        autoEditRefunded: { $ne: true },
+        overlays: { $elemMatch: { type: { $in: ["video", "image"] } } },
+        $or: [
+          { rawFootageAnalysis: { $exists: true, $ne: null } },
+          { segmentAnalysis: { $exists: true, $ne: null } },
+        ],
+      },
+      {
+        $set: {
+          editMode: "assist",
+          autoEditStatus: "ready_for_chat",
+          assistRescuedFrom: "failed",
+          assistRescuedAt: rescuedAt,
+          updatedAt: rescuedAt,
+        },
+        $unset: {
+          autoEditError: "",
+          autoEditFailedAt: "",
+          autoEditStageDesc: "",
+          "intelligence.directorDeliveryFailure": "",
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+    if (!rescuedProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+      const latestRevision = projectRevisionFor(latest);
+      if (
+        projectRecordValueV1(latest, "editMode") === "assist"
+        && projectRecordValueV1(latest, "autoEditStatus") === "ready_for_chat"
+      ) {
+        return {
+          disposition: "ALREADY_RESCUED",
+          project: structuredClone(latest),
+          currentRevision: latestRevision,
+        };
+      }
+      if (canRescueToDirectorMode(latest)) throw new ProjectMutationConflictError(latestRevision);
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, rescuedAt);
+    const returnedRevision = projectRevisionFor(rescuedProject);
+    if (
+      !sameProjectRevisionV1(receipt.revision, returnedRevision)
+      || projectRecordValueV1(rescuedProject, "editMode") !== "assist"
+      || projectRecordValueV1(rescuedProject, "autoEditStatus") !== "ready_for_chat"
+      || projectRecordValueV1(rescuedProject, "assistRescuedFrom") !== "failed"
+    ) {
+      throw new ProjectMutationWriteError(
+        "Assist rescue did not return its exact writer-issued state and revision.",
+      );
+    }
+    this.publishMutationReceipt(receipt);
+    return {
+      disposition: "RESCUED",
+      project: structuredClone(rescuedProject),
       receipt,
     };
   }

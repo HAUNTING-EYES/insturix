@@ -50,13 +50,17 @@ describe('canRescueToDirectorMode (the shared gate)', () => {
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
-  findOne: vi.fn(),
-  updateOne: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  rescueFailedAutoEditToAssistV1: vi.fn(),
 }));
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
-vi.mock('@/lib/editron/db/mongodb', () => ({
-  COLLECTIONS: { PROJECTS: 'projects' },
-  getDatabase: vi.fn(async () => ({ collection: () => ({ findOne: mocks.findOne, updateOne: mocks.updateOne }) })),
+vi.mock('@/lib/editron/services/project-service', () => ({
+  ProjectMutationConflictError: class ProjectMutationConflictError extends Error {},
+  ProjectNotFoundOrForbiddenError: class ProjectNotFoundOrForbiddenError extends Error {},
+  projectService: {
+    loadProjectForMutation: mocks.loadProjectForMutation,
+    rescueFailedAutoEditToAssistV1: mocks.rescueFailedAutoEditToAssistV1,
+  },
 }));
 
 import { POST } from '@/app/api/services/editron/auto-edit/rescue/route';
@@ -66,11 +70,16 @@ const request = (body: unknown) => new Request('http://localhost/api/services/ed
 }) as never;
 
 const oldEnv = { ...process.env };
+const snapshot = {
+  project: failedAuto(),
+  revision: { schemaVersion: 1 as const, value: 7, compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z' },
+};
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   process.env = { ...oldEnv, DIRECTOR_MODE_ENABLED: 'true' };
   mocks.auth.mockResolvedValue({ userId: 'user_1' });
-  mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+  mocks.loadProjectForMutation.mockResolvedValue(snapshot);
+  mocks.rescueFailedAutoEditToAssistV1.mockResolvedValue({ disposition: 'RESCUED' });
 });
 
 describe('rescue route handler', () => {
@@ -84,46 +93,45 @@ describe('rescue route handler', () => {
 
     process.env.DIRECTOR_MODE_ENABLED = 'true';
     expect((await POST(request({ projectId: { $ne: null } }))).status).toBe(400);
-    expect(mocks.findOne).not.toHaveBeenCalled();
+    expect(mocks.loadProjectForMutation).not.toHaveBeenCalled();
   });
 
   it('404 unknown, 409 when not rescuable — no write', async () => {
-    mocks.findOne.mockResolvedValue(null);
+    const { ProjectNotFoundOrForbiddenError } = await import('@/lib/editron/services/project-service');
+    mocks.loadProjectForMutation.mockRejectedValueOnce(new ProjectNotFoundOrForbiddenError());
     expect((await POST(request({ projectId: 'p' }))).status).toBe(404);
 
-    mocks.findOne.mockResolvedValue(failedAuto({ overlays: [] })); // no timeline
+    mocks.rescueFailedAutoEditToAssistV1.mockResolvedValueOnce({ disposition: 'NOT_ELIGIBLE' });
     const res = await POST(request({ projectId: 'p' }));
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('not_rescuable');
-    expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('P0: the server refuses a refunded-but-full-substrate project — no free giveaway', async () => {
-    mocks.findOne.mockResolvedValue(failedAuto({ autoEditRefunded: true }));
+    mocks.rescueFailedAutoEditToAssistV1.mockResolvedValueOnce({ disposition: 'NOT_ELIGIBLE' });
     const res = await POST(request({ projectId: 'p' }));
     expect(res.status).toBe(409);
-    expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it('rescues atomically: flips to assist ready_for_chat, free, only from a failure status', async () => {
-    mocks.findOne.mockResolvedValue(failedAuto());
+  it('delegates the exact server revision to the atomic rescue owner', async () => {
     const payload = await (await POST(request({ projectId: 'p' }))).json();
     expect(payload).toMatchObject({ success: true, status: 'ready_for_chat' });
-    expect(mocks.updateOne).toHaveBeenCalledWith(
-      { projectId: 'p', userId: 'user_1', autoEditStatus: 'failed', autoEditRefunded: { $ne: true } },
-      expect.objectContaining({ $set: expect.objectContaining({ editMode: 'assist', autoEditStatus: 'ready_for_chat' }) }),
+    expect(mocks.rescueFailedAutoEditToAssistV1).toHaveBeenCalledWith(
+      'user_1',
+      'p',
+      { expectedRevision: snapshot.revision },
     );
   });
 
-  it('idempotent: already-rescued short-circuits; a lost race does not double-write', async () => {
-    mocks.findOne.mockResolvedValue({ editMode: 'assist', autoEditStatus: 'ready_for_chat' });
-    const a = await (await POST(request({ projectId: 'p' }))).json();
-    expect(a).toMatchObject({ success: true, alreadyRescued: true });
-    expect(mocks.updateOne).not.toHaveBeenCalled();
+  it('maps an already-rescued outcome idempotently and a revision race to 409', async () => {
+    mocks.rescueFailedAutoEditToAssistV1.mockResolvedValueOnce({ disposition: 'ALREADY_RESCUED' });
+    const already = await (await POST(request({ projectId: 'p' }))).json();
+    expect(already).toMatchObject({ success: true, alreadyRescued: true });
 
-    mocks.findOne.mockResolvedValue(failedAuto());
-    mocks.updateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 }); // lost the race
-    const b = await (await POST(request({ projectId: 'p' }))).json();
-    expect(b).toMatchObject({ success: true, alreadyRescued: true });
+    const { ProjectMutationConflictError } = await import('@/lib/editron/services/project-service');
+    mocks.rescueFailedAutoEditToAssistV1.mockRejectedValueOnce(new ProjectMutationConflictError(snapshot.revision));
+    const conflict = await POST(request({ projectId: 'p' }));
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).code).toBe('project_changed');
   });
 });
