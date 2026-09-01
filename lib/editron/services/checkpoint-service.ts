@@ -347,24 +347,27 @@ export class CheckpointService {
     userId: string,
     projectId: string,
     receiptId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
     assertRollbackReceiptId(receiptId);
+    if (!writerIssuedReceipt) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} requires a writer-issued rollback receipt.`);
+    }
+    const expectedRevision = revisionFromWriterReceipt(writerIssuedReceipt, projectId);
+    const receipt: CheckpointRollbackReceiptV1 = {
+      schemaVersion: 1,
+      receiptId,
+      expectedRevision,
+    };
     const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
     if (!checkpoint) {
       throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be bound to a rollback revision.`);
     }
     const existing = rollbackReceiptFor(checkpoint, receiptId);
-    if (existing) return existing;
-    if (!writerIssuedReceipt) {
-      throw new Error(`Chat edit operation checkpoint ${checkpointId} requires a writer-issued rollback receipt.`);
+    if (existing) {
+      assertCompatibleRollbackReceipt(existing, receipt, checkpointId);
+      return existing;
     }
-
-    const receipt: CheckpointRollbackReceiptV1 = {
-      schemaVersion: 1,
-      receiptId,
-      expectedRevision: revisionFromWriterReceipt(writerIssuedReceipt, projectId),
-    };
     const db = await getDatabase();
     const persisted = await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).findOneAndUpdate(
       {
@@ -380,7 +383,10 @@ export class CheckpointService {
       { returnDocument: 'after', includeResultMetadata: false },
     ) as unknown as Checkpoint | null;
     const persistedReceipt = persisted && rollbackReceiptFor(persisted, receiptId);
-    if (persistedReceipt) return persistedReceipt;
+    if (persistedReceipt) {
+      assertCompatibleRollbackReceipt(persistedReceipt, receipt, checkpointId);
+      return persistedReceipt;
+    }
 
     const concurrentReceipt = await this.getRollbackReceipt(
       checkpointId,
@@ -388,7 +394,10 @@ export class CheckpointService {
       projectId,
       receiptId,
     );
-    if (concurrentReceipt) return concurrentReceipt;
+    if (concurrentReceipt) {
+      assertCompatibleRollbackReceipt(concurrentReceipt, receipt, checkpointId);
+      return concurrentReceipt;
+    }
     throw new Error(`Chat edit operation checkpoint ${checkpointId} could not persist a rollback revision.`);
   }
 
@@ -666,6 +675,21 @@ function sameProjectRevision(
   return left.schemaVersion === right.schemaVersion
     && left.value === right.value
     && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+function assertCompatibleRollbackReceipt(
+  existing: CheckpointRollbackReceiptV1,
+  proposed: CheckpointRollbackReceiptV1,
+  checkpointId: string,
+): void {
+  if (
+    existing.receiptId !== proposed.receiptId
+    || !sameProjectRevision(existing.expectedRevision, proposed.expectedRevision)
+  ) {
+    throw new Error(
+      `Chat edit operation checkpoint ${checkpointId} has a conflicting rollback receipt.`,
+    );
+  }
 }
 
 function cloneValue<T>(value: T): T {

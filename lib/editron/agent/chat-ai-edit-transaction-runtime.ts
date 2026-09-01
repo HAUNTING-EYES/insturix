@@ -55,7 +55,7 @@ interface ChatEditCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1>;
   restoreProjectCheckpoint(
     checkpointId: string,

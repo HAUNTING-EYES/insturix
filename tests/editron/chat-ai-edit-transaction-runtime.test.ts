@@ -93,7 +93,7 @@ class MemoryCheckpointStore {
     userId: string;
     projectId: string;
     operationId: string;
-    writerIssuedReceipt?: ProjectMutationReceiptV1;
+    writerIssuedReceipt: ProjectMutationReceiptV1;
   }> = [];
   readonly restoreRequests: Array<{
     checkpointId: string;
@@ -164,14 +164,14 @@ class MemoryCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
     this.rollbackReceiptCalls.push({
       checkpointId,
       userId,
       projectId,
       operationId,
-      ...(writerIssuedReceipt ? { writerIssuedReceipt } : {}),
+      writerIssuedReceipt,
     });
     const checkpoint = this.checkpoints.get(checkpointId);
     if (
@@ -183,13 +183,16 @@ class MemoryCheckpointStore {
       throw new Error('missing or out-of-scope rollback checkpoint');
     }
     const existing = this.rollbackReceipts.get(checkpointId);
-    if (writerIssuedReceipt && writerIssuedReceipt.projectId !== projectId) {
+    if (writerIssuedReceipt.projectId !== projectId) {
       throw new Error('writer receipt belongs to another project');
     }
-    if (!existing && !writerIssuedReceipt) {
-      throw new Error('writer-issued rollback receipt required');
+    if (existing && (
+      existing.value !== writerIssuedReceipt.revision.value
+      || existing.compatibilityUpdatedAt !== writerIssuedReceipt.revision.compatibilityUpdatedAt
+    )) {
+      throw new Error('conflicting rollback receipt');
     }
-    const expectedRevision = existing ?? structuredClone(writerIssuedReceipt!.revision);
+    const expectedRevision = existing ?? structuredClone(writerIssuedReceipt.revision);
     this.rollbackReceipts.set(checkpointId, expectedRevision);
     return { schemaVersion: 1, receiptId: operationId, expectedRevision: structuredClone(expectedRevision) };
   }
@@ -742,7 +745,43 @@ describe('chat AI edit transaction runtime', () => {
       'user_1',
       'proj_1',
       'chatop_writer_receipt_required',
+      undefined as unknown as ProjectMutationReceiptV1,
     )).rejects.toThrow('requires a writer-issued rollback receipt');
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a conflicting writer receipt when the rollback receipt id already exists', async () => {
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_writer_receipt_replay',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: [],
+      rollbackReceipts: [{
+        schemaVersion: 1,
+        receiptId: 'chatop_writer_receipt_replay',
+        expectedRevision: ORIGINAL_REVISION,
+      }],
+      timestamp: new Date(),
+      description: 'writer receipt replay check',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    await expect(service.recordRollbackExpectedRevision(
+      'ckpt_writer_receipt_replay',
+      'user_1',
+      'proj_1',
+      'chatop_writer_receipt_replay',
+      {
+        ...writerReceipt(),
+        revision: {
+          ...ORIGINAL_REVISION,
+          value: ORIGINAL_REVISION.value + 1,
+        },
+      },
+    )).rejects.toThrow('conflicting rollback receipt');
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
