@@ -366,7 +366,7 @@ describe("chapter renderer progress", () => {
     expect(progress?.error).toBeUndefined();
   });
 
-  it("enqueues async concat for a completed multi-chapter job when concat is configured", async () => {
+  it("quarantines a completed legacy multi-chapter job instead of dispatching an unsigned concat", async () => {
     mocks.isChapterConcatConfigured.mockReturnValue(true);
     mocks.updateOne.mockResolvedValue({ modifiedCount: 1 }); // claim succeeds
     mocks.findOne.mockResolvedValue({
@@ -380,14 +380,19 @@ describe("chapter renderer progress", () => {
 
     const progress = await getChapterRenderProgress("chr_concat");
 
-    // Concat dispatched; job is still in-progress (NOT failed, NOT completed) until the worker writes back.
-    expect(mocks.enqueueChapterConcat).toHaveBeenCalledWith("chr_concat");
-    expect(progress?.status).not.toBe("failed");
-    expect(progress?.status).not.toBe("completed");
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+    expect(progress?.status).toBe("failed");
+    expect(progress?.error).toBe("CHAPTER_CONCAT_LEGACY_REQUIRES_PROJECT_SNAPSHOT_MIGRATION");
     expect(progress?.outputUrl).toBeUndefined();
     expect(mocks.updateOne).toHaveBeenCalledWith(
       { _id: "chr_concat", concatStatus: { $exists: false } },
-      expect.objectContaining({ $set: expect.objectContaining({ concatStatus: "queued" }) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "failed",
+          concatStatus: "failed",
+          concatError: "CHAPTER_CONCAT_LEGACY_REQUIRES_PROJECT_SNAPSHOT_MIGRATION",
+        }),
+      }),
     );
   });
 
