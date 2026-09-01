@@ -228,7 +228,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -432,7 +432,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'ckpt-interrupted',
       'user-1',
-      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -593,7 +593,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-style-1')?.status).toBe('rolled_back');
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
@@ -670,7 +670,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
   });

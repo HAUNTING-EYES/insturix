@@ -265,7 +265,7 @@ describe('durable chat editorial-intent jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 
@@ -311,7 +311,7 @@ describe('durable chat editorial-intent jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
-      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
     expect(store.jobs.get('job-intent-1')).toMatchObject({ status: 'failed' });
   });

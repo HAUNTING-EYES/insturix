@@ -594,7 +594,7 @@ describe('durable chat dubbing job', () => {
     expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
       job.beforeCheckpointId,
       'user-1',
-      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
     expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
   });
@@ -652,7 +652,7 @@ describe('durable chat dubbing job', () => {
     expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
       job.beforeCheckpointId,
       'user-1',
-      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision, actorKind: 'SYSTEM' },
     );
   });
 

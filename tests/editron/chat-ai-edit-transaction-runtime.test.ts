@@ -100,6 +100,7 @@ class MemoryCheckpointStore {
     userId: string;
     projectId: string;
     expectedRevision: ProjectRevisionV1;
+    actorKind: 'SYSTEM';
   }> = [];
   project: Record<string, unknown>;
   failClaim = false;
@@ -196,7 +197,7 @@ class MemoryCheckpointStore {
   async restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+    options: { projectId: string; expectedRevision: ProjectRevisionV1; actorKind: 'SYSTEM' },
   ): Promise<RestoreProjectCheckpointResult> {
     this.events.push('restore');
     const checkpoint = this.checkpoints.get(checkpointId);
@@ -626,6 +627,7 @@ describe('chat AI edit transaction runtime', () => {
       userId: transaction.userId,
       projectId: transaction.projectId,
       expectedRevision,
+      actorKind: 'SYSTEM',
     }]);
     expect(store.rollbackReceiptCalls).toEqual([
       {
@@ -1521,6 +1523,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(restoreSpy).toHaveBeenCalledWith('ckpt_tool', 'user_1', {
       projectId: 'proj_1',
       expectedRevision,
+      actorKind: 'AGENT',
     });
     expect(checkpointService.getRollbackReceipt).toHaveBeenCalledWith(
       'ckpt_tool',
