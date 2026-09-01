@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { transitionProjectStatus, type ProjectStatus } from '@/lib/shared/project-status';
 import { recoverAssistScanSettlements } from '@/lib/editron/services/assist-refund-recovery';
+import { recoverStaleAutoEditProjectV1 } from '@/lib/editron/services/stale-auto-edit-recovery-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -41,6 +42,7 @@ const ACTIVE_AUTO_EDIT_STATES = [
   'queued',
   'analyzing',
   'transcribing',
+  'analyzing_visual_cuts',
   'cleaning',
   'computing_params',
   'analyzing_deep',
@@ -117,19 +119,22 @@ export async function GET(request: Request) {
       .toArray();
 
     for (const project of stuckAutoEdits) {
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: project.projectId, autoEditStatus: { $in: ACTIVE_AUTO_EDIT_STATES } },
-        {
-          $set: {
-            autoEditStatus: 'failed',
-            autoEditError: `Stuck in '${project.autoEditStatus}' for over 10 minutes (recovered by cron)`,
-            updatedAt: new Date(),
-          },
-        },
-      );
-      recovered++;
-      details.push({ projectId: project.projectId, from: project.autoEditStatus, field: 'autoEditStatus' });
-      console.log(`[StuckRecovery] ${project.projectId}: autoEditStatus=${project.autoEditStatus} → failed`);
+      const result = await recoverStaleAutoEditProjectV1({
+        userId: project.userId,
+        projectId: project.projectId,
+        staleBefore: new Date(Date.now() - AUTO_EDIT_STUCK_THRESHOLD_MS),
+      });
+      if (result.disposition === 'RECOVERED') {
+        recovered++;
+        details.push({ projectId: project.projectId, from: project.autoEditStatus, field: 'autoEditStatus' });
+        console.log(`[StuckRecovery] ${project.projectId}: autoEditStatus=${project.autoEditStatus} → failed`);
+      } else if (result.disposition === 'UNVERIFIABLE_OWNER') {
+        details.push({
+          projectId: project.projectId,
+          from: project.autoEditStatus,
+          field: 'autoEditStatus:unverifiable-owner',
+        });
+      }
     }
 
     return NextResponse.json({
