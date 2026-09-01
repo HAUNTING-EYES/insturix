@@ -407,6 +407,7 @@ describe('Editron render startup boundary', () => {
       metadata: {
         editronRenderAdmissionId: admissionId,
         projectRenderBindingHash: expect.any(String),
+        renderRegion: 'us-east-1',
       },
       webhook: {
         url: 'https://app.example.test/api/services/editron/cloudrun/render/webhook',
@@ -414,6 +415,7 @@ describe('Editron render startup boundary', () => {
         customData: {
           editronRenderAdmissionId: admissionId,
           projectRenderBindingHash: expect.any(String),
+          renderRegion: 'us-east-1',
         },
       },
       inputProps: expect.objectContaining({
@@ -852,6 +854,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     };
 
@@ -867,6 +870,7 @@ describe('Editron render startup boundary', () => {
       authorization: lookup.authorization,
       providerRenderId: 'render_provider_1',
       bucketName: 'bucket_1',
+      region: 'us-east-1',
       sourceOutputUrl: 'https://bucket.example.test/render.mp4',
       sourceOutputSize: 44_583_988,
     });
@@ -891,6 +895,19 @@ describe('Editron render startup boundary', () => {
     expect(missingHash.status).toBe(400);
     expect(routeMocks.getCurrentProjectRenderJob).not.toHaveBeenCalled();
 
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    const missingRegion = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+    expect(missingRegion.status).toBe(400);
+    expect(routeMocks.getCurrentProjectRenderJob).not.toHaveBeenCalled();
+
     routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce({
       ok: false,
       status: 'NON_CURRENT',
@@ -904,6 +921,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'f'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
     expect(forged.status).toBe(409);
@@ -923,6 +941,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
     expect(stale.status).toBe(409);
@@ -951,6 +970,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
 
@@ -959,6 +979,7 @@ describe('Editron render startup boundary', () => {
       authorization: lookup.authorization,
       providerRenderId: 'render_provider_1',
       bucketName: 'bucket_1',
+      region: 'us-east-1',
       error: 'Remotion render timed out',
     });
     expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
@@ -981,6 +1002,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
     expect(conflictingReplay.status).toBe(409);
@@ -1002,6 +1024,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
     expect(artifactWebhook.status).toBe(409);
@@ -1039,6 +1062,7 @@ describe('Editron render startup boundary', () => {
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
         projectRenderBindingHash: 'b'.repeat(64),
+        renderRegion: 'us-east-1',
       },
     }));
 
@@ -1886,8 +1910,13 @@ function strictProjectRenderLookup(
       projectId: authorization.projectId,
       status,
       ...(withProviderIdentity
-        ? { providerRenderId: 'render_provider_1', bucketName: 'bucket_1' }
+        ? {
+            providerRenderId: 'render_provider_1',
+            bucketName: 'bucket_1',
+            region: 'us-east-1',
+          }
         : {}),
+      ...(!withProviderIdentity ? { region: 'us-east-1' } : {}),
       ...(status === 'error'
         ? {
             finalization: {

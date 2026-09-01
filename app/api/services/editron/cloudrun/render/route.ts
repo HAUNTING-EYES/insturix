@@ -348,7 +348,7 @@ export async function POST(request: Request) {
     });
     const webhook = usesChapterRendering
       ? null
-      : buildRemotionRenderWebhook(request, admissionId, binding.bindingHash);
+      : buildRemotionRenderWebhook(request, admissionId, region, binding.bindingHash);
     await reserveProjectRenderJobV1({
       jobId: admissionId,
       requestedByUserId: userId,
@@ -507,6 +507,7 @@ export async function POST(request: Request) {
       metadata: {
         editronRenderAdmissionId: renderAdmissionId!,
         projectRenderBindingHash: renderAuthorization!.bindingHash,
+        renderRegion: region,
       },
       webhook: webhook!,
     });
@@ -833,6 +834,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function buildRemotionRenderWebhook(
   request: Request,
   admissionId: string,
+  region: string,
   bindingHash?: string,
 ) {
   const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
@@ -851,6 +853,7 @@ function buildRemotionRenderWebhook(
     secret,
     customData: {
       editronRenderAdmissionId: admissionId,
+      renderRegion: region,
       ...(bindingHash ? { projectRenderBindingHash: bindingHash } : {}),
     },
   };

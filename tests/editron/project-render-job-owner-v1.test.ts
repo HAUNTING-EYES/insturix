@@ -895,6 +895,7 @@ describe("Project render-job owner V1", () => {
       currentProjectRevision: REVISION,
       providerRenderId: "provider-render-1",
       bucketName: "different-render-output",
+      region: "us-east-1",
       sourceOutputUrl: FINALIZATION_SOURCE_URL,
       sourceOutputSize: 100,
       claimToken: "claim-1",
@@ -916,10 +917,12 @@ describe("Project render-job owner V1", () => {
             {
               providerRenderId: { $exists: false },
               bucketName: { $exists: false },
+              region: "us-east-1",
             },
             {
               providerRenderId: "provider-render-1",
               bucketName: "different-render-output",
+              region: "us-east-1",
             },
           ],
         }),
@@ -932,6 +935,7 @@ describe("Project render-job owner V1", () => {
       currentProjectRevision: REVISION,
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "us-east-1",
       sourceOutputUrl: FINALIZATION_SOURCE_URL,
       sourceOutputSize: 100,
       claimToken: "claim-1",
@@ -1028,6 +1032,7 @@ describe("Project render-job owner V1", () => {
       currentProjectRevision: REVISION,
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "us-east-1",
       error: "provider callback failed",
       now,
       collection,
@@ -1042,10 +1047,12 @@ describe("Project render-job owner V1", () => {
             {
               providerRenderId: { $exists: false },
               bucketName: { $exists: false },
+              region: "us-east-1",
             },
             {
               providerRenderId: "provider-render-1",
               bucketName: "editron-render-output",
+              region: "us-east-1",
             },
           ]),
         }),
@@ -1055,21 +1062,23 @@ describe("Project render-job owner V1", () => {
       status: "error",
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "us-east-1",
       completedAt: now,
     }));
     expect(collection.updateOne.mock.calls[0]![2]).toEqual({ session });
 
     collection.updateOne.mockClear();
     collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
-    const partialIdentity = await failProjectRenderJobFromProviderV1({
+    const mismatchedRegion = await failProjectRenderJobFromProviderV1({
       authorization,
       currentProjectRevision: REVISION,
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "eu-west-1",
       error: "must not complete a partial identity",
       collection,
     });
-    expect(partialIdentity).toMatchObject({
+    expect(mismatchedRegion).toMatchObject({
       ok: false,
       reason: "JOB_STATE_NOT_ACTIVE",
     });
@@ -1080,10 +1089,12 @@ describe("Project render-job owner V1", () => {
             {
               providerRenderId: { $exists: false },
               bucketName: { $exists: false },
+              region: "eu-west-1",
             },
             {
               providerRenderId: "provider-render-1",
               bucketName: "editron-render-output",
+              region: "eu-west-1",
             },
           ],
         }),
@@ -1096,6 +1107,7 @@ describe("Project render-job owner V1", () => {
       currentProjectRevision: { ...REVISION, value: REVISION.value + 1 },
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "us-east-1",
       error: "must not write",
       collection,
     });
@@ -1457,6 +1469,7 @@ describe("Project render-job owner V1", () => {
       observedProjectRevision: staleRevision,
       providerRenderId: "provider-render-1",
       bucketName: "editron-render-output",
+      region: "us-east-1",
       sourceOutputUrl: FINALIZATION_SOURCE_URL,
       sourceOutputSize: 100,
       error: "provider completed after project revision changed",
@@ -1472,6 +1485,7 @@ describe("Project render-job owner V1", () => {
         artifactState: "STALE",
         providerRenderId: "provider-render-1",
         bucketName: "editron-render-output",
+        region: "us-east-1",
         artifactCleanup: { state: "PENDING", pendingArtifactIds: [JOB_ID] },
         finalization: expect.objectContaining({
           state: "failed",

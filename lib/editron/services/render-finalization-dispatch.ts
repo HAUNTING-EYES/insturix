@@ -201,8 +201,9 @@ export type BeginProjectRenderFinalizationResultV1 =
  */
 export async function beginProjectRenderFinalizationV1(input: {
   authorization: unknown;
-  providerRenderId?: string;
-  bucketName?: string;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
 }): Promise<BeginProjectRenderFinalizationResultV1> {

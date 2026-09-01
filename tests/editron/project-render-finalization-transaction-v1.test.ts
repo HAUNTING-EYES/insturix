@@ -339,6 +339,7 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       providerRenderId: "provider-render-1",
       bucketName: "render-bucket",
+      region: "us-east-1",
       error: "provider failed",
       now,
     })).resolves.toEqual({ ok: true, status: "CURRENT" });
@@ -346,6 +347,7 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       providerRenderId: "provider-render-1",
       bucketName: "render-bucket",
+      region: "us-east-1",
       sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
       sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
       claimToken: FINALIZATION_CLAIM.claimToken,
@@ -362,6 +364,7 @@ describe("project render finalization transaction owner v1", () => {
       currentProjectRevision: AUTHORIZATION.projectRevision,
       providerRenderId: "provider-render-1",
       bucketName: "render-bucket",
+      region: "us-east-1",
       now,
       session: fixture.session,
     }));
@@ -369,6 +372,7 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       currentProjectRevision: AUTHORIZATION.projectRevision,
       claimToken: FINALIZATION_CLAIM.claimToken,
+      region: "us-east-1",
       now,
       collection: fixture.renderJobs,
       session: fixture.session,
@@ -464,6 +468,7 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       providerRenderId: "provider-render-1",
       bucketName: "render-bucket",
+      region: "us-east-1",
       sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
       sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
     })).resolves.toEqual({
@@ -484,6 +489,7 @@ describe("project render finalization transaction owner v1", () => {
         },
         providerRenderId: "provider-render-1",
         bucketName: "render-bucket",
+        region: "us-east-1",
         sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
         sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
         collection: fixture.renderJobs,
@@ -543,6 +549,7 @@ describe("project render finalization transaction owner v1", () => {
       authorization: AUTHORIZATION,
       providerRenderId: "provider-render-1",
       bucketName: "render-bucket",
+      region: "us-east-1",
       error: "stale provider callback",
     })).resolves.toEqual({
       ok: false,

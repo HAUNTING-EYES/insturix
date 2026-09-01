@@ -896,6 +896,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
   currentProjectRevision: unknown;
   providerRenderId: string;
   bucketName: string;
+  region: string;
   error: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
@@ -906,6 +907,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
   if (
     !isBoundRenderInputString(input.providerRenderId)
     || !isBoundRenderInputString(input.bucketName)
+    || !isBoundRenderInputString(input.region, 100)
   ) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
@@ -915,6 +917,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
   }
   const providerRenderId = input.providerRenderId.trim();
   const bucketName = input.bucketName.trim();
+  const region = input.region.trim();
   const jobs = input.collection ?? await getCollection();
   const failed = await jobs.updateOne(
     {
@@ -927,8 +930,9 @@ export async function failProjectRenderJobFromProviderV1(input: {
             {
               providerRenderId: { $exists: false },
               bucketName: { $exists: false },
+              region,
             },
-            { providerRenderId, bucketName },
+            { providerRenderId, bucketName, region },
           ],
         },
       ],
@@ -938,6 +942,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
         status: 'error',
         providerRenderId,
         bucketName,
+        region,
         error: boundedError(input.error),
         completedAt,
       },
@@ -1202,6 +1207,7 @@ export async function materializeProjectRenderSourceCleanupHandoffV1(input: {
   expectedProviderOutput?: {
     providerRenderId: string;
     bucketName: string;
+    region: string;
     sourceOutputUrl: string;
     sourceOutputSize: number;
   };
@@ -1241,6 +1247,7 @@ export async function materializeProjectRenderSourceCleanupHandoffV1(input: {
     && (
       job.providerRenderId !== expected.providerRenderId.trim()
       || job.bucketName !== expected.bucketName.trim()
+      || job.region !== expected.region.trim()
       || job.finalization.sourceOutputUrl !== expected.sourceOutputUrl
       || job.finalization.sourceOutputSize !== expected.sourceOutputSize
     )
@@ -1335,6 +1342,7 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
   observedProjectRevision: unknown | null;
   providerRenderId: string;
   bucketName: string;
+  region: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
   error: unknown;
@@ -1371,6 +1379,7 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
   if (
     !isBoundRenderInputString(input.providerRenderId)
     || !isBoundRenderInputString(input.bucketName)
+    || !isBoundRenderInputString(input.region, 100)
     || typeof input.sourceOutputUrl !== 'string'
     || !Number.isInteger(input.sourceOutputSize)
     || input.sourceOutputSize < 0
@@ -1388,6 +1397,7 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
   }
   const providerRenderId = input.providerRenderId.trim();
   const bucketName = input.bucketName.trim();
+  const region = input.region.trim();
   const message = boundedError(input.error);
   const authorization = parsedAuthorization.data;
   const fenced = await input.collection.updateOne(
@@ -1403,8 +1413,9 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
             {
               providerRenderId: { $exists: false },
               bucketName: { $exists: false },
+              region,
             },
-            { providerRenderId, bucketName },
+            { providerRenderId, bucketName, region },
           ],
         },
       ],
@@ -1415,6 +1426,7 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
         progress: 0.99,
         providerRenderId,
         bucketName,
+        region,
         error: message,
         completedAt,
         artifactState: 'STALE',
@@ -1439,6 +1451,7 @@ export async function fenceStaleProjectRenderJobProviderOutputWithCleanupV1(inpu
   const expectedProviderOutput = {
     providerRenderId,
     bucketName,
+    region,
     sourceOutputUrl: input.sourceOutputUrl,
     sourceOutputSize: input.sourceOutputSize,
   };
@@ -2134,6 +2147,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
   currentProjectRevision: unknown;
   providerRenderId?: string;
   bucketName?: string;
+  region?: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
   claimToken?: string;
@@ -2148,6 +2162,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
     typeof input.sourceOutputUrl !== 'string'
     || input.providerRenderId !== undefined && !isBoundRenderInputString(input.providerRenderId)
     || input.bucketName !== undefined && !isBoundRenderInputString(input.bucketName)
+    || input.region !== undefined && !isBoundRenderInputString(input.region, 100)
   ) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
@@ -2161,7 +2176,10 @@ export async function claimProjectRenderJobFinalizationV1(input: {
   }
   const providerRenderId = input.providerRenderId?.trim();
   const bucketName = input.bucketName?.trim();
-  if (Boolean(providerRenderId) !== Boolean(bucketName)) {
+  const region = input.region?.trim();
+  const hasAnyProviderIdentity = Boolean(providerRenderId || bucketName || region);
+  const hasCompleteProviderIdentity = Boolean(providerRenderId && bucketName && region);
+  if (hasAnyProviderIdentity !== hasCompleteProviderIdentity) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
   const lease = resolveProjectRenderLease(input, 'rfl');
@@ -2175,7 +2193,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
       'finalization.leaseExpiresAt': { $lte: lease.now },
     },
   ];
-  if (providerRenderId) claimableStates.unshift({ status: 'pending' });
+  if (hasCompleteProviderIdentity) claimableStates.unshift({ status: 'pending' });
   const claimed = await jobs.findOneAndUpdate(
     {
       $and: [
@@ -2183,14 +2201,15 @@ export async function claimProjectRenderJobFinalizationV1(input: {
           expectedDurationMs: { $exists: true, $gt: 0 },
         }),
         { $or: claimableStates },
-        ...(providerRenderId
+        ...(hasCompleteProviderIdentity
           ? [{
               $or: [
                 {
                   providerRenderId: { $exists: false },
                   bucketName: { $exists: false },
+                  region,
                 },
-                { providerRenderId, bucketName },
+                { providerRenderId, bucketName, region },
               ],
             }]
           : []),
@@ -2207,7 +2226,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
         'finalization.claimToken': lease.claimToken,
         'finalization.claimedAt': lease.now,
         'finalization.leaseExpiresAt': new Date(lease.now.getTime() + lease.leaseMs),
-        ...(providerRenderId && bucketName ? { providerRenderId, bucketName } : {}),
+        ...(hasCompleteProviderIdentity ? { providerRenderId, bucketName, region } : {}),
       },
       $inc: { 'finalization.attempts': 1 },
       $unset: {

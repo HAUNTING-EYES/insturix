@@ -1921,6 +1921,7 @@ export class ProjectService {
     authorization: unknown;
     providerRenderId: string;
     bucketName: string;
+    region: string;
     error: unknown;
     now?: Date;
   }): Promise<ProjectRenderJobMutationResultV1> {
@@ -1936,6 +1937,7 @@ export class ProjectService {
           currentProjectRevision,
           providerRenderId: input.providerRenderId,
           bucketName: input.bucketName,
+          region: input.region,
           error: input.error,
           now: transactionAt,
           collection: renderJobs,
@@ -2035,6 +2037,7 @@ export class ProjectService {
     authorization: unknown;
     providerRenderId?: string;
     bucketName?: string;
+    region?: string;
     sourceOutputUrl: string;
     sourceOutputSize: number;
     claimToken?: string;
@@ -2053,6 +2056,7 @@ export class ProjectService {
           currentProjectRevision,
           providerRenderId: input.providerRenderId,
           bucketName: input.bucketName,
+          region: input.region,
           sourceOutputUrl: input.sourceOutputUrl,
           sourceOutputSize: input.sourceOutputSize,
           claimToken: input.claimToken,
@@ -2061,7 +2065,9 @@ export class ProjectService {
           collection: renderJobs,
           session,
         }),
-      input.providerRenderId !== undefined && input.bucketName !== undefined
+      input.providerRenderId !== undefined
+        && input.bucketName !== undefined
+        && input.region !== undefined
         ? async ({
             authorization,
             observedProjectRevision,
@@ -2075,6 +2081,7 @@ export class ProjectService {
               observedProjectRevision,
               providerRenderId: input.providerRenderId!,
               bucketName: input.bucketName!,
+              region: input.region!,
               sourceOutputUrl: input.sourceOutputUrl,
               sourceOutputSize: input.sourceOutputSize,
               error: "Project changed before provider output finalization.",

@@ -125,6 +125,7 @@ export async function GET(request: Request) {
       if (strictAuthorization) {
         const result = await beginProjectRenderFinalizationV1({
           authorization: strictAuthorization,
+          region,
           ...finalizationInput,
         });
         if ('ok' in result && !result.ok) {
@@ -145,6 +146,7 @@ export async function GET(request: Request) {
           authorization: strictAuthorization,
           providerRenderId: renderId,
           bucketName,
+          region,
           error: errorMessage,
         });
         if (!failed.ok) return projectRenderNotCurrentResponse();
@@ -225,6 +227,7 @@ async function chapterRenderProgress(input: {
         authorization: input.strictAuthorization,
         providerRenderId: input.renderId,
         bucketName: input.bucketName,
+        region: input.region,
         error: message,
       });
       if (!failed.ok) return projectRenderNotCurrentResponse();
@@ -247,6 +250,7 @@ async function chapterRenderProgress(input: {
     if (input.strictAuthorization) {
       const result = await beginProjectRenderFinalizationV1({
         authorization: input.strictAuthorization,
+        region: input.region,
         ...finalizationInput,
       });
       if ('ok' in result && !result.ok) {

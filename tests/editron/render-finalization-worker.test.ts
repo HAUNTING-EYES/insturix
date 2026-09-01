@@ -250,6 +250,7 @@ describe('render finalization orchestration', () => {
       authorization: projectRenderAuthorization,
       providerRenderId: 'provider_render_1',
       bucketName: 'bucket_1',
+      region: 'us-east-1',
       sourceOutputUrl: message.sourceOutputUrl,
       sourceOutputSize: message.sourceOutputSize,
     })).resolves.toMatchObject({ state: 'enqueued' });
@@ -262,6 +263,7 @@ describe('render finalization orchestration', () => {
       authorization: projectRenderAuthorization,
       providerRenderId: 'provider_render_1',
       bucketName: 'bucket_1',
+      region: 'us-east-1',
       sourceOutputUrl: message.sourceOutputUrl,
       sourceOutputSize: message.sourceOutputSize,
     });

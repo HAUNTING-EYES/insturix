@@ -317,6 +317,7 @@ describe("Editron chapter render progress route", () => {
       authorization: STRICT_AUTHORIZATION,
       providerRenderId: "strict_provider",
       bucketName: "strict-bucket",
+      region: "us-east-1",
       sourceOutputUrl: "https://video.example/strict-raw.mp4",
       sourceOutputSize: 84_000,
     });

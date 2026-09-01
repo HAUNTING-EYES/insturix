@@ -15,6 +15,7 @@ import {
   projectService,
   ProjectNotFoundOrForbiddenError,
 } from '@/lib/editron/services/project-service';
+import { ProjectRenderSourceCleanupAwsRegionSchemaV1 } from '@/lib/editron/services/project-render-source-cleanup-v1';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +25,7 @@ const StaticPayloadSchema = z.object({
   customData: z.object({
     editronRenderAdmissionId: z.string().regex(/^rnd_[A-Za-z0-9_-]+$/),
     projectRenderBindingHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    renderRegion: ProjectRenderSourceCleanupAwsRegionSchemaV1.optional(),
   }).passthrough(),
 });
 
@@ -127,6 +129,13 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    const renderRegion = payload.customData.renderRegion;
+    if (!renderRegion) {
+      return NextResponse.json(
+        { type: 'error', message: 'Project render region is required' },
+        { status: 400 },
+      );
+    }
 
     let currentProjectRevision;
     try {
@@ -148,7 +157,8 @@ export async function POST(request: Request) {
     const hasStoredProviderIdentity = current.job.providerRenderId !== undefined
       || current.job.bucketName !== undefined;
     const exactProviderIdentity = current.job.providerRenderId === payload.renderId
-      && current.job.bucketName === payload.bucketName;
+      && current.job.bucketName === payload.bucketName
+      && current.job.region === renderRegion;
     if (hasStoredProviderIdentity && !exactProviderIdentity) {
       return projectRenderNotCurrent();
     }
@@ -190,6 +200,7 @@ export async function POST(request: Request) {
         authorization: lookup.authorization,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
+        region: renderRegion,
         sourceOutputUrl: successfulOutputUrl!,
         sourceOutputSize: sourceOutputSize!,
       });
@@ -199,6 +210,7 @@ export async function POST(request: Request) {
         authorization: lookup.authorization,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
+        region: renderRegion,
         error: providerError!,
       });
       if (!result.ok) return projectRenderNotCurrent();
