@@ -456,7 +456,10 @@ describe('ProjectService proxy/master relink owner V1', () => {
         aspectRatio: '16:9',
         playerDimensions: { width: 1920, height: 1080 },
       },
-      { projectUpdates: { proxyMasterRelinkStatesV1: [] } },
+      {
+        expectedRevision: REVISION,
+        projectUpdates: { proxyMasterRelinkStatesV1: [] },
+      },
     )).rejects.toBeInstanceOf(ProjectMutationWriteError);
     expect(persistence.getDatabase).not.toHaveBeenCalled();
   });

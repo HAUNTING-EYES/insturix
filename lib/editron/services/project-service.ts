@@ -2892,7 +2892,7 @@ export class ProjectService {
     projectId: string,
     state: EditorState,
     options: {
-      expectedRevision?: ProjectRevisionV1;
+      expectedRevision: ProjectRevisionV1;
       overlayAuthority?: OverlaySaveAuthority;
       projectUpdates?: Record<string, unknown>;
       projectUnsets?: readonly string[];

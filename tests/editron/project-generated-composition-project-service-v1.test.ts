@@ -217,7 +217,10 @@ describe("ProjectService generated-composition lifecycle V1", () => {
       overlays: [],
       aspectRatio: "16:9",
       playerDimensions: { width: 1920, height: 1080 },
-    }, { projectUpdates: { generatedCompositions: [] } }))
+    }, {
+      expectedRevision: REVISION,
+      projectUpdates: { generatedCompositions: [] },
+    }))
       .rejects.toBeInstanceOf(ProjectMutationWriteError);
     expect(persistence.getDatabase).not.toHaveBeenCalled();
   });

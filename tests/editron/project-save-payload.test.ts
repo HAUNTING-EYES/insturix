@@ -590,7 +590,7 @@ describe("Editron project save payload compaction", () => {
       "@/lib/editron/services/project-service"
     );
 
-    await expect(projectService.saveProjectWithReceipt(
+    await expect((projectService.saveProjectWithReceipt as any)(
       "user_1",
       "proj_1",
       {
