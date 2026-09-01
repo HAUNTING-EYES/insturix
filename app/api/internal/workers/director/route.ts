@@ -108,18 +108,20 @@ async function handler(request: NextRequest) {
     const { isAssistProject, ASSIST_STATUS_READY } = await import('@/lib/editron/services/assist-lane');
     if (runClaim.disposition === 'ASSIST_PROJECT') {
       const projectDoc = runClaim.project;
-      if (!isAssistProject(projectDoc)) {
-        throw new Error(`ProjectService returned an invalid assist Director claim for ${projectId}.`);
+      const projectRecord = asRecord(projectDoc);
+      if (
+        !isAssistProject(projectDoc)
+        || projectRecord?.autoEditStatus !== ASSIST_STATUS_READY
+        || runClaim.receipt.projectId !== projectId
+        || !Number.isSafeInteger(runClaim.receipt.revision.value)
+      ) {
+        throw new Error(`ProjectService returned an uncommitted assist Director claim for ${projectId}.`);
       }
       trackedAssistProject = { projectId, userId };
-      const { getDatabase } = await import('@/lib/editron/db/mongodb');
-      const db = await getDatabase();
-      await db.collection('projects').updateOne(
-        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-        { projectId, userId, autoEditStatus: { $ne: 'scan_failed' } },
-        { $set: { autoEditStatus: ASSIST_STATUS_READY, autoEditCompletedAt: new Date() } },
+      console.log(
+        `[DirectorMode] Assist scan complete at project revision ${runClaim.receipt.revision.value}`
+        + ` — director skipped (project ${projectId}).`,
       );
-      console.log(`[DirectorMode] Assist scan complete — director skipped (project ${projectId}).`);
       return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
     }
 

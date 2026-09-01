@@ -1097,6 +1097,7 @@ export type ProjectDirectorRunClaimResultV1 =
   | {
       disposition: "ASSIST_PROJECT";
       project: Project;
+      receipt: ProjectMutationReceiptV1;
     }
   | {
       disposition: "PROJECT_NOT_FOUND";
@@ -5542,9 +5543,6 @@ export class ProjectService {
       userId,
     })) as Project | null;
     if (!current) return { disposition: "PROJECT_NOT_FOUND" };
-    if (isAssistProjectRecordV1(current)) {
-      return { disposition: "ASSIST_PROJECT", project: structuredClone(current) };
-    }
     const suppliedDispatchToken = options?.pipelineDirectorDispatchToken;
     const rawPipelineDispatch = projectRecordValueV1(current, "pipelineDirectorDispatch");
     const pipelineDispatch = readProjectPipelineDirectorDispatchV1(rawPipelineDispatch);
@@ -5560,16 +5558,6 @@ export class ProjectService {
     ) {
       return { disposition: "NOT_ELIGIBLE" };
     }
-    if (
-      !isDirectorRunClaimableStatusV1(projectRecordValueV1(current, "autoEditStatus"))
-      || projectRecordValueV1(current, "directorRunToken") !== undefined
-    ) {
-      return { disposition: "NOT_ELIGIBLE" };
-    }
-
-    const beforeRevision = projectRevisionFor(current);
-    const claimedAt = new Date();
-    const runToken = `director_run_${nanoid(20)}`;
     const pipelineClaimPredicate = pipelineDispatch
       ? {
           "pipelineDirectorDispatch.schemaVersion": 1,
@@ -5581,6 +5569,86 @@ export class ProjectService {
           pendingDirectorUserId: userId,
         }
       : {};
+    if (isAssistProjectRecordV1(current)) {
+      if (
+        !isDirectorRunClaimableStatusV1(projectRecordValueV1(current, "autoEditStatus"))
+        || projectRecordValueV1(current, "directorRunToken") !== undefined
+      ) {
+        return { disposition: "NOT_ELIGIBLE" };
+      }
+      const beforeRevision = projectRevisionFor(current);
+      const completedAt = new Date();
+      const readyProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+        {
+          projectId,
+          userId,
+          ...projectRevisionPredicate(beforeRevision),
+          editMode: "assist",
+          autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
+          directorRunToken: { $exists: false },
+          ...pipelineClaimPredicate,
+        },
+        {
+          $set: {
+            autoEditStatus: "ready_for_chat",
+            autoEditCompletedAt: completedAt,
+            updatedAt: completedAt,
+          },
+          ...(pipelineDispatch
+            ? {
+                $unset: {
+                  pendingDirectorProfileId: "",
+                  pendingDirectorUserId: "",
+                  pipelineDirectorDispatch: "",
+                },
+              }
+            : {}),
+          $inc: { projectRevision: 1 },
+        },
+        { returnDocument: "after", includeResultMetadata: false },
+      )) as Project | null;
+      if (!readyProject) {
+        const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+          projectId,
+          userId,
+        })) as Project | null;
+        return latest
+          ? { disposition: "NOT_ELIGIBLE" }
+          : { disposition: "PROJECT_NOT_FOUND" };
+      }
+      const revision = projectRevisionFor(readyProject);
+      if (
+        revision.value !== beforeRevision.value + 1
+        || revision.compatibilityUpdatedAt !== completedAt.toISOString()
+        || projectRecordValueV1(readyProject, "autoEditStatus") !== "ready_for_chat"
+      ) {
+        throw new ProjectMutationWriteError(
+          "Assist completion did not return the writer-issued ready state and revision.",
+        );
+      }
+      const receipt: ProjectMutationReceiptV1 = {
+        schemaVersion: 1,
+        projectId,
+        revision,
+        committedAt: completedAt.toISOString(),
+      };
+      this.publishMutationReceipt(receipt);
+      return {
+        disposition: "ASSIST_PROJECT",
+        project: structuredClone(readyProject),
+        receipt,
+      };
+    }
+    if (
+      !isDirectorRunClaimableStatusV1(projectRecordValueV1(current, "autoEditStatus"))
+      || projectRecordValueV1(current, "directorRunToken") !== undefined
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const beforeRevision = projectRevisionFor(current);
+    const claimedAt = new Date();
+    const runToken = `director_run_${nanoid(20)}`;
     const claimUpdate = {
       $set: {
         autoEditStatus: "directing",
@@ -5618,9 +5686,6 @@ export class ProjectService {
         userId,
       })) as Project | null;
       if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
-      if (isAssistProjectRecordV1(latest)) {
-        return { disposition: "ASSIST_PROJECT", project: structuredClone(latest) };
-      }
       return { disposition: "NOT_ELIGIBLE" };
     }
 

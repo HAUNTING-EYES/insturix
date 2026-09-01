@@ -117,27 +117,32 @@ describe('director worker assist guard', () => {
   it('assist: hands the pen to the user — ready_for_chat, Director never runs', async () => {
     mocks.claimDirectorRunV1.mockResolvedValue({
       disposition: 'ASSIST_PROJECT',
-      project: { projectId: 'p1', userId: 'u1', editMode: 'assist', autoEditStatus: 'analysis_complete' },
+      project: { projectId: 'p1', userId: 'u1', editMode: 'assist', autoEditStatus: 'ready_for_chat' },
+      receipt: terminalReceipt,
     });
     const res = await POST(request({ projectId: 'p1', userId: 'u1', profileId: 'A-01' }));
     const body = await res.json();
 
     expect(body).toMatchObject({ success: true, status: 'ready_for_chat', directorSkipped: true });
-    expect(mocks.updateOne).toHaveBeenCalledWith(
-      { projectId: 'p1', userId: 'u1', autoEditStatus: { $ne: 'scan_failed' } },
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'ready_for_chat' }) }),
-    );
+    expect(mocks.updateOne).not.toHaveBeenCalled();
     expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
   });
 
-  it('cancel-wins: the ready-write is guarded so a cancelled project is never resurrected', async () => {
+  it('does not report success for an uncommitted Assist claim', async () => {
     mocks.claimDirectorRunV1.mockResolvedValue({
       disposition: 'ASSIST_PROJECT',
       project: { projectId: 'p1', userId: 'u1', editMode: 'assist', autoEditStatus: 'analysis_complete' },
+      receipt: terminalReceipt,
     });
-    await POST(request({ projectId: 'p1', userId: 'u1', profileId: 'A-01' }));
-    const [filter] = mocks.updateOne.mock.calls[0];
-    expect(filter).toEqual({ projectId: 'p1', userId: 'u1', autoEditStatus: { $ne: 'scan_failed' } });
+    const res = await POST(request({ projectId: 'p1', userId: 'u1', profileId: 'A-01' }));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('uncommitted assist Director claim'),
+    });
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.settleAssistScanFailure).not.toHaveBeenCalled();
   });
 
   it('already-settled: owner rejects the claim, so no Director or status write occurs', async () => {

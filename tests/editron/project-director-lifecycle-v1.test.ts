@@ -152,20 +152,72 @@ describe("ProjectService Director run lifecycle V1", () => {
     }
   });
 
-  it("returns no-write claim dispositions for missing, Assist, and concurrently claimed projects", async () => {
+  it("atomically completes an eligible Assist project and issues its terminal receipt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:01.000Z"));
+    try {
+      persistenceMocks.findOne.mockResolvedValueOnce(projectFixture(7, BASE_UPDATED_AT, {
+        editMode: "assist",
+        autoEditStatus: "analysis_complete",
+      }));
+      persistenceMocks.findOneAndUpdate.mockResolvedValueOnce(projectFixture(
+        8,
+        "2026-08-25T00:00:01.000Z",
+        {
+          editMode: "assist",
+          autoEditStatus: "ready_for_chat",
+          autoEditCompletedAt: new Date("2026-08-25T00:00:01.000Z"),
+        },
+      ));
+      const { projectService } = await import("@/lib/editron/services/project-service");
+
+      const captured = await projectService.captureMutationReceipts(() => (
+        projectService.claimDirectorRunV1(USER_ID, PROJECT_ID)
+      ));
+      if (captured.value.disposition !== "ASSIST_PROJECT") {
+        throw new Error(`Expected completed Assist project, got ${captured.value.disposition}.`);
+      }
+
+      expect(captured.value).toMatchObject({
+        disposition: "ASSIST_PROJECT",
+        project: { editMode: "assist", autoEditStatus: "ready_for_chat" },
+        receipt: {
+          projectId: PROJECT_ID,
+          revision: { value: 8, compatibilityUpdatedAt: "2026-08-25T00:00:01.000Z" },
+        },
+      });
+      expect(captured.receipts).toEqual([captured.value.receipt]);
+      expect(persistenceMocks.findOneAndUpdate).toHaveBeenCalledWith(
+        {
+          projectId: PROJECT_ID,
+          userId: USER_ID,
+          projectRevision: 7,
+          updatedAt: new Date(BASE_UPDATED_AT),
+          editMode: "assist",
+          autoEditStatus: { $in: ["analysis_complete", "directing_queued"] },
+          directorRunToken: { $exists: false },
+        },
+        {
+          $set: {
+            autoEditStatus: "ready_for_chat",
+            autoEditCompletedAt: new Date("2026-08-25T00:00:01.000Z"),
+            updatedAt: new Date("2026-08-25T00:00:01.000Z"),
+          },
+          $inc: { projectRevision: 1 },
+        },
+        { returnDocument: "after", includeResultMetadata: false },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns no-write claim dispositions for missing and concurrently claimed projects", async () => {
     const { projectService } = await import("@/lib/editron/services/project-service");
 
     persistenceMocks.findOne.mockResolvedValueOnce(null);
     await expect(projectService.claimDirectorRunV1(USER_ID, PROJECT_ID)).resolves.toEqual({
       disposition: "PROJECT_NOT_FOUND",
-    });
-
-    persistenceMocks.findOne.mockResolvedValueOnce(projectFixture(7, BASE_UPDATED_AT, {
-      editMode: "assist",
-      autoEditStatus: "analysis_complete",
-    }));
-    await expect(projectService.claimDirectorRunV1(USER_ID, PROJECT_ID)).resolves.toMatchObject({
-      disposition: "ASSIST_PROJECT",
     });
 
     persistenceMocks.findOne
