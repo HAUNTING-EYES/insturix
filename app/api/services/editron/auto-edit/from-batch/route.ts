@@ -1373,7 +1373,6 @@ export async function POST(request: NextRequest) {
           { projectId: activeProjectId },
           { $set: { editMode: 'assist' } },
         );
-        console.log(`[DirectorMode] Assist intake accepted for project ${activeProjectId} (batch ${uploadBatchId}).`);
       }
       const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
       const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
@@ -1727,7 +1726,6 @@ export async function POST(request: NextRequest) {
           $unset: { orchestrationLeaseUntil: '' },
         },
       );
-      console.log(`[DirectorMode] Assist lay-down complete: ${timeline.clipCount} clips, ${hydration.hydratedVideoAssetIds.length} hydrated, ${degradedAssetIds.length} degraded (project ${activeProjectId}).`);
       return NextResponse.json({
         success: true,
         projectId: activeProjectId,
