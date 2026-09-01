@@ -1579,6 +1579,8 @@ describe('chat AI edit transaction runtime', () => {
     ), 'utf8');
 
     expect(manager).toContain('projectService.loadProjectForMutation(userId, projectId)');
+    expect(manager).toContain('capturedProjectRevision: snapshot.revision');
+    expect(manager).toContain('expectedRevision,');
     expect(manager).toContain('body: JSON.stringify({ checkpointId, projectId, expectedRevision })');
     expect(manager).toContain("actorKind: 'USER'");
     expect(manager).toContain('`/api/services/editron/projects/${encodeURIComponent(projectId)}`');

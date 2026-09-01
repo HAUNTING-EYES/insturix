@@ -16,8 +16,13 @@ const CreateCheckpointSchema = z.object({
   projectId: z.string().min(1),
   overlays: z.array(z.any()),
   description: z.string().min(1).max(200),
-  type: z.enum(['initial', 'before-llm', 'after-llm', 'user-edit']),
-});
+  type: z.enum(['initial', 'user-edit']),
+  expectedRevision: z.object({
+    schemaVersion: z.literal(1),
+    value: z.number().int().nonnegative(),
+    compatibilityUpdatedAt: z.string().datetime(),
+  }).strict(),
+}).strict();
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { sessionId, projectId, overlays, description, type } = validationResult.data;
+    const { sessionId, projectId, overlays, description, type, expectedRevision } = validationResult.data;
 
     const checkpoint = await checkpointService.createCheckpoint({
       sessionId,
@@ -52,6 +57,7 @@ export async function POST(request: NextRequest) {
       overlays,
       description,
       type,
+      capturedProjectRevision: expectedRevision,
     });
 
     return NextResponse.json({
