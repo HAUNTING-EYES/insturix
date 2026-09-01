@@ -4,9 +4,11 @@ import { auth } from '@clerk/nextjs/server';
 import { nanoid } from 'nanoid';
 import {
   calculateExpectedRenderDurationMs,
-  failJob,
-  markJobStarted,
-  reserveJob,
+  createProjectRenderJobAuthorizationV1,
+  failProjectRenderJobV1,
+  markProjectRenderJobStartedV1,
+  reserveProjectRenderJobV1,
+  type ProjectRenderJobAuthorizationV1,
 } from '@/lib/editron/services/render-job-service';
 import {
   assetResolver,
@@ -24,6 +26,14 @@ import {
   resolveRenderableAudioInputProps,
   UnlicensedAudioInRenderError,
 } from '@/lib/editron/shared/render-request-payload';
+import {
+  buildContainedVideoTargetsV1,
+  buildProjectRenderSourceSnapshotV1,
+  createProjectRenderSnapshotBindingV1,
+} from '@/lib/editron/services/project-render-snapshot-binding-v1';
+import {
+  sameProjectArtifactRevisionV1,
+} from '@/lib/editron/services/project-artifact-invalidation-v1';
 import {
   REMOTION_AUDIO_CODEC,
   REMOTION_COMPOSITION_ID,
@@ -49,6 +59,7 @@ export async function POST(request: Request) {
   let creditsDeducted = false;
   let renderStarted = false;
   let renderAdmissionId: string | null = null;
+  let renderAuthorization: ProjectRenderJobAuthorizationV1 | null = null;
 
   try {
     const { userId } = await auth();
@@ -68,6 +79,17 @@ export async function POST(request: Request) {
       );
     }
     const canonicalProjectId = projectId.trim();
+    if (compositionId !== undefined && compositionId !== REMOTION_COMPOSITION_ID) {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'INVALID_RENDER_COMPOSITION',
+          message: `compositionId must be ${REMOTION_COMPOSITION_ID}.`,
+        },
+        { status: 400 },
+      );
+    }
+    const trustedInputProps = normalizeClientRenderInputProps(inputProps);
 
     // AWS Lambda configuration from environment
     const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
@@ -96,24 +118,48 @@ export async function POST(request: Request) {
       );
     }
     const remotionSiteFreshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
-    if (remotionSiteFreshness.reason === 'unverified_no_app_commit') {
-      console.warn('[Render] Remotion site version could not be verified because app commit metadata is missing');
+    if (
+      remotionSiteFreshness.reason !== 'verified_env_bundle'
+      && remotionSiteFreshness.reason !== 'verified_url_bundle'
+    ) {
+      console.error(`[Render] Verified renderer bundle is unavailable: ${remotionSiteFreshness.reason}`);
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'RENDER_SITE_VERSION_UNVERIFIED',
+          message: 'A verified Remotion renderer bundle is required for rendering.',
+        },
+        { status: 503 },
+      );
+    }
+    const rendererBundleSha = remotionSiteFreshness.serveBundle
+      ?? remotionSiteFreshness.expectedBundle;
+    if (!rendererBundleSha) {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'RENDER_SITE_VERSION_UNVERIFIED',
+          message: 'A verified Remotion renderer bundle is required for rendering.',
+        },
+        { status: 503 },
+      );
     }
 
-    // Phase D W5: Use STS AssumeRole for short-lived credentials
-    // Falls back to env var credentials if STS fails (backward compat)
-    const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
-    await setAWSCredentials();
-
-    // Resolve asset URLs before sending to Lambda - ensure all overlays have valid URLs.
-    // Uses CDN proxy URLs (default) which Lambda was successfully using before.
-    // forceGCS is NOT used - many assets lack gcsPath and would get empty URLs.
-    const project = await projectService.loadProject(userId, canonicalProjectId);
-    if (!project) {
+    // Read one access-authorized persisted project snapshot. Asset URLs stay
+    // unresolved until after the binding source hash has been computed.
+    const projectSnapshot = await projectService.loadProjectForRenderSnapshot(
+      userId,
+      canonicalProjectId,
+    );
+    if (!projectSnapshot) {
       return NextResponse.json(
         { type: 'error', message: 'Project not found' },
         { status: 404 }
       );
+    }
+    const { project, revision, ownerId } = projectSnapshot;
+    if (project.projectId !== canonicalProjectId || ownerId !== project.userId) {
+      throw new Error('PROJECT_RENDER_SNAPSHOT_SCOPE_MISMATCH');
     }
     // Route the render/export charge to the org wallet when this project is org-owned AND the flag
     // is on (P2). resolveBillingOwner reads the project's persisted ownership only — flag off, or a
@@ -152,7 +198,7 @@ export async function POST(request: Request) {
     } catch (preflightErr) {
       console.warn('[Render] MG preflight unavailable (non-blocking):', preflightErr instanceof Error ? preflightErr.message : preflightErr);
     }
-    let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
+    let resolvedProps = buildProjectRenderInputProps(project, trustedInputProps);
     const deliveryPlan = resolveRenderDeliveryPlan({
       requestedMode: musicDeliveryMode,
       overlays: resolvedProps.overlays,
@@ -178,11 +224,22 @@ export async function POST(request: Request) {
       ? resolvedProps.overlays as any[]
       : [];
 
+    const nativeMediaProjectRevision = readNativeMediaFinalRenderProjectRevisionV1(project);
+    if (!sameProjectArtifactRevisionV1(nativeMediaProjectRevision, revision)) {
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'PROJECT_RENDER_REVISION_STALE',
+          message: 'The project changed before render admission could complete.',
+        },
+        { status: 409 },
+      );
+    }
     const nativeMediaAdmission = await admitNativeMediaFinalRenderUsingRuntimeV1({
       userId,
       projectId: canonicalProjectId,
       sequenceId: 'main',
-      projectRevision: readNativeMediaFinalRenderProjectRevisionV1(project),
+      projectRevision: revision,
       overlays: renderOverlays,
     });
     if (nativeMediaAdmission.disposition === 'UNVERIFIABLE') {
@@ -219,6 +276,95 @@ export async function POST(request: Request) {
       );
     }
 
+    const totalFrames = readPositiveInteger(
+      resolvedProps.durationInFrames,
+      'PROJECT_RENDER_DURATION_INVALID',
+    );
+    const renderFps = readPositiveNumber(resolvedProps.fps, 'PROJECT_RENDER_FPS_INVALID');
+    const width = readPositiveInteger(resolvedProps.width, 'PROJECT_RENDER_WIDTH_INVALID');
+    const height = readPositiveInteger(resolvedProps.height, 'PROJECT_RENDER_HEIGHT_INVALID');
+    const { shouldUseChapterRendering, startChapterRender, detectChapterBoundaries } =
+      await import('@/lib/editron/services/chapter-renderer');
+    const usesChapterRendering = shouldUseChapterRendering(totalFrames, renderFps);
+    const preHydrationRenderOverlays = [...renderOverlays];
+    const chapterBoundaries = usesChapterRendering
+      ? detectChapterBoundaries(preHydrationRenderOverlays as any[], totalFrames, renderFps)
+      : null;
+    const projectRenderSource = buildProjectRenderSourceSnapshotV1({
+      project: {
+        ...project,
+        overlays: preHydrationRenderOverlays,
+        durationInFrames: totalFrames,
+        fps: renderFps,
+        playerDimensions: { width, height },
+      },
+      inputProps: trustedInputProps,
+    });
+    const containedVideoTargets = buildContainedVideoTargetsV1(preHydrationRenderOverlays);
+
+    renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
+      durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
+      requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
+    }, billingWallet);
+    if (!renderCreditCheck.allowed) {
+      return renderCreditCheck.errorResponse!;
+    }
+
+    const admissionId = `${usesChapterRendering ? 'chr' : 'rnd'}_${nanoid(12)}`;
+    const renderContract = buildProjectRenderContract({
+      usesChapterRendering,
+      rendererBundleSha,
+      deliveryPlan,
+      chapterBoundaries,
+    });
+    const binding = createProjectRenderSnapshotBindingV1({
+      artifactKind: 'RENDERED_PREVIEW',
+      artifactId: admissionId,
+      ownerId,
+      projectId: canonicalProjectId,
+      projectRevision: revision,
+      sequenceId: 'main',
+      compositionId: REMOTION_COMPOSITION_ID,
+      renderContract,
+      durationInFrames: totalFrames,
+      fps: renderFps,
+      width,
+      height,
+      projectRenderSource,
+      containedVideoTargets,
+    });
+    renderAuthorization = createProjectRenderJobAuthorizationV1({
+      jobId: admissionId,
+      requestedByUserId: userId,
+      ownerId,
+      projectId: canonicalProjectId,
+      projectRevision: revision,
+      binding,
+    });
+    const deliveryManifest = buildRenderDeliveryManifest({
+      plan: deliveryPlan,
+      renderId: admissionId,
+    });
+    const webhook = usesChapterRendering
+      ? null
+      : buildRemotionRenderWebhook(request, admissionId, binding.bindingHash);
+    await reserveProjectRenderJobV1({
+      jobId: admissionId,
+      requestedByUserId: userId,
+      ownerId,
+      projectId: canonicalProjectId,
+      currentProjectRevision: revision,
+      region,
+      expectedDurationMs: calculateExpectedRenderDurationMs(totalFrames, renderFps),
+      deliveryManifest,
+      binding,
+    });
+    renderAdmissionId = admissionId;
+
+    // Resolve asset URLs only after the immutable source snapshot and durable
+    // admission have been created. Uses CDN proxy URLs (default) which Lambda
+    // was successfully using before. forceGCS is NOT used - many assets lack
+    // gcsPath and would get empty URLs.
     if (renderOverlays.length > 0) {
       try {
         renderOverlays = await assetResolver.resolveProjectAssets(
@@ -232,47 +378,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // Phase D W6: Auto-detect long videos and use chapter-based rendering
-    const totalFrames = Math.max(Number(resolvedProps.durationInFrames) || 0, 0);
-    const renderFps = Math.max(Number(resolvedProps.fps) || 30, 1);
-    const { shouldUseChapterRendering, startChapterRender } = await import('@/lib/editron/services/chapter-renderer');
-    const usesChapterRendering = shouldUseChapterRendering(totalFrames, renderFps);
     const lambdaRenderProps = buildLambdaRenderInputProps({ ...resolvedProps, isRendering: true });
-
-    renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
-      durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
-      requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
-    }, billingWallet);
-    if (!renderCreditCheck.allowed) {
-      return renderCreditCheck.errorResponse!;
-    }
-
-    const admissionId = `${usesChapterRendering ? 'chr' : 'rnd'}_${nanoid(12)}`;
-    const deliveryManifest = buildRenderDeliveryManifest({
-      plan: deliveryPlan,
-      renderId: admissionId,
-    });
-    const webhook = usesChapterRendering
-      ? null
-      : buildRemotionRenderWebhook(request, admissionId);
-    await reserveJob(
-      admissionId,
-      userId,
-      canonicalProjectId,
-      region,
-      calculateExpectedRenderDurationMs(totalFrames, renderFps),
-      deliveryManifest,
-    );
-    renderAdmissionId = admissionId;
 
     try {
       await renderCreditCheck.deduct();
       creditsDeducted = true;
     } catch (error) {
       console.error('[Render] render/export credit deduction failed:', error);
-      if (renderAdmissionId) {
+      if (renderAdmissionId && renderAuthorization) {
         await markRenderAdmissionFailed(
-          renderAdmissionId,
+          renderAuthorization,
           'Render/export credit deduction failed before provider dispatch',
         );
       }
@@ -282,10 +397,38 @@ export async function POST(request: Request) {
       );
     }
 
+    const currentProjectRevision = await projectService.getProjectRevision(
+      ownerId,
+      canonicalProjectId,
+    );
+    if (!sameProjectArtifactRevisionV1(currentProjectRevision, revision)) {
+      if (renderAuthorization) {
+        await markRenderAdmissionFailed(
+          renderAuthorization,
+          'Project changed after render admission and before provider dispatch',
+        );
+      }
+      await refundRenderExportCredits(
+        renderCreditCheck,
+        'Project changed before render provider dispatch',
+      );
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'PROJECT_RENDER_REVISION_STALE',
+          message: 'The project changed before render could start.',
+        },
+        { status: 409 },
+      );
+    }
+
+    // Credentials are loaded only after the durable admission and credit
+    // deduction, immediately before a provider dispatch.
+    const { setAWSCredentials } = await import('@/lib/editron/utils/aws-credentials');
+    await setAWSCredentials();
+
     if (usesChapterRendering) {
       const fps = renderFps;
-      const width = Number(resolvedProps.width) || 1920;
-      const height = Number(resolvedProps.height) || 1080;
 
       const { jobId, chapters } = await startChapterRender(
         renderAdmissionId!,
@@ -301,18 +444,26 @@ export async function POST(request: Request) {
       );
       renderStarted = true;
 
-      let trackingStatus: 'durable' | 'degraded' = 'durable';
+      let trackingStatus: 'durable' | 'recovery_required' = 'durable';
       try {
-        await markJobStarted(
-          renderAdmissionId!,
-          userId,
-          jobId,
-          'chapter-render',
+        const startedProjectRevision = await projectService.getProjectRevision(
+          ownerId,
+          canonicalProjectId,
+        );
+        const started = await markProjectRenderJobStartedV1({
+          authorization: renderAuthorization!,
+          currentProjectRevision: startedProjectRevision,
+          providerRenderId: jobId,
+          bucketName: 'chapter-render',
           region,
           deliveryManifest,
-        );
+        });
+        if (!started.ok) {
+          trackingStatus = 'recovery_required';
+          console.error('CRITICAL: chapter render started but admission binding failed:', started);
+        }
       } catch (dbError) {
-        trackingStatus = 'degraded';
+        trackingStatus = 'recovery_required';
         console.error('CRITICAL: chapter render started but admission binding failed:', {
           renderAdmissionId,
           error: dbError,
@@ -320,7 +471,11 @@ export async function POST(request: Request) {
       }
 
       const mgInt = mgIntegrity as { degraded?: boolean } | null;
-      const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
+      const finalTracking = trackingStatus === 'recovery_required'
+        ? 'recovery_required' as const
+        : mgInt?.degraded === true
+          ? 'degraded' as const
+          : 'durable' as const;
       return NextResponse.json({
         type: 'success',
         data: {
@@ -330,7 +485,7 @@ export async function POST(request: Request) {
           trackingStatus: finalTracking,
           ...(mgIntegrity ? { mgIntegrity } : {}),
         },
-      });
+      }, { status: finalTracking === 'recovery_required' ? 202 : 200 });
     }
 
     // Standard single-Lambda render (videos under 3 minutes)
@@ -338,7 +493,7 @@ export async function POST(request: Request) {
       region,
       functionName,
       serveUrl,
-      composition: compositionId || REMOTION_COMPOSITION_ID,
+      composition: REMOTION_COMPOSITION_ID,
       // isRendering=true → composition uses OffthreadVideo (ffmpeg) not Html5Video; without it a
       // large/slow-proxied clip hangs delayRender on the browser <video> element → 598s render timeout.
       inputProps: lambdaRenderProps,
@@ -350,23 +505,32 @@ export async function POST(request: Request) {
       timeoutInMilliseconds: 600000, // 10 minutes - AI videos need longer download time
       metadata: {
         editronRenderAdmissionId: renderAdmissionId!,
+        projectRenderBindingHash: renderAuthorization!.bindingHash,
       },
       webhook: webhook!,
     });
 
     renderStarted = true;
-    let trackingStatus: 'durable' | 'degraded' = 'durable';
+    let trackingStatus: 'durable' | 'recovery_required' = 'durable';
     try {
-      await markJobStarted(
-        renderAdmissionId!,
-        userId,
-        renderId,
+      const startedProjectRevision = await projectService.getProjectRevision(
+        ownerId,
+        canonicalProjectId,
+      );
+      const started = await markProjectRenderJobStartedV1({
+        authorization: renderAuthorization!,
+        currentProjectRevision: startedProjectRevision,
+        providerRenderId: renderId,
         bucketName,
         region,
         deliveryManifest,
-      );
+      });
+      if (!started.ok) {
+        trackingStatus = 'recovery_required';
+        console.error('CRITICAL: render started but provider binding failed:', started);
+      }
     } catch (dbError) {
-      trackingStatus = 'degraded';
+      trackingStatus = 'recovery_required';
       console.error('CRITICAL: render started but provider binding failed:', {
         renderAdmissionId,
         renderId,
@@ -400,7 +564,11 @@ export async function POST(request: Request) {
 
     // Return the render ID and bucket info
     const mgInt = mgIntegrity as { degraded?: boolean } | null;
-    const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
+    const finalTracking = trackingStatus === 'recovery_required'
+      ? 'recovery_required' as const
+      : mgInt?.degraded === true
+        ? 'degraded' as const
+        : 'durable' as const;
     return NextResponse.json({
       type: 'success',
       data: {
@@ -415,11 +583,11 @@ export async function POST(request: Request) {
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }
-    });
+    }, { status: finalTracking === 'recovery_required' ? 202 : 200 });
   } catch (error: any) {
-    if (renderAdmissionId && !renderStarted) {
+    if (renderAdmissionId && renderAuthorization && !renderStarted) {
       await markRenderAdmissionFailed(
-        renderAdmissionId,
+        renderAuthorization,
         error instanceof Error ? error.message : 'Render failed before provider dispatch',
       );
     }
@@ -434,12 +602,15 @@ export async function POST(request: Request) {
     const deliveryError = error instanceof RenderDeliveryContractError;
     const sourceError = error instanceof ProjectAssetSourceUnverifiableErrorV1;
     const hydrationError = error instanceof RenderAssetHydrationError;
+    const inputPropsError = error instanceof RenderInputPropsError;
     const assetPreparationError = sourceError || hydrationError;
     return NextResponse.json(
       {
         type: 'error',
         message: error.message || 'Failed to trigger render',
-        ...((rightsError || deliveryError || assetPreparationError) ? { code: error.code } : {}),
+        ...((rightsError || deliveryError || assetPreparationError || inputPropsError)
+          ? { code: error.code }
+          : {}),
         ...(error instanceof RenderAudioRightsAuthorityError
           ? { details: error.diagnostic }
           : assetPreparationError && error.diagnostic
@@ -451,10 +622,12 @@ export async function POST(request: Request) {
           ? 422
           : deliveryError
             ? 400
-            : sourceError
+          : sourceError
               ? 409
               : hydrationError
               ? error.status
+              : inputPropsError
+                ? error.status
               : 500,
       }
     );
@@ -475,6 +648,16 @@ class RenderAssetHydrationError extends Error {
     this.code = sourceError?.code ?? 'RENDER_ASSET_HYDRATION_FAILED';
     this.diagnostic = sourceError?.diagnostic ?? null;
     this.status = sourceError ? 409 : 500;
+  }
+}
+
+class RenderInputPropsError extends Error {
+  readonly code = 'INVALID_RENDER_INPUT_PROPS';
+  readonly status = 400 as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'RenderInputPropsError';
   }
 }
 
@@ -504,12 +687,117 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
   }
 }
 
-async function markRenderAdmissionFailed(jobId: string, reason: string): Promise<void> {
+async function markRenderAdmissionFailed(
+  authorization: ProjectRenderJobAuthorizationV1,
+  reason: string,
+): Promise<void> {
   try {
-    await failJob(jobId, reason);
+    const currentProjectRevision = await projectService.getProjectRevision(
+      authorization.ownerId,
+      authorization.projectId,
+    );
+    const result = await failProjectRenderJobV1({
+      authorization,
+      currentProjectRevision,
+      error: reason,
+    });
+    if (!result.ok) {
+      console.error('[Render] failed to mark render admission as current failure:', result);
+    }
   } catch (error) {
     console.error('[Render] failed to mark render admission as failed:', error);
   }
+}
+
+function normalizeClientRenderInputProps(value: unknown): Record<string, unknown> {
+  if (value === undefined || value === null) {
+    return { src: '', isRendering: true };
+  }
+  const props = asRecord(value);
+  if (!props) {
+    throw new RenderInputPropsError('inputProps must be a JSON object.');
+  }
+  const allowedKeys = new Set([
+    'overlays',
+    'durationInFrames',
+    'width',
+    'height',
+    'fps',
+    'src',
+  ]);
+  const unknownKey = Object.keys(props).find((key) => !allowedKeys.has(key));
+  if (unknownKey) {
+    throw new RenderInputPropsError(`inputProps.${unknownKey} is not accepted.`);
+  }
+  if (
+    props.overlays !== undefined
+    && (!Array.isArray(props.overlays) || props.overlays.length > 0)
+  ) {
+    throw new RenderInputPropsError('inputProps.overlays must be empty; persisted project overlays are authoritative.');
+  }
+  if (
+    props.src !== undefined
+    && props.src !== null
+    && (typeof props.src !== 'string' || props.src.trim().length > 0)
+  ) {
+    throw new RenderInputPropsError('inputProps.src is not accepted; the render source is server-owned.');
+  }
+  return {
+    overlays: [],
+    src: '',
+    isRendering: true,
+  };
+}
+
+function readPositiveInteger(value: unknown, code: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(code);
+  }
+  return value;
+}
+
+function readPositiveNumber(value: unknown, code: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new Error(code);
+  }
+  return value;
+}
+
+function buildProjectRenderContract(input: {
+  usesChapterRendering: boolean;
+  rendererBundleSha: string;
+  deliveryPlan: ReturnType<typeof resolveRenderDeliveryPlan>;
+  chapterBoundaries: readonly { startFrame: number; endFrame: number }[] | null;
+}): Record<string, unknown> {
+  if (input.usesChapterRendering && !input.chapterBoundaries) {
+    throw new Error('PROJECT_RENDER_CHAPTER_POLICY_INVALID');
+  }
+  return {
+    schemaVersion: 1,
+    routeMode: input.usesChapterRendering ? 'chapter' : 'standard',
+    compositionId: REMOTION_COMPOSITION_ID,
+    codec: 'h264',
+    audioCodec: REMOTION_AUDIO_CODEC,
+    framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
+    privacy: 'public',
+    timeoutInMilliseconds: 600000,
+    rendererBundleSha: input.rendererBundleSha,
+    renderInput: {
+      isRendering: true,
+      src: '',
+    },
+    delivery: {
+      manifestVersion: 'editron-render-delivery-manifest-v1',
+      mode: input.deliveryPlan.mode,
+      primaryArtifactKind: input.deliveryPlan.mode === 'platform-native'
+        ? 'clean-master'
+        : 'mixed-master',
+      music: input.deliveryPlan.music,
+    },
+    chapterPolicy: input.chapterBoundaries === null
+      ? null
+      : { boundaries: input.chapterBoundaries },
+  };
 }
 
 function readProjectDestinationPlatform(project: unknown): unknown {
@@ -527,7 +815,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function buildRemotionRenderWebhook(request: Request, admissionId: string) {
+function buildRemotionRenderWebhook(
+  request: Request,
+  admissionId: string,
+  bindingHash?: string,
+) {
   const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
   if (!secret) {
     throw new Error('REMOTION_WEBHOOK_SECRET is required for durable rendering');
@@ -544,6 +836,7 @@ function buildRemotionRenderWebhook(request: Request, admissionId: string) {
     secret,
     customData: {
       editronRenderAdmissionId: admissionId,
+      ...(bindingHash ? { projectRenderBindingHash: bindingHash } : {}),
     },
   };
 }

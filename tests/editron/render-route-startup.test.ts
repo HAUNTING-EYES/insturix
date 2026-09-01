@@ -6,9 +6,13 @@ const routeMocks = vi.hoisted(() => ({
   validateWebhookSignature: vi.fn(),
   createJob: vi.fn(),
   calculateExpectedRenderDurationMs: vi.fn(),
+  createProjectRenderJobAuthorization: vi.fn(),
   reserveJob: vi.fn(),
+  reserveProjectRenderJob: vi.fn(),
   markJobStarted: vi.fn(),
+  markProjectRenderJobStarted: vi.fn(),
   failJob: vi.fn(),
+  failProjectRenderJob: vi.fn(),
   claimJobFinalization: vi.fn(),
   releaseJobFinalizationClaim: vi.fn(),
   getJob: vi.fn(),
@@ -18,6 +22,8 @@ const routeMocks = vi.hoisted(() => ({
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
   loadProject: vi.fn(),
+  loadProjectForRenderSnapshot: vi.fn(),
+  getProjectRevision: vi.fn(),
   admitNativeMediaFinalRender: vi.fn(),
   readNativeMediaFinalRenderProjectRevision: vi.fn(),
   verifyAudioRights: vi.fn(),
@@ -27,6 +33,7 @@ const routeMocks = vi.hoisted(() => ({
   refund: vi.fn(),
   setAwsCredentials: vi.fn(),
   shouldUseChapterRendering: vi.fn(),
+  detectChapterBoundaries: vi.fn(),
   startChapterRender: vi.fn(),
   transitionProjectStatus: vi.fn(),
   dbFindOne: vi.fn(),
@@ -52,9 +59,13 @@ vi.mock('@upstash/qstash', () => ({
 vi.mock('@/lib/editron/services/render-job-service', () => ({
   createJob: routeMocks.createJob,
   calculateExpectedRenderDurationMs: routeMocks.calculateExpectedRenderDurationMs,
+  createProjectRenderJobAuthorizationV1: routeMocks.createProjectRenderJobAuthorization,
   reserveJob: routeMocks.reserveJob,
+  reserveProjectRenderJobV1: routeMocks.reserveProjectRenderJob,
   markJobStarted: routeMocks.markJobStarted,
+  markProjectRenderJobStartedV1: routeMocks.markProjectRenderJobStarted,
   failJob: routeMocks.failJob,
+  failProjectRenderJobV1: routeMocks.failProjectRenderJob,
   claimJobFinalization: routeMocks.claimJobFinalization,
   releaseJobFinalizationClaim: routeMocks.releaseJobFinalizationClaim,
   getJob: routeMocks.getJob,
@@ -88,6 +99,8 @@ vi.mock('@/lib/editron/services/asset-resolver', async (importOriginal) => {
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     loadProject: routeMocks.loadProject,
+    loadProjectForRenderSnapshot: routeMocks.loadProjectForRenderSnapshot,
+    getProjectRevision: routeMocks.getProjectRevision,
   },
 }));
 
@@ -119,6 +132,7 @@ vi.mock('@/lib/editron/utils/aws-credentials', () => ({
 
 vi.mock('@/lib/editron/services/chapter-renderer', () => ({
   shouldUseChapterRendering: routeMocks.shouldUseChapterRendering,
+  detectChapterBoundaries: routeMocks.detectChapterBoundaries,
   startChapterRender: routeMocks.startChapterRender,
 }));
 
@@ -138,6 +152,8 @@ describe('Editron render startup boundary', () => {
     vi.clearAllMocks();
     vi.stubEnv('REMOTION_LAMBDA_FUNCTION_NAME', 'editron-render-test');
     vi.stubEnv('REMOTION_LAMBDA_SERVE_URL', 'https://remotion.example.test/site');
+    vi.stubEnv('EDITRON_REMOTION_BUNDLE_SHA', 'a'.repeat(64));
+    vi.stubEnv('REMOTION_LAMBDA_SERVE_BUNDLE_SHA', 'a'.repeat(64));
     vi.stubEnv('REMOTION_WEBHOOK_SECRET', 'test-remotion-webhook-secret');
     vi.stubEnv('EDITRON_RENDER_FINALIZER_ENDPOINT', 'https://finalizer.example.test/finalize');
     vi.stubEnv('EDITRON_RENDER_FINALIZER_TOKEN', 'finalizer-secret');
@@ -146,12 +162,23 @@ describe('Editron render startup boundary', () => {
     vi.stubEnv('QSTASH_NEXT_SIGNING_KEY', 'next-signing-key');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.test');
     routeMocks.auth.mockResolvedValue({ userId: 'user_1' });
-    routeMocks.assertRemotionSiteFresh.mockReturnValue({ reason: 'verified' });
+    routeMocks.assertRemotionSiteFresh.mockReturnValue({
+      ok: true,
+      reason: 'verified_env_bundle',
+      serveUrl: 'https://remotion.example.test/site',
+      expectedBundle: 'a'.repeat(64),
+      serveBundle: 'a'.repeat(64),
+      source: 'env',
+    });
     routeMocks.setAwsCredentials.mockResolvedValue(undefined);
-    routeMocks.loadProject.mockResolvedValue({
+    const project = {
+      projectId: 'project_1',
       userId: 'user_1',
+      visibility: 'private',
+      updatedAt: new Date('2026-08-29T00:00:00.000Z'),
+      projectRevision: 7,
       overlays: [{
-        id: 'video_1',
+        id: 1,
         type: 'video',
         from: 0,
         durationInFrames: 90,
@@ -161,7 +188,14 @@ describe('Editron render startup boundary', () => {
       durationInFrames: 90,
       fps: 30,
       playerDimensions: { width: 1920, height: 1080 },
+    };
+    routeMocks.loadProject.mockResolvedValue(project);
+    routeMocks.loadProjectForRenderSnapshot.mockResolvedValue({
+      project,
+      revision: projectRevision(),
+      ownerId: 'user_1',
     });
+    routeMocks.getProjectRevision.mockResolvedValue(projectRevision());
     routeMocks.verifyAudioRights.mockResolvedValue(undefined);
     routeMocks.readNativeMediaFinalRenderProjectRevision.mockReturnValue({
       schemaVersion: 1,
@@ -178,6 +212,7 @@ describe('Editron render startup boundary', () => {
         src: 'https://cdn.example.test/video_1.mp4',
       })));
     routeMocks.shouldUseChapterRendering.mockReturnValue(false);
+    routeMocks.detectChapterBoundaries.mockReturnValue([{ startFrame: 0, endFrame: 90 }]);
     routeMocks.checkCredits.mockResolvedValue({
       allowed: true,
       deduct: routeMocks.deduct,
@@ -190,12 +225,35 @@ describe('Editron render startup boundary', () => {
       bucketName: 'bucket_1',
     });
     routeMocks.createJob.mockResolvedValue(undefined);
+    routeMocks.createProjectRenderJobAuthorization.mockImplementation((input: {
+      jobId: string;
+      requestedByUserId: string;
+      ownerId: string;
+      projectId: string;
+      projectRevision: unknown;
+      binding: { bindingHash: string };
+    }) => ({
+      schemaVersion: 1,
+      jobId: input.jobId,
+      requestedByUserId: input.requestedByUserId,
+      ownerId: input.ownerId,
+      projectId: input.projectId,
+      projectRevision: input.projectRevision,
+      bindingHash: input.binding.bindingHash,
+    }));
     routeMocks.calculateExpectedRenderDurationMs.mockImplementation(
       (totalFrames: number, fps: number) => Math.round((totalFrames / fps) * 1000),
     );
     routeMocks.reserveJob.mockResolvedValue(undefined);
+    routeMocks.reserveProjectRenderJob.mockResolvedValue(undefined);
     routeMocks.markJobStarted.mockResolvedValue(undefined);
+    routeMocks.markProjectRenderJobStarted.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+      job: {},
+    });
     routeMocks.failJob.mockResolvedValue(undefined);
+    routeMocks.failProjectRenderJob.mockResolvedValue({ ok: true, status: 'CURRENT' });
     routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
     routeMocks.releaseFailedJobFinalizationRetryClaim.mockResolvedValue(true);
     routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
@@ -216,12 +274,14 @@ describe('Editron render startup boundary', () => {
     vi.unstubAllEnvs();
   });
 
-  it('reserves before billing, then dispatches and binds the provider render', async () => {
+  it('reserves before deduction, then dispatches and binds the provider render', async () => {
     const response = await POST(renderRequest());
-    const admissionId = routeMocks.reserveJob.mock.calls[0]?.[0];
+    const reservation = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0];
+    const admissionId = reservation?.jobId;
+    const payload = await response.json();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(payload).toMatchObject({
       type: 'success',
       data: {
         renderId: 'render_1',
@@ -230,6 +290,7 @@ describe('Editron render startup boundary', () => {
         trackingStatus: 'durable',
       },
     });
+    expect(payload.data.renderAuthorization).toBeUndefined();
     expect(admissionId).toMatch(/^rnd_[A-Za-z0-9_-]{12}$/);
     expect(routeMocks.checkCredits).toHaveBeenCalledTimes(1);
     expect(routeMocks.admitNativeMediaFinalRender).toHaveBeenCalledWith({
@@ -241,24 +302,47 @@ describe('Editron render startup boundary', () => {
         value: 7,
         compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
       },
-      overlays: [expect.objectContaining({ id: 'video_1', assetId: 'asset_video_1' })],
+      overlays: [expect.objectContaining({ id: 1, assetId: 'asset_video_1' })],
     });
     expect(routeMocks.admitNativeMediaFinalRender.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.resolveProjectAssets.mock.invocationCallOrder[0]);
     expect(routeMocks.admitNativeMediaFinalRender.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.checkCredits.mock.invocationCallOrder[0]);
     expect(routeMocks.deduct).toHaveBeenCalledTimes(1);
-    expect(routeMocks.reserveJob).toHaveBeenCalledWith(
-      admissionId,
-      'user_1',
-      'project_1',
-      'us-east-1',
-      3_000,
-      expect.objectContaining({
+    expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: admissionId,
+      requestedByUserId: 'user_1',
+      ownerId: 'user_1',
+      projectId: 'project_1',
+      currentProjectRevision: projectRevision(),
+      expectedDurationMs: 3_000,
+      deliveryManifest: expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
-    );
-    expect(routeMocks.reserveJob.mock.invocationCallOrder[0])
+      binding: expect.objectContaining({
+        scope: 'PROJECT_SNAPSHOT',
+        artifactId: admissionId,
+        ownerId: 'user_1',
+        projectId: 'project_1',
+        projectRevision: projectRevision(),
+        sequenceId: 'main',
+        compositionId: 'TestComponent',
+        durationInFrames: 90,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        containedVideoTargets: [expect.objectContaining({
+          overlayId: 1,
+          expectedAssetId: 'asset_video_1',
+          exactFrameRange: { startFrame: 0, endFrame: 90 },
+        })],
+        projectRenderSourceSnapshotHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bindingHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    }));
+    expect(routeMocks.reserveProjectRenderJob.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.resolveProjectAssets.mock.invocationCallOrder[0]);
+    expect(routeMocks.reserveProjectRenderJob.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
     expect(routeMocks.deduct.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.renderMediaOnLambda.mock.invocationCallOrder[0]);
@@ -266,43 +350,59 @@ describe('Editron render startup boundary', () => {
       audioCodec: 'aac',
       metadata: {
         editronRenderAdmissionId: admissionId,
+        projectRenderBindingHash: expect.any(String),
       },
       webhook: {
         url: 'https://app.example.test/api/services/editron/cloudrun/render/webhook',
         secret: 'test-remotion-webhook-secret',
         customData: {
           editronRenderAdmissionId: admissionId,
+          projectRenderBindingHash: expect.any(String),
         },
       },
       inputProps: expect.objectContaining({
         overlays: [
           expect.objectContaining({
-            id: 'video_1',
+            id: 1,
             src: 'https://cdn.example.test/video_1.mp4',
           }),
         ],
+        src: '',
+        isRendering: true,
       }),
     }));
-    expect(routeMocks.markJobStarted).toHaveBeenCalledWith(
-      admissionId,
-      'user_1',
-      'render_1',
-      'bucket_1',
-      'us-east-1',
-      expect.objectContaining({
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(2);
+    expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({
+        jobId: admissionId,
+        requestedByUserId: 'user_1',
+        ownerId: 'user_1',
+        projectId: 'project_1',
+      }),
+      currentProjectRevision: projectRevision(),
+      providerRenderId: 'render_1',
+      bucketName: 'bucket_1',
+      region: 'us-east-1',
+      deliveryManifest: expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
-    );
+    }));
+    expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
   });
 
   it('CRITICAL: preserves the reference-track handoff while excluding it from Lambda input', async () => {
-    routeMocks.loadProject.mockResolvedValue({
-      userId: 'user_1',
-      overlays: [
+    routeMocks.loadProjectForRenderSnapshot.mockResolvedValue({
+      project: {
+        projectId: 'project_1',
+        userId: 'user_1',
+        visibility: 'private',
+        updatedAt: new Date('2026-08-29T00:00:00.000Z'),
+        projectRevision: 7,
+        overlays: [
         {
-          id: 'video_1',
+          id: 1,
           type: 'video',
           from: 0,
           durationInFrames: 240,
@@ -343,10 +443,13 @@ describe('Editron render startup boundary', () => {
             },
           },
         },
-      ],
-      durationInFrames: 240,
-      fps: 30,
-      playerDimensions: { width: 1920, height: 1080 },
+        ],
+        durationInFrames: 240,
+        fps: 30,
+        playerDimensions: { width: 1920, height: 1080 },
+      },
+      revision: projectRevision(),
+      ownerId: 'user_1',
     });
 
     const response = await POST(renderRequest({ musicDeliveryMode: 'embedded' }));
@@ -377,14 +480,14 @@ describe('Editron render startup boundary', () => {
     });
     expect(routeMocks.verifyAudioRights).toHaveBeenCalledWith(
       expect.objectContaining({
-        overlays: [expect.objectContaining({ id: 'video_1' })],
+        overlays: [expect.objectContaining({ id: 1 })],
       }),
     );
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(
       expect.objectContaining({
         inputProps: expect.objectContaining({
           overlays: [
-            expect.objectContaining({ id: 'video_1' }),
+            expect.objectContaining({ id: 1 }),
           ],
         }),
       }),
@@ -399,7 +502,7 @@ describe('Editron render startup boundary', () => {
     }));
 
     const response = await POST(renderRequest());
-    const admissionId = routeMocks.reserveJob.mock.calls[0]?.[0];
+    const admissionId = routeMocks.reserveProjectRenderJob.mock.calls[0]?.[0]?.jobId;
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -417,7 +520,7 @@ describe('Editron render startup boundary', () => {
       },
     });
     expect(admissionId).toMatch(/^chr_[A-Za-z0-9_-]{12}$/);
-    expect(routeMocks.reserveJob.mock.invocationCallOrder[0])
+    expect(routeMocks.reserveProjectRenderJob.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
     expect(routeMocks.deduct.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.startChapterRender.mock.invocationCallOrder[0]);
@@ -433,19 +536,162 @@ describe('Editron render startup boundary', () => {
       'https://remotion.example.test/site',
       'editron-render-test',
     );
-    expect(routeMocks.markJobStarted).toHaveBeenCalledWith(
-      admissionId,
-      'user_1',
-      admissionId,
-      'chapter-render',
-      'us-east-1',
-      expect.objectContaining({
+    expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({
+        jobId: admissionId,
+        requestedByUserId: 'user_1',
+        ownerId: 'user_1',
+        projectId: 'project_1',
+      }),
+      currentProjectRevision: projectRevision(),
+      providerRenderId: admissionId,
+      bucketName: 'chapter-render',
+      region: 'us-east-1',
+      deliveryManifest: expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
-    );
+    }));
+    expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('CRITICAL: rejects unverified renderer bundles and client-owned render form', async () => {
+    routeMocks.assertRemotionSiteFresh.mockReturnValueOnce({
+      ok: true,
+      reason: 'unverified_no_app_commit',
+      serveUrl: 'https://remotion.example.test/site',
+      expectedBundle: null,
+      serveBundle: null,
+      source: 'none',
+    });
+
+    const unverified = await POST(renderRequest());
+    expect(unverified.status).toBe(503);
+    await expect(unverified.json()).resolves.toMatchObject({
+      code: 'RENDER_SITE_VERSION_UNVERIFIED',
+    });
+
+    const wrongComposition = await POST(renderRequest({ compositionId: 'ClientComposition' }));
+    expect(wrongComposition.status).toBe(400);
+    await expect(wrongComposition.json()).resolves.toMatchObject({
+      code: 'INVALID_RENDER_COMPOSITION',
+    });
+
+    const injectedOverlay = await POST(renderRequest({
+      inputProps: { overlays: [{ id: 999, type: 'video' }] },
+    }));
+    expect(injectedOverlay.status).toBe(400);
+    await expect(injectedOverlay.json()).resolves.toMatchObject({
+      code: 'INVALID_RENDER_INPUT_PROPS',
+    });
+
+    const unknownProp = await POST(renderRequest({
+      inputProps: { overlays: [], clientRenderMode: 'override' },
+    }));
+    expect(unknownProp.status).toBe(400);
+    await expect(unknownProp.json()).resolves.toMatchObject({
+      code: 'INVALID_RENDER_INPUT_PROPS',
+    });
+
+    expect(routeMocks.loadProjectForRenderSnapshot).not.toHaveBeenCalled();
+    expect(routeMocks.reserveProjectRenderJob).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('CRITICAL: treats client timing and dimensions as non-authoritative hints', async () => {
+    const response = await POST(renderRequest({
+      inputProps: {
+        overlays: [],
+        durationInFrames: 9_999,
+        fps: 120,
+        width: 8_192,
+        height: 4_320,
+        src: '',
+      },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledWith(expect.objectContaining({
+      expectedDurationMs: 3_000,
+      binding: expect.objectContaining({
+        durationInFrames: 90,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+      }),
+    }));
+    expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(expect.objectContaining({
+      inputProps: expect.objectContaining({
+        durationInFrames: 90,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+      }),
+    }));
+  });
+
+  it('CRITICAL: refunds and stops when the project revision changes before dispatch', async () => {
+    const staleRevision = {
+      ...projectRevision(),
+      value: projectRevision().value + 1,
+    };
+    routeMocks.getProjectRevision.mockResolvedValue(staleRevision);
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'PROJECT_RENDER_REVISION_STALE',
+    });
+    expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledTimes(1);
+    expect(routeMocks.deduct).toHaveBeenCalledTimes(1);
+    expect(routeMocks.refund).toHaveBeenCalledTimes(1);
+    expect(routeMocks.setAwsCredentials).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('keeps the requesting collaborator distinct from the persisted project owner', async () => {
+    const ownerId = 'project_owner_1';
+    const project = {
+      projectId: 'project_1',
+      userId: ownerId,
+      visibility: 'shared',
+      sharedWith: ['user_1'],
+      updatedAt: new Date('2026-08-29T00:00:00.000Z'),
+      projectRevision: 7,
+      overlays: [{
+        id: 1,
+        type: 'video',
+        from: 0,
+        durationInFrames: 90,
+        assetId: 'asset_video_1',
+        src: '/api/assets/asset_video_1',
+      }],
+      durationInFrames: 90,
+      fps: 30,
+      playerDimensions: { width: 1920, height: 1080 },
+    };
+    routeMocks.loadProjectForRenderSnapshot.mockResolvedValue({
+      project,
+      revision: projectRevision(),
+      ownerId,
+    });
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledWith(expect.objectContaining({
+      requestedByUserId: 'user_1',
+      ownerId,
+      projectId: 'project_1',
+    }));
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledWith(ownerId, 'project_1');
+    expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({ requestedByUserId: 'user_1', ownerId }),
+    }));
   });
 
   it('CRITICAL: missing webhook authentication stops before admission, billing, and dispatch', async () => {
@@ -479,12 +725,12 @@ describe('Editron render startup boundary', () => {
   });
 
   it('CRITICAL: admission persistence failure spends no credits and starts no render', async () => {
-    routeMocks.reserveJob.mockRejectedValue(new Error('database unavailable'));
+    routeMocks.reserveProjectRenderJob.mockRejectedValue(new Error('database unavailable'));
 
     const response = await POST(renderRequest());
 
     expect(response.status).toBe(500);
-    expect(routeMocks.reserveJob).toHaveBeenCalledTimes(1);
+    expect(routeMocks.reserveProjectRenderJob).toHaveBeenCalledTimes(1);
     expect(routeMocks.deduct).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
@@ -1076,17 +1322,19 @@ describe('Editron render startup boundary', () => {
     })).rejects.toThrow('audioDurationMs exceeds the verified duration tolerance');
   });
 
-  it('reports degraded tracking without claiming a paid render failed', async () => {
-    routeMocks.markJobStarted.mockRejectedValue(new Error('ambiguous database write'));
+  it('reports recovery-required tracking without claiming a paid render failed', async () => {
+    routeMocks.markProjectRenderJobStarted.mockRejectedValue(
+      new Error('ambiguous database write'),
+    );
 
     const response = await POST(renderRequest());
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
       type: 'success',
       data: {
         renderId: 'render_1',
-        trackingStatus: 'degraded',
+        trackingStatus: 'recovery_required',
       },
     });
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledTimes(1);
@@ -1136,10 +1384,10 @@ describe('Editron render startup boundary', () => {
       message: 'Unable to prepare all project assets for rendering.',
     });
     expect(routeMocks.resolveProjectAssets).toHaveBeenCalledTimes(1);
-    expect(routeMocks.checkCredits).not.toHaveBeenCalled();
+    expect(routeMocks.checkCredits).toHaveBeenCalledTimes(1);
     expect(routeMocks.deduct).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
-    expect(routeMocks.shouldUseChapterRendering).not.toHaveBeenCalled();
+    expect(routeMocks.shouldUseChapterRendering).toHaveBeenCalledWith(90, 30);
     expect(routeMocks.startChapterRender).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.reserveJob).not.toHaveBeenCalled();
@@ -1225,6 +1473,14 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 });
+
+function projectRevision() {
+  return {
+    schemaVersion: 1 as const,
+    value: 7,
+    compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
+  };
+}
 
 function renderRequest(overrides: Record<string, unknown> = {}): Request {
   return new Request(

@@ -1337,6 +1337,12 @@ export interface Project {
   pipelineDirectorDispatch?: ProjectPipelineDirectorDispatchV1;
 }
 
+export interface ProjectRenderSnapshotReadV1 {
+  project: Project;
+  revision: ProjectRevisionV1;
+  ownerId: string;
+}
+
 export interface ProjectListItem {
   projectId: string;
   name: string;
@@ -1589,6 +1595,38 @@ export class ProjectService {
     project.projectRevision = projectRevisionFor(project).value;
 
     return project;
+  }
+
+  /**
+   * Load one access-authorized raw project snapshot for a render admission.
+   * Asset URL hydration is deliberately left to the caller after the
+   * pre-hydration binding has been created. The revision and owner are paired
+   * with this exact persisted document read.
+   */
+  async loadProjectForRenderSnapshot(
+    userId: string,
+    projectId: string,
+  ): Promise<ProjectRenderSnapshotReadV1 | null> {
+    const db = await getDatabase();
+    const project = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOne({ projectId })) as unknown as Project | null;
+
+    if (!project) return null;
+
+    const hasAccess = await this.canAccessProject(userId, project);
+    if (!hasAccess) {
+      console.warn(
+        `User ${userId} attempted to access project ${projectId} without permission`,
+      );
+      return null;
+    }
+
+    return {
+      project: structuredClone(project),
+      revision: projectRevisionFor(project),
+      ownerId: project.userId,
+    };
   }
 
   /**
