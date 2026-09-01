@@ -128,8 +128,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Asset must be a video' }, { status: 400 });
     }
 
-    console.log(`[auto-edit/from-asset] Starting for asset ${assetId} (${asset.filename}, ${asset.duration}s)`);
-
     // 2. Get playable URL for the video overlay (Worker URL for browser)
     const videoUrl = await assetResolver.resolveAssetUrl(assetId, userId);
     if (!videoUrl) {
@@ -160,7 +158,6 @@ export async function POST(request: NextRequest) {
         const parsedDuration = await extractMP4Duration(serverVideoUrl);
         if (parsedDuration && parsedDuration > 0) {
           durationSec = parsedDuration;
-          console.log(`[auto-edit/from-asset] Recovered duration via MP4 parser: ${parsedDuration.toFixed(1)}s`);
         }
       } catch (durErr: any) {
         console.error(`[auto-edit/from-asset] MP4 duration extraction failed: ${durErr.message}`);
@@ -225,8 +222,6 @@ export async function POST(request: NextRequest) {
     const projectName = title || `Auto-Edit: ${asset.filename}`;
     const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? null });
     const projectId = project.projectId;
-
-    console.log(`[auto-edit/from-asset] Created project ${projectId}`);
 
     // 5. Add the video as a single overlay spanning the full duration
     // Use CDN Worker URL for overlay src (never expires, has CORS).
@@ -310,7 +305,6 @@ export async function POST(request: NextRequest) {
           },
         },
       );
-      console.log(`[DirectorMode] Assist intake accepted for project ${projectId} (asset ${assetId}).`);
     }
 
     await db.collection('projects').updateOne(
@@ -339,8 +333,6 @@ export async function POST(request: NextRequest) {
 
     if (qstashToken) {
       const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${workerUrl}`;
-      console.log(`[auto-edit/from-asset] QStash dispatch: URL=${qstashUrl}, workerUrl=${workerUrl}`);
-
       const qstashRes = await fetch(qstashUrl, {
         method: 'POST',
         headers: {
@@ -390,8 +382,6 @@ export async function POST(request: NextRequest) {
       }
 
       autoEditAnalysisStarted = true;
-      const qstashData = await qstashRes.json().catch(() => ({}));
-      console.log(`[auto-edit/from-asset] QStash dispatched: messageId=${qstashData.messageId || 'unknown'}`);
     } else {
       // No QStash → run inline (dev mode)
       console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
@@ -412,7 +402,6 @@ export async function POST(request: NextRequest) {
           { projectId, autoEditStatus: { $ne: 'scan_failed' } },
           { $set: { autoEditStatus: ASSIST_STATUS_READY } },
         );
-        console.log(`[DirectorMode] Assist scan complete inline — director skipped (project ${projectId}).`);
       } else {
         const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
         await executeDirectorPlan(projectId, userId, 'A-01');
