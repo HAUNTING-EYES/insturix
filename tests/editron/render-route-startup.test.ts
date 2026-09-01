@@ -57,7 +57,8 @@ vi.mock('@upstash/qstash', () => ({
   Client: vi.fn(() => ({ publishJSON: routeMocks.publishJSON })),
 }));
 
-vi.mock('@/lib/editron/services/render-job-service', () => ({
+vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/editron/services/render-job-service')>(),
   abandonStaleProjectRenderJobAdmissionV1:
     routeMocks.abandonStaleProjectRenderJobAdmission,
   createJob: routeMocks.createJob,

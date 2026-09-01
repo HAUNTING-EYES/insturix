@@ -5,8 +5,13 @@ import { RenderExpectedDurationMsSchema } from '@/lib/editron/schemas/render-job
 import { isRenderFinalizerConfigured } from '@/lib/editron/services/render-finalizer-client';
 import {
   claimJobFinalization,
+  claimProjectRenderJobFinalizationV1,
+  ProjectRenderJobAuthorizationSchema,
   releaseJobFinalizationClaim,
+  releaseProjectRenderJobFinalizationClaimV1,
   type ClaimedRenderFinalization,
+  type ProjectRenderFinalizationClaimV1,
+  type ProjectRenderJobNotCurrentResultV1,
 } from '@/lib/editron/services/render-job-service';
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
@@ -18,6 +23,7 @@ export const RenderFinalizationJobMessageSchema = z.object({
   sourceOutputUrl: z.string().url().refine((value) => value.startsWith('https://')),
   sourceOutputSize: z.number().int().nonnegative(),
   expectedDurationMs: RenderExpectedDurationMsSchema,
+  projectRenderAuthorization: ProjectRenderJobAuthorizationSchema.optional(),
 }).strict();
 
 export type RenderFinalizationJobMessage = z.infer<typeof RenderFinalizationJobMessageSchema>;
@@ -97,7 +103,7 @@ export function isRenderFinalizationPipelineConfigured(
 }
 
 export async function enqueueRenderFinalization(
-  claim: ClaimedRenderFinalization,
+  claim: ClaimedRenderFinalization | ProjectRenderFinalizationClaimV1,
   options: { env?: RenderFinalizationPipelineEnvironment } = {},
 ): Promise<{ messageId: string | null }> {
   const env = options.env ?? processEnvironment();
@@ -113,6 +119,9 @@ export async function enqueueRenderFinalization(
     sourceOutputUrl: claim.sourceOutputUrl,
     sourceOutputSize: claim.sourceOutputSize,
     expectedDurationMs: claim.expectedDurationMs,
+    ...('authorization' in claim
+      ? { projectRenderAuthorization: claim.authorization }
+      : {}),
   });
   const qstash = new Client({
     token: env.QSTASH_TOKEN as string,
@@ -164,6 +173,50 @@ export async function beginRenderFinalization(input: {
       throw new AggregateError(
         [dispatchError, releaseError],
         'Render finalization dispatch failed and its claim could not be released.',
+      );
+    }
+    throw dispatchError;
+  }
+}
+
+export type BeginProjectRenderFinalizationResultV1 =
+  | { state: 'enqueued'; claim: ProjectRenderFinalizationClaimV1; messageId: string | null }
+  | ProjectRenderJobNotCurrentResultV1;
+
+/**
+ * Lease a strict project render through its full authorization tuple before
+ * handing it to the durable finalizer queue. The queue payload intentionally
+ * remains signed and carries the strict authorization only to the internal
+ * worker; it is never returned to a browser.
+ */
+export async function beginProjectRenderFinalizationV1(input: {
+  authorization: unknown;
+  currentProjectRevision: unknown;
+  providerRenderId?: string;
+  bucketName?: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+}): Promise<BeginProjectRenderFinalizationResultV1> {
+  const claim = await claimProjectRenderJobFinalizationV1(input);
+  if (!claim.ok) return claim;
+
+  try {
+    const dispatch = await enqueueRenderFinalization(claim);
+    return { state: 'enqueued', claim, messageId: dispatch.messageId };
+  } catch (dispatchError) {
+    try {
+      const released = await releaseProjectRenderJobFinalizationClaimV1({
+        authorization: claim.authorization,
+        currentProjectRevision: input.currentProjectRevision,
+        claimToken: claim.claimToken,
+      });
+      if (!released.ok) {
+        throw new Error('The active strict finalization claim could not be released.');
+      }
+    } catch (releaseError) {
+      throw new AggregateError(
+        [dispatchError, releaseError],
+        'Strict render finalization dispatch failed and its claim could not be released.',
       );
     }
     throw dispatchError;
