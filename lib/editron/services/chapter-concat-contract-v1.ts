@@ -28,6 +28,7 @@ export const PROJECT_CHAPTER_CONCAT_SCOPE_V1 = "PROJECT_CHAPTER_CONCAT" as const
 export const PROJECT_CHAPTER_CONCAT_ARTIFACT_KIND_V1 =
   "REMOTION_AWS_CHAPTER_CONCAT_OUTPUT" as const;
 export const PROJECT_CHAPTER_CONCAT_MAX_SOURCES_V1 = 64;
+export const PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_SCHEMA_VERSION_V1 = 1 as const;
 
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 const PARENT_ADMISSION_ID = /^chr_[A-Za-z0-9_-]{12}$/;
@@ -81,6 +82,54 @@ export type ProjectChapterConcatTargetV1 = z.infer<
   typeof ProjectChapterConcatTargetSchemaV1
 >;
 
+/**
+ * QStash carries this immutable identity beside the job ID.  The persisted
+ * target remains the source of truth; the message generation lets a delayed
+ * delivery prove that it belongs to the same target before claiming work.
+ */
+export const ProjectChapterConcatWorkerMessageSchemaV1 = z.object({
+  schemaVersion: z.literal(PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_SCHEMA_VERSION_V1),
+  scope: z.literal(PROJECT_CHAPTER_CONCAT_SCOPE_V1),
+  jobId: z.string().regex(PARENT_ADMISSION_ID),
+  generation: z.string().regex(HEX_SHA256),
+}).strict();
+export type ProjectChapterConcatWorkerMessageV1 = z.infer<
+  typeof ProjectChapterConcatWorkerMessageSchemaV1
+>;
+
+export function createProjectChapterConcatWorkerMessageV1(input: {
+  jobId: string;
+  generation: string;
+}): ProjectChapterConcatWorkerMessageV1 {
+  return ProjectChapterConcatWorkerMessageSchemaV1.parse({
+    schemaVersion: PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_SCHEMA_VERSION_V1,
+    scope: PROJECT_CHAPTER_CONCAT_SCOPE_V1,
+    jobId: input.jobId,
+    generation: input.generation.trim(),
+  });
+}
+
+export function assertProjectChapterConcatWorkerMessageV1(
+  input: unknown,
+): asserts input is ProjectChapterConcatWorkerMessageV1 {
+  if (!ProjectChapterConcatWorkerMessageSchemaV1.safeParse(input).success) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_INVALID");
+  }
+}
+
+/** Stable queue identity shared by first publish and every replay. */
+export function projectChapterConcatDispatchIdV1(
+  message: ProjectChapterConcatWorkerMessageV1,
+): string {
+  assertProjectChapterConcatWorkerMessageV1(message);
+  return hashEditronCanonicalJsonV1({
+    schemaVersion: PROJECT_CHAPTER_CONCAT_WORKER_MESSAGE_SCHEMA_VERSION_V1,
+    scope: PROJECT_CHAPTER_CONCAT_SCOPE_V1,
+    jobId: message.jobId,
+    generation: message.generation,
+  });
+}
+
 export const ProjectChapterConcatSignedRequestSchemaV1 = z.object({
   schemaVersion: z.literal(PROJECT_CHAPTER_CONCAT_CONTRACT_SCHEMA_VERSION_V1),
   scope: z.literal(PROJECT_CHAPTER_CONCAT_SCOPE_V1),
@@ -91,6 +140,23 @@ export const ProjectChapterConcatSignedRequestSchemaV1 = z.object({
 }).strict();
 export type ProjectChapterConcatSignedRequestV1 = z.infer<
   typeof ProjectChapterConcatSignedRequestSchemaV1
+>;
+
+export const ProjectChapterConcatResultSchemaV1 = z.object({
+  generation: z.string().regex(HEX_SHA256),
+  sourceManifestHash: z.string().regex(HEX_SHA256),
+  outputBucket: z.string().regex(AWS_BUCKET_NAME),
+  outputRegion: z.string().regex(AWS_REGION),
+  outputKey: z.string().regex(OUTPUT_KEY),
+  url: z.string().url().refine(
+    (value) => value.startsWith("https://"),
+    "Concat output must use HTTPS.",
+  ),
+  sizeBytes: z.number().int().positive().safe(),
+  chapters: z.number().int().positive().max(PROJECT_CHAPTER_CONCAT_MAX_SOURCES_V1),
+}).strict();
+export type ProjectChapterConcatResultV1 = z.infer<
+  typeof ProjectChapterConcatResultSchemaV1
 >;
 
 type ProjectChapterConcatDestinationV1 = {
@@ -251,6 +317,28 @@ export function assertProjectChapterConcatTargetV1(
   }
 }
 
+/** Validate the provider receipt against the already-bound target. */
+export function assertProjectChapterConcatResultV1(
+  input: unknown,
+  target: ProjectChapterConcatTargetV1,
+): asserts input is ProjectChapterConcatResultV1 {
+  assertProjectChapterConcatTargetV1(target);
+  const parsed = ProjectChapterConcatResultSchemaV1.safeParse(input);
+  if (!parsed.success) throw new Error("PROJECT_CHAPTER_CONCAT_RESULT_INVALID");
+  const result = parsed.data;
+  if (
+    result.generation !== target.generation
+    || result.sourceManifestHash !== target.sourceManifestHash
+    || result.outputBucket !== target.outputBucket
+    || result.outputRegion !== target.outputRegion
+    || result.outputKey !== target.outputKey
+    || result.url !== projectChapterConcatOutputUrlV1(target)
+    || result.chapters !== target.sources.length
+  ) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_RESULT_IDENTITY_MISMATCH");
+  }
+}
+
 export function projectChapterConcatOutputUrlV1(
   target: ProjectChapterConcatTargetV1,
 ): string {
@@ -301,6 +389,9 @@ export function verifySignedProjectChapterConcatRequestV1(
     throw new Error("PROJECT_CHAPTER_CONCAT_PAYLOAD_INVALID");
   }
   assertProjectChapterConcatTargetV1(decoded);
+  if (canonicalizeEditronJsonV1(decoded) !== request.payload) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_PAYLOAD_NOT_CANONICAL");
+  }
   if (hashEditronCanonicalJsonV1(decoded) !== request.payloadHash) {
     throw new Error("PROJECT_CHAPTER_CONCAT_PAYLOAD_HASH_MISMATCH");
   }

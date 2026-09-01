@@ -29,6 +29,7 @@ import { NextRequest } from "next/server";
 
 import { POST } from "@/app/api/internal/workers/chapter-concat/route";
 import {
+  createProjectChapterConcatWorkerMessageV1,
   createProjectChapterConcatTargetV1,
   projectChapterConcatOutputUrlV1,
 } from "@/lib/editron/services/chapter-concat-contract-v1";
@@ -111,6 +112,13 @@ function concatResult(concatTarget = target()) {
   };
 }
 
+function workerMessage(concatTarget = target()) {
+  return createProjectChapterConcatWorkerMessageV1({
+    jobId: JOB_ID,
+    generation: concatTarget.generation,
+  });
+}
+
 describe("chapter concat worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -121,13 +129,17 @@ describe("chapter concat worker", () => {
     });
     mocks.getDatabase.mockResolvedValue({ collection: mocks.collection });
     mocks.findOne.mockResolvedValue(queuedJob());
-    mocks.findOneAndUpdate.mockResolvedValue({ ...queuedJob(), concatStatus: "running" });
+    mocks.findOneAndUpdate.mockImplementation(async (_filter, update) => ({
+      ...queuedJob(),
+      concatStatus: "running",
+      concatLease: update.$set.concatLease,
+    }));
     mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     mocks.concatenateChapters.mockResolvedValue(concatResult());
   });
 
   it("leases before Modal and completes only the exact generation and claim", async () => {
-    const response = await POST(request({ jobId: JOB_ID }));
+    const response = await POST(request(workerMessage()));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -174,7 +186,7 @@ describe("chapter concat worker", () => {
       },
     });
 
-    const response = await POST(request({ jobId: JOB_ID }));
+    const response = await POST(request(workerMessage()));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ success: true, replayed: true });
@@ -193,12 +205,26 @@ describe("chapter concat worker", () => {
       },
     });
 
-    const response = await POST(request({ jobId: JOB_ID }));
+    const response = await POST(request(workerMessage()));
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({ success: false, status: "running" });
     expect(mocks.findOneAndUpdate).not.toHaveBeenCalled();
     expect(mocks.concatenateChapters).not.toHaveBeenCalled();
+  });
+
+  it("reclaims an expired lease and fences completion by expiry", async () => {
+    const expiredAt = new Date(Date.now() - 60_000);
+    mocks.findOne.mockResolvedValue({ ...queuedJob(), concatStatus: "running", concatLease: {
+      claimToken: "claim_expired", claimedAt: expiredAt, leaseExpiresAt: expiredAt,
+    } });
+    const response = await POST(request(workerMessage()));
+    expect(response.status).toBe(200);
+    expect(mocks.concatenateChapters).toHaveBeenCalledTimes(1);
+    expect(mocks.findOneAndUpdate.mock.calls[0]![0].$or).toContainEqual(
+      expect.objectContaining({ concatStatus: "running", "concatLease.leaseExpiresAt": { $lte: expect.any(Date) } }),
+    );
+    expect(mocks.updateOne.mock.calls[0]![0]["concatLease.leaseExpiresAt"]).toEqual({ $gt: expect.any(Date) });
   });
 
   it("quarantines an unsigned legacy row before any provider call", async () => {
@@ -240,7 +266,7 @@ describe("chapter concat worker", () => {
   it("releases the exact lease for retry after a transient Modal failure", async () => {
     mocks.concatenateChapters.mockRejectedValueOnce(new Error("Modal transport unavailable"));
 
-    const response = await POST(request({ jobId: JOB_ID }));
+    const response = await POST(request(workerMessage()));
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toMatchObject({

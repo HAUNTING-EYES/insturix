@@ -17,8 +17,9 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import {
+  assertProjectChapterConcatResultV1,
+  assertProjectChapterConcatWorkerMessageV1,
   assertProjectChapterConcatTargetV1,
-  projectChapterConcatOutputUrlV1,
   type ProjectChapterConcatTargetV1,
 } from '@/lib/editron/services/chapter-concat-contract-v1';
 
@@ -76,12 +77,15 @@ function isTerminalError(error: unknown): boolean {
     || /returned HTTP 4(?:00|01|03|13|22)/i.test(message);
 }
 
-function isPositiveSafeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
 function isValidDate(value: unknown): value is Date {
   return value instanceof Date && !Number.isNaN(value.getTime());
+}
+
+function isExactLegacyWorkerMessage(value: unknown): value is { jobId: string } {
+  return typeof value === 'object'
+    && value !== null
+    && Object.keys(value).sort().join(',') === 'jobId'
+    && typeof (value as { jobId?: unknown }).jobId === 'string';
 }
 
 function targetBindsToJob(
@@ -107,18 +111,27 @@ function resultMatchesTarget(
   result: ChapterConcatJob['concatResult'],
   target: ProjectChapterConcatTargetV1,
 ): result is NonNullable<ChapterConcatJob['concatResult']> {
-  return result !== undefined
-    && result.generation === target.generation
-    && result.sourceManifestHash === target.sourceManifestHash
-    && result.outputBucket === target.outputBucket
-    && result.outputRegion === target.outputRegion
-    && result.outputKey === target.outputKey
-    && result.url === projectChapterConcatOutputUrlV1(target)
-    && isPositiveSafeInteger(result.sizeBytes)
-    && result.chapters === target.sources.length
-    && Number.isInteger(result.chapters)
-    && result.chapters > 0
-    && isValidDate(result.completedAt);
+  if (result === undefined || !isValidDate(result.completedAt)) return false;
+  try {
+    assertProjectChapterConcatResultV1(resultToContract(result), target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resultToContract(result: ChapterConcatJob['concatResult']): unknown {
+  if (!result) return null;
+  return {
+    generation: result.generation,
+    sourceManifestHash: result.sourceManifestHash,
+    outputBucket: result.outputBucket,
+    outputRegion: result.outputRegion,
+    outputKey: result.outputKey,
+    url: result.url,
+    sizeBytes: result.sizeBytes,
+    chapters: result.chapters,
+  };
 }
 
 function invalidDoneResultResponse(): NextResponse {
@@ -178,8 +191,25 @@ function currentStateResponse(job: ChapterConcatJob, now: Date): NextResponse | 
 
 async function handler(request: NextRequest) {
   try {
-    const body = (await request.json()) as { jobId?: unknown };
-    const jobId = body?.jobId;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid chapter concat message' }, { status: 400 });
+    }
+    let jobId: unknown;
+    let requestedGeneration: string | undefined;
+    if (isExactLegacyWorkerMessage(body)) {
+      jobId = body.jobId;
+    } else {
+      try {
+        assertProjectChapterConcatWorkerMessageV1(body);
+        jobId = body.jobId;
+        requestedGeneration = body.generation;
+      } catch {
+        return NextResponse.json({ error: 'Invalid chapter concat message' }, { status: 400 });
+      }
+    }
     if (typeof jobId !== 'string' || !CHAPTER_JOB_ID.test(jobId)) {
       return NextResponse.json({ error: 'Invalid jobId' }, { status: 400 });
     }
@@ -194,6 +224,16 @@ async function handler(request: NextRequest) {
     if (!job) return NextResponse.json({ error: 'Chapter render job not found' }, { status: 404 });
 
     const now = new Date();
+    if (
+      requestedGeneration !== undefined
+      && typeof job.concatTarget?.generation === 'string'
+      && job.concatTarget.generation !== requestedGeneration
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'CHAPTER_CONCAT_MESSAGE_TARGET_MISMATCH' },
+        { status: 409 },
+      );
+    }
     const terminalState = currentStateResponse(job, now);
     if (terminalState) return terminalState;
 
@@ -230,6 +270,9 @@ async function handler(request: NextRequest) {
       if (!targetBindsToJob(job, jobId, job.concatTarget)) {
         throw new Error('PROJECT_CHAPTER_CONCAT_JOB_BINDING_MISMATCH');
       }
+      if (requestedGeneration !== undefined && job.concatTarget.generation !== requestedGeneration) {
+        throw new Error('CHAPTER_CONCAT_MESSAGE_TARGET_MISMATCH');
+      }
       target = job.concatTarget;
     } catch (error: unknown) {
       const code = safeErrorCode(error);
@@ -253,7 +296,7 @@ async function handler(request: NextRequest) {
     const claimed = (await collection.findOneAndUpdate(
       {
         _id: jobId,
-        'concatTarget.generation': target.generation,
+        'concatTarget.generation': requestedGeneration ?? target.generation,
         $or: [
           { concatStatus: 'queued' },
           { concatStatus: 'running', 'concatLease.leaseExpiresAt': { $lte: now } },
@@ -283,6 +326,20 @@ async function handler(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'CHAPTER_CONCAT_CLAIM_NOT_AVAILABLE' }, { status: 500 });
     }
 
+    if (
+      claimed.concatStatus !== 'running'
+      || claimed.concatTarget?.generation !== target.generation
+      || !targetBindsToJob(claimed, jobId, target)
+      || claimed.concatLease?.claimToken !== claimToken
+      || !isValidDate(claimed.concatLease.leaseExpiresAt)
+      || claimed.concatLease.leaseExpiresAt.getTime() <= now.getTime()
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'CHAPTER_CONCAT_CLAIM_NOT_PROVED' },
+        { status: 500 },
+      );
+    }
+
     try {
       const result = await concatenateChapters(target);
       const completedAt = new Date();
@@ -297,7 +354,9 @@ async function handler(request: NextRequest) {
         chapters: result.chapters,
         completedAt,
       };
-      if (!resultMatchesTarget(completion, target)) {
+      try {
+        assertProjectChapterConcatResultV1(resultToContract(completion), target);
+      } catch {
         throw new Error('CHAPTER_CONCAT_RESULT_IDENTITY_MISMATCH');
       }
       const completed = await collection.updateOne(
@@ -306,6 +365,7 @@ async function handler(request: NextRequest) {
           concatStatus: 'running',
           'concatLease.claimToken': claimToken,
           'concatTarget.generation': target.generation,
+          'concatLease.leaseExpiresAt': { $gt: completedAt },
         } as any,
         {
           $set: {
@@ -321,19 +381,21 @@ async function handler(request: NextRequest) {
       if (completed.modifiedCount !== 1) {
         throw new Error('CHAPTER_CONCAT_COMPLETION_WRITE_UNPROVED');
       }
-      console.log(`[ChapterConcat] Job ${jobId}: stitched ${result.chapters} chapters for generation ${result.generation}`);
       return NextResponse.json({ success: true, ...completion, key: completion.outputKey });
     } catch (error: unknown) {
       const code = safeErrorCode(error);
       if (isTerminalError(error)) {
+        const failedAt = new Date();
         const failed = await collection.updateOne(
           {
             _id: jobId,
             concatStatus: 'running',
             'concatLease.claimToken': claimToken,
+            'concatTarget.generation': target.generation,
+            'concatLease.leaseExpiresAt': { $gt: failedAt },
           } as any,
           {
-            $set: { status: 'failed', concatStatus: 'failed', concatError: code, updatedAt: new Date() },
+            $set: { status: 'failed', concatStatus: 'failed', concatError: code, updatedAt: failedAt },
             $unset: { concatLease: '' },
           },
         );
@@ -350,14 +412,17 @@ async function handler(request: NextRequest) {
       // Release the lease for QStash retry. If Modal completed but the response
       // was lost, the next delivery uses the same deterministic key; once the
       // completion write is observed, the DONE guard prevents another call.
+      const releasedAt = new Date();
       const released = await collection.updateOne(
         {
           _id: jobId,
           concatStatus: 'running',
           'concatLease.claimToken': claimToken,
+          'concatTarget.generation': target.generation,
+          'concatLease.leaseExpiresAt': { $gt: releasedAt },
         } as any,
         {
-          $set: { concatStatus: 'queued', concatError: code, updatedAt: new Date() },
+          $set: { concatStatus: 'queued', concatError: code, updatedAt: releasedAt },
           $unset: { concatLease: '' },
         },
       );

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertProjectChapterConcatResultV1,
   assertProjectChapterConcatTargetV1,
+  createProjectChapterConcatWorkerMessageV1,
   createProjectChapterConcatTargetV1,
   createSignedProjectChapterConcatRequestV1,
+  projectChapterConcatDispatchIdV1,
   projectChapterConcatOutputUrlV1,
   verifySignedProjectChapterConcatRequestV1,
 } from "@/lib/editron/services/chapter-concat-contract-v1";
@@ -102,6 +105,34 @@ describe("ProjectChapterConcatTargetV1", () => {
       sources: [...sources()].reverse(),
       env: DESTINATION_ENV,
     })).toThrow("PROJECT_CHAPTER_CONCAT_SOURCE_ORDER_INVALID");
+  });
+
+  it("binds strict worker identity and positive provider receipts to one generation", () => {
+    const concatTarget = target();
+    const message = createProjectChapterConcatWorkerMessageV1({
+      jobId: JOB_ID,
+      generation: concatTarget.generation,
+    });
+    expect(projectChapterConcatDispatchIdV1(message)).toBe(projectChapterConcatDispatchIdV1(message));
+    expect(() => createProjectChapterConcatWorkerMessageV1({
+      jobId: JOB_ID,
+      generation: "not-a-generation",
+    })).toThrow();
+    const result = {
+      generation: concatTarget.generation,
+      sourceManifestHash: concatTarget.sourceManifestHash,
+      outputBucket: concatTarget.outputBucket,
+      outputRegion: concatTarget.outputRegion,
+      outputKey: concatTarget.outputKey,
+      url: projectChapterConcatOutputUrlV1(concatTarget),
+      sizeBytes: 1,
+      chapters: concatTarget.sources.length,
+    };
+    expect(() => assertProjectChapterConcatResultV1(result, concatTarget)).not.toThrow();
+    expect(() => assertProjectChapterConcatResultV1({ ...result, sizeBytes: 0 }, concatTarget))
+      .toThrow("PROJECT_CHAPTER_CONCAT_RESULT_INVALID");
+    expect(() => assertProjectChapterConcatResultV1({ ...result, outputKey: "editron-concat/v1/" + "0".repeat(64) + ".mp4" }, concatTarget))
+      .toThrow("PROJECT_CHAPTER_CONCAT_RESULT_IDENTITY_MISMATCH");
   });
 
   it("signs the canonical target and rejects signature or identity tampering", () => {

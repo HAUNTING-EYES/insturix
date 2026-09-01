@@ -14,22 +14,32 @@
  * modal/concat_chapters.py and the scope doc.
  */
 
-import { createHash } from 'node:crypto';
-
 import {
+  assertProjectChapterConcatResultV1,
   assertProjectChapterConcatTargetV1,
+  createProjectChapterConcatWorkerMessageV1,
   createSignedProjectChapterConcatRequestV1,
   isProjectChapterConcatDestinationConfiguredV1,
-  projectChapterConcatOutputUrlV1,
+  projectChapterConcatDispatchIdV1,
+  type ProjectChapterConcatResultV1,
   type ProjectChapterConcatTargetV1,
 } from "./chapter-concat-contract-v1";
+import { isInternalQStashDispatchConfigured } from "../security/internal-worker-auth";
+
+const QSTASH_RETRY_DELAY = 'min(480000, max(30000, pow(2, retried) * 30000))';
+const QSTASH_TIMEOUT_SECONDS = 300;
+const CONCAT_PROVIDER_TIMEOUT_MS = 270_000;
+
+function hasConfiguredValue(value: string | undefined): boolean {
+  return Boolean(value?.trim());
+}
 
 /** True only when the full async concat path is wired: Modal worker endpoint + token + QStash. */
 export function isChapterConcatConfigured(): boolean {
   return Boolean(
-    process.env.EDITRON_CHAPTER_CONCAT_ENDPOINT &&
-      process.env.EDITRON_CHAPTER_CONCAT_TOKEN &&
-      process.env.QSTASH_TOKEN &&
+    hasConfiguredValue(process.env.EDITRON_CHAPTER_CONCAT_ENDPOINT) &&
+      hasConfiguredValue(process.env.EDITRON_CHAPTER_CONCAT_TOKEN) &&
+      isInternalQStashDispatchConfigured() &&
       isProjectChapterConcatDestinationConfiguredV1(),
   );
 }
@@ -48,10 +58,16 @@ function chapterConcatWorkerUrl(): string {
  * missing/invalid generation is rejected before QStash, so this client cannot
  * dispatch an unbound legacy job.
  */
+export interface ChapterConcatEnqueueReceipt {
+  disposition: 'DISPATCHED' | 'DEDUPLICATED';
+  messageId: string;
+  deduplicationId: string;
+}
+
 export async function enqueueChapterConcat(
   jobId: string,
   targetGeneration: string,
-): Promise<void> {
+): Promise<ChapterConcatEnqueueReceipt> {
   if (!/^chr_[A-Za-z0-9_-]{12}$/.test(jobId)) {
     throw new Error('CHAPTER_CONCAT_JOB_ID_INVALID');
   }
@@ -59,30 +75,45 @@ export async function enqueueChapterConcat(
   if (!/^[a-f0-9]{64}$/.test(normalizedGeneration)) {
     throw new Error('CHAPTER_CONCAT_TARGET_GENERATION_INVALID');
   }
-  const token = process.env.QSTASH_TOKEN;
+  const token = process.env.QSTASH_TOKEN?.trim();
   if (!token) throw new Error('QSTASH_TOKEN not set — cannot enqueue chapter concat');
   const { Client } = await import('@upstash/qstash');
   const qstash = new Client({ token, baseUrl: process.env.QSTASH_URL || undefined });
-  await qstash.publishJSON({
-    url: chapterConcatWorkerUrl(),
-    body: { jobId },
-    retries: 3,
-    // QStash rejects punctuation in some deduplication IDs. Hashing the
-    // immutable target generation also keeps this ID opaque and bounded.
-    deduplicationId: createHash('sha256').update(normalizedGeneration, 'utf8').digest('hex'),
+  const message = createProjectChapterConcatWorkerMessageV1({
+    jobId,
+    generation: normalizedGeneration,
   });
+  const deduplicationId = projectChapterConcatDispatchIdV1(message);
+  let published: { messageId?: unknown; deduplicated?: unknown };
+  try {
+    published = await qstash.publishJSON({
+      url: chapterConcatWorkerUrl(),
+      body: message,
+      retries: 3,
+      retryDelay: QSTASH_RETRY_DELAY,
+      timeout: QSTASH_TIMEOUT_SECONDS,
+      deduplicationId,
+    });
+  } catch {
+    // The publish may have been accepted even when this request lost its
+    // response. Throwing makes the existing renderer recovery retain the
+    // exact target and retry with this same deduplication identity.
+    throw new Error('CHAPTER_CONCAT_ENQUEUE_UNCONFIRMED');
+  }
+  if (
+    typeof published?.messageId !== 'string'
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/.test(published.messageId)
+  ) {
+    throw new Error('CHAPTER_CONCAT_ENQUEUE_UNCONFIRMED');
+  }
+  return {
+    disposition: published.deduplicated === true ? 'DEDUPLICATED' : 'DISPATCHED',
+    messageId: published.messageId,
+    deduplicationId,
+  };
 }
 
-export interface ChapterConcatResult {
-  generation: string;
-  sourceManifestHash: string;
-  outputBucket: string;
-  outputRegion: string;
-  outputKey: string;
-  url: string;
-  sizeBytes: number;
-  chapters: number;
-}
+export type ChapterConcatResult = ProjectChapterConcatResultV1;
 
 /**
  * Call the Modal concat worker with a persisted, server-owned target. The target
@@ -92,8 +123,8 @@ export interface ChapterConcatResult {
 export async function concatenateChapters(
   target: ProjectChapterConcatTargetV1,
 ): Promise<ChapterConcatResult> {
-  const endpoint = process.env.EDITRON_CHAPTER_CONCAT_ENDPOINT;
-  const token = process.env.EDITRON_CHAPTER_CONCAT_TOKEN;
+  const endpoint = process.env.EDITRON_CHAPTER_CONCAT_ENDPOINT?.trim();
+  const token = process.env.EDITRON_CHAPTER_CONCAT_TOKEN?.trim();
   if (!endpoint || !token) throw new Error('Chapter concat endpoint/token not configured');
   assertProjectChapterConcatTargetV1(target);
   if (!isProjectChapterConcatDestinationConfiguredV1()) {
@@ -101,11 +132,27 @@ export async function concatenateChapters(
   }
   const contract = createSignedProjectChapterConcatRequestV1(target, token);
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ contract }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CONCAT_PROVIDER_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': target.generation,
+      },
+      body: JSON.stringify({ contract }),
+      signal: controller.signal,
+    });
+  } catch (error: unknown) {
+    if (controller.signal.aborted) throw new Error('CHAPTER_CONCAT_PROVIDER_TIMEOUT');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = (await res.json().catch(() => null)) as
     | {
@@ -122,28 +169,12 @@ export async function concatenateChapters(
       }
     | null;
 
-  if (!res.ok || !data?.ok) {
+  if (!res.ok || data?.ok !== true) {
     const msg = data?.error?.message || `Concat worker returned HTTP ${res.status}`;
     throw new Error(msg);
   }
 
-  const expectedUrl = projectChapterConcatOutputUrlV1(target);
-  if (
-    data.generation !== target.generation
-    || data.sourceManifestHash !== target.sourceManifestHash
-    || data.outputBucket !== target.outputBucket
-    || data.outputRegion !== target.outputRegion
-    || data.key !== target.outputKey
-    || data.url !== expectedUrl
-    || data.chapters !== target.sources.length
-    || typeof data.sizeBytes !== 'number'
-    || !Number.isSafeInteger(data.sizeBytes)
-    || data.sizeBytes <= 0
-  ) {
-    throw new Error('CHAPTER_CONCAT_RESULT_IDENTITY_MISMATCH');
-  }
-
-  return {
+  const result = {
     generation: data.generation,
     sourceManifestHash: data.sourceManifestHash,
     outputBucket: data.outputBucket,
@@ -153,4 +184,6 @@ export async function concatenateChapters(
     sizeBytes: data.sizeBytes,
     chapters: data.chapters,
   };
+  assertProjectChapterConcatResultV1(result, target);
+  return result;
 }
