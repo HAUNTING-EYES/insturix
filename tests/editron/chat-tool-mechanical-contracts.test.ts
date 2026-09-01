@@ -114,11 +114,33 @@ function installProjectStore(project: FixtureProject) {
         },
       } as any;
     });
-  const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockImplementation(
-    async (_userId, _projectId, overlayId, patch) => {
-      const overlay = project.overlays.find((candidate) => candidate.id === overlayId);
-      if (!overlay) throw new Error(`Overlay ${overlayId} not found`);
-      Object.assign(overlay, structuredClone(patch));
+  const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const overlay = project.overlays.find((candidate) => candidate.id === command.overlayId);
+      if (!overlay) throw new Error(`Overlay ${command.overlayId} not found`);
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      Object.assign(overlay, structuredClone(command.updates));
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
   const addOverlay = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockImplementation(
@@ -148,9 +170,31 @@ function installProjectStore(project: FixtureProject) {
       } as any;
     },
   );
-  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlay').mockImplementation(
-    async (_userId, _projectId, overlayId) => {
-      project.overlays = project.overlays.filter((candidate) => candidate.id !== overlayId);
+  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => {
+      const currentRevision = project.projectRevision ?? 0;
+      if (command.expectedRevision.value !== currentRevision
+        || command.expectedRevision.compatibilityUpdatedAt !== project.updatedAt.toISOString()) {
+        throw new Error('PROJECT_MUTATION_CONFLICT');
+      }
+      const committedAt = new Date(project.updatedAt.getTime() + 1_000).toISOString();
+      const afterRevision = {
+        schemaVersion: 1 as const,
+        value: currentRevision + 1,
+        compatibilityUpdatedAt: committedAt,
+      };
+      project.overlays = project.overlays.filter((candidate) => candidate.id !== command.overlayId);
+      project.projectRevision = afterRevision.value;
+      project.updatedAt = new Date(committedAt);
+      return {
+        mutationReceipt: {
+          schemaVersion: 1 as const,
+          projectId,
+          revision: afterRevision,
+          committedAt,
+        },
+        timelineChangeReceipt: {},
+      } as any;
     },
   );
   const updateProject = vi.spyOn(projectService, 'updateProject').mockImplementation(
@@ -783,10 +827,14 @@ describe('chat mechanical tool contracts', () => {
     const deleted = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: '71' }));
     expect(deleted.status).toBe('success');
     expect(project.overlays).toEqual([]);
-    expect(store.deleteOverlay).toHaveBeenCalledWith(
+    expect(store.deleteOverlay).toHaveBeenLastCalledWith(
       'user_mechanical_tools',
       'proj_mechanical_tools',
-      71,
+      expect.objectContaining({
+        actorKind: 'AGENT',
+        overlayId: 71,
+        expectedRevision: expect.objectContaining({ value: 2 }),
+      }),
     );
   });
 

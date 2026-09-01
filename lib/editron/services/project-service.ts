@@ -457,17 +457,19 @@ export interface ProjectOverlayAddCommandV1 {
   overlay: Overlay;
 }
 
+export type ProjectOverlayIdentityV1 = number | string;
+
 export interface ProjectOverlayUpdateCommandV1 {
   expectedRevision: ProjectRevisionV1;
   actorKind: ProjectTimelineChangeActorKindV1;
-  overlayId: number;
+  overlayId: ProjectOverlayIdentityV1;
   updates: Partial<Overlay>;
 }
 
 export interface ProjectOverlayDeleteCommandV1 {
   expectedRevision: ProjectRevisionV1;
   actorKind: ProjectTimelineChangeActorKindV1;
-  overlayId: number;
+  overlayId: ProjectOverlayIdentityV1;
 }
 
 export interface ProjectVideoSpeedRampCommandV1 {
@@ -11085,11 +11087,7 @@ export class ProjectService {
   ): Promise<ProjectDirectOverlayMutationResultV1> {
     assertProjectRevision(input.expectedRevision);
     assertProjectTimelineChangeActorKindV1(input.actorKind);
-    if (!Number.isSafeInteger(input.overlayId) || input.overlayId < 0) {
-      throw new ProjectMutationWriteError(
-        "Overlay update requires a non-negative integer identity.",
-      );
-    }
+    assertProjectOverlayIdentityV1(input.overlayId, "update");
     if (!isPlainRecord(input.updates)
       || Object.prototype.hasOwnProperty.call(input.updates, "id")
       || Object.prototype.hasOwnProperty.call(input.updates, "type")) {
@@ -11114,7 +11112,7 @@ export class ProjectService {
       );
     }
     const currentOverlay = project.overlays?.find(
-      (overlay) => overlay.id === input.overlayId,
+      (overlay) => (overlay as { id?: unknown }).id === input.overlayId,
     );
     if (!currentOverlay) {
       throw new ProjectMutationWriteError(
@@ -11599,11 +11597,7 @@ export class ProjectService {
   ): Promise<ProjectDirectOverlayMutationResultV1> {
     assertProjectRevision(input.expectedRevision);
     assertProjectTimelineChangeActorKindV1(input.actorKind);
-    if (!Number.isSafeInteger(input.overlayId) || input.overlayId < 0) {
-      throw new ProjectMutationWriteError(
-        "Overlay deletion requires a non-negative integer identity.",
-      );
-    }
+    assertProjectOverlayIdentityV1(input.overlayId, "deletion");
 
     const db = await getDatabase();
     const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
@@ -11621,7 +11615,7 @@ export class ProjectService {
       );
     }
     const currentOverlay = project.overlays?.find(
-      (overlay) => overlay.id === input.overlayId,
+      (overlay) => (overlay as { id?: unknown }).id === input.overlayId,
     );
     if (!currentOverlay) {
       throw new ProjectMutationWriteError(
@@ -15034,6 +15028,24 @@ function overlayReferenceForTimelineChangeV1(overlay: Overlay): string {
   throw new ProjectMutationWriteError(
     "A timeline range change cannot issue a durable affected-object reference for an overlay without a stable ID.",
   );
+}
+
+function assertProjectOverlayIdentityV1(
+  value: unknown,
+  operation: "update" | "deletion",
+): asserts value is ProjectOverlayIdentityV1 {
+  const validNumber = typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value >= 0;
+  const validString = typeof value === "string"
+    && value === value.trim()
+    && value.length > 0
+    && value.length <= 256;
+  if (!validNumber && !validString) {
+    throw new ProjectMutationWriteError(
+      `Overlay ${operation} requires an exact stable numeric or string identity.`,
+    );
+  }
 }
 
 function overlayTimelineFrameRangeV1(

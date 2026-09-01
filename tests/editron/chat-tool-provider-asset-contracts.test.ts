@@ -152,6 +152,40 @@ function validWavBytes(): Buffer {
   return bytes;
 }
 
+function directMutationResult(
+  projectId: string,
+  expectedRevision: { value: number; compatibilityUpdatedAt: string },
+) {
+  const committedAt = new Date(
+    Date.parse(expectedRevision.compatibilityUpdatedAt) + 1_000,
+  ).toISOString();
+  return {
+    mutationReceipt: {
+      schemaVersion: 1 as const,
+      projectId,
+      revision: {
+        schemaVersion: 1 as const,
+        value: expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt,
+      },
+      committedAt,
+    },
+    timelineChangeReceipt: {},
+  } as any;
+}
+
+function spyOnOverlayUpdateAtRevisionV1() {
+  return vi.spyOn(projectService, 'updateOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => directMutationResult(projectId, command.expectedRevision),
+  );
+}
+
+function spyOnOverlayAddAtRevisionV1() {
+  return vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockImplementation(
+    async (_userId, projectId, command) => directMutationResult(projectId, command.expectedRevision),
+  );
+}
+
 describe('chat provider and user-asset tool contracts', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
@@ -165,7 +199,7 @@ describe('chat provider and user-asset tool contracts', () => {
   });
 
   it('replaces the selected SFX source without changing its timeline placement', async () => {
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+    const updateOverlay = spyOnOverlayUpdateAtRevisionV1();
     const audioRights = {
       mediaRole: 'sfx' as const,
       source: 'library' as const,
@@ -211,20 +245,23 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',
       'proj_provider_asset',
-      10,
       expect.objectContaining({
-        assetId: 'asset-paper-whoosh',
-        content: 'https://cdn.example.com/paper-whoosh.wav',
-        src: 'https://cdn.example.com/paper-whoosh.wav',
-        audioRights,
-        metadata: expect.objectContaining({
-          source: 'chat-replace-sfx',
-          provider: 'freesound',
-          providerTitle: 'Soft paper whoosh',
+        actorKind: 'AGENT',
+        overlayId: 10,
+        updates: expect.objectContaining({
+          assetId: 'asset-paper-whoosh',
+          content: 'https://cdn.example.com/paper-whoosh.wav',
+          src: 'https://cdn.example.com/paper-whoosh.wav',
+          audioRights,
+          metadata: expect.objectContaining({
+            source: 'chat-replace-sfx',
+            provider: 'freesound',
+            providerTitle: 'Soft paper whoosh',
+          }),
         }),
       }),
     );
-    const mutation = updateOverlay.mock.calls[0]?.[3] as Record<string, unknown>;
+    const mutation = updateOverlay.mock.calls[0]?.[2].updates as Record<string, unknown>;
     expect(mutation.assetId).not.toBe('asset-old-whoosh');
     expect(mutation).not.toHaveProperty('from');
     expect(mutation).not.toHaveProperty('durationInFrames');
@@ -232,7 +269,7 @@ describe('chat provider and user-asset tool contracts', () => {
 
   it('does not mutate SFX when the provider returns no candidates', async () => {
     vi.stubEnv('FAL_AI_API_KEY', '');
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
     mocks.searchAndDownloadSFX.mockResolvedValue(null);
 
     const result = parseResult(await toolNamed('replace_sfx').invoke({
@@ -282,7 +319,7 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 200,
       headers: { 'content-type': 'audio/wav' },
     })));
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+    const updateOverlay = spyOnOverlayUpdateAtRevisionV1();
 
     const result = parseResult(await toolNamed('replace_sfx').invoke({
       overlayId: 10,
@@ -331,14 +368,16 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',
       'proj_provider_asset',
-      10,
       expect.objectContaining({
-        assetId: generatedAssetId,
-        content: 'https://cdn.example.com/replacement-sfx.wav',
-        src: 'https://cdn.example.com/replacement-sfx.wav',
-        metadata: expect.objectContaining({
-          source: 'chat-replace-sfx',
-          provider: 'cassetteai',
+        overlayId: 10,
+        updates: expect.objectContaining({
+          assetId: generatedAssetId,
+          content: 'https://cdn.example.com/replacement-sfx.wav',
+          src: 'https://cdn.example.com/replacement-sfx.wav',
+          metadata: expect.objectContaining({
+            source: 'chat-replace-sfx',
+            provider: 'cassetteai',
+          }),
         }),
       }),
     );
@@ -375,10 +414,7 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 200,
       headers: { 'content-type': 'audio/wav' },
     })));
-    const addOverlay = vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
-      mutationReceipt: {},
-      timelineChangeReceipt: {},
-    } as any);
+    const addOverlay = spyOnOverlayAddAtRevisionV1();
 
     const result = parseResult(await toolNamed('add_sfx').invoke({
       query: 'directional paper whoosh',
@@ -490,10 +526,7 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 200,
       headers: { 'content-type': 'audio/wav' },
     })));
-    vi.spyOn(projectService, 'addOverlayAtRevisionV1').mockResolvedValue({
-      mutationReceipt: {},
-      timelineChangeReceipt: {},
-    } as any);
+    spyOnOverlayAddAtRevisionV1();
 
     const result = parseResult(await toolNamed('add_sfx').invoke({
       query: 'subtle textile movement',
@@ -568,7 +601,7 @@ describe('chat provider and user-asset tool contracts', () => {
   });
 
   it('searches stock video with the requested duration constraints without mutating the project', async () => {
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
     mocks.searchStockVideos.mockResolvedValue([{
       id: 701,
       videoUrl: 'https://stock.example.com/embroidery-720.mp4',
@@ -626,7 +659,7 @@ describe('chat provider and user-asset tool contracts', () => {
   it('swaps a scene to resolved user footage while preserving timing and geometry', async () => {
     mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-embroidery', type: 'video' });
     mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.com/user-embroidery.mp4');
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+    const updateOverlay = spyOnOverlayUpdateAtRevisionV1();
 
     const result = parseResult(await toolNamed('use_matching_footage').invoke({
       sceneIndex: 2,
@@ -646,27 +679,29 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',
       'proj_provider_asset',
-      20,
-      {
-        src: 'https://cdn.example.com/user-embroidery.mp4',
-        assetId: 'asset-user-embroidery',
-        sourceStartFrame: 0,
-        videoStartTime: 0,
-        metadata: {
-          sceneIndex: 2,
-          narrativeRole: 'proof',
-          swappedFrom: 'asset-generated',
-          swappedFromSourceStartFrame: 0,
-          swapSource: 'user_footage',
+      expect.objectContaining({
+        overlayId: 20,
+        updates: {
+          src: 'https://cdn.example.com/user-embroidery.mp4',
+          assetId: 'asset-user-embroidery',
+          sourceStartFrame: 0,
+          videoStartTime: 0,
+          metadata: {
+            sceneIndex: 2,
+            narrativeRole: 'proof',
+            swappedFrom: 'asset-generated',
+            swappedFromSourceStartFrame: 0,
+            swapSource: 'user_footage',
+          },
         },
-      },
+      }),
     );
   });
 
   it('targets a manual uploaded clip by exact overlay id and resets stale source trim', async () => {
     mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-detail', type: 'video' });
     mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.com/user-detail.mp4');
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+    const updateOverlay = spyOnOverlayUpdateAtRevisionV1();
 
     const result = parseResult(await toolNamed('use_matching_footage').invoke({
       overlayId: 'manual-clip',
@@ -681,22 +716,24 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',
       'proj_provider_asset',
-      'manual-clip',
       expect.objectContaining({
-        src: 'https://cdn.example.com/user-detail.mp4',
-        assetId: 'asset-user-detail',
-        sourceStartFrame: 12,
-        videoStartTime: 12,
-        metadata: expect.objectContaining({
-          swappedFrom: 'asset-manual-old',
-          swappedFromSourceStartFrame: 75,
+        overlayId: 'manual-clip',
+        updates: expect.objectContaining({
+          src: 'https://cdn.example.com/user-detail.mp4',
+          assetId: 'asset-user-detail',
+          sourceStartFrame: 12,
+          videoStartTime: 12,
+          metadata: expect.objectContaining({
+            swappedFrom: 'asset-manual-old',
+            swappedFromSourceStartFrame: 75,
+          }),
         }),
       }),
     );
   });
 
   it('rejects conflicting overlay and scene targets without resolving the replacement asset', async () => {
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
 
     const result = parseResult(await toolNamed('use_matching_footage').invoke({
       overlayId: 'manual-clip',
@@ -715,7 +752,7 @@ describe('chat provider and user-asset tool contracts', () => {
 
   it('rejects non-video replacement assets before resolving a URL', async () => {
     mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-still', type: 'image' });
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
 
     const result = parseResult(await toolNamed('use_matching_footage').invoke({
       overlayId: 'manual-clip',
@@ -731,7 +768,7 @@ describe('chat provider and user-asset tool contracts', () => {
   });
 
   it('rejects missing scenes before resolving or mutating an asset', async () => {
-    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlayAtRevisionV1');
 
     const result = parseResult(await toolNamed('use_matching_footage').invoke({
       sceneIndex: 999,

@@ -390,11 +390,62 @@ export const createTools = (userId: string, projectId: string) => {
     if (!expectedRevision) {
       throw new Error("The project revision is unavailable; reload before adding the overlay.");
     }
-    return projectService.addOverlayAtRevisionV1(userId, projectId, {
+    const result = await projectService.addOverlayAtRevisionV1(userId, projectId, {
       expectedRevision,
       actorKind: "AGENT",
       overlay,
     });
+    project.overlays.push(overlay);
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
+  };
+
+  const updateOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlayId: number | string,
+    updates: Record<string, unknown>,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before updating the overlay.");
+    }
+    const result = await projectService.updateOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlayId,
+      updates,
+    });
+    const overlayIndex = project.overlays.findIndex((candidate: any) => candidate.id === overlayId);
+    if (overlayIndex < 0) {
+      throw new Error(`Overlay ${overlayId} disappeared from the loaded project snapshot.`);
+    }
+    project.overlays[overlayIndex] = {
+      ...project.overlays[overlayIndex],
+      ...structuredClone(updates),
+    } as any;
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
+  };
+
+  const deleteOverlayAtLoadedProjectRevisionV1 = async (
+    project: Awaited<ReturnType<typeof loadProject>>,
+    overlayId: number | string,
+  ) => {
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      throw new Error("The project revision is unavailable; reload before deleting the overlay.");
+    }
+    const result = await projectService.deleteOverlayAtRevisionV1(userId, projectId, {
+      expectedRevision,
+      actorKind: "AGENT",
+      overlayId,
+    });
+    project.overlays = project.overlays.filter((candidate: any) => candidate.id !== overlayId);
+    project.projectRevision = result.mutationReceipt.revision.value;
+    project.updatedAt = new Date(result.mutationReceipt.revision.compatibilityUpdatedAt);
+    return result;
   };
 
   // Helper to recalculate project duration after edits
@@ -965,7 +1016,7 @@ TYPE-SPECIFIC FIELDS:
         }
         const affectedFrameRanges = overlayUpdateMutationFrameRanges(overlay, updates);
         
-        await projectService.updateOverlay(userId, projectId, input.id, updates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, updates);
         return JSON.stringify({
           status: 'success',
           message: `Overlay ${input.id} updated`,
@@ -1075,7 +1126,7 @@ TYPE-SPECIFIC FIELDS:
             continue;
           }
           
-          await projectService.updateOverlay(userId, projectId, update.id, updates);
+          await updateOverlayAtLoadedProjectRevisionV1(project, update.id, updates);
           mutationRanges.push(...overlayUpdateMutationFrameRanges(overlay, updates));
           results.push({ id: update.id, status: 'success' });
         }
@@ -1135,7 +1186,7 @@ TYPE-SPECIFIC FIELDS:
         const secondDuration = overlayEnd - input.atFrame;
         
         // Update original overlay (first part)
-        await projectService.updateOverlay(userId, projectId, input.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, {
           durationInFrames: firstDuration
         });
         
@@ -1161,9 +1212,8 @@ TYPE-SPECIFIC FIELDS:
           }),
         };
         
-        const projectAfterFirstSplitWrite = await loadProject();
         await addOverlayAtLoadedProjectRevisionV1(
-          projectAfterFirstSplitWrite,
+          project,
           secondOverlay as any,
         );
 
@@ -1262,7 +1312,7 @@ TYPE-SPECIFIC FIELDS:
         updates.from = newFrom;
         updates.durationInFrames = newDuration;
         
-        await projectService.updateOverlay(userId, projectId, input.id, updates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, updates);
 
         await recalculateProjectDuration();
 
@@ -1319,15 +1369,12 @@ TYPE-SPECIFIC FIELDS:
               ))
           );
           deletedOverlays.push(...linkedOverlays);
-          // PERF FIX: Delete linked overlays in parallel (Priyank's optimization)
-          await Promise.all(
-            linkedOverlays.map((linked: any) =>
-              projectService.deleteOverlay(userId, projectId, linked.id)
-            )
-          );
+          for (const linked of linkedOverlays) {
+            await deleteOverlayAtLoadedProjectRevisionV1(project, linked.id);
+          }
         }
 
-        await projectService.deleteOverlay(userId, projectId, resolvedOverlayId);
+        await deleteOverlayAtLoadedProjectRevisionV1(project, resolvedOverlayId);
 
         await recalculateProjectDuration();
 
@@ -1399,7 +1446,7 @@ TYPE-SPECIFIC FIELDS:
             results.push({ id: targetId, status: 'no-op', message: 'Requested styles already match' });
             continue;
           }
-          await projectService.updateOverlay(userId, projectId, targetId, { styles: nextStyles });
+          await updateOverlayAtLoadedProjectRevisionV1(project, targetId, { styles: nextStyles });
           mutationRanges.push(overlayMutationFrameRange(target));
           
           results.push({ id: targetId, status: 'success' });
@@ -1739,7 +1786,7 @@ CAPABILITIES:
           ? overlay.prompt.trim()
           : 'Existing generated HTML scene';
 
-        await projectService.updateOverlay(userId, projectId, input.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, input.id, {
           content: wrappedHtml,
           prompt: `${previousPrompt}\nRevision: ${input.instructions}`.slice(0, 6000),
           metadata,
@@ -2512,7 +2559,7 @@ Optionally apply a new style while refreshing.`,
               newFrom,
               durationInFrames: Math.max(0, Math.round(Number(overlay.durationInFrames) || 0)),
             });
-            await projectService.updateOverlay(userId, projectId, overlay.id, { from: newFrom });
+            await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, { from: newFrom });
             alreadyMoved.add(overlay.id);
           }
         }
@@ -3039,7 +3086,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
         };
 
         // Re-sync caption position to match the video overlay's current box
-        await projectService.updateOverlay(userId, projectId, fancyOverlay.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, fancyOverlay.id, {
           from: segmentStartFrame,
           durationInFrames: segmentEndFrame - segmentStartFrame,
           content: wrappedHtml as any,
@@ -3771,14 +3818,14 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               o.type === 'transition' && o.clipAId === outgoing.id && o.clipBId === incoming.id
             );
             if (existingTrans) {
-              await projectService.deleteOverlay(userId, projectId, existingTrans.id);
+              await deleteOverlayAtLoadedProjectRevisionV1(project, existingTrans.id);
             }
 
             // Merge keyframe tracks: new tracks replace existing tracks for same property
             const existingOutTracks = (outgoing.keyframeTracks || []).filter(
               (t: any) => !result.outgoingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
             );
-            await projectService.updateOverlay(userId, projectId, outgoing.id, {
+            await updateOverlayAtLoadedProjectRevisionV1(project, outgoing.id, {
               durationInFrames: result.outgoingOverlayUpdate.durationInFrames,
               keyframeTracks: [...existingOutTracks, ...result.outgoingOverlayUpdate.keyframeTracks],
             });
@@ -3786,7 +3833,7 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
             const existingInTracks = (incoming.keyframeTracks || []).filter(
               (t: any) => !result.incomingOverlayUpdate.keyframeTracks.some((nt: any) => nt.property === t.property)
             );
-            await projectService.updateOverlay(userId, projectId, incoming.id, {
+            await updateOverlayAtLoadedProjectRevisionV1(project, incoming.id, {
               from: result.incomingOverlayUpdate.from,
               durationInFrames: result.incomingOverlayUpdate.durationInFrames,
               keyframeTracks: [...existingInTracks, ...result.incomingOverlayUpdate.keyframeTracks],
@@ -3810,9 +3857,8 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
               styles: { opacity: 1 },
               metadata: { isTransition: true, source: 'tool', transitionType: transId },
             };
-            const projectAfterTransitionUpdates = await loadProject();
             await addOverlayAtLoadedProjectRevisionV1(
-              projectAfterTransitionUpdates,
+              project,
               transOverlay as any,
             );
 
@@ -4689,7 +4735,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           keyframes: input.keyframes,
           focalPoint: input.focalPoint,
         });
-        await projectService.updateOverlay(userId, projectId, overlay.id, resolvedMutation.patch as any);
+        await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, resolvedMutation.patch as any);
 
         return successEnvelope({
           overlayId: input.overlayId,
@@ -5234,7 +5280,7 @@ Examples:
         if (!newSfx) throw new Error('SFX providers returned no usable asset');
 
         // Replace the complete asset identity so hydration cannot restore the old source.
-        await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {
+        await updateOverlayAtLoadedProjectRevisionV1(project, sfxOverlay.id, {
           assetId: newSfx.audioAssetId,
           content: newSfx.audioUrl,
           src: newSfx.audioUrl,
@@ -5901,7 +5947,7 @@ All Pixabay content is free for commercial use.`,
             swapSource: 'user_footage',
           },
         };
-        await projectService.updateOverlay(userId, projectId, overlay.id, replacementUpdates);
+        await updateOverlayAtLoadedProjectRevisionV1(project, overlay.id, replacementUpdates);
 
         return JSON.stringify({
           status: 'success',

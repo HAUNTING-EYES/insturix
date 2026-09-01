@@ -1556,6 +1556,83 @@ describe("Editron project save payload compaction", () => {
     );
   });
 
+  it("preserves an exact legacy string overlay identity across update and delete CAS writes", async () => {
+    const updatedAt = "2026-08-11T02:15:30.000Z";
+    const afterUpdateAt = "2026-08-11T02:15:31.000Z";
+    const legacyOverlay = {
+      id: "manual-clip",
+      type: "video",
+      from: 90,
+      durationInFrames: 45,
+    };
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        fps: 30,
+        overlays: [legacyOverlay],
+        updatedAt: new Date(updatedAt),
+        projectRevision: 7,
+      })
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        fps: 30,
+        overlays: [{ ...legacyOverlay, content: "updated" }],
+        updatedAt: new Date(afterUpdateAt),
+        projectRevision: 8,
+      });
+    persistenceMocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    const updated = await projectService.updateOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "AGENT",
+        overlayId: "manual-clip",
+        updates: { content: "updated" } as any,
+      },
+    );
+    const deleted = await projectService.deleteOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 8,
+          compatibilityUpdatedAt: afterUpdateAt,
+        },
+        actorKind: "AGENT",
+        overlayId: "manual-clip",
+      },
+    );
+
+    expect(updated.timelineChangeReceipt.affectedOverlayRefs).toEqual(["overlay:manual-clip"]);
+    expect(deleted.timelineChangeReceipt.affectedOverlayRefs).toEqual(["overlay:manual-clip"]);
+    expect(persistenceMocks.updateOne.mock.calls[0][0]).toMatchObject({
+      "overlays.id": "manual-clip",
+      projectRevision: 7,
+    });
+    expect(persistenceMocks.updateOne.mock.calls[0][2]).toEqual({
+      arrayFilters: [{ "elem.id": "manual-clip" }],
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1][0]).toMatchObject({
+      "overlays.id": "manual-clip",
+      projectRevision: 8,
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1][1]).toMatchObject({
+      $pull: { overlays: { id: "manual-clip" } },
+    });
+  });
+
   it("rejects a caller-bound overlay deletion that overlaps an active range lock", async () => {
     const updatedAt = "2026-08-11T02:16:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
