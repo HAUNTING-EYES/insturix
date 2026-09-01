@@ -75,11 +75,15 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   })),
 }));
 
-vi.mock('@/lib/editron/services/asset-resolver', () => ({
-  assetResolver: {
-    resolveProjectAssets: routeMocks.resolveProjectAssets,
-  },
-}));
+vi.mock('@/lib/editron/services/asset-resolver', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/editron/services/asset-resolver')>();
+  return {
+    assetResolver: {
+      resolveProjectAssets: routeMocks.resolveProjectAssets,
+    },
+    ProjectAssetSourceUnverifiableErrorV1: actual.ProjectAssetSourceUnverifiableErrorV1,
+  };
+});
 
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
