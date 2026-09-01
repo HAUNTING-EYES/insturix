@@ -6,7 +6,7 @@
  *   - flag enforcement: assist intake is 403 when DIRECTOR_MODE_ENABLED is off
  *   - assist persists editMode + the refund handle (txId + charged) BEFORE dispatch
  *   - assist (dev-inline path) reaches ready_for_chat WITHOUT running the Director
- *   - AUTO is unchanged: it still runs executeDirectorPlan
+ *   - AUTO runs through the canonical Director lifecycle
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,15 +19,19 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   saveProjectWithReceipt: vi.fn(),
   admitProjectAnalysisRunV1: vi.fn(),
-  claimDirectorRunV1: vi.fn(),
-  updateOne: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  advanceProjectAnalysisRunV1: vi.fn(),
+  commitProjectAnalysisPhase1V1: vi.fn(),
+  prepareProjectAnalysisDirectorDispatchV1: vi.fn(),
+  failProjectAnalysisRunV1: vi.fn(),
   admitAssistScanCharge: vi.fn(),
   settleAssistScanFailure: vi.fn(),
   refund: vi.fn(),
   isR2Available: vi.fn(() => false),
   getR2PresignedReadUrl: vi.fn(),
   analyzeVideo: vi.fn(async () => null),
-  executeDirectorPlan: vi.fn(async () => ({ actionsExecuted: 1 })),
+  activateProjectAnalysisDirectorInlineV1: vi.fn(),
+  runCanonicalDirectorV1: vi.fn(),
   getCreditCost: vi.fn(() => 12),
   warmupVjepa: vi.fn(),
   warmupWav2Vec: vi.fn(),
@@ -39,7 +43,11 @@ vi.mock('@/lib/editron/services/project-service', () => ({
     createProject: mocks.createProject,
     saveProjectWithReceipt: mocks.saveProjectWithReceipt,
     admitProjectAnalysisRunV1: mocks.admitProjectAnalysisRunV1,
-    claimDirectorRunV1: mocks.claimDirectorRunV1,
+    loadProjectForMutation: mocks.loadProjectForMutation,
+    advanceProjectAnalysisRunV1: mocks.advanceProjectAnalysisRunV1,
+    commitProjectAnalysisPhase1V1: mocks.commitProjectAnalysisPhase1V1,
+    prepareProjectAnalysisDirectorDispatchV1: mocks.prepareProjectAnalysisDirectorDispatchV1,
+    failProjectAnalysisRunV1: mocks.failProjectAnalysisRunV1,
   },
 }));
 vi.mock('@/lib/editron/services/assist-lane', async () => ({
@@ -61,9 +69,14 @@ vi.mock('@/lib/config/creditCosts', () => ({ getCreditCost: mocks.getCreditCost 
 vi.mock('@/lib/editron/services/vjepa-service', () => ({ warmupVjepa: mocks.warmupVjepa }));
 vi.mock('@/lib/editron/services/wav2vec-service', () => ({ warmupWav2Vec: mocks.warmupWav2Vec }));
 vi.mock('@/lib/editron/services/video-understanding-service', () => ({ analyzeVideo: mocks.analyzeVideo }));
-vi.mock('@/lib/editron/agent/director-agent', () => ({ executeDirectorPlan: mocks.executeDirectorPlan }));
+vi.mock('@/lib/editron/services/project-analysis-director-publication', () => ({
+  activateProjectAnalysisDirectorInlineV1: mocks.activateProjectAnalysisDirectorInlineV1,
+}));
+vi.mock('@/lib/editron/services/canonical-director-run', () => ({
+  runCanonicalDirectorV1: mocks.runCanonicalDirectorV1,
+}));
 vi.mock('@/lib/editron/db/mongodb', () => ({
-  getDatabase: vi.fn(async () => ({ collection: () => ({ updateOne: mocks.updateOne }) })),
+  getDatabase: vi.fn(async () => ({ collection: vi.fn() })),
 }));
 
 import { POST } from '@/app/api/services/editron/auto-edit/from-asset/route';
@@ -102,10 +115,26 @@ beforeEach(() => {
     disposition: 'ADMITTED',
     run: { runId: 'analysis_run_asset_1' },
   });
-  mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+  mocks.loadProjectForMutation.mockResolvedValue({
+    revision: { schemaVersion: 1, value: 2, compatibilityUpdatedAt: '2026-09-01T00:00:01.000Z' },
+  });
+  mocks.advanceProjectAnalysisRunV1.mockResolvedValue({ disposition: 'ADVANCED' });
+  mocks.commitProjectAnalysisPhase1V1.mockResolvedValue({ disposition: 'ADVANCED' });
+  mocks.prepareProjectAnalysisDirectorDispatchV1.mockResolvedValue({
+    disposition: 'ADVANCED',
+    run: {
+      directorDispatch: {
+        schemaVersion: 1,
+        status: 'pending',
+        deduplicationId: 'editron_director_asset_1',
+        preparedAt: '2026-09-01T00:00:02.000Z',
+      },
+    },
+  });
+  mocks.failProjectAnalysisRunV1.mockResolvedValue({ disposition: 'RECORDED' });
   mocks.admitAssistScanCharge.mockResolvedValue({ disposition: 'admitted' });
   mocks.settleAssistScanFailure.mockResolvedValue('refunded');
-  mocks.claimDirectorRunV1.mockResolvedValue({ disposition: 'ASSIST_PROJECT' });
+  mocks.runCanonicalDirectorV1.mockResolvedValue({ disposition: 'ASSIST_READY' });
   mocks.getCreditCost.mockReturnValue(12);
 });
 
@@ -141,7 +170,7 @@ describe('from-asset assist intake handler', () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(mocks.saveProjectWithReceipt).not.toHaveBeenCalled();
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
-    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+    expect(mocks.runCanonicalDirectorV1).not.toHaveBeenCalled();
   });
 
   it('fails before charging or creating a project when production has no QStash publisher token', async () => {
@@ -162,7 +191,7 @@ describe('from-asset assist intake handler', () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(mocks.saveProjectWithReceipt).not.toHaveBeenCalled();
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
-    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+    expect(mocks.runCanonicalDirectorV1).not.toHaveBeenCalled();
   });
 
   it('assist: persists editMode + refund handle, reaches ready_for_chat, and NEVER runs the Director', async () => {
@@ -188,24 +217,34 @@ describe('from-asset assist intake handler', () => {
       lane: 'assist',
       queueFacts: {},
     });
-    const rawQueuedWrite = mocks.updateOne.mock.calls.find(([, u]) => (
-      (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'queued'
-    ));
-    expect(rawQueuedWrite).toBeFalsy();
-
-    const analyzedWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'analysis_complete');
-    expect(analyzedWrite?.[0]).toMatchObject({
+    expect(mocks.advanceProjectAnalysisRunV1).toHaveBeenNthCalledWith(1, 'user_1', 'proj_asset_1', {
+      expectedRevision: expect.any(Object),
+      runId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      fromState: 'queued',
+      toState: 'analyzing',
+    });
+    expect(mocks.advanceProjectAnalysisRunV1).toHaveBeenNthCalledWith(2, 'user_1', 'proj_asset_1', {
+      expectedRevision: expect.any(Object),
+      runId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      fromState: 'analyzing',
+      toState: 'transcribing',
+    });
+    expect(mocks.commitProjectAnalysisPhase1V1).toHaveBeenCalledWith('user_1', 'proj_asset_1', {
+      expectedRevision: expect.any(Object),
+      runId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      fromState: 'transcribing',
+      evidence: {},
+    });
+    expect(mocks.runCanonicalDirectorV1).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'proj_asset_1',
       userId: 'user_1',
-      editMode: 'assist',
-      autoEditStatus: 'queued',
-      'autoEditAnalysisRunV1.runId': 'analysis_run_asset_1',
-      'autoEditAnalysisRunV1.state': 'queued',
-      assistCreditTransactionId: 'tx_asset_1',
-      assistChargedCredits: 12,
-    });
-    expect(mocks.claimDirectorRunV1).toHaveBeenCalledWith('user_1', 'proj_asset_1');
-    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+      analysisRunId: 'analysis_run_asset_1',
+    }));
+    expect(mocks.prepareProjectAnalysisDirectorDispatchV1).not.toHaveBeenCalled();
+    expect(mocks.activateProjectAnalysisDirectorInlineV1).not.toHaveBeenCalled();
   });
 
   it('settles the exact Assist deduction when inline analysis fails after starting', async () => {
@@ -222,7 +261,7 @@ describe('from-asset assist intake handler', () => {
       reason: 'decoder failed',
     });
     expect(mocks.refund).not.toHaveBeenCalled();
-    expect(mocks.claimDirectorRunV1).not.toHaveBeenCalled();
+    expect(mocks.runCanonicalDirectorV1).not.toHaveBeenCalled();
   });
 
   it('settles the exact Assist deduction when QStash rejects the publish', async () => {
@@ -245,11 +284,44 @@ describe('from-asset assist intake handler', () => {
     expect(mocks.analyzeVideo).not.toHaveBeenCalled();
   });
 
-  it('AUTO is unchanged: no editMode → the Director runs, no ready_for_chat write', async () => {
+  it('AUTO prepares an exact dispatch and runs only the canonical Director owner', async () => {
     process.env.DIRECTOR_MODE_ENABLED = 'true';
+    mocks.runCanonicalDirectorV1.mockResolvedValueOnce({ disposition: 'COMPLETED' });
     const res = await POST(request({ assetId: 'a1' }));
     expect(res.status).toBe(200);
-    expect(mocks.executeDirectorPlan).toHaveBeenCalledOnce();
-    expect(mocks.claimDirectorRunV1).not.toHaveBeenCalled();
+    expect(mocks.prepareProjectAnalysisDirectorDispatchV1).toHaveBeenCalledWith('user_1', 'proj_asset_1', {
+      expectedRevision: expect.any(Object),
+      runId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+    });
+    expect(mocks.activateProjectAnalysisDirectorInlineV1).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      analysisRunId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      dispatch: expect.objectContaining({ deduplicationId: 'editron_director_asset_1' }),
+    }));
+    expect(mocks.runCanonicalDirectorV1).toHaveBeenCalledWith(expect.objectContaining({
+      analysisRunId: 'analysis_run_asset_1',
+      analysisDirectorDispatchId: 'editron_director_asset_1',
+    }));
+  });
+
+  it('AUTO records exact run failure before refund when QStash rejects publication', async () => {
+    process.env.QSTASH_TOKEN = 'qstash-token';
+    process.env.QSTASH_CURRENT_SIGNING_KEY = 'current-key';
+    process.env.QSTASH_NEXT_SIGNING_KEY = 'next-key';
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('queue unavailable', { status: 503 }));
+
+    const res = await POST(request({ assetId: 'a1' }));
+
+    expect(res.status).toBe(502);
+    expect(mocks.failProjectAnalysisRunV1).toHaveBeenCalledWith('user_1', 'proj_asset_1', {
+      expectedRevision: expect.any(Object),
+      runId: 'analysis_run_asset_1',
+      sourceAssetId: 'a1',
+      errorMessage: 'QStash dispatch failed: HTTP 503 — queue unavailable',
+    });
+    expect(mocks.refund).toHaveBeenCalledWith('Auto-edit analysis dispatch failed before worker queueing');
   });
 });
