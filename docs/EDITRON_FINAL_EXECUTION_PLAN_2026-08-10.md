@@ -16639,3 +16639,57 @@ suite and full repository quiet ESLint; (4) return to unfinished Queues 3 and 4,
 which alone may be worked in parallel under the founder's current authorization;
 (5) implement Queue 6 serially; and (6) certify agency verticals serially unless
 the founder explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4R checkpoint
+
+Commit `af0fea753` closes the live generic `addOverlayIfAbsent` bypass. The
+commit is pushed on `infrastructure-improvs-+Editron`.
+
+The sole live caller was the uploaded-audio assignment flow, so the generic
+writer was removed rather than widened. `attachUploadedAudioAtRevisionV1` is
+now the dedicated ProjectService mutation owner. It requires the caller's exact
+project revision and explicit actor, a supported project FPS, one exact positive
+in-project frame range, the semantic audio lane, sufficient source handles, a
+current project-bound derivative asset, matching assignment and rights receipts,
+matching server-measured SFX evidence when applicable, no active Director lease,
+and no overlapping timeline range lock. The final Mongo write rechecks project
+revision and overlay identity.
+
+An identical already-persisted assignment returns `ALREADY_ATTACHED` without a
+write or manufactured receipt. A stale project with no identical material is a
+revision conflict. A same-ID different placement/material is a hard collision.
+The former result that conflated stale state with replay is gone. The former
+30-FPS fallback and zero-duration `UNKNOWN_LEGACY_OVERLAY_TIMING` insertion are
+also gone. Caller-side atomic receipt stamping was removed; ProjectService now
+validates evidence, stamps the overlay and emits the project/range receipts.
+
+Focused verification passed 83/83 uploaded-audio assignment and ProjectService
+tests, including exact application, identical replay, stale rejection,
+insufficient-source-handle rejection and active-range-lock rejection. The
+uploaded-SFX render canary's persistence double was migrated to the explicit
+owner result contract. Targeted quiet ESLint, a full 8-GB TypeScript check,
+`git diff --check` and a live-code search proving the old method has no runtime
+definition or caller passed before push. Dated plan, census and research
+mentions remain historical evidence and are not current ownership claims. No
+provider call, render, storage spend, wallet mutation, project-content edit,
+paid cohort rerun or model inference occurred.
+
+This is uploaded-audio attachment closure, not universal Queue 5 closure.
+Direct receipts still declare downstream artifacts unmaterialized; durable
+derivative invalidation remains open. Whole-state save/autosave/checkpoint and
+the remaining specialized ProjectService writers still require
+operation-specific classification and enforcement. Full-repository quiet
+ESLint and the aggregate Queue 5 owner suite also remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) classify and close whole-state
+save/autosave/checkpoint and remaining specialized ProjectService writers
+serially; (2) run the aggregate mutation-owner suite and full repository quiet
+ESLint; (3) return to unfinished Queues 3 and 4, which alone may be worked in
+parallel under the founder's current authorization; (4) implement Queue 6
+serially; and (5) certify agency verticals serially unless the founder
+explicitly authorizes additional parallel execution.
