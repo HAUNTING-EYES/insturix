@@ -16567,3 +16567,75 @@ repository quiet ESLint; (3) return to unfinished Queues 3 and 4, which alone
 may be worked in parallel under the founder's current authorization; (4)
 implement Queue 6 serially; and (5) certify agency verticals serially unless
 the founder explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4Q checkpoint
+
+Commits `782b8a245`, `2ccb0645c`, `821c3528e`, `3d515d1a9`,
+`c181a7c5b`, `05f22bade`, `f7aae685a`, `5b9b89eb2` and `e1db59f6f`
+close the known generic complete-family replacement bypass identified by Phase
+4P. All listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+Caption-family replacement now has one exact-revision ProjectService owner.
+It preserves every stored non-caption overlay, validates exact caption ranges,
+identity, supported FPS, Director lease and overlapping timeline locks, and
+emits one mutation receipt plus one range-change receipt. Add, refresh and
+batch caption callers bind the revision of the project state that produced the
+caption proposal and no longer refresh to a newer revision before writing.
+
+Background-music replacement now has a separate exact-revision owner. It
+preserves every stored non-BGM overlay, validates the canonical coverage plan,
+one exact asset family, matching music-role rights, embedded versus
+reference-only usage, assignment/chat evidence, Director lease and range locks.
+Background-music assignment and chat replacement both use that owner. A BGM
+receipt must explicitly declare zero beat-realigned cuts; music replacement can
+no longer smuggle picture-cut movement into the same family write.
+
+Beat-synchronized cutting is now a distinct operation. The pure
+`resolveBeatSyncMutationV1` form owner applies the existing CKG-bound snap
+window, speech-boundary priority, source-handle checks, minimum clip length,
+transition linkage and four-lock run limit. ProjectService independently binds
+the selected sound overlay to current owned media, durable music rights and
+current stored/cached beat evidence, resolves visual source durations, reruns
+that form, checks the exact project revision, Director lease and affected range
+locks, and commits the linked clips/transitions under one CAS. The chat caller
+supplies intent and evidence selectors only; it cannot submit an authored
+overlay array. Unsafe or handle-incomplete proposals return a structured no-op,
+and stale revisions return a conflict without mutation.
+
+A fresh live-code search found zero callers of
+`replaceOverlayFamilyAtomic`. Commit `e1db59f6f` removed that generic API and
+its obsolete receipt tests. A permanent source assertion confirms it is absent
+from ProjectService. Mentions in V11 and dated design documents remain immutable
+historical evidence and are not current runtime ownership claims.
+
+Focused proof passed the caption owner/caller suites, 25 background-music
+assignment/owner tests, 14 chat/owner BGM tests, eight chat/owner beat-sync
+tests, and the final 78-test generated-composition/save/caption/BGM/beat
+regression closure. Targeted quiet ESLint, repeated 8-GB TypeScript checks and
+`git diff --check` passed before the corresponding pushes. Full-repository quiet
+ESLint and the aggregate Queue 5 owner suite remain required and are not claimed
+by this checkpoint. No provider call, render, storage spend, wallet mutation,
+project-content edit, paid cohort rerun or model inference occurred.
+
+This closes the known generic complete-family bypass, not universal Queue 5
+enforcement. Caption, BGM and beat receipts still declare downstream artifacts
+unmaterialized; durable derivative invalidation remains open. `addOverlayIfAbsent`,
+whole-state save/autosave/checkpoint paths and remaining specialized
+ProjectService writers still require operation-specific classification and
+enforcement of applicable evidence, project/source revision, coordinate range,
+lease/lock, rights, predecessor and invalidation prerequisites. Metadata-only
+and lease-only owners must declare non-applicable dimensions rather than receive
+fabricated media evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order is now: (1) classify and close `addOverlayIfAbsent` serially;
+(2) classify and close whole-state save/autosave/checkpoint and remaining
+specialized ProjectService writers serially; (3) run the aggregate mutation-owner
+suite and full repository quiet ESLint; (4) return to unfinished Queues 3 and 4,
+which alone may be worked in parallel under the founder's current authorization;
+(5) implement Queue 6 serially; and (6) certify agency verticals serially unless
+the founder explicitly authorizes additional parallel execution.
