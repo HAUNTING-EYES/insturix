@@ -10,6 +10,7 @@ import {
   verifyRenderAudioRightsAuthority,
 } from "@/lib/editron/services/render-audio-rights-authority";
 import {
+  CHAPTER_ORCHESTRATION_EXECUTION_KIND,
   buildChapterRenderApiData,
   buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
@@ -168,8 +169,9 @@ describe("Editron render request payloads", () => {
       })
     ));
 
+    const fetchMock = vi.mocked(fetch);
     await expect(getProgress({
-      id: "render_1",
+      renderId: "render_1",
       bucketName: "bucket",
     })).resolves.toEqual({
       type: "done",
@@ -177,6 +179,9 @@ describe("Editron render request payloads", () => {
       size: 42,
       deliveryManifest,
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/services/editron/cloudrun/progress?renderId=render_1&bucketName=bucket&region=us-east-1",
+    );
   });
 
   it("fails loudly when progress claims completion without an artifact", async () => {
@@ -191,7 +196,7 @@ describe("Editron render request payloads", () => {
     ));
 
     await expect(getProgress({
-      id: "render_without_artifact",
+      renderId: "render_without_artifact",
       bucketName: "bucket",
     })).resolves.toEqual({
       type: "error",
@@ -240,6 +245,58 @@ describe("Editron render request payloads", () => {
       })
     ).resolves.toEqual(data);
   });
+
+  it("serializes chapter orchestration progress without provider identity", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        type: "success",
+        data: { done: false, progress: 0.25 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProgress({
+      executionKind: CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+      orchestrationId: "chr_123",
+      region: "ap-south-1",
+    })).resolves.toEqual({
+      type: "progress",
+      progress: 25,
+      deliveryManifest: undefined,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/services/editron/cloudrun/progress?executionKind=CHAPTER_ORCHESTRATION&orchestrationId=chr_123&region=ap-south-1",
+    );
+    const requestedUrl = String(
+      (fetchMock.mock.calls[0] as unknown as [string] | undefined)?.[0],
+    );
+    expect(requestedUrl).not.toContain("bucketName");
+    expect(requestedUrl).not.toContain("renderId");
+  });
+
+  it("rejects mixed and unsupported progress discriminants before fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProgress({
+      executionKind: CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+      orchestrationId: "chr_123",
+      region: "us-east-1",
+      bucketName: "chapter-render",
+    } as never)).rejects.toThrow("cannot include provider identity");
+    await expect(getProgress({
+      executionKind: "UNSUPPORTED",
+      orchestrationId: "chr_123",
+      region: "us-east-1",
+    } as never)).rejects.toThrow("Unsupported render execution kind");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("builds chapter render success data in the client response contract", () => {
     expect(
       buildChapterRenderApiData({
@@ -248,13 +305,20 @@ describe("Editron render request payloads", () => {
         chapters: 3,
       })
     ).toEqual({
+      executionKind: CHAPTER_ORCHESTRATION_EXECUTION_KIND,
+      orchestrationId: "chr_123",
       renderId: "chr_123",
-      bucketName: "chapter-render",
       region: "us-east-1",
-      isChapterRender: true,
       chapters: 3,
       message: "Split into 3 chapters for parallel rendering",
     });
+    const data = buildChapterRenderApiData({
+      jobId: "chr_123",
+      region: "us-east-1",
+      chapters: 3,
+    });
+    expect(data).not.toHaveProperty("bucketName");
+    expect(data).not.toHaveProperty("isChapterRender");
   });
 
   it("hydrates compact render props from the project snapshot on the server side", () => {
@@ -627,20 +691,27 @@ describe("Editron render request payloads", () => {
       "{ projectId: canonicalProjectId }",
       hydrationIndex
     );
-    const creditIndex = routeSource.indexOf("checkCredits(userId");
+    const creditCheckIndex = routeSource.indexOf(
+      "renderCreditCheck = await checkCredits("
+    );
+    const creditDeductionIndex = routeSource.indexOf(
+      "const deduction = await renderCreditCheck.deduct()"
+    );
 
     expect(deliveryIndex).toBeGreaterThan(-1);
     expect(authorityIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeGreaterThan(-1);
+    expect(creditCheckIndex).toBeGreaterThan(-1);
+    expect(creditDeductionIndex).toBeGreaterThan(-1);
     expect(projectScopeIndex).toBeGreaterThan(hydrationIndex);
     expect(deliveryIndex).toBeLessThan(authorityIndex);
     expect(authorityIndex).toBeLessThan(gateIndex);
-    expect(gateIndex).toBeLessThan(hydrationIndex);
-    expect(projectScopeIndex).toBeLessThan(creditIndex);
-    expect(gateIndex).toBeLessThan(creditIndex);
+    expect(gateIndex).toBeLessThan(creditCheckIndex);
+    expect(creditCheckIndex).toBeLessThan(hydrationIndex);
+    expect(hydrationIndex).toBeLessThan(creditDeductionIndex);
     expect(
       chapterSource.match(/buildLambdaRenderInputProps\(/g)
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(chapterSource.indexOf("buildLambdaRenderInputProps("))
       .toBeLessThan(chapterSource.indexOf("renderMediaOnLambda({"));
   });
@@ -683,20 +754,27 @@ describe("Editron render request payloads", () => {
       "utf8"
     );
     const projectLoadIndex = routeSource.indexOf(
-      "projectService.loadProject(userId, canonicalProjectId)"
+      "const projectSnapshot = await projectService.loadProjectForRenderSnapshot("
     );
     const authorityIndex = routeSource.indexOf(
       "verifyRenderAudioRightsAuthority({"
     );
-    const creditIndex = routeSource.indexOf("checkCredits(userId");
-    const lambdaIndex = routeSource.indexOf("renderMediaOnLambda({");
+    const creditCheckIndex = routeSource.indexOf(
+      "renderCreditCheck = await checkCredits("
+    );
+    const lambdaIndex = routeSource.indexOf(
+      "const { bucketName, renderId } = await renderMediaOnLambda({"
+    );
 
     expect(routeSource).toContain("A persisted projectId is required for rendering");
     expect(routeSource).not.toContain("shouldHydrateRenderInputFromProject");
     expect(projectLoadIndex).toBeGreaterThan(-1);
+    expect(creditCheckIndex).toBeGreaterThan(-1);
+    expect(lambdaIndex).toBeGreaterThan(-1);
     expect(authorityIndex).toBeGreaterThan(projectLoadIndex);
-    expect(authorityIndex).toBeLessThan(creditIndex);
+    expect(authorityIndex).toBeLessThan(creditCheckIndex);
     expect(authorityIndex).toBeLessThan(lambdaIndex);
+    expect(creditCheckIndex).toBeLessThan(lambdaIndex);
   });
 
   it("rejects a fabricated library receipt that has no matching stored authority", async () => {
