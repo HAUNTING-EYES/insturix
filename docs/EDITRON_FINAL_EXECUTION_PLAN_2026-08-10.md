@@ -15924,3 +15924,46 @@ unfinished Queue 3-4 media chain, where only those two queues have the founder's
 current permission for parallel execution; (3) implement Queue 6 serially; and
 (4) certify the agency verticals serially unless the founder explicitly grants
 new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4E checkpoint
+
+Commits `2bf137e47`, `ac90b3fc0`, `59fa68324`, `60e162964`, `36db5d750`
+and `f03101c6d` migrate the bounded single-asset Video Analysis and TRIBE path
+onto revisioned ProjectService ownership. Single-asset intake now admits an
+exact analysis run; the Video Analysis worker advances that run through its
+legal lifecycle and commits fixed Phase-1 evidence atomically; TRIBE obtains a
+bounded deep-analysis lease, commits fixed Phase-2 evidence, creates a durable
+Director-dispatch record and publishes with a stable QStash deduplication
+identity. Ownership loss is a conflict rather than an accidental failure or
+refund. The `60e162964` commit is the required Step-0 dead-log cleanup before
+structural work in the large TRIBE owner.
+
+Focused source and integration proof, full 8-GB TypeScript, full repository
+quiet ESLint and `git diff --check` passed after the final code. No live provider
+call, wallet mutation, render, paid cohort rerun, model inference or external
+spend was performed by this checkpoint.
+
+This is shared lifecycle ownership, not complete Director or Queue 5
+convergence. The two development-inline Director call sites still duplicate
+raw `directing` and terminal project writes instead of consuming the canonical
+Director claim/completion owner. The Director worker must first receive its
+required Step-0 cleanup, after which one shared canonical execution path can be
+used by the worker and both inline callers without duplicating creative-form
+authority. Remaining batch projections, auto-edit rescue/recovery, storyboard
+finalization, Alyzitron and adjacent writers still require site-by-site
+classification and migration. Assist settlement also requires an explicit
+analysis-run terminal-state audit. The durable dispatch publication receipt is
+not a substitute for downstream Director claim and completion fencing, and no
+deployed QStash/IAM proof is claimed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order remains: (1) finish Director lifecycle convergence and the
+remaining universal Queue 5 writers serially; (2) return to the unfinished
+Queue 3-4 media chain, where only those two queues have the founder's current
+permission for parallel execution; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly grants new
+parallelization permission.
