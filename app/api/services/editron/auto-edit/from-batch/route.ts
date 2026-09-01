@@ -3,7 +3,6 @@ import { SchemaType, type GenerationConfig } from '@google/generative-ai';
 import { auth } from '@clerk/nextjs/server';
 import { Receiver } from '@upstash/qstash';
 import { projectService } from '@/lib/editron/services/project-service';
-import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   buildMediaUploadBatchSummary,
