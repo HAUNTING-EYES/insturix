@@ -1042,6 +1042,8 @@ function project(content: 'before' | 'after') {
   return {
     projectId: 'project-1',
     userId: 'user-1',
+    projectRevision: content === 'before' ? 7 : 8,
+    updatedAt: new Date(CAPTURED_REVISION.compatibilityUpdatedAt),
     fps: 30,
     durationInFrames: 300,
     overlays: [{

@@ -934,6 +934,8 @@ function project(content: 'before' | 'after') {
   return {
     projectId: 'project-1',
     userId: 'user-1',
+    projectRevision: content === 'before' ? 4 : 5,
+    updatedAt: new Date(ROLLBACK_RECEIPT.expectedRevision.compatibilityUpdatedAt),
     fps: 30,
     durationInFrames: 300,
     overlays: [{
