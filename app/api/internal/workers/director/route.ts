@@ -37,7 +37,6 @@ interface DirectorWorkerPayload {
   projectId: string;
   userId: string;
   profileId: string;
-  title?: string;
   platform?: string;
   userIntent?: string;
   captionStyle?: string;
@@ -76,7 +75,6 @@ function validProjectStartMs(value: unknown): number | null {
 
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  console.log('[DirectorWorker] Started');
   let trackedDirectorRun: { projectId: string; userId: string; runToken: string } | undefined;
   let trackedAssistProject: { projectId: string; userId: string; creditTransactionId?: string } | undefined;
 
@@ -84,7 +82,7 @@ async function handler(request: NextRequest) {
     const payload: DirectorWorkerPayload = await request.json();
     const {
       projectId, userId, profileId: initialProfileId,
-      title, platform, userIntent,
+      platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
       motionGraphics, pacingFeel, musicPreference, editorialPreferences: payloadEditorialPreferences,
       pipelineDirectorDispatchToken,
@@ -101,7 +99,6 @@ async function handler(request: NextRequest) {
         : { pipelineDirectorDispatchToken },
     );
     if (runClaim.disposition === 'PROJECT_NOT_FOUND' || runClaim.disposition === 'NOT_ELIGIBLE') {
-      console.log(`[DirectorWorker] Skipping ${projectId}: Director run claim is ${runClaim.disposition}.`);
       return NextResponse.json({ success: true, skipped: true, reason: 'already_processed' });
     }
 
@@ -121,10 +118,6 @@ async function handler(request: NextRequest) {
         throw new Error(`ProjectService returned an uncommitted assist Director claim for ${projectId}.`);
       }
       trackedAssistProject = { projectId, userId, creditTransactionId: payload.creditTransactionId };
-      console.log(
-        `[DirectorMode] Assist scan complete at project revision ${runClaim.receipt.revision.value}`
-        + ` — director skipped (project ${projectId}).`,
-      );
       return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
     }
 
@@ -135,23 +128,12 @@ async function handler(request: NextRequest) {
     trackedDirectorRun = { projectId, userId, runToken: runClaim.runToken };
 
     const rawFootageAnalysis = asRecord(projectDoc.rawFootageAnalysis);
-    const contentTypeDetection = rawFootageAnalysis
-      ? asRecord(rawFootageAnalysis.contentTypeDetection)
-      : null;
-
     if (!rawFootageAnalysis) {
       console.warn(`[DirectorWorker] rawFootageAnalysis is null for ${projectId} — Stage 1 data may not have replicated. Director will run with degraded profile detection.`);
     }
 
     // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
     const profileId = initialProfileId;
-    if (
-      typeof contentTypeDetection?.contentType === 'string'
-      && typeof contentTypeDetection.confidence === 'number'
-      && Number.isFinite(contentTypeDetection.confidence)
-    ) {
-      console.log(`[DirectorWorker] Content type: ${contentTypeDetection.contentType} (confidence=${contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
-    }
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────
     const editDNA = asRecord(projectDoc.referenceEditDNA);
@@ -191,17 +173,13 @@ async function handler(request: NextRequest) {
 
     // ─── Execute Director ─────────────────────────────────────────
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    // ProjectService owns durable stage state. This route only observes progress;
-    // the Director carries the writer-issued revision/lease through every stage.
+    // ProjectService owns durable stage state. The Director carries the
+    // writer-issued revision/lease through every stage.
     // The client reads it through GET /api/services/editron/projects/[id].
-    const emitProgress = (step: number, total: number, desc: string) => {
-      console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`);
-    };
     const directorResult = await executeDirectorPlan(
       projectId, userId, profileId, brief, {
         persistProjectProgress: true,
         deferProjectStatusTransitions: true,
-        onProgress: emitProgress,
       },
     );
     if (!directorResult.success || !directorResult.terminalProjectReceipt) {
@@ -244,38 +222,21 @@ async function handler(request: NextRequest) {
     }
     trackedDirectorRun = undefined;
 
-    if (directorDecisionAuthority) {
-      const signalAuditTotal = directorDecisionAuthority.signalAudit?.totalCount ?? 0;
-      console.log(
-        `[DirectorWorker] Decision authority: source=${directorDecisionAuthority.source}, ` +
-        `mode=${directorDecisionAuthority.decisionMode ?? 'unknown'}, ` +
-        `executable=${directorDecisionAuthority.executableProducer}, ` +
-        `signal-role=${directorDecisionAuthority.signalDecisionRole}, ` +
-        `added=${directorDecisionAuthority.addedSignalDecisionCount}, ` +
-        `audit=${signalAuditTotal}`
-      );
-    }
-    console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
     if (completionHealth.needsQualityAttention) {
       console.warn(`[DirectorWorker] Needs attention: ${projectId} qualityScore=${completionHealth.qualityScore} criticalCount=${completionHealth.criticalCount}`);
     }
 
     // ─── Bandit outcome recording ─────────────────────────────────
     try {
-      if (completionHealth.needsQualityAttention) {
-        console.log(`[DirectorWorker] Bandit: skipping — ${completionHealth.criticalCount} critical issues suggests system failure`);
-      } else {
+      if (!completionHealth.needsQualityAttention) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        const outcome = await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false, {
+        await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false, {
           evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
           renderedAestheticStatus:
             renderedQualityEvidence?.renderedAestheticStatus ??
             renderedQualityEvidence?.renderedQualityStatus ??
             renderedQualityEvidence?.artifactStatus,
         });
-        if (!outcome.recorded) {
-          console.log(`[DirectorWorker] Bandit: skipped (${outcome.reason ?? 'not_recorded'})`);
-        }
       }
     } catch (banditErr: unknown) {
       const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
