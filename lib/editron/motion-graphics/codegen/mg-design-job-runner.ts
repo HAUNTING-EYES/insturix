@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import type { Collection } from 'mongodb';
 
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
+import type { ProjectMgDesignExecutionResultV1, ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import type { EditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
 
 type EnvLike = Record<string, string | undefined>;
@@ -51,15 +52,11 @@ export interface MgDesignJob {
   expiresAt: Date;
 }
 
-export interface MgDesignExecutionResult {
-  jobId: string;
-  decisionsExecuted: number;
-  decisionsSkipped: number;
-  renderJobsQueued: number;
-  approvedCount: number;
-  declinedCount: number;
-  unavailableCount: number;
-  completedAt: string;
+export type MgDesignExecutionResult = ProjectMgDesignExecutionResultV1;
+
+interface MgDesignPreparedExecutionV1 {
+  expectedRevision: ProjectRevisionV1;
+  result: MgDesignExecutionResult;
 }
 
 interface MgDesignJobState {
@@ -76,8 +73,8 @@ interface MgDesignJobDependencies {
   getState?: (jobId: string) => Promise<MgDesignJobState>;
   waitForProjectReady?: (projectId: string, userId: string) => Promise<boolean>;
   claimJob?: (jobId: string, leaseId: string, now: Date) => Promise<MgDesignJob | null>;
-  executeJob?: (job: MgDesignJob) => Promise<MgDesignExecutionResult>;
-  completeJob?: (job: MgDesignJob, leaseId: string, result: MgDesignExecutionResult) => Promise<boolean>;
+  executeJob?: (job: MgDesignJob) => Promise<MgDesignPreparedExecutionV1>;
+  completeJob?: (job: MgDesignJob, leaseId: string, execution: MgDesignPreparedExecutionV1) => Promise<boolean>;
   failJob?: (job: MgDesignJob, leaseId: string, error: unknown, now: Date) => Promise<'queued' | 'failed' | 'stale-lease'>;
   /** Re-drive any chat editorial-intent parent waiting on this design child (adopts follow-on render jobs). */
   reconcileParent?: (input: { jobId: string; projectId: string; userId: string }) => Promise<void>;
@@ -287,7 +284,7 @@ async function claimMgDesignJob(jobId: string, leaseId: string, now: Date): Prom
 
 function retryableFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /\b429\b|rate.?limit|resource_exhausted|timeout|timed out|fetch failed|econnreset|socket|temporar|provider unavailable|service unavailable/i.test(message)
+  return /\b429\b|rate.?limit|resource_exhausted|timeout|timed out|fetch failed|econnreset|socket|temporar|provider unavailable|service unavailable|project revision changed/i.test(message)
     && !/project missing|ownership mismatch|invalid|configured brand could not be mapped/i.test(message);
 }
 
@@ -346,13 +343,11 @@ function shouldRetryUnavailableDesign(summary: {
   );
 }
 
-async function executeMgDesignJob(job: MgDesignJob): Promise<MgDesignExecutionResult> {
+async function executeMgDesignJob(job: MgDesignJob): Promise<MgDesignPreparedExecutionV1> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  const snapshot = await projectService.loadProjectForMutation(job.userId, job.projectId);
   const db = await getDatabase();
-  const project = await db.collection(COLLECTIONS.PROJECTS).findOne(
-    { projectId: job.projectId, userId: job.userId },
-    { projection: { overlays: 1 } },
-  ) as { overlays?: unknown[] } | null;
-  if (!project) throw new Error('MG design execution: project missing or ownership mismatch');
+  const project = snapshot.project;
   const overlays = Array.isArray(project.overlays) ? project.overlays : [];
   const assetIds = [...new Set(overlays.flatMap((overlay) => {
     if (!overlay || typeof overlay !== 'object') return [];
@@ -386,44 +381,46 @@ async function executeMgDesignJob(job: MgDesignJob): Promise<MgDesignExecutionRe
     .map((decision) => decision.params?.mgCodegenOutcome)
     .filter((value) => value && typeof value === 'object');
   return {
-    jobId: job._id,
-    decisionsExecuted: execution.decisionsExecuted,
-    decisionsSkipped: execution.decisionsSkipped,
-    renderJobsQueued: outcomes.filter((value) => (value as { status?: string }).status === 'queued').length,
-    approvedCount: execution.mgDesignSummary?.approvedCount ?? 0,
-    declinedCount: execution.mgDesignSummary?.declinedCount ?? 0,
-    unavailableCount: execution.mgDesignSummary?.unavailableCount ?? 0,
-    completedAt: new Date().toISOString(),
+    expectedRevision: snapshot.revision,
+    result: {
+      jobId: job._id,
+      decisionsExecuted: execution.decisionsExecuted,
+      decisionsSkipped: execution.decisionsSkipped,
+      renderJobsQueued: outcomes.filter((value) => (value as { status?: string }).status === 'queued').length,
+      approvedCount: execution.mgDesignSummary?.approvedCount ?? 0,
+      declinedCount: execution.mgDesignSummary?.declinedCount ?? 0,
+      unavailableCount: execution.mgDesignSummary?.unavailableCount ?? 0,
+      completedAt: new Date().toISOString(),
+      projectEvidence: execution.projectEvidence,
+    },
   };
 }
 
 async function completeMgDesignJob(
   job: MgDesignJob,
   leaseId: string,
-  result: MgDesignExecutionResult,
+  execution: MgDesignPreparedExecutionV1,
 ): Promise<boolean> {
-  const completedAt = new Date(result.completedAt);
-  const update = await (await jobsCollection()).updateOne(
-    { _id: job._id, status: 'running', leaseId },
-    { $set: {
-      status: 'completed',
-      result,
-      leaseId: null,
-      leaseExpiresAt: null,
-      updatedAt: completedAt,
-      completedAt,
-    } },
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  const completion = await projectService.completeMgDesignExecutionV1(
+    job.userId,
+    job.projectId,
+    {
+      expectedRevision: execution.expectedRevision,
+      leaseId,
+      result: execution.result,
+    },
   );
-  if (update.matchedCount === 0) return false;
-  await (await getDatabase()).collection(COLLECTIONS.PROJECTS).updateOne(
-    { projectId: job.projectId, userId: job.userId },
-    { $set: {
-      'intelligence.mgDesignJob.status': 'completed',
-      'intelligence.mgDesignJob.result': result,
-      'intelligence.mgDesignJob.completedAt': completedAt,
-    } },
-  );
-  return true;
+  if (completion.disposition === 'PROJECT_CONFLICT') {
+    throw new Error(
+      `MG design execution: project revision changed from ${execution.expectedRevision.value} `
+      + `to ${completion.currentRevision.value}`,
+    );
+  }
+  if (completion.disposition === 'PROJECT_NOT_FOUND') {
+    throw new Error('MG design execution: project missing or ownership mismatch');
+  }
+  return completion.disposition !== 'JOB_OWNERSHIP_LOST';
 }
 
 async function reconcileChatEditorialIntentParentForDesign(input: {
@@ -490,15 +487,15 @@ export async function executeQueuedMgDesignJob(
   }
   const reconcileParent = dependencies.reconcileParent ?? reconcileChatEditorialIntentParentForDesign;
   try {
-    const result = await (dependencies.executeJob ?? executeMgDesignJob)(claimed);
-    const completed = await (dependencies.completeJob ?? completeMgDesignJob)(claimed, leaseId, result);
+    const execution = await (dependencies.executeJob ?? executeMgDesignJob)(claimed);
+    const completed = await (dependencies.completeJob ?? completeMgDesignJob)(claimed, leaseId, execution);
     if (!completed) throw new Error(`MG design job ${jobId} lost its lease before completion`);
     // Best-effort: a waiting chat editorial-intent parent adopts this design child's follow-on render jobs.
     await reconcileParent({ jobId: claimed._id, projectId: claimed.projectId, userId: claimed.userId })
       .catch((reconcileError) => console.warn(
         `[MGDesignJob] parent reconciliation failed for ${claimed._id}: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`,
       ));
-    return { status: 'completed', result };
+    return { status: 'completed', result: execution.result };
   } catch (error) {
     const disposition = await (dependencies.failJob ?? failMgDesignJob)(claimed, leaseId, error, now);
     if (disposition === 'failed') {

@@ -268,16 +268,7 @@ describe('live MG codegen seam', () => {
     expect(jobInput).toMatchObject({ projectId: 'mg-live-project', userId: 'user-1', orgId: 'org-1', sequenceNamespace: 'user-1' });
     expect(mocks.assetsUpdateOne).not.toHaveBeenCalled();
     expect(mocks.recordStorageUsage).not.toHaveBeenCalled();
-    expect(mocks.projectsUpdateOne).toHaveBeenCalledWith(
-      { projectId: 'mg-live-project', userId: 'user-1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          'intelligence.mgCodegenRun.queuedCount': 1,
-          'intelligence.mgCodegenRun.generatedCount': 0,
-          'intelligence.mgCodegenRun.failedCount': 0,
-        }),
-      }),
-    );
+    expect(mocks.projectsUpdateOne).not.toHaveBeenCalled();
   });
 
   it('fails closed before durable dispatch when the video-level designer is unavailable', async () => {
@@ -363,18 +354,7 @@ describe('live MG codegen seam', () => {
       overlay.type === OverlayType.MG_SEQUENCE || overlay.type === OverlayType.MOTION_GRAPHIC
     ))).toBe(false);
     expect(mocks.assetsUpdateOne).not.toHaveBeenCalled();
-    const projectCall = mocks.projectsUpdateOne.mock.calls.at(-1) as unknown as
-      | [unknown, { $set: Record<string, any> }]
-      | undefined;
-    const runEvidence = projectCall?.[1].$set;
-    expect(runEvidence).toMatchObject({
-      'intelligence.mgCodegenRun.generatedCount': 0,
-      'intelligence.mgCodegenRun.failedCount': 1,
-    });
-    expect(runEvidence?.['intelligence.mgCodegenRun.outcomes'][0]).toMatchObject({
-      status: 'fallback',
-      reason: expect.stringContaining('QSTASH_TOKEN'),
-    });
+    expect(mocks.projectsUpdateOne).not.toHaveBeenCalled();
     expect(result.projectEvidence.mgCodegenRun).toMatchObject({
       queuedCount: 0,
       generatedCount: 0,

@@ -104,6 +104,22 @@ function completedResult(): MgDesignExecutionResult {
     declinedCount: 0,
     unavailableCount: 0,
     completedAt: '2026-08-03T06:05:00.000Z',
+    projectEvidence: {
+      schemaVersion: 1,
+      mgKineticSfxContexts: [],
+      mgDeliveryRecords: [],
+    },
+  };
+}
+
+function preparedResult() {
+  return {
+    expectedRevision: {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-03T06:04:00.000Z',
+    },
+    result: completedResult(),
   };
 }
 
@@ -191,8 +207,9 @@ describe('durable MG design scheduling', () => {
   });
 
   it('claims, executes, and completes exactly once', async () => {
-    const executeJob = vi.fn(async () => completedResult());
+    const executeJob = vi.fn(async () => preparedResult());
     const completeJob = vi.fn(async () => true);
+    const reconcileParent = vi.fn(async () => undefined);
     const result = await executeQueuedMgDesignJob('mgd_0123456789abcdef0123456789abcdef', {
       dependencies: {
         getState: async () => ({
@@ -206,11 +223,17 @@ describe('durable MG design scheduling', () => {
         claimJob: async () => designJob('running'),
         executeJob,
         completeJob,
+        reconcileParent,
       },
     });
     expect(result).toEqual({ status: 'completed', result: completedResult() });
     expect(executeJob).toHaveBeenCalledOnce();
-    expect(completeJob).toHaveBeenCalledOnce();
+    expect(completeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: 'mgd_0123456789abcdef0123456789abcdef' }),
+      expect.stringMatching(/^mgdl_/),
+      preparedResult(),
+    );
+    expect(reconcileParent).toHaveBeenCalledOnce();
   });
 
   it('persists a retry disposition for transient provider failure', async () => {

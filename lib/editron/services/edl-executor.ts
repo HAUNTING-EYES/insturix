@@ -69,7 +69,10 @@ import {
   buildVideoTasteContract,
   type TasteContractBuildResult,
 } from '@/lib/editron/motion-graphics/codegen/taste/contract-resolver';
-import { tasteContractLiveEnabled } from '@/lib/editron/motion-graphics/codegen/taste/shadow';
+import {
+  tasteContractLiveEnabled,
+  tasteContractShadowEnabled,
+} from '@/lib/editron/motion-graphics/codegen/taste/shadow';
 import { formatTasteContractForPrompt } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 import {
@@ -1364,25 +1367,6 @@ export async function executeEDL(
       completedAt: new Date(),
     };
     result.projectEvidence.mgCodegenRun = runEvidence;
-    try {
-      const { getDatabase } = await import('@/lib/editron/db/mongodb');
-      await (await getDatabase()).collection('projects').updateOne(
-        { projectId, userId },
-        {
-          $set: {
-            'intelligence.mgCodegenRun.version': runEvidence.version,
-            'intelligence.mgCodegenRun.queuedCount': runEvidence.queuedCount,
-            'intelligence.mgCodegenRun.generatedCount': runEvidence.generatedCount,
-            'intelligence.mgCodegenRun.failedCount': runEvidence.failedCount,
-            'intelligence.mgCodegenRun.outcomes': runEvidence.outcomes,
-            'intelligence.mgCodegenRun.truncated': runEvidence.truncated,
-            'intelligence.mgCodegenRun.completedAt': runEvidence.completedAt,
-          },
-        },
-      );
-    } catch (error) {
-      console.error('[EDL-MG-Codegen] failed to persist run evidence:', error);
-    }
   }
   return result;
 }
@@ -4410,16 +4394,22 @@ async function runMgDesignPrepass(
     brandMotionEnergy: mappedBrand.brand.motion.energy,
     preference: projectSignalContext.motionGraphicsPref,
   });
-  // Phase 2 (brief cycle-1 #3): VideoTasteContract in SHADOW — flag-gated, non-fatal, never changes live behavior.
-  if (options.shadowTarget) {
-    const { maybePersistTasteContractShadow } = await import('@/lib/editron/motion-graphics/codegen/taste/shadow');
-    const shadow = await maybePersistTasteContractShadow(options.shadowTarget.projectId, options.shadowTarget.userId, {
-      brand: mappedBrand.isDefault ? null : mappedBrand.brand,
-      hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
-      intent: projectSignalContext.intent,
-      videoSignals: projectSignalContext.videoSignals,
-    }).catch(() => undefined);
-    if (shadow) options.onTasteContractShadow?.(shadow.result);
+  // Build the flag-gated taste evidence without mutating the project. The
+  // durable MG worker returns it to ProjectService with the rest of this run.
+  if (
+    options.shadowTarget
+    && (tasteContractShadowEnabled() || tasteContractLiveEnabled())
+  ) {
+    try {
+      options.onTasteContractShadow?.(buildVideoTasteContract({
+        brand: mappedBrand.isDefault ? null : mappedBrand.brand,
+        hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
+        intent: projectSignalContext.intent,
+        videoSignals: projectSignalContext.videoSignals,
+      }));
+    } catch {
+      // Shadow evidence is optional and never authorizes an edit.
+    }
   }
   if (budget.maxMoments === 0) {
     return uniformMgDesignAuthority(
@@ -4848,42 +4838,6 @@ async function applyGraphic(
           ...projectEvidence.mgKineticSfxContexts.filter((context) => context.momentId !== momentId),
           kineticSfxContext,
         ].slice(-100);
-        try {
-          const { getDatabase } = await import('@/lib/editron/db/mongodb');
-          const projects = (await getDatabase()).collection('projects');
-          const replaced = await projects.updateOne(
-            {
-              projectId,
-              'intelligence.mgKineticSfxContexts.momentId': momentId,
-            },
-            {
-              $set: {
-                'intelligence.mgKineticSfxContexts.$': kineticSfxContext,
-              },
-            },
-          );
-          if (replaced.matchedCount === 0) {
-            await projects.updateOne(
-              {
-                projectId,
-                'intelligence.mgKineticSfxContexts.momentId': { $ne: momentId },
-              },
-              {
-                $push: {
-                  'intelligence.mgKineticSfxContexts': {
-                    $each: [kineticSfxContext],
-                    $slice: -100,
-                  } as never,
-                },
-              },
-            );
-          }
-        } catch (error) {
-          console.warn(
-            `[EDL] MG kinetic SFX context persistence failed for ${momentId}; async SFX will suppress:`,
-            error instanceof Error ? error.message : error,
-          );
-        }
         const enqueued = await enqueueDurableMgRenderJob({
           projectId,
           userId,
@@ -4894,10 +4848,10 @@ async function applyGraphic(
           sequenceNamespace: userId,
         });
 
-        // Phase 8 (§6.8/§16.2): durable per-moment delivery record so a lapsed/stale worker delivery can never
-        // silently mutate the project. Best-effort, non-blocking.
+        // Phase 8 (§6.8/§16.2): return the per-moment delivery record so the
+        // durable MG-design completion can land it atomically with the job.
         try {
-          const { computeDeliveryRecord, persistMGDeliveryRecord } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery-record');
+          const { computeDeliveryRecord } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery-record');
           const deliveryRecord = computeDeliveryRecord({
             videoId: projectId,
             momentId,
@@ -4912,9 +4866,8 @@ async function applyGraphic(
             ...projectEvidence.mgDeliveryRecords.filter((record) => record.momentId !== momentId),
             deliveryRecord,
           ].slice(-200);
-          await persistMGDeliveryRecord(projectId, userId, deliveryRecord);
         } catch (deliveryRecordErr) {
-          console.warn('[EDL] MG delivery record persist failed (non-fatal):', deliveryRecordErr instanceof Error ? deliveryRecordErr.message : deliveryRecordErr);
+          console.warn('[EDL] MG delivery record construction failed (non-fatal):', deliveryRecordErr instanceof Error ? deliveryRecordErr.message : deliveryRecordErr);
         }
 
         if (enqueued.status !== 'completed') {
