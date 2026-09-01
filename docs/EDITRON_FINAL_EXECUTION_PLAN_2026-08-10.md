@@ -16180,3 +16180,66 @@ The binding order remains: (1) finish the remaining Queue 5 writers serially;
 the founder's current authorization; (3) implement Queue 6 serially; and (4)
 certify the agency verticals serially unless the founder explicitly authorizes
 additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4J checkpoint
+
+Commits `d23878b88`, `e1ff45336`, `50a5fd886`, `34afd8ce4`, `6cc78053b`,
+`73e21da2d` and `0a10bd8ef` close the batch-route project-lifecycle groups left
+open by Phase 4I. ProjectService now owns the auto-lane coverage, terminal and
+pre-Director refund transitions under exact project revision, upload-batch,
+lane, status and transition identity. Coverage dispatch failure compensates the
+same project receipt and batch transition. A provider-accepted callback with a
+lost batch projection reports that projection as pending instead of falsely
+reporting the project mutation as failed.
+
+Auto-lane refund handling is now an explicit durable sequence:
+
+```text
+exact project refund-pending receipt
+→ idempotent wallet refund by original charge transaction
+→ exact project refund-recorded receipt
+```
+
+The wallet adapter throws when the credit owner returns `success:false`; a
+wallet error leaves the exact pending identity for recovery, and a post-wallet
+project-CAS loss is reported separately as `refund-record-pending`. The raw
+`autoEditRefunded:true` marker and its false-success window no longer exist in
+the batch route.
+
+No-usable-media, analysis-deadline, insufficient-credit, terminal
+script-grounding, exhausted-retry and initial-dispatch failures now commit the
+project first through ProjectService. The media-upload batch is a guarded
+downstream projection carrying the transition ID and project mutation receipt.
+Uncharged Assist failures use the existing no-charge cancellation CAS; charged
+Assist failures remain under the Assist settlement owner. A lost batch CAS is
+returned as `batchProjectionPending:true`; there is no raw project fallback.
+
+The final focused closure passed 52/52 ProjectService lifecycle and batch-route
+tests, including refund identity mismatch, the real `analyzing` refund state,
+auto/Assist insufficient-credit separation, project-before-batch ordering,
+terminal script grounding, exhausted retries, initial QStash failure and a
+deliberately lost terminal batch projection. The 8-GB TypeScript check, full
+repository quiet ESLint and `git diff --check` passed before `0a10bd8ef` was
+pushed. A fresh exact source query finds zero direct
+`COLLECTIONS.PROJECTS).updateOne` calls in the from-batch route.
+
+This is batch-route ownership convergence, not universal Queue 5 convergence.
+The fresh exact repository inventory still finds direct project writers outside
+ProjectService in stuck-project recovery, the explicit audio migration route,
+two storyboard-finalization paths and Alyzitron publication. Raw single-asset
+intake publication and any writers using a different Mongo/Mongoose spelling
+still require the final broader inventory. Each site must be classified as a
+runtime mutation, an explicit migration owner or dead/duplicate authority before
+Queue 5 can close.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish single-asset intake, storyboard,
+Alyzitron, recovery/migration classification and the broad Queue 5 writer
+inventory serially; (2) return to unfinished Queues 3 and 4, which alone may be
+worked in parallel under the founder's current authorization; (3) implement
+Queue 6 serially; and (4) certify the agency verticals serially unless the
+founder explicitly authorizes further parallel execution.
