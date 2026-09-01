@@ -36,6 +36,7 @@ import {
 } from '@/lib/editron/services/project-service';
 import { advanceDirectorRevisionFromReceiptsV1 } from '@/lib/editron/agent/director-revision-chain-v1';
 import {
+  buildDirectorVjepaCoverageAuditSummaryV1,
   createDirectorAuditFactV1,
   type DirectorAuditFactV1,
   type PostBundleProfileActionPolicySummaryV1,
@@ -2406,17 +2407,22 @@ export async function executeDirectorPlan(
           console.warn(`[Director] ${auditWarning}`);
           result.warnings.push(auditWarning);
         }
-        try {
-          const auditDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-          await auditDb.collection('projects').updateOne(
-            { projectId },
-            { $set: { 'intelligence.vjepaCoverageAudit': vjepaAudit } },
-          );
-        } catch (err: unknown) {
-          console.warn('[Director] non-fatal V-JEPA coverage audit persistence:', err instanceof Error ? err.message : err);
-        }
+        await recordDirectorAuditFact(createDirectorAuditFactV1({
+          kind: 'VJEPA_COVERAGE_AUDIT',
+          payload: buildDirectorVjepaCoverageAuditSummaryV1(vjepaAudit),
+        }));
       }
     } catch (auditErr: any) {
+      if (
+        auditErr instanceof ProjectMutationConflictError
+        || auditErr instanceof ProjectMutationWriteError
+        || auditErr instanceof ProjectNotFoundOrForbiddenError
+      ) {
+        throw auditErr;
+      }
+      if (auditErr instanceof Error && auditErr.message === 'DIRECTOR_AUDIT_FACT_INVALID') {
+        throw new ProjectMutationWriteError('Computed V-JEPA coverage audit evidence is invalid.');
+      }
       console.warn(`[Director] V-JEPA coverage audit failed (non-fatal): ${auditErr.message}`);
     }
 

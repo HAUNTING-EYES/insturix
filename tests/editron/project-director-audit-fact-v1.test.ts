@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildDirectorVjepaCoverageAuditSummaryV1,
   createDirectorAuditFactV1,
   type DirectorAuditFactKindV1,
 } from "@/lib/editron/services/director-audit-fact-v1";
@@ -95,12 +96,68 @@ function skipSummaryPayload(): Record<string, unknown> {
   };
 }
 
+function coverageSummary() {
+  return {
+    segmentCount: 2,
+    spanStartMs: 0,
+    spanEndMs: 2_000,
+    coveredMs: 2_000,
+    gapCount: 0,
+    gapTotalMs: 0,
+    maxGapMs: 0,
+    coverageRatio: 1,
+    fieldCoverage: {
+      visualSignificance: 1,
+      motionIntensity: 1,
+      actionType: 1,
+      motionType: 1,
+      faceEmotion: 1,
+      eyeContact: 1,
+      motionVector: 1,
+      mainSubject: 1,
+      textBoxes: 1,
+      textCoverage: 1,
+      negativeSpace: 1,
+      objectCount: 1,
+      faceCount: 1,
+    },
+  };
+}
+
+function vjepaPayload(): Record<string, unknown> {
+  return buildDirectorVjepaCoverageAuditSummaryV1({
+    status: "warn",
+    issues: Array.from({ length: 60 }, (_, index) => `warn:fixture-${index}`),
+    fps: 30,
+    expectedDurationMs: 2_000,
+    durationBasis: "original-media",
+    segmentCoverage: coverageSummary(),
+    rawFootageCoverage: coverageSummary(),
+    overlayHitRate: 0,
+    overlayHits: [{
+      index: 0,
+      cutFrame: 10,
+      cutTimeMs: 333,
+      sourceFrame: null,
+      sourceTimeMs: null,
+      exactHit: false,
+      nearestGapMs: null,
+    }],
+    reliability: {
+      screenAwarePlacement: "degraded",
+      score: 0.5,
+      reasons: ["fixture-gap"],
+    },
+  });
+}
+
 function payloadFor(kind: DirectorAuditFactKindV1): Record<string, unknown> {
   switch (kind) {
     case "UNIFIED_DECISION_BUNDLE": return unifiedPayload();
     case "POST_BUNDLE_PROFILE_ACTION_POLICY": return policyPayload();
     case "INTELLIGENCE_RUN_SUMMARY": return runSummaryPayload();
     case "INTELLIGENCE_SKIP_SUMMARY": return skipSummaryPayload();
+    case "VJEPA_COVERAGE_AUDIT": return vjepaPayload();
   }
 }
 
@@ -179,6 +236,12 @@ describe("ProjectService Director audit facts V1", () => {
         "intelligence.lastAttempt": new Date("2026-09-01T12:00:00.000Z"),
         "intelligence.message": "Intelligence EDL skipped: asset-analysis-unavailable; 1 asset failure(s).",
       },
+    },
+    {
+      kind: "VJEPA_COVERAGE_AUDIT" as const,
+      targetPath: "intelligence.vjepaCoverageAudit",
+      bindingPath: "intelligence.directorAuditFactBindings.vjepaCoverageAudit",
+      compatibility: {},
     },
   ])("commits $kind through the exact Director lease and revision", async ({
     kind,
@@ -285,6 +348,19 @@ describe("ProjectService Director audit facts V1", () => {
     expect(() => createDirectorAuditFactV1({
       kind: "INTELLIGENCE_RUN_SUMMARY",
       payload: { ...runSummaryPayload(), assetsFailed: 0 },
+    })).toThrow("DIRECTOR_AUDIT_FACT_INVALID");
+    const boundedVjepa = vjepaPayload();
+    expect(boundedVjepa).toMatchObject({
+      issueCount: 60,
+      issuesTruncated: true,
+      overlayHitCount: 1,
+      overlayHits: [],
+      overlayHitsTruncated: true,
+    });
+    expect((boundedVjepa.issues as unknown[])).toHaveLength(50);
+    expect(() => createDirectorAuditFactV1({
+      kind: "VJEPA_COVERAGE_AUDIT",
+      payload: { ...boundedVjepa, overlayHitCount: 0 },
     })).toThrow("DIRECTOR_AUDIT_FACT_INVALID");
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();

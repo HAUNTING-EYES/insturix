@@ -5081,6 +5081,10 @@ export class ProjectService {
           "intelligence.message": payload.message,
         };
         break;
+      case "VJEPA_COVERAGE_AUDIT":
+        bindingPath = "intelligence.directorAuditFactBindings.vjepaCoverageAudit";
+        factSet = { "intelligence.vjepaCoverageAudit": payload };
+        break;
     }
     const db = await getDatabase();
     const committedAt = new Date();

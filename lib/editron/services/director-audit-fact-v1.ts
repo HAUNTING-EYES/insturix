@@ -1,4 +1,9 @@
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
+import type {
+  SegmentCoverageSummary,
+  VjepaCoverageAudit,
+  VjepaReliabilitySummary,
+} from "./vjepa-coverage-audit";
 
 const MAX_AUDIT_FACT_BYTES_V1 = 256 * 1_024;
 const MAX_AUDIT_STRING_V1 = 8_000;
@@ -7,7 +12,8 @@ export type DirectorAuditFactKindV1 =
   | "UNIFIED_DECISION_BUNDLE"
   | "POST_BUNDLE_PROFILE_ACTION_POLICY"
   | "INTELLIGENCE_RUN_SUMMARY"
-  | "INTELLIGENCE_SKIP_SUMMARY";
+  | "INTELLIGENCE_SKIP_SUMMARY"
+  | "VJEPA_COVERAGE_AUDIT";
 
 export type PostBundleProfileActionPolicySummaryV1 = {
   version: "post-bundle-profile-action-policy-v1";
@@ -45,6 +51,24 @@ export type DirectorIntelligenceSkipSummaryV1 = {
   attemptedAt: string;
 };
 
+export type DirectorVjepaCoverageAuditSummaryV1 = Record<string, unknown> & {
+  version: "director-vjepa-coverage-audit-v1";
+  status: VjepaCoverageAudit["status"];
+  issues: string[];
+  issueCount: number;
+  issuesTruncated: boolean;
+  fps: number;
+  expectedDurationMs: number | null;
+  durationBasis: VjepaCoverageAudit["durationBasis"];
+  segmentCoverage: SegmentCoverageSummary;
+  rawFootageCoverage: SegmentCoverageSummary | null;
+  overlayHitRate: number | null;
+  overlayHitCount: number;
+  overlayHits: [];
+  overlayHitsTruncated: boolean;
+  reliability: VjepaReliabilitySummary | null;
+};
+
 export type DirectorAuditFactV1 = Readonly<{
   schemaVersion: 1;
   kind: DirectorAuditFactKindV1;
@@ -65,6 +89,32 @@ export function createDirectorAuditFactV1(input: {
   };
   assertDirectorAuditFactV1(fact);
   return fact;
+}
+
+export function buildDirectorVjepaCoverageAuditSummaryV1(
+  audit: VjepaCoverageAudit,
+): DirectorVjepaCoverageAuditSummaryV1 {
+  const summary: DirectorVjepaCoverageAuditSummaryV1 = {
+    version: "director-vjepa-coverage-audit-v1",
+    status: audit.status,
+    issues: audit.issues.slice(0, 50),
+    issueCount: audit.issues.length,
+    issuesTruncated: audit.issues.length > 50,
+    fps: audit.fps,
+    expectedDurationMs: audit.expectedDurationMs,
+    durationBasis: audit.durationBasis,
+    segmentCoverage: structuredClone(audit.segmentCoverage),
+    rawFootageCoverage: audit.rawFootageCoverage
+      ? structuredClone(audit.rawFootageCoverage)
+      : null,
+    overlayHitRate: audit.overlayHitRate,
+    overlayHitCount: audit.overlayHits.length,
+    overlayHits: [],
+    overlayHitsTruncated: audit.overlayHits.length > 0,
+    reliability: audit.reliability ? structuredClone(audit.reliability) : null,
+  };
+  assertDirectorAuditPayloadV1("VJEPA_COVERAGE_AUDIT", summary);
+  return summary;
 }
 
 export function assertDirectorAuditFactV1(fact: DirectorAuditFactV1): void {
@@ -104,6 +154,9 @@ function assertDirectorAuditPayloadV1(
       return;
     case "INTELLIGENCE_SKIP_SUMMARY":
       assertDirectorIntelligenceSkipSummaryV1(payload);
+      return;
+    case "VJEPA_COVERAGE_AUDIT":
+      assertDirectorVjepaCoverageAuditSummaryV1(payload);
       return;
   }
 }
@@ -230,6 +283,103 @@ function assertDirectorIntelligenceSkipSummaryV1(payload: Record<string, unknown
   }
 }
 
+function assertDirectorVjepaCoverageAuditSummaryV1(payload: Record<string, unknown>): void {
+  assertExactKeys(payload, [
+    "version",
+    "status",
+    "issues",
+    "issueCount",
+    "issuesTruncated",
+    "fps",
+    "expectedDurationMs",
+    "durationBasis",
+    "segmentCoverage",
+    "rawFootageCoverage",
+    "overlayHitRate",
+    "overlayHitCount",
+    "overlayHits",
+    "overlayHitsTruncated",
+    "reliability",
+  ]);
+  if (
+    payload.version !== "director-vjepa-coverage-audit-v1"
+    || (payload.status !== "pass" && payload.status !== "warn" && payload.status !== "fail")
+    || !boundedStringArray(payload.issues, 50, 1_000)
+    || !nonNegativeInteger(payload.issueCount)
+    || (payload.issueCount as number) < (payload.issues as string[]).length
+    || payload.issuesTruncated !== ((payload.issueCount as number) > (payload.issues as string[]).length)
+    || !positiveFiniteNumber(payload.fps)
+    || !nullableNonNegativeFiniteNumber(payload.expectedDurationMs)
+    || (payload.durationBasis !== "vjepa-eligible-video-timeline"
+      && payload.durationBasis !== "original-media"
+      && payload.durationBasis !== "unknown")
+    || !isSegmentCoverageSummaryV1(payload.segmentCoverage)
+    || (payload.rawFootageCoverage !== null
+      && !isSegmentCoverageSummaryV1(payload.rawFootageCoverage))
+    || !nullableRatio(payload.overlayHitRate)
+    || !nonNegativeInteger(payload.overlayHitCount)
+    || !Array.isArray(payload.overlayHits)
+    || payload.overlayHits.length !== 0
+    || payload.overlayHitsTruncated !== ((payload.overlayHitCount as number) > 0)
+    || (payload.reliability !== null && !isVjepaReliabilitySummaryV1(payload.reliability))
+  ) {
+    fail();
+  }
+}
+
+function isSegmentCoverageSummaryV1(value: unknown): boolean {
+  if (!isPlainRecord(value) || !hasExactKeys(value, [
+    "segmentCount",
+    "spanStartMs",
+    "spanEndMs",
+    "coveredMs",
+    "gapCount",
+    "gapTotalMs",
+    "maxGapMs",
+    "coverageRatio",
+    "fieldCoverage",
+  ])) return false;
+  const fieldCoverage = value.fieldCoverage;
+  if (
+    !nonNegativeInteger(value.segmentCount)
+    || !nullableFiniteNumber(value.spanStartMs)
+    || !nullableFiniteNumber(value.spanEndMs)
+    || !nonNegativeFiniteNumber(value.coveredMs)
+    || !nonNegativeInteger(value.gapCount)
+    || !nonNegativeFiniteNumber(value.gapTotalMs)
+    || !nonNegativeFiniteNumber(value.maxGapMs)
+    || !nullableRatio(value.coverageRatio)
+    || !isPlainRecord(fieldCoverage)
+  ) return false;
+  const fieldKeys = [
+    "visualSignificance",
+    "motionIntensity",
+    "actionType",
+    "motionType",
+    "faceEmotion",
+    "eyeContact",
+    "motionVector",
+    "mainSubject",
+    "textBoxes",
+    "textCoverage",
+    "negativeSpace",
+    "objectCount",
+    "faceCount",
+  ];
+  return hasExactKeys(fieldCoverage, fieldKeys)
+    && fieldKeys.every((key) => ratio(fieldCoverage[key]));
+}
+
+function isVjepaReliabilitySummaryV1(value: unknown): boolean {
+  return isPlainRecord(value)
+    && hasExactKeys(value, ["screenAwarePlacement", "score", "reasons"])
+    && (value.screenAwarePlacement === "trusted"
+      || value.screenAwarePlacement === "degraded"
+      || value.screenAwarePlacement === "unavailable")
+    && ratio(value.score)
+    && boundedStringArray(value.reasons, 50, 1_000);
+}
+
 function boundedStringArray(value: unknown, maxItems: number, maxItemLength: number): boolean {
   return Array.isArray(value)
     && value.length <= maxItems
@@ -240,7 +390,32 @@ function isDirectorAuditFactKindV1(value: unknown): value is DirectorAuditFactKi
   return value === "UNIFIED_DECISION_BUNDLE"
     || value === "POST_BUNDLE_PROFILE_ACTION_POLICY"
     || value === "INTELLIGENCE_RUN_SUMMARY"
-    || value === "INTELLIGENCE_SKIP_SUMMARY";
+    || value === "INTELLIGENCE_SKIP_SUMMARY"
+    || value === "VJEPA_COVERAGE_AUDIT";
+}
+
+function positiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function nonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function nullableFiniteNumber(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function nullableNonNegativeFiniteNumber(value: unknown): boolean {
+  return value === null || nonNegativeFiniteNumber(value);
+}
+
+function ratio(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function nullableRatio(value: unknown): boolean {
+  return value === null || ratio(value);
 }
 
 function nonNegativeIntegerRecord(value: unknown): boolean {
