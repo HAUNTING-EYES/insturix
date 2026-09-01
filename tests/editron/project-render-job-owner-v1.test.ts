@@ -824,6 +824,22 @@ describe("Project render-job owner V1", () => {
     expect(JSON.stringify(collection.findOneAndUpdate.mock.calls[0]![0])).toContain(
       '"bucketName":"different-render-output"',
     );
+    expect(collection.findOneAndUpdate.mock.calls[0]![0]).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          $or: [
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+            },
+            {
+              providerRenderId: "provider-render-1",
+              bucketName: "different-render-output",
+            },
+          ],
+        }),
+      ]),
+    }));
     collection.findOneAndUpdate.mockClear();
     collection.findOneAndUpdate.mockResolvedValueOnce(makeFinalizingJob(binding, "claim-1"));
     const claim = await claimProjectRenderJobFinalizationV1({

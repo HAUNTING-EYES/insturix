@@ -14,11 +14,18 @@ const routeMocks = vi.hoisted(() => ({
   markProjectRenderJobStarted: vi.fn(),
   failJob: vi.fn(),
   failProjectRenderJob: vi.fn(),
+  failProjectRenderJobFromProvider: vi.fn(),
   claimJobFinalization: vi.fn(),
+  claimProjectRenderJobFinalization: vi.fn(),
   releaseJobFinalizationClaim: vi.fn(),
+  releaseProjectRenderJobFinalizationClaim: vi.fn(),
   getJob: vi.fn(),
+  getCurrentProjectRenderJob: vi.fn(),
+  getProjectRenderJobAuthorizationByAdmission: vi.fn(),
   claimFailedJobFinalizationRetry: vi.fn(),
+  claimFailedProjectRenderJobFinalizationRetry: vi.fn(),
   releaseFailedJobFinalizationRetryClaim: vi.fn(),
+  releaseFailedProjectRenderJobFinalizationRetryClaim: vi.fn(),
   reconcileProviderTerminalEvent: vi.fn(),
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
@@ -70,11 +77,22 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   markProjectRenderJobStartedV1: routeMocks.markProjectRenderJobStarted,
   failJob: routeMocks.failJob,
   failProjectRenderJobV1: routeMocks.failProjectRenderJob,
+  failProjectRenderJobFromProviderV1: routeMocks.failProjectRenderJobFromProvider,
   claimJobFinalization: routeMocks.claimJobFinalization,
+  claimProjectRenderJobFinalizationV1: routeMocks.claimProjectRenderJobFinalization,
   releaseJobFinalizationClaim: routeMocks.releaseJobFinalizationClaim,
+  releaseProjectRenderJobFinalizationClaimV1:
+    routeMocks.releaseProjectRenderJobFinalizationClaim,
   getJob: routeMocks.getJob,
+  getCurrentProjectRenderJobV1: routeMocks.getCurrentProjectRenderJob,
+  getProjectRenderJobAuthorizationByAdmissionV1:
+    routeMocks.getProjectRenderJobAuthorizationByAdmission,
   claimFailedJobFinalizationRetry: routeMocks.claimFailedJobFinalizationRetry,
+  claimFailedProjectRenderJobFinalizationRetryV1:
+    routeMocks.claimFailedProjectRenderJobFinalizationRetry,
   releaseFailedJobFinalizationRetryClaim: routeMocks.releaseFailedJobFinalizationRetryClaim,
+  releaseFailedProjectRenderJobFinalizationRetryClaimV1:
+    routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim,
   reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
 }));
@@ -101,6 +119,7 @@ vi.mock('@/lib/editron/services/asset-resolver', async (importOriginal) => {
 });
 
 vi.mock('@/lib/editron/services/project-service', () => ({
+  ProjectNotFoundOrForbiddenError: class ProjectNotFoundOrForbiddenError extends Error {},
   projectService: {
     loadProject: routeMocks.loadProject,
     loadProjectForRenderSnapshot: routeMocks.loadProjectForRenderSnapshot,
@@ -263,7 +282,34 @@ describe('Editron render startup boundary', () => {
       status: 'STALE',
     });
     routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
+    routeMocks.releaseProjectRenderJobFinalizationClaim.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+    });
     routeMocks.releaseFailedJobFinalizationRetryClaim.mockResolvedValue(true);
+    routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim.mockResolvedValue({
+      ok: true,
+      status: 'CURRENT',
+    });
+    routeMocks.getJob.mockResolvedValue({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      projectId: 'project_1',
+      status: 'rendering',
+    });
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockImplementation(
+      async ({ jobId }: { jobId: string }) => {
+        const job = await routeMocks.getJob(jobId);
+        return job
+          ? { ok: false, status: 'NOT_PROJECT_RENDER_JOB', job }
+          : {
+              ok: false,
+              status: 'NON_CURRENT',
+              code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+              reason: 'JOB_NOT_CURRENT',
+            };
+      },
+    );
     routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
     routeMocks.reconcileProviderTerminalEvent.mockResolvedValue(undefined);
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
@@ -785,6 +831,139 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
   });
 
+  it('binds signed project-render success through the exact current snapshot owner', async () => {
+    const lookup = strictProjectRenderLookup('rendering', false);
+    const claim = strictProjectRenderClaim();
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.claimProjectRenderJobFinalization.mockResolvedValueOnce(claim);
+    const payload = {
+      type: 'success',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      outputFile: 'https://bucket.example.test/render.mp4',
+      outputSizeInBytes: 44_583_988,
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    };
+
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest(payload));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledWith('user_1', 'project_1');
+    expect(routeMocks.getCurrentProjectRenderJob).toHaveBeenCalledWith({
+      authorization: lookup.authorization,
+      currentProjectRevision: projectRevision(),
+    });
+    expect(routeMocks.claimProjectRenderJobFinalization).toHaveBeenCalledWith({
+      authorization: lookup.authorization,
+      currentProjectRevision: projectRevision(),
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      sourceOutputUrl: 'https://bucket.example.test/render.mp4',
+      sourceOutputSize: 44_583_988,
+    });
+    expect(routeMocks.claimJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({
+        jobId: 'rnd_admission_1',
+        projectRenderAuthorization: lookup.authorization,
+      }),
+    }));
+  });
+
+  it('rejects missing, forged, and stale project-render webhook bindings without fallback', async () => {
+    const lookup = strictProjectRenderLookup('rendering');
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    const missingHash = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: { editronRenderAdmissionId: 'rnd_admission_1' },
+    }));
+    expect(missingHash.status).toBe(400);
+    expect(routeMocks.getCurrentProjectRenderJob).not.toHaveBeenCalled();
+
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    });
+    const forged = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'f'.repeat(64),
+      },
+    }));
+    expect(forged.status).toBe(409);
+
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
+    const stale = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'success',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      outputFile: 'https://bucket.example.test/render.mp4',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+    expect(stale.status).toBe(409);
+    expect(routeMocks.claimProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.claimJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+  });
+
+  it('binds signed project-render provider failure without generic reconciliation', async () => {
+    const lookup = strictProjectRenderLookup('rendering');
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.failProjectRenderJobFromProvider.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+    });
+
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.failProjectRenderJobFromProvider).toHaveBeenCalledWith({
+      authorization: lookup.authorization,
+      currentProjectRevision: projectRevision(),
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      error: 'Remotion render timed out',
+    });
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+  });
+
   it('CRITICAL: rejects forged render callbacks before durable state changes', async () => {
     routeMocks.validateWebhookSignature.mockImplementation(() => {
       throw new Error('Signatures do not match');
@@ -1156,6 +1335,66 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 
+  it('queues collaborator-authorized strict recovery with server-owned authorization', async () => {
+    const lookup = strictProjectRenderLookup('error');
+    const claim = strictProjectRenderClaim();
+    routeMocks.auth.mockResolvedValueOnce({ userId: 'user_collaborator' });
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.claimFailedProjectRenderJobFinalizationRetry.mockResolvedValueOnce(claim);
+
+    const response = await POST_FINALIZATION_RETRY(
+      retryFinalizationRequest('rnd_admission_1'),
+    );
+
+    expect(response.status).toBe(202);
+    expect(routeMocks.loadProjectForRenderSnapshot).toHaveBeenCalledWith(
+      'user_collaborator',
+      'project_1',
+    );
+    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetry).toHaveBeenCalledWith({
+      authorization: lookup.authorization,
+      currentProjectRevision: projectRevision(),
+    });
+    expect(routeMocks.claimFailedJobFinalizationRetry).not.toHaveBeenCalled();
+    expect(routeMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({
+        jobId: 'rnd_admission_1',
+        projectRenderAuthorization: lookup.authorization,
+      }),
+    }));
+  });
+
+  it('restores strict recovery through the exact claim when queue publication fails', async () => {
+    const lookup = strictProjectRenderLookup('error');
+    const claim = strictProjectRenderClaim();
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.claimFailedProjectRenderJobFinalizationRetry.mockResolvedValueOnce(claim);
+    routeMocks.publishJSON.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    const failed = await POST_FINALIZATION_RETRY(
+      retryFinalizationRequest('rnd_admission_1'),
+    );
+
+    expect(failed.status).toBe(503);
+    expect(routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim).toHaveBeenCalledWith({
+      authorization: claim.authorization,
+      currentProjectRevision: projectRevision(),
+      claimToken: claim.claimToken,
+      error: expect.any(Error),
+    });
+    expect(routeMocks.releaseFailedJobFinalizationRetryClaim).not.toHaveBeenCalled();
+  });
+
   it('keeps failed recovery retryable when queue publication fails and hides foreign jobs', async () => {
     const failedJob = {
       _id: 'rnd_admission_1',
@@ -1498,6 +1737,77 @@ function projectRevision() {
     schemaVersion: 1 as const,
     value: 7,
     compatibilityUpdatedAt: '2026-08-29T00:00:00.000Z',
+  };
+}
+
+function strictProjectRenderAuthorization() {
+  return {
+    schemaVersion: 1 as const,
+    jobId: 'rnd_admission_1',
+    ownerId: 'user_1',
+    requestedByUserId: 'user_1',
+    projectId: 'project_1',
+    projectRevision: projectRevision(),
+    bindingHash: 'b'.repeat(64),
+  };
+}
+
+function strictProjectRenderBinding() {
+  return {
+    scope: 'PROJECT_SNAPSHOT' as const,
+    artifactId: 'rnd_admission_1',
+    ownerId: 'user_1',
+    projectId: 'project_1',
+    projectRevision: projectRevision(),
+    bindingHash: 'b'.repeat(64),
+  };
+}
+
+function strictProjectRenderLookup(
+  status: 'rendering' | 'finalizing' | 'done' | 'error',
+  withProviderIdentity = true,
+) {
+  const authorization = strictProjectRenderAuthorization();
+  return {
+    ok: true as const,
+    status: 'BOUND' as const,
+    authorization,
+    job: {
+      _id: authorization.jobId,
+      userId: authorization.ownerId,
+      requestedByUserId: authorization.requestedByUserId,
+      projectId: authorization.projectId,
+      status,
+      ...(withProviderIdentity
+        ? { providerRenderId: 'render_provider_1', bucketName: 'bucket_1' }
+        : {}),
+      ...(status === 'error'
+        ? {
+            finalization: {
+              state: 'failed' as const,
+              sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+              sourceOutputSize: 44_583_988,
+              attempts: 1,
+            },
+          }
+        : {}),
+      projectRenderSnapshotBinding: strictProjectRenderBinding(),
+    },
+  };
+}
+
+function strictProjectRenderClaim() {
+  return {
+    ok: true as const,
+    status: 'CURRENT' as const,
+    jobId: 'rnd_admission_1',
+    providerRenderId: 'render_provider_1',
+    claimToken: 'rfl_strict_claim_1',
+    sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+    sourceOutputSize: 44_583_988,
+    expectedDurationMs: 38_000,
+    authorization: strictProjectRenderAuthorization(),
+    binding: strictProjectRenderBinding(),
   };
 }
 

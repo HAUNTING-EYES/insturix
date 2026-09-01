@@ -1445,13 +1445,11 @@ export async function claimProjectRenderJobFinalizationV1(input: {
         ...(providerRenderId
           ? [{
               $or: [
-                { providerRenderId: { $exists: false } },
-                { providerRenderId },
-              ],
-            }, {
-              $or: [
-                { bucketName: { $exists: false } },
-                { bucketName },
+                {
+                  providerRenderId: { $exists: false },
+                  bucketName: { $exists: false },
+                },
+                { providerRenderId, bucketName },
               ],
             }]
           : []),
