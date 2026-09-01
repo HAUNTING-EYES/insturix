@@ -87,6 +87,21 @@ import {
   type PipelineVideoProjectDeliveryPrerequisiteV1,
 } from "./pipeline-video-project-delivery-v1";
 import {
+  applyProjectArtifactInvalidationProgressV1,
+  assertProjectArtifactInvalidationOutboxV1,
+  assertProjectArtifactInvalidationReceiptV1,
+  createProjectArtifactInvalidationOutboxV1,
+  createProjectArtifactInvalidationReceiptV1,
+  enqueueProjectArtifactInvalidationOutboxV1,
+  PROJECT_ARTIFACT_INVALIDATION_OUTBOX_COLLECTION_V1,
+  replaceProjectArtifactInvalidationOutboxV1,
+  type ProjectArtifactInvalidationFenceV1,
+  type ProjectArtifactInvalidationOutboxCollectionV1,
+  type ProjectArtifactInvalidationOutboxV1,
+  type ProjectArtifactInvalidationReceiptV1,
+  type ProjectArtifactInvalidationDerivativeClassV1,
+} from "./project-artifact-invalidation-v1";
+import {
   assertProjectVideoSpeedRampStateV1,
   classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
@@ -702,6 +717,23 @@ export class ProjectPipelineVideoDeliveryConflictError extends Error {
 export interface ProjectPipelineVideoDeliveryResultV1 {
   disposition: "APPLIED" | "ALREADY_APPLIED";
   deliveryReceipt: ProjectPipelineVideoDeliveryReceiptV1;
+}
+
+export interface ProjectPipelineVideoArtifactInvalidationResultV1 {
+  disposition: "ENQUEUED" | "ALREADY_ENQUEUED";
+  outbox: ProjectArtifactInvalidationOutboxV1;
+}
+
+export interface ProjectPipelineVideoArtifactInvalidationProgressInputV1 {
+  outboxId: string;
+  receiptHash: string;
+  fences: readonly ProjectArtifactInvalidationFenceV1[];
+  resolvedDerivativeClasses: readonly ProjectArtifactInvalidationDerivativeClassV1[];
+}
+
+export interface ProjectPipelineVideoArtifactInvalidationProgressResultV1 {
+  disposition: "APPLIED" | "ALREADY_APPLIED";
+  outbox: ProjectArtifactInvalidationOutboxV1;
 }
 
 export type ProjectPipelineVideoDeliveryInvalidationAdmissionResultV1 =
@@ -5289,6 +5321,158 @@ export class ProjectService {
       projectRevisionFor(current),
       "Pipeline video invalidation admission lost the final compare-and-swap race.",
     );
+  }
+
+  /**
+   * Convert a persisted ProjectService admission into one durable artifact
+   * invalidation outbox item.  This boundary intentionally remains pending:
+   * no caller may authorize delivery until each synchronous artifact owner
+   * reports an exact fence through advancePipelineVideoArtifactInvalidationV1.
+   */
+  async enqueuePipelineVideoArtifactInvalidationV1(
+    userId: string,
+    projectId: string,
+    admission: PipelineVideoDeliveryInvalidationAdmissionV1,
+  ): Promise<ProjectPipelineVideoArtifactInvalidationResultV1> {
+    try {
+      assertPipelineVideoDeliveryInvalidationAdmissionV1(admission);
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video artifact invalidation admission is invalid: "
+          + (error instanceof Error ? error.message : "UNKNOWN"),
+      );
+    }
+    if (admission.ownerId !== userId || admission.projectId !== projectId) {
+      throw new ProjectPipelineVideoDeliveryConflictError(
+        admission.afterRevision,
+        "INVALIDATION_UNVERIFIABLE",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    const persistedAdmission = findPipelineVideoDeliveryInvalidationAdmissionV1(
+      project,
+      admission.admissionId,
+    );
+    if (
+      !persistedAdmission
+      || persistedAdmission.admissionHash !== admission.admissionHash
+      || !sameProjectRevisionV1(currentRevision, admission.afterRevision)
+    ) {
+      throw new ProjectPipelineVideoDeliveryConflictError(
+        currentRevision,
+        "INVALIDATION_UNVERIFIABLE",
+      );
+    }
+
+    const receipt: ProjectArtifactInvalidationReceiptV1 =
+      createProjectArtifactInvalidationReceiptV1({
+        admissionId: admission.admissionId,
+        admissionHash: admission.admissionHash,
+        ownerId: userId,
+        projectId,
+        beforeRevision: admission.beforeRevision,
+        afterRevision: admission.afterRevision,
+        target: admission.target,
+        affectedDerivativeClasses: admission.affectedDerivativeClasses,
+      });
+    assertProjectArtifactInvalidationReceiptV1(receipt);
+    const outbox = createProjectArtifactInvalidationOutboxV1({ receipt });
+    const collection = db.collection(
+      PROJECT_ARTIFACT_INVALIDATION_OUTBOX_COLLECTION_V1,
+    ) as unknown as ProjectArtifactInvalidationOutboxCollectionV1;
+    return enqueueProjectArtifactInvalidationOutboxV1({ outbox, collection });
+  }
+
+  /**
+   * Persist an owner-reported invalidation checkpoint with an outbox CAS.
+   * ProjectService rechecks the admission and current revision before
+   * accepting progress; a later project edit leaves the outbox pending.
+   */
+  async advancePipelineVideoArtifactInvalidationV1(
+    userId: string,
+    projectId: string,
+    input: ProjectPipelineVideoArtifactInvalidationProgressInputV1,
+  ): Promise<ProjectPipelineVideoArtifactInvalidationProgressResultV1> {
+    if (
+      typeof input.outboxId !== "string"
+      || typeof input.receiptHash !== "string"
+      || !Array.isArray(input.fences)
+      || !Array.isArray(input.resolvedDerivativeClasses)
+    ) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video artifact invalidation progress is invalid.",
+      );
+    }
+    const db = await getDatabase();
+    const collection = db.collection(
+      PROJECT_ARTIFACT_INVALIDATION_OUTBOX_COLLECTION_V1,
+    ) as unknown as ProjectArtifactInvalidationOutboxCollectionV1;
+    const stored = await collection.findOne({ _id: input.outboxId });
+    if (!stored) {
+      throw new ProjectMutationWriteError(
+        "Pipeline video artifact invalidation outbox is missing.",
+      );
+    }
+    assertProjectArtifactInvalidationOutboxV1(stored);
+    const receipt = stored.receipt;
+    if (
+      receipt.ownerId !== userId
+      || receipt.projectId !== projectId
+      || receipt.receiptHash !== input.receiptHash
+    ) {
+      throw new ProjectPipelineVideoDeliveryConflictError(
+        receipt.afterRevision,
+        "INVALIDATION_UNVERIFIABLE",
+      );
+    }
+
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    const persistedAdmission = findPipelineVideoDeliveryInvalidationAdmissionV1(
+      project,
+      receipt.admissionId,
+    );
+    if (
+      !persistedAdmission
+      || persistedAdmission.admissionHash !== receipt.admissionHash
+      || !sameProjectRevisionV1(currentRevision, receipt.afterRevision)
+    ) {
+      throw new ProjectPipelineVideoDeliveryConflictError(
+        currentRevision,
+        "INVALIDATION_UNVERIFIABLE",
+      );
+    }
+
+    const next = applyProjectArtifactInvalidationProgressV1({
+      outbox: stored,
+      fences: input.fences,
+      resolvedDerivativeClasses: input.resolvedDerivativeClasses,
+    });
+    const disposition = next.outboxHash === stored.outboxHash
+      ? "ALREADY_APPLIED" as const
+      : await replaceProjectArtifactInvalidationOutboxV1({
+          expected: stored,
+          next,
+          collection,
+        });
+    if (disposition === "CAS_LOST") {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "Pipeline video artifact invalidation progress lost its outbox CAS.",
+      );
+    }
+    return { disposition, outbox: disposition === "ALREADY_APPLIED" ? stored : next };
   }
 
   /**

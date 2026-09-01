@@ -13,6 +13,16 @@ import {
   completeRenderDeliveryManifest,
   type RenderDeliveryManifest,
 } from './render-delivery-manifest';
+import {
+  assertProjectArtifactBindingV1,
+  assertProjectArtifactInvalidationReceiptV1,
+  projectArtifactBindingMatchesCurrentV1,
+  projectArtifactBindingMatchesInvalidationV1,
+  type ProjectArtifactBindingV1,
+  type ProjectArtifactInvalidationDerivativeClassV1,
+  type ProjectArtifactInvalidationFenceV1,
+  type ProjectArtifactInvalidationReceiptV1,
+} from './project-artifact-invalidation-v1';
 
 const COLLECTION_NAME = 'editron_render_jobs';
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
@@ -44,10 +54,18 @@ export async function reserveJob(
   region: string,
   expectedDurationMs: number,
   deliveryManifest: RenderDeliveryManifest,
+  artifactBinding?: Parameters<typeof createPendingRenderJob>[5],
 ): Promise<RenderJob> {
   const collection = await getCollection();
   const job: RenderJob = {
-    ...createPendingRenderJob(jobId, userId, projectId, region, expectedDurationMs),
+    ...createPendingRenderJob(
+      jobId,
+      userId,
+      projectId,
+      region,
+      expectedDurationMs,
+      artifactBinding,
+    ),
     deliveryManifest,
   };
   const result = await collection.insertOne(job as any);
@@ -55,6 +73,150 @@ export async function reserveJob(
     throw new Error('Failed to reserve render job');
   }
   return job;
+}
+
+export interface FencedRenderJobsForProjectArtifactInvalidationV1 {
+  fences: ProjectArtifactInvalidationFenceV1[];
+  fencedArtifactIds: string[];
+  unresolvedArtifactIds: string[];
+  resolvedDerivativeClasses: ProjectArtifactInvalidationDerivativeClassV1[];
+}
+
+/**
+ * Fence only render jobs that carry the exact pre-change binding. Unbound
+ * legacy rows are not eligible for this bound fence; existing generic
+ * consumers remain unchanged until their bound route migration. ProjectService
+ * owns the receipt decision; this service owns the render-job state transition.
+ */
+export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
+  receipt: ProjectArtifactInvalidationReceiptV1;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<FencedRenderJobsForProjectArtifactInvalidationV1> {
+  assertProjectArtifactInvalidationReceiptV1(input.receipt);
+  const now = input.now ?? new Date();
+  if (Number.isNaN(now.getTime())) throw new Error('Artifact invalidation time is invalid.');
+  const jobs = input.collection ?? await getCollection();
+  const candidates = await jobs.find({
+    userId: input.receipt.ownerId,
+    projectId: input.receipt.projectId,
+    artifactState: 'ACTIVE',
+    artifactBinding: { $exists: true },
+  }).toArray();
+  const fences: ProjectArtifactInvalidationFenceV1[] = [];
+  const unresolvedArtifactIds: string[] = [];
+  const unresolvedDerivativeClasses = new Set<ProjectArtifactInvalidationDerivativeClassV1>();
+  let unresolvedUnknownDerivativeClass = false;
+
+  for (const candidate of candidates) {
+    if (!candidate.artifactBinding) {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedUnknownDerivativeClass = true;
+      continue;
+    }
+    try {
+      assertProjectArtifactBindingV1(candidate.artifactBinding);
+    } catch {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedUnknownDerivativeClass = true;
+      continue;
+    }
+    if (!projectArtifactBindingMatchesInvalidationV1(candidate.artifactBinding, input.receipt)) {
+      continue;
+    }
+    const nextState = candidate.status === 'done' || candidate.status === 'error'
+      ? 'HISTORY_ONLY' as const
+      : 'STALE' as const;
+    const fence: ProjectArtifactInvalidationFenceV1 = {
+      schemaVersion: 1,
+      binding: structuredClone(candidate.artifactBinding),
+      priorState: 'ACTIVE',
+      nextState,
+      cleanup: 'PENDING',
+      fencedAt: now.toISOString(),
+    };
+    const result = await jobs.updateOne(
+      {
+        _id: candidate._id,
+        userId: input.receipt.ownerId,
+        projectId: input.receipt.projectId,
+        artifactState: 'ACTIVE',
+        'artifactBinding.bindingHash': candidate.artifactBinding.bindingHash,
+      },
+      {
+        $set: {
+          artifactState: nextState,
+          artifactCleanup: {
+            state: 'PENDING',
+            pendingArtifactIds: [candidate._id],
+          },
+          artifactInvalidation: {
+            schemaVersion: 1,
+            receiptId: input.receipt.receiptId,
+            receiptHash: input.receipt.receiptHash,
+            state: 'PENDING',
+          },
+          artifactInvalidatedAt: now,
+        },
+      },
+    );
+    if (result.matchedCount === 1) {
+      fences.push(fence);
+      continue;
+    }
+    const latest = await jobs.findOne({ _id: candidate._id });
+    if (
+      latest?.artifactBinding
+      && latest.artifactBinding.bindingHash === candidate.artifactBinding.bindingHash
+      && latest.artifactInvalidation?.receiptId === input.receipt.receiptId
+      && latest.artifactInvalidation.receiptHash === input.receipt.receiptHash
+      && latest.artifactState !== 'ACTIVE'
+    ) {
+      fences.push(fence);
+    } else {
+      unresolvedArtifactIds.push(candidate._id);
+      unresolvedDerivativeClasses.add(candidate.artifactBinding.artifactKind);
+    }
+  }
+
+  // The full owner/project scan is the proof boundary.  A class is resolved
+  // only after every matching active row was fenced (or no such row exists).
+  // Unknown/malformed rows conservatively block resolution for all classes.
+  const resolvedDerivativeClasses = unresolvedUnknownDerivativeClass
+    ? []
+    : input.receipt.affectedDerivativeClasses.filter(
+        (derivativeClass) => !unresolvedDerivativeClasses.has(derivativeClass),
+      );
+
+  return {
+    fences,
+    fencedArtifactIds: fences.map((fence) => fence.binding.artifactId),
+    unresolvedArtifactIds,
+    resolvedDerivativeClasses,
+  };
+}
+
+/** Resolve one current render only when its complete binding is supplied. */
+export async function getCurrentRenderJobV1(input: {
+  binding: Parameters<typeof assertProjectArtifactBindingV1>[0];
+  collection?: Collection<RenderJob>;
+}): Promise<RenderJob | null> {
+  assertProjectArtifactBindingV1(input.binding);
+  const jobs = input.collection ?? await getCollection();
+  const job = await jobs.findOne({
+    _id: input.binding.artifactId,
+    userId: input.binding.ownerId,
+    projectId: input.binding.projectId,
+    artifactState: 'ACTIVE',
+    artifactInvalidation: { $exists: false },
+  });
+  if (!job?.artifactBinding || job.artifactBinding.artifactId !== input.binding.artifactId) {
+    return null;
+  }
+  if (job.artifactBinding.bindingHash !== input.binding.bindingHash) return null;
+  return projectArtifactBindingMatchesCurrentV1(job.artifactBinding, input.binding)
+    ? job
+    : null;
 }
 
 export function calculateExpectedRenderDurationMs(

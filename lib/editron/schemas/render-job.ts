@@ -6,6 +6,14 @@ import {
   type RenderFinalizerResult,
 } from '@/lib/editron/services/render-finalizer-client';
 import { RenderDeliveryManifestSchema } from '@/lib/editron/services/render-delivery-manifest';
+import {
+  ProjectArtifactBindingSchema,
+  ProjectArtifactCleanupSchema,
+  ProjectArtifactInvalidationLinkSchema,
+  ProjectArtifactStateSchema,
+  assertProjectArtifactBindingV1,
+  type ProjectArtifactBindingV1,
+} from '@/lib/editron/services/project-artifact-invalidation-v1';
 
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
@@ -93,6 +101,12 @@ export const RenderJobSchema = z.object({
   outputUrl: z.string().optional(),
   outputSize: z.number().optional(),
   deliveryManifest: RenderDeliveryManifestSchema.optional(),
+  /** New jobs may opt into the exact current-artifact contract. */
+  artifactBinding: ProjectArtifactBindingSchema.optional(),
+  artifactState: ProjectArtifactStateSchema.optional(),
+  artifactCleanup: ProjectArtifactCleanupSchema.optional(),
+  artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
+  artifactInvalidatedAt: z.date().optional(),
   startedAt: z.date(),
   completedAt: z.date().optional(),
   error: z.string().optional(),
@@ -114,10 +128,17 @@ export function createPendingRenderJob(
   projectId: string,
   region: string,
   expectedDurationMs: number,
+  artifactBinding?: ProjectArtifactBindingV1,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
   const validatedDurationMs = RenderExpectedDurationMsSchema.parse(expectedDurationMs);
+  const validatedArtifactBinding = artifactBinding === undefined
+    ? undefined
+    : (() => {
+        assertProjectArtifactBindingV1(artifactBinding);
+        return structuredClone(artifactBinding);
+      })();
 
   return {
     _id: jobId,
@@ -129,5 +150,11 @@ export function createPendingRenderJob(
     startedAt: now,
     region,
     expiresAt,
+    ...(validatedArtifactBinding
+      ? {
+          artifactBinding: structuredClone(validatedArtifactBinding),
+          artifactState: 'ACTIVE' as const,
+        }
+      : {}),
   };
 }
