@@ -6028,7 +6028,11 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
         const verification = await checkpointService.restoreProjectCheckpoint(
           checkpoint.checkpointId,
           userId,
-          { projectId, expectedRevision: rollbackReceipt.expectedRevision },
+          {
+            projectId,
+            expectedRevision: rollbackReceipt.expectedRevision,
+            actorKind: 'AGENT',
+          },
         );
         if (!verification.restored) {
           return errorEnvelope(

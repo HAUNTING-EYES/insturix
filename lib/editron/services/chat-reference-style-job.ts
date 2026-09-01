@@ -338,6 +338,7 @@ export async function runChatReferenceStyleJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId, {
         projectId: job.projectId,
         expectedRevision: rollbackReceipt.expectedRevision,
+        actorKind: 'SYSTEM',
       });
       if (!restored?.restored) {
         const failure = `reference-style-interrupted-attempt-rollback-failed:${restored?.reason ?? 'rollback-revision-receipt-missing'}`;
@@ -535,6 +536,7 @@ export async function runChatReferenceStyleJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(checkpoint.checkpointId, job.userId, {
         projectId: job.projectId,
         expectedRevision: rollbackReceipt.expectedRevision,
+        actorKind: 'SYSTEM',
       });
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(

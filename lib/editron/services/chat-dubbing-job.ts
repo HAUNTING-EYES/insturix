@@ -501,6 +501,7 @@ export async function runChatDubbingJob(
         const restored = await deps.checkpointService.restoreProjectCheckpoint(beforeCheckpoint.checkpointId, job.userId, {
           projectId: job.projectId,
           expectedRevision: receipt.expectedRevision,
+          actorKind: 'SYSTEM',
         });
         await deps.checkpointService.updateChatEditOperationScoped(
           beforeCheckpoint.checkpointId,
@@ -589,6 +590,7 @@ async function completeDubbingMutation(input: {
       {
         projectId: job.projectId,
         expectedRevision: rollbackReceipt.expectedRevision,
+        actorKind: 'SYSTEM',
       },
     );
     await deps.checkpointService.updateChatEditOperationScoped(

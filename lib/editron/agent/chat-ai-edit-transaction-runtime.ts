@@ -60,7 +60,7 @@ interface ChatEditCheckpointStore {
   restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
-    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+    options: { projectId: string; expectedRevision: ProjectRevisionV1; actorKind: "SYSTEM" },
   ): Promise<RestoreProjectCheckpointResult>;
 }
 
@@ -313,6 +313,7 @@ export async function rollbackChatAiEditTransaction(
     {
       projectId: input.transaction.projectId,
       expectedRevision: rollbackReceipt.expectedRevision,
+      actorKind: "SYSTEM",
     },
   );
   const mutatingToolNames = input.mutatingToolNames ?? [];

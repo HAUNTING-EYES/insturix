@@ -413,7 +413,11 @@ export async function runChatEditorialIntentJob(
       const restored = await deps.checkpointService.restoreProjectCheckpoint(
         checkpoint.checkpointId,
         job.userId,
-        { projectId: job.projectId, expectedRevision: receipt.expectedRevision },
+        {
+          projectId: job.projectId,
+          expectedRevision: receipt.expectedRevision,
+          actorKind: 'SYSTEM',
+        },
       );
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(
