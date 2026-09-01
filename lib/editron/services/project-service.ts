@@ -1062,6 +1062,7 @@ export interface ProjectAnalysisRunV1 {
   admittedRevision: ProjectRevisionV1;
   admittedAt: string;
   updatedAt: string;
+  intakeDispatch?: ProjectAnalysisIntakeDispatchV1;
   phase1EvidenceHash?: string;
   phase1EvidenceCommittedAt?: string;
   deepAnalysisDispatch?: ProjectAnalysisDeepDispatchV1;
@@ -1069,6 +1070,16 @@ export interface ProjectAnalysisRunV1 {
   phase2EvidenceHash?: string;
   phase2EvidenceCommittedAt?: string;
   directorDispatch?: ProjectAnalysisDirectorDispatchV1;
+}
+
+export interface ProjectAnalysisIntakeDispatchV1 {
+  schemaVersion: 1;
+  deduplicationId: string;
+  status: "pending" | "published" | "inline_ready";
+  preparedAt: string;
+  publishedAt?: string;
+  providerMessageId?: string;
+  inlineReadyAt?: string;
 }
 
 export interface ProjectAnalysisDeepLeaseV1 {
@@ -1138,6 +1149,21 @@ export interface ProjectAnalysisRunAdvanceCommandV1 {
   sourceAssetId: string;
   fromState: Exclude<ProjectAnalysisRunStateV1, "failed">;
   toState: Exclude<ProjectAnalysisRunStateV1, "queued" | "failed">;
+}
+
+export interface ProjectAnalysisIntakeDispatchPublicationCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
+  providerMessageId: string;
+}
+
+export interface ProjectAnalysisIntakeDispatchInlineReadyCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
 }
 
 export type ProjectAnalysisRunAdvanceResultV1 =
@@ -5665,9 +5691,10 @@ export class ProjectService {
     }
 
     const admittedAt = new Date();
+    const runId = `analysis_run_${nanoid(20)}`;
     const run: ProjectAnalysisRunV1 = {
       schemaVersion: 1,
-      runId: `analysis_run_${nanoid(20)}`,
+      runId,
       admissionHash,
       sourceAssetId: input.sourceAssetId,
       creditTransactionId: input.creditTransactionId,
@@ -5677,6 +5704,13 @@ export class ProjectService {
       admittedRevision: structuredClone(input.expectedRevision),
       admittedAt: admittedAt.toISOString(),
       updatedAt: admittedAt.toISOString(),
+      intakeDispatch: createProjectAnalysisIntakeDispatchV1({
+        projectId,
+        runId,
+        sourceAssetId: input.sourceAssetId,
+        admissionHash,
+        preparedAt: admittedAt,
+      }),
     };
     const queueFacts = input.queueFacts ?? {};
     const admittedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
@@ -5754,6 +5788,112 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return { disposition: "ADMITTED", run: structuredClone(returnedRun), receipt };
+  }
+
+  /** Records the provider receipt for the exact initial analysis dispatch. */
+  async recordProjectAnalysisIntakeDispatchPublishedV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisIntakeDispatchPublicationCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisIntakeDispatchPublicationCommandV1(input);
+    return this.recordProjectAnalysisIntakeDispatchStateV1(userId, projectId, input, {
+      status: "published",
+      providerMessageId: input.providerMessageId,
+    });
+  }
+
+  /** Records trusted development execution for the exact initial dispatch. */
+  async recordProjectAnalysisIntakeDispatchInlineReadyV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisIntakeDispatchInlineReadyCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisIntakeDispatchInlineReadyCommandV1(input);
+    return this.recordProjectAnalysisIntakeDispatchStateV1(userId, projectId, input, {
+      status: "inline_ready",
+    });
+  }
+
+  private async recordProjectAnalysisIntakeDispatchStateV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisIntakeDispatchInlineReadyCommandV1,
+    target: { status: "published"; providerMessageId: string } | { status: "inline_ready" },
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    const dispatch = currentRun?.intakeDispatch;
+    const alreadyRecorded = target.status === "published"
+      ? dispatch?.status === "published" && dispatch.providerMessageId === target.providerMessageId
+      : dispatch?.status === "inline_ready";
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === "queued"
+      && dispatch?.deduplicationId === input.deduplicationId
+      && alreadyRecorded
+    ) return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== "queued"
+      || projectRecordValueV1(current, "autoEditStatus") !== "queued"
+      || dispatch?.status !== "pending"
+      || dispatch.deduplicationId !== input.deduplicationId
+    ) return { disposition: "OWNERSHIP_LOST" };
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const recordedAt = new Date();
+    const nextDispatch: ProjectAnalysisIntakeDispatchV1 = target.status === "published"
+      ? {
+          ...dispatch,
+          status: "published",
+          publishedAt: recordedAt.toISOString(),
+          providerMessageId: target.providerMessageId,
+        }
+      : {
+          ...dispatch,
+          status: "inline_ready",
+          inlineReadyAt: recordedAt.toISOString(),
+        };
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: recordedAt.toISOString(),
+      intakeDispatch: nextDispatch,
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "queued",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "queued",
+        "autoEditAnalysisRunV1.intakeDispatch.status": "pending",
+        "autoEditAnalysisRunV1.intakeDispatch.deduplicationId": input.deduplicationId,
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: recordedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, recordedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
   }
 
   /**
@@ -13058,6 +13198,8 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceHash, 128))
     || (value.phase1EvidenceCommittedAt !== undefined
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceCommittedAt, 100))
+    || (value.intakeDispatch !== undefined
+      && !isProjectAnalysisIntakeDispatchV1(value.intakeDispatch))
     || (value.deepAnalysisDispatch !== undefined
       && !isProjectAnalysisDeepDispatchV1(value.deepAnalysisDispatch))
     || (value.deepAnalysisLease !== undefined && !isProjectAnalysisDeepLeaseV1(value.deepAnalysisLease))
@@ -13298,6 +13440,30 @@ function isProjectAnalysisDeepDispatchV1(value: unknown): value is ProjectAnalys
   return isProjectAnalysisDirectorDispatchV1(value);
 }
 
+function isProjectAnalysisIntakeDispatchV1(value: unknown): value is ProjectAnalysisIntakeDispatchV1 {
+  return isProjectAnalysisDirectorDispatchV1(value);
+}
+
+function createProjectAnalysisIntakeDispatchV1(input: {
+  projectId: string;
+  runId: string;
+  sourceAssetId: string;
+  admissionHash: string;
+  preparedAt: Date;
+}): ProjectAnalysisIntakeDispatchV1 {
+  return {
+    schemaVersion: 1,
+    deduplicationId: `editron_analysis_${hashEditronCanonicalJsonV1({
+      projectId: input.projectId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      admissionHash: input.admissionHash,
+    }).slice(0, 48)}`,
+    status: "pending",
+    preparedAt: input.preparedAt.toISOString(),
+  };
+}
+
 function createProjectAnalysisDeepDispatchV1(input: {
   projectId: string;
   runId: string;
@@ -13359,6 +13525,33 @@ function assertProjectAnalysisDeepDispatchPrepareCommandV1(
     || !isBoundedNonEmptyStringV1(input.runId, 200)
     || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
   ) throw new ProjectMutationWriteError("Deep-analysis dispatch preparation requires one exact run, source and revision.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisIntakeDispatchPublicationCommandV1(
+  input: ProjectAnalysisIntakeDispatchPublicationCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+    || !isBoundedNonEmptyStringV1(input.providerMessageId, 500)
+  ) throw new ProjectMutationWriteError("Analysis intake publication requires one exact run, source, dispatch and provider message.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectAnalysisIntakeDispatchInlineReadyCommandV1(
+  input: ProjectAnalysisIntakeDispatchInlineReadyCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+  ) throw new ProjectMutationWriteError("Inline analysis intake activation requires one exact run, source, dispatch and revision.");
   assertProjectRevision(input.expectedRevision);
 }
 

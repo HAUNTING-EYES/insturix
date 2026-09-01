@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
+  updateOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -11,6 +12,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
     collection: vi.fn(() => ({
       findOne: persistenceMocks.findOne,
       findOneAndUpdate: persistenceMocks.findOneAndUpdate,
+      updateOne: persistenceMocks.updateOne,
     })),
   })),
   connectToDatabase: vi.fn(),
@@ -100,6 +102,11 @@ describe("ProjectService analysis-run admission V1", () => {
           sourceAssetId: ASSET_ID,
           creditTransactionId: "credit_tx_1",
           state: "queued",
+          intakeDispatch: {
+            status: "pending",
+            deduplicationId: expect.stringMatching(/^editron_analysis_[a-f0-9]{48}$/),
+            preparedAt: "2026-09-01T12:00:01.000Z",
+          },
         },
         receipt: { revision: { value: 5, compatibilityUpdatedAt: "2026-09-01T12:00:01.000Z" } },
       });
@@ -242,5 +249,63 @@ describe("ProjectService analysis-run admission V1", () => {
       chargedCredits: -1,
     }))).rejects.toThrow("Analysis admission requires one exact revision");
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+  });
+
+  it("records only the exact pending intake provider receipt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T12:00:01.000Z"));
+    try {
+      const { projectService } = await import("@/lib/editron/services/project-service");
+      persistenceMocks.findOne.mockResolvedValueOnce(project({
+        autoEditStatus: "queued",
+        autoEditAnalysisRunV1: {
+          schemaVersion: 1,
+          runId: "analysis_run_12345678901234567890",
+          admissionHash: "a".repeat(64),
+          sourceAssetId: ASSET_ID,
+          creditTransactionId: "credit_tx_1",
+          chargedCredits: 12,
+          lane: "auto",
+          state: "queued",
+          admittedRevision: expectedRevision,
+          admittedAt: UPDATED_AT,
+          updatedAt: UPDATED_AT,
+          intakeDispatch: {
+            schemaVersion: 1,
+            deduplicationId: "editron_analysis_exact_dispatch",
+            status: "pending",
+            preparedAt: UPDATED_AT,
+          },
+        },
+      }));
+      persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+
+      await expect(projectService.recordProjectAnalysisIntakeDispatchPublishedV1(USER_ID, PROJECT_ID, {
+        expectedRevision,
+        runId: "analysis_run_12345678901234567890",
+        sourceAssetId: ASSET_ID,
+        deduplicationId: "editron_analysis_exact_dispatch",
+        providerMessageId: "qstash_message_1",
+      })).resolves.toMatchObject({
+        disposition: "ADVANCED",
+        run: {
+          intakeDispatch: {
+            status: "published",
+            providerMessageId: "qstash_message_1",
+          },
+        },
+        receipt: { revision: { value: 5, compatibilityUpdatedAt: "2026-09-01T12:00:01.000Z" } },
+      });
+      expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectRevision: 4,
+          "autoEditAnalysisRunV1.intakeDispatch.status": "pending",
+          "autoEditAnalysisRunV1.intakeDispatch.deduplicationId": "editron_analysis_exact_dispatch",
+        }),
+        expect.objectContaining({ $inc: { projectRevision: 1 } }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
