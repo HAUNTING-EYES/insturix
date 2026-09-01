@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Collection } from "mongodb";
 
@@ -51,6 +54,7 @@ const PROVIDER_TUPLE = {
   bucketName: "editron-recovery-output",
   region: "us-east-1",
 };
+const REPO_ROOT = resolve(__dirname, "../..");
 
 function makeBinding(): ProjectRenderSnapshotBindingV1 {
   const project = {
@@ -328,5 +332,18 @@ describe("Editron render dispatch recovery V1", () => {
       request("Bearer recovery-cron-secret"),
       runner,
     )).resolves.toMatchObject({ status: 503 });
+
+    const configuration = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, "vercel.json"), "utf8"),
+    ) as { crons: Array<{ path: string; schedule: string }> };
+    expect(configuration.crons).toContainEqual({
+      path: "/api/cron/recover-editron-render-dispatch",
+      schedule: "*/5 * * * *",
+    });
+    const mongoSource = readFileSync(
+      resolve(REPO_ROOT, "lib/editron/db/mongodb.ts"),
+      "utf8",
+    );
+    expect(mongoSource).toContain("dispatch_recovery_attempt_job");
   });
 });

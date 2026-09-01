@@ -67,6 +67,8 @@ vi.mock("@/lib/editron/services/render-job-service", async (importOriginal) => {
 });
 
 import { projectService } from "@/lib/editron/services/project-service";
+import { createProjectRenderDispatchIdentityV1 }
+  from "@/lib/editron/services/render-job-service";
 
 const AUTHORIZATION = {
   schemaVersion: 1 as const,
@@ -133,7 +135,11 @@ function createTransactionFixture() {
     findOne: vi.fn(async (): Promise<ProjectRevisionRow | null> => null),
     updateOne: vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 })),
   };
-  const renderJobs = { collectionName: "editron_render_jobs" };
+  const renderJobs = {
+    collectionName: "editron_render_jobs",
+    updateOne: vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 })),
+    findOne: vi.fn(async () => null),
+  };
   const renderSourceCleanupOutbox = {
     collectionName: "editron_project_render_source_cleanup_outbox_v1",
   };
@@ -384,6 +390,71 @@ describe("project render finalization transaction owner v1", () => {
       collection: fixture.renderJobs,
       session: fixture.session,
     }));
+  });
+
+  it("binds dispatch recovery only through the full ledger identity under the revision fence", async () => {
+    const fixture = createTransactionFixture();
+    const identity = createProjectRenderDispatchIdentityV1({
+      jobId: AUTHORIZATION.jobId,
+      bindingHash: AUTHORIZATION.bindingHash,
+    });
+    const now = new Date("2026-09-01T00:03:15.000Z");
+
+    await expect(projectService.bindProjectRenderDispatchRecoveryTransactionV1({
+      authorization: AUTHORIZATION,
+      attemptToken: identity.attemptToken,
+      providerRenderId: "provider-recovery-1",
+      bucketName: "render-bucket",
+      region: "us-east-1",
+      proofSource: "SIGNED_CALLBACK",
+      now,
+    })).resolves.toEqual({ ok: true, status: "BOUND" });
+
+    expect(fixture.renderJobs.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: AUTHORIZATION.jobId,
+        artifactState: "ACTIVE",
+        region: "us-east-1",
+        "dispatch.phase": { $in: ["ATTEMPTING", "UNKNOWN"] },
+        "dispatch.attemptToken": identity.attemptToken,
+        "dispatch.creditIdempotencyKey": identity.creditIdempotencyKey,
+        "dispatch.billingState": "RECORDED",
+        "dispatch.attemptStartedAt": { $type: "date" },
+        $or: expect.arrayContaining([
+          expect.objectContaining({
+            providerRenderId: { $exists: false },
+            bucketName: { $exists: false },
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "rendering",
+          providerRenderId: "provider-recovery-1",
+          bucketName: "render-bucket",
+          region: "us-east-1",
+          "dispatch.phase": "BOUND",
+          "dispatch.providerRenderId": "provider-recovery-1",
+          "dispatch.providerBucketName": "render-bucket",
+          "dispatch.providerRegion": "us-east-1",
+        }),
+      }),
+      { session: fixture.session },
+    );
+    expect(fixture.projects.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: AUTHORIZATION.projectId,
+        projectRevision: AUTHORIZATION.projectRevision.value,
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          renderFinalizationTransactionFenceV1: expect.objectContaining({
+            kind: "dispatch-recovery-bind",
+          }),
+        }),
+      }),
+      expect.objectContaining({ session: fixture.session }),
+    );
   });
 
   it("serializes progress and completion effects under the live project revision fence", async () => {

@@ -80,6 +80,7 @@ export const COLLECTIONS = {
   MEDIA_UPLOADS: 'mediaUploads',
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
+  PROJECT_RENDER_JOBS: 'editron_render_jobs',
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX: PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
@@ -195,6 +196,23 @@ export async function initializeIndexes(): Promise<void> {
   await db.collection(COLLECTIONS.PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX).createIndexes([
     { key: { status: 1, availableAt: 1, createdAt: 1 }, name: 'status_available_createdAt' },
     { key: { status: 1, 'lease.leaseExpiresAt': 1 }, name: 'status_leaseExpiresAt' },
+  ]);
+
+  // Strict render admissions whose provider response was ambiguous are
+  // reconciled in bounded attempt order without rerendering or refunding.
+  await db.collection(COLLECTIONS.PROJECT_RENDER_JOBS).createIndexes([
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderSnapshotBinding.scope': 1,
+        'dispatch.version': 1,
+        'dispatch.phase': 1,
+        status: 1,
+        'dispatch.attemptStartedAt': 1,
+        _id: 1,
+      },
+      name: 'dispatch_recovery_attempt_job',
+    },
   ]);
 
   // Concat output is a separate S3 object and has its own leased cleanup owner.

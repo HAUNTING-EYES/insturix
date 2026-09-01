@@ -41,6 +41,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/recover-editron-render-dispatch",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/recover-media-source-audio",
       "schedule": "*/5 * * * *"
     },
