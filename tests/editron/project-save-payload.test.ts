@@ -436,7 +436,7 @@ describe("Editron project save payload compaction", () => {
       "@/lib/editron/services/project-service"
     );
 
-    await projectService.saveProject("user_1", "proj_1", {
+    await projectService.saveProjectWithReceipt("user_1", "proj_1", {
       overlays: [
         {
           id: "source_video",
@@ -457,6 +457,12 @@ describe("Editron project save payload compaction", () => {
       playerDimensions: { width: 1920, height: 1080 },
       fps: 30,
       durationInFrames: 300,
+    }, {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 0,
+        compatibilityUpdatedAt: "2026-08-09T00:00:00.000Z",
+      },
     });
 
     const persistedOverlays =
@@ -556,11 +562,129 @@ describe("Editron project save payload compaction", () => {
         projectRevision: 7,
         updatedAt: new Date(updatedAt),
       },
-      expect.objectContaining({ $inc: { projectRevision: 1 } }),
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [expect.objectContaining({
+              operation: "REPLACE_EDITOR_STATE",
+              actorKind: "USER",
+              coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+              fps: 30,
+              beforeProjectRevision: expect.objectContaining({ value: 7 }),
+              afterProjectRevision: expect.objectContaining({ value: 8 }),
+              rangeObservation: "EXACT",
+            })],
+            $slice: -200,
+          },
+        },
+      }),
     );
     expect(receipt.revision).toEqual(
       expect.objectContaining({ schemaVersion: 1, value: 8 }),
     );
+  });
+
+  it("rejects whole-state persistence without the caller's observed revision before database work", async () => {
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      },
+      {},
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects whole-state persistence when neither payload nor project declares an exact timebase", async () => {
+    const updatedAt = "2026-08-09T01:01:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      durationInFrames: 0,
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        durationInFrames: 0,
+      } as any,
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+      },
+    )).rejects.toThrow("Whole-state persistence requires an exact supported frame timeline.");
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects whole-state persistence while any timeline range lock is active", async () => {
+    const updatedAt = "2026-08-09T01:02:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      fps: 30,
+      durationInFrames: 0,
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+      timelineRangeCutLocks: [{
+        schemaVersion: 1,
+        lockId: "timeline-cut-lock_abcdefghijklmnopqr",
+        actorKind: "AGENT",
+        frameRange: { startFrame: 0, endFrame: 1 },
+        acquiredAt: "2026-08-09T01:01:59.000Z",
+        expiresAt: "2099-08-09T01:03:00.000Z",
+      }],
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      },
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+      },
+    )).rejects.toMatchObject({
+      code: "PROJECT_TIMELINE_RANGE_LOCKED",
+      blockingLockIds: ["timeline-cut-lock_abcdefghijklmnopqr"],
+    });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("carries an owner-scoped mutation snapshot revision into the canonical writer", async () => {
@@ -668,6 +792,11 @@ describe("Editron project save payload compaction", () => {
     );
 
     await expect(projectService.saveProjectWithReceipt("user_1", "proj_1", state, {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 9,
+        compatibilityUpdatedAt: updatedAt,
+      },
       projectUpdates: { segmentAnalysis: {} },
       projectUnsets: ["segmentAnalysis", "$where"],
     })).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
@@ -3216,7 +3345,7 @@ describe("Editron project save payload compaction", () => {
       "@/lib/editron/services/project-service",
     );
     await expect(
-      projectService.saveProject("user_1", "proj_1", {
+      projectService.saveProjectWithReceipt("user_1", "proj_1", {
         overlays: [],
         aspectRatio: "16:9",
         playerDimensions: { width: 1920, height: 1080 },
@@ -3225,6 +3354,12 @@ describe("Editron project save payload compaction", () => {
           { id: "valid", frame: 0, label: "First" },
           { id: "late", frame: 120, label: "Second" },
         ],
+      }, {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: "2026-08-26T03:00:00.000Z",
+        },
       }),
     ).rejects.toThrow("Invalid editor timeline markers");
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
@@ -3236,6 +3371,7 @@ describe("Editron project save payload compaction", () => {
       projectId: "proj_1",
       userId: "user_1",
       overlays: [],
+      fps: 30,
       durationInFrames: 120,
       updatedAt: new Date("2026-08-26T04:00:00.000Z"),
       projectRevision: 0,
@@ -3245,11 +3381,17 @@ describe("Editron project save payload compaction", () => {
       "@/lib/editron/services/project-service"
     );
     await expect(
-      projectService.saveProject("user_1", "proj_1", {
+      projectService.saveProjectWithReceipt("user_1", "proj_1", {
         overlays: [],
         aspectRatio: "16:9",
         playerDimensions: { width: 1920, height: 1080 },
         markers: [{ id: "late", frame: 120, label: "Out of range" }],
+      }, {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: "2026-08-26T04:00:00.000Z",
+        },
       }),
     ).rejects.toThrow("Invalid editor timeline markers");
     expect(persistenceMocks.findOne).toHaveBeenCalledTimes(1);

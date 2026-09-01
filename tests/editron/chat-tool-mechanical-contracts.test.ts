@@ -202,11 +202,7 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(patch));
     },
   );
-  const saveProject = vi.spyOn(projectService, 'saveProject').mockImplementation(
-    async (_userId, _projectId, nextProject) => {
-      Object.assign(project, structuredClone(nextProject));
-    },
-  );
+  const saveProject = vi.fn();
   return {
     updateOverlay,
     addOverlay,

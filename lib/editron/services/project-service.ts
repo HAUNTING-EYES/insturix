@@ -355,6 +355,7 @@ export type ProjectTimelineChangeActorKindV1 =
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "AUTO_EDIT_ASSEMBLY"
+  | "REPLACE_EDITOR_STATE"
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
   | "REPLACE_CAPTION_FAMILY"
@@ -2883,18 +2884,6 @@ export class ProjectService {
   }
 
   /**
-   * Save project (manual save)
-   */
-  async saveProject(
-    userId: string,
-    projectId: string,
-    state: EditorState,
-    options: { overlayAuthority?: OverlaySaveAuthority } = {},
-  ): Promise<void> {
-    await this.saveProjectWithReceipt(userId, projectId, state, options);
-  }
-
-  /**
    * Receipt-bearing manual save for browser clients that participate in the
    * ProjectService optimistic-concurrency protocol.
    */
@@ -2908,7 +2897,7 @@ export class ProjectService {
       projectUpdates?: Record<string, unknown>;
       projectUnsets?: readonly string[];
       directorLeaseId?: string;
-    } = {},
+    },
   ): Promise<ProjectMutationReceiptV1> {
     return this.persistEditorState({
       userId,
@@ -2930,7 +2919,7 @@ export class ProjectService {
     userId: string,
     projectId: string,
     state: EditorState,
-    options: { expectedRevision?: ProjectRevisionV1 } = {},
+    options: { expectedRevision: ProjectRevisionV1 },
   ): Promise<ProjectMutationReceiptV1> {
     return this.persistEditorState({
       userId,
@@ -8479,6 +8468,11 @@ export class ProjectService {
     directorLeaseId?: string;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
+    if (!input.expectedRevision) {
+      throw new ProjectMutationWriteError(
+        "Whole-state persistence requires the caller's observed project revision.",
+      );
+    }
     // Validate before any resolver or database work so route casts cannot
     // bypass the durable marker contract.
     assertEditorTimelineMarkers(
@@ -8489,10 +8483,24 @@ export class ProjectService {
       input.projectUpdates ?? {},
       [...(input.projectUnsets ?? [])],
     );
+    if (!Array.isArray(input.state.overlays)
+      || input.state.overlays.length > 100_000) {
+      throw new ProjectMutationWriteError(
+        "Whole-state persistence requires a bounded overlay array.",
+      );
+    }
+    if (!validDimensions(input.state.playerDimensions)) {
+      throw new ProjectMutationWriteError(
+        "Whole-state persistence requires valid positive player dimensions.",
+      );
+    }
+    if (!["16:9", "9:16", "1:1", "4:5"].includes(input.state.aspectRatio)) {
+      throw new ProjectMutationWriteError(
+        "Whole-state persistence requires a supported project aspect ratio.",
+      );
+    }
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
-    const dimensions = validDimensions(input.state.playerDimensions)
-      ? input.state.playerDimensions
-      : { width: 1920, height: 1080 };
+    const dimensions = input.state.playerDimensions;
     const db = await getDatabase();
     const currentProject = (await db.collection(COLLECTIONS.PROJECTS).findOne({
       projectId: input.projectId,
@@ -8505,8 +8513,15 @@ export class ProjectService {
     // the durable project value in that case; only an explicit duration
     // command owner should intentionally change the project duration.
     const durationInFrames = input.state.durationInFrames
-      ?? currentProject.durationInFrames
-      ?? 0;
+      ?? currentProject.durationInFrames;
+    const fps = input.state.fps ?? currentProject.fps;
+    if (!isProjectTimelineFpsV1(fps)
+      || !Number.isSafeInteger(durationInFrames)
+      || durationInFrames < 0) {
+      throw new ProjectMutationWriteError(
+        "Whole-state persistence requires an exact supported frame timeline.",
+      );
+    }
 
     // A direct caller may omit duration while supplying markers. Bind those
     // markers to the durable project duration before any write so the route
@@ -8517,7 +8532,7 @@ export class ProjectService {
     );
 
     const currentRevision = projectRevisionFor(currentProject);
-    const expectedRevision = input.expectedRevision ?? currentRevision;
+    const expectedRevision = input.expectedRevision;
     assertProjectRevision(expectedRevision);
     if (
       expectedRevision.value !== currentRevision.value ||
@@ -8528,15 +8543,9 @@ export class ProjectService {
     }
 
     const lock = currentProject;
-    const directorLockStartedAt = lock.directorLockAt
-      ? new Date(lock.directorLockAt)
-      : null;
-    const directorLockIsActive =
-      lock.directorLock === true &&
-      directorLockStartedAt !== null &&
-      !Number.isNaN(directorLockStartedAt.getTime()) &&
-      Date.now() - directorLockStartedAt.getTime() < 5 * 60 * 1000;
-    if (input.mode === "autosave" && directorLockIsActive) {
+    const directorLockIsActive = hasActiveDirectorMutationLeaseV1(lock);
+    if (directorLockIsActive
+      && input.directorLeaseId !== currentProject.directorLockToken) {
       throw new ProjectMutationConflictError(
         currentRevision,
         "The project is locked by an active Director mutation. Reload before retrying.",
@@ -8561,20 +8570,77 @@ export class ProjectService {
       [...overlaysWithServerData, ...missingWorkerOverlays],
       `project-service-${input.mode}`,
     );
+    indexOverlaySetForFamilyReplacementV1(mergedOverlays, "candidate");
+    const mergedFrameRanges = overlayFamilyFrameRangesV1(
+      mergedOverlays,
+      "whole-state candidate",
+    );
+    if (mergedFrameRanges.some((frameRange) => (
+      frameRange.endFrame > durationInFrames
+    ))) {
+      throw new ProjectMutationWriteError(
+        "Whole-state overlays must remain inside the project duration.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(currentProject),
+      new Date(),
+    );
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((rangeLock) => rangeLock.lockId))].sort(),
+        "A whole-state write cannot run while timeline range locks are active.",
+      );
+    }
     const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-editor-state_${nanoid(18)}`,
+      projectId: input.projectId,
+      operation: "REPLACE_EDITOR_STATE",
+      actorKind: input.overlayAuthority === "client" ? "USER" : "SYSTEM",
+      fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: currentProject.overlays ?? [],
+      afterOverlays: mergedOverlays,
+      changedPaths: [
+        "overlays",
+        "aspectRatio",
+        "playerDimensions",
+        "fps",
+        "durationInFrames",
+        ...(input.state.markers !== undefined ? ["markers"] : []),
+        ...Object.keys(input.projectUpdates ?? {}),
+        ...(input.projectUnsets ?? []),
+        "timelineRangeChangeReceipts",
+      ],
+    });
     const update: Record<string, unknown> = {
       $set: {
         ...(input.projectUpdates ?? {}),
         overlays: mergedOverlays,
         aspectRatio: input.state.aspectRatio,
         playerDimensions: dimensions,
-        fps: input.state.fps || 30,
+        fps,
         durationInFrames,
         ...(input.state.markers !== undefined
           ? { markers: input.state.markers }
           : {}),
         ...(input.mode === "autosave" ? { lastAutosaveAt: committedAt } : {}),
         updatedAt: committedAt,
+      },
+      $push: {
+        timelineRangeChangeReceipts: {
+          $each: [timelineChangeReceipt],
+          $slice: -200,
+        },
       },
       $inc: { projectRevision: 1 },
     };
@@ -8619,11 +8685,7 @@ export class ProjectService {
     const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId: input.projectId,
-      revision: {
-        schemaVersion: 1,
-        value: expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
+      revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
@@ -16567,7 +16629,8 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
   operation:
     | "REPLACE_CAPTION_FAMILY"
     | "REPLACE_BACKGROUND_MUSIC"
-    | "ALIGN_CUTS_TO_BEATS";
+    | "ALIGN_CUTS_TO_BEATS"
+    | "REPLACE_EDITOR_STATE";
   actorKind: ProjectTimelineChangeActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;
