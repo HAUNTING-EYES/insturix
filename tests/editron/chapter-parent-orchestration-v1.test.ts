@@ -29,6 +29,7 @@ import {
   failChapterParentOrchestrationV1,
   markChapterParentOrchestrationReadyForFinalizationV1,
   quarantineChapterParentOrchestrationV1,
+  reconcileStaleChapterParentOrchestrationV1,
   startChapterParentOrchestrationV1,
   updateChapterParentOrchestrationProgressV1,
 } from '@/lib/editron/services/chapter-parent-orchestration-v1';
@@ -58,6 +59,10 @@ const CHAPTER_LAYOUT_MANIFEST_HASH = 'a'.repeat(64);
 const CHAPTER_OUTPUT = {
   url: 'https://concat.example.test/chapter-parent.mp4',
   sizeBytes: 42_000,
+};
+const CHAPTER_FINALIZED_OUTPUT = {
+  url: 'https://finalized.example.test/chapter-parent.mp4',
+  sizeBytes: 41_000,
 };
 
 const DELIVERY_MANIFEST: RenderDeliveryManifest = {
@@ -225,6 +230,18 @@ function makeFailedWithAggregateOutputOrchestration(): RenderJobChapterOrchestra
       message: 'chapter provider became unavailable',
     },
     aggregateOutput: CHAPTER_OUTPUT,
+  });
+}
+
+function makeStaleOrchestration(): RenderJobChapterOrchestrationV1 {
+  return RenderJobChapterOrchestrationSchema.parse({
+    ...makeFinalizingOrchestration(),
+    state: 'STALE',
+    staleAt: FAILED_AFTER_FINALIZING_AT,
+    failure: {
+      code: 'CHAPTER_ORCHESTRATION_STALE',
+      message: 'project changed before publication',
+    },
   });
 }
 
@@ -606,6 +623,47 @@ describe('chapter parent orchestration V1', () => {
     expect(replayCollection.findOne).toHaveBeenCalledTimes(1);
   });
 
+  it('does not replay an early transition for a terminal top-level row', async () => {
+    for (const status of ['done', 'error'] as const) {
+      const collection = makeCollection(
+        { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+        makeJob(makeInitialOrchestration(), { status }),
+      );
+
+      await expect(startChapterParentOrchestrationV1(commonInput(collection))).resolves.toMatchObject({
+        ok: false,
+        reason: 'JOB_NOT_CURRENT',
+      });
+      const filter = collection.updateOne.mock.calls[0]![0];
+      expect(JSON.stringify(filter)).toContain(
+        '"status":{"$in":["pending","queued","rendering","finalizing"]}',
+      );
+      expect(JSON.stringify(filter)).not.toContain('"done"');
+      expect(JSON.stringify(filter)).not.toContain('"error"');
+    }
+  });
+
+  it('does not mutate a provider-free parent row when its dispatch ledger is missing', async () => {
+    const collection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      { ...makeJob(makeInitialOrchestration()), dispatch: undefined },
+    );
+
+    await expect(startChapterParentOrchestrationV1(commonInput(collection))).resolves.toMatchObject({
+      ok: false,
+      status: 'NON_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    });
+    expect(collection.updateOne).toHaveBeenCalledTimes(1);
+    expect(collection.updateOne.mock.results[0]!.value).toMatchObject({
+      acknowledged: true,
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    const filter = collection.updateOne.mock.calls[0]![0];
+    expect(JSON.stringify(filter)).toContain('"dispatch.phase":"NOT_ATTEMPTED"');
+  });
+
   it('CAS-transitions STARTING to RUNNING with an exact chapter layout manifest identity', async () => {
     const collection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     const input = {
@@ -826,6 +884,7 @@ describe('chapter parent orchestration V1', () => {
       now: FINALIZING_AT,
       chapterCount: 2,
       chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
     })).resolves.toMatchObject({ ok: true, state: 'FINALIZING' });
 
     const completedCollection = makeCollection({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
@@ -834,6 +893,8 @@ describe('chapter parent orchestration V1', () => {
       now: COMPLETED_AT,
       chapterCount: 2,
       chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      finalizedOutput: CHAPTER_FINALIZED_OUTPUT,
     })).resolves.toMatchObject({ ok: true, state: 'COMPLETED' });
 
     const finalizingReplayCollection = makeCollection(
@@ -844,17 +905,58 @@ describe('chapter parent orchestration V1', () => {
       ...commonInput(finalizingReplayCollection),
       chapterCount: 2,
       chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
     })).resolves.toMatchObject({ ok: true, state: 'FINALIZING', replayed: true });
 
     const completedReplayCollection = makeCollection(
       { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
-      makeJob(makeCompletedOrchestration()),
+      makeJob(makeCompletedOrchestration(), {
+        status: 'done',
+        outputUrl: CHAPTER_FINALIZED_OUTPUT.url,
+        outputSize: CHAPTER_FINALIZED_OUTPUT.sizeBytes,
+        finalization: {
+          version: 'editron-render-finalization-v1',
+          state: 'done',
+          sourceOutputUrl: CHAPTER_OUTPUT.url,
+          sourceOutputSize: CHAPTER_OUTPUT.sizeBytes,
+          attempts: 1,
+          outputUrl: CHAPTER_FINALIZED_OUTPUT.url,
+          outputSize: CHAPTER_FINALIZED_OUTPUT.sizeBytes,
+        },
+      }),
     );
     await expect(completeChapterParentOrchestrationV1({
       ...commonInput(completedReplayCollection),
       chapterCount: 2,
       chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      finalizedOutput: CHAPTER_FINALIZED_OUTPUT,
     })).resolves.toMatchObject({ ok: true, state: 'COMPLETED', replayed: true });
+
+    const changedSourceReplayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeCompletedOrchestration(), {
+        status: 'done',
+        outputUrl: CHAPTER_FINALIZED_OUTPUT.url,
+        outputSize: CHAPTER_FINALIZED_OUTPUT.sizeBytes,
+        finalization: {
+          version: 'editron-render-finalization-v1',
+          state: 'done',
+          sourceOutputUrl: 'https://chapter.example.test/changed-source.mp4',
+          sourceOutputSize: CHAPTER_OUTPUT.sizeBytes,
+          attempts: 1,
+          outputUrl: CHAPTER_FINALIZED_OUTPUT.url,
+          outputSize: CHAPTER_FINALIZED_OUTPUT.sizeBytes,
+        },
+      }),
+    );
+    await expect(completeChapterParentOrchestrationV1({
+      ...commonInput(changedSourceReplayCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      finalizedOutput: CHAPTER_FINALIZED_OUTPUT,
+    })).resolves.toMatchObject({ ok: false, reason: 'ORCHESTRATION_NOT_READY' });
 
     const changedOutputCollection = makeCollection(
       { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
@@ -931,6 +1033,70 @@ describe('chapter parent orchestration V1', () => {
       error: 'chapter provider became unavailable',
     })).resolves.toMatchObject({ ok: false, reason: 'INPUT_INVALID' });
     expect(malformedOutputCollection.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('reconciles STALE only from the exact persisted stale finalization boundary', async () => {
+    const staleParent = makeJob(makeFinalizingOrchestration(), {
+      status: 'error',
+      artifactState: 'STALE',
+      artifactCleanup: { state: 'PENDING', pendingArtifactIds: [JOB_ID] },
+      artifactInvalidatedAt: FAILED_AFTER_FINALIZING_AT,
+      completedAt: FAILED_AFTER_FINALIZING_AT,
+      error: 'project changed before publication',
+      finalization: {
+        version: 'editron-render-finalization-v1',
+        state: 'failed',
+        sourceOutputUrl: CHAPTER_OUTPUT.url,
+        sourceOutputSize: CHAPTER_OUTPUT.sizeBytes,
+        attempts: 1,
+        completedAt: FAILED_AFTER_FINALIZING_AT,
+        error: 'project changed before publication',
+      },
+    });
+    const collection = makeCollection(
+      { acknowledged: true, matchedCount: 1, modifiedCount: 1 },
+      staleParent,
+    );
+    await expect(reconcileStaleChapterParentOrchestrationV1({
+      ...commonInput(collection),
+      now: FAILED_AFTER_FINALIZING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      error: 'project changed before publication',
+    })).resolves.toMatchObject({ ok: true, state: 'STALE' });
+    const filter = JSON.stringify(collection.updateOne.mock.calls[0]![0]);
+    expect(filter).toContain('"artifactState":"STALE"');
+    expect(filter).toContain('"artifactCleanup.state":"PENDING"');
+    expect(filter).toContain(CHAPTER_OUTPUT.url);
+
+    const replayCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeStaleOrchestration(), {
+        ...staleParent,
+        chapterOrchestration: makeStaleOrchestration(),
+      }),
+    );
+    await expect(reconcileStaleChapterParentOrchestrationV1({
+      ...commonInput(replayCollection),
+      now: FAILED_AFTER_FINALIZING_AT,
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      error: 'project changed before publication',
+    })).resolves.toMatchObject({ ok: true, state: 'STALE', replayed: true });
+
+    const activeCollection = makeCollection(
+      { acknowledged: true, matchedCount: 0, modifiedCount: 0 },
+      makeJob(makeFinalizingOrchestration()),
+    );
+    await expect(reconcileStaleChapterParentOrchestrationV1({
+      ...commonInput(activeCollection),
+      chapterCount: 2,
+      chapterLayoutManifestHash: CHAPTER_LAYOUT_MANIFEST_HASH,
+      aggregateOutput: CHAPTER_OUTPUT,
+      error: 'project changed before publication',
+    })).resolves.toMatchObject({ ok: false, reason: 'JOB_NOT_CURRENT' });
   });
 
   it('fails closed for stale revision, wrong source state, provider-bearing rows, and unproved writes', async () => {

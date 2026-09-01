@@ -48,6 +48,12 @@ import {
   type ChapterRenderCleanupProviderOutputV1,
 } from "./chapter-render-cleanup-materializer-v1";
 import {
+  completeChapterParentOrchestrationV1,
+  failChapterParentOrchestrationV1,
+  reconcileStaleChapterParentOrchestrationV1,
+} from "./chapter-parent-orchestration-v1";
+import {
+  RenderJobChapterOrchestrationSchema,
   RenderJobSchema,
   type RenderJob,
 } from "../schemas/render-job";
@@ -60,6 +66,7 @@ import {
   PROJECT_CHAPTER_CONCAT_CLEANUP_OUTBOX_COLLECTION_V1,
   type ProjectChapterConcatCleanupOutboxV1,
 } from "./chapter-concat-cleanup-v1";
+import { assertProjectRenderSnapshotBindingV1 } from "./project-render-snapshot-binding-v1";
 import type {
   Keyframe,
   KeyframeTrack,
@@ -145,6 +152,7 @@ import {
   enqueueProjectArtifactInvalidationOutboxV1,
   PROJECT_ARTIFACT_INVALIDATION_OUTBOX_COLLECTION_V1,
   replaceProjectArtifactInvalidationOutboxV1,
+  sameProjectArtifactRevisionV1,
   type ProjectArtifactInvalidationFenceV1,
   type ProjectArtifactInvalidationOutboxCollectionV1,
   type ProjectArtifactInvalidationOutboxV1,
@@ -1462,10 +1470,480 @@ type ProjectRenderFinalizationTransactionResultV1 =
 const PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1 =
   "renderFinalizationTransactionFenceV1";
 
+function nonCurrentProjectRenderJobResultV1(
+  reason: ProjectRenderJobNotCurrentResultV1["reason"],
+): ProjectRenderJobNotCurrentResultV1 {
+  return {
+    ok: false,
+    status: "NON_CURRENT",
+    code: PROJECT_ARTIFACT_NOT_CURRENT,
+    reason,
+  };
+}
+
 function isChapterRenderAuthorizationV1(
   authorization: ProjectRenderJobAuthorizationV1,
 ): boolean {
   return /^chr_[A-Za-z0-9_-]{12}$/.test(authorization.jobId);
+}
+
+function isProviderFreeChapterFinalizationInputV1(input: {
+  providerRenderId?: string;
+  bucketName?: string;
+  region?: string;
+}, authorization: ProjectRenderJobAuthorizationV1): boolean {
+  return isChapterRenderAuthorizationV1(authorization)
+    && input.providerRenderId === undefined
+    && input.bucketName === undefined
+    && input.region === undefined;
+}
+
+function isProviderFreeChapterFinalizationStateV1(parent: RenderJob): boolean {
+  const state = parent.chapterOrchestration?.state;
+  return state === "READY_FOR_FINALIZATION" || state === "FINALIZING";
+}
+
+/**
+ * A provider-free aggregate is still a strict project render admission. The
+ * parent orchestration is the only aggregate identity; child/provider tuples
+ * are validated later by the cleanup materializer and never synthesized here.
+ */
+function parseProviderFreeChapterParentV1(
+  value: unknown,
+  authorization: ProjectRenderJobAuthorizationV1,
+): RenderJob | null {
+  const parsed = RenderJobSchema.safeParse(value);
+  if (!parsed.success || !isChapterRenderAuthorizationV1(authorization)) return null;
+  const parent = parsed.data;
+  const binding = parent.projectRenderSnapshotBinding;
+  const orchestration = RenderJobChapterOrchestrationSchema.safeParse(
+    parent.chapterOrchestration,
+  );
+  if (!binding || !orchestration.success) return null;
+  try {
+    assertProjectRenderSnapshotBindingV1(binding);
+  } catch {
+    return null;
+  }
+  const dispatch = parent.dispatch;
+  if (
+    parent._id !== authorization.jobId
+    || parent.userId !== authorization.ownerId
+    || parent.requestedByUserId !== authorization.requestedByUserId
+    || parent.projectId !== authorization.projectId
+    || binding.scope !== "PROJECT_SNAPSHOT"
+    || binding.artifactId !== authorization.jobId
+    || binding.ownerId !== authorization.ownerId
+    || binding.projectId !== authorization.projectId
+    || binding.bindingHash !== authorization.bindingHash
+    || !sameProjectArtifactRevisionV1(
+      binding.projectRevision,
+      authorization.projectRevision,
+    )
+    || orchestration.data.scope !== "CHAPTER_ORCHESTRATION"
+    || orchestration.data.aggregateJobId !== authorization.jobId
+    || orchestration.data.bindingHash !== authorization.bindingHash
+    || orchestration.data.selectedRegion !== parent.region
+    || parent.deliveryManifest?.primaryArtifact.renderId !== authorization.jobId
+    || parent.providerRenderId !== undefined
+    || parent.bucketName !== undefined
+    || !dispatch
+    || dispatch.version !== 1
+    || dispatch.phase !== "NOT_ATTEMPTED"
+    || dispatch.providerRenderId !== undefined
+    || dispatch.providerBucketName !== undefined
+    || dispatch.providerRegion !== undefined
+    || dispatch.providerBoundAt !== undefined
+    || parent.artifactBinding !== undefined
+    || parent.artifactInvalidation !== undefined
+  ) {
+    return null;
+  }
+  return parent;
+}
+
+function chapterAggregateOutputMatchesV1(
+  parent: RenderJob,
+  sourceOutputUrl: string,
+  sourceOutputSize: number,
+): boolean {
+  const output = parent.chapterOrchestration?.aggregateOutput;
+  return output !== undefined
+    && output.url === sourceOutputUrl
+    && output.sizeBytes === sourceOutputSize;
+}
+
+function providerFreeChapterStaleReplayMatchesV1(
+  parent: RenderJob,
+  authorization: ProjectRenderJobAuthorizationV1,
+  sourceOutputUrl: string,
+  sourceOutputSize: number,
+): boolean {
+  const orchestration = parent.chapterOrchestration;
+  const finalization = parent.finalization;
+  const failure = orchestration?.failure;
+  const pendingArtifactIds = parent.artifactCleanup?.pendingArtifactIds;
+  const completedAt = parent.completedAt;
+  return parent.status === "error"
+    && parent.artifactState === "STALE"
+    && parent.artifactCleanup?.state === "PENDING"
+    && pendingArtifactIds?.length === 1
+    && pendingArtifactIds[0] === authorization.jobId
+    && orchestration?.state === "STALE"
+    && orchestration.staleAt instanceof Date
+    && completedAt instanceof Date
+    && parent.artifactInvalidatedAt instanceof Date
+    && finalization?.completedAt instanceof Date
+    && completedAt.getTime() === orchestration.staleAt.getTime()
+    && completedAt.getTime() === parent.artifactInvalidatedAt.getTime()
+    && completedAt.getTime() === finalization.completedAt.getTime()
+    && failure?.code === "CHAPTER_ORCHESTRATION_STALE"
+    && typeof parent.error === "string"
+    && failure.message === parent.error
+    && orchestration.chapterCount !== undefined
+    && orchestration.completedChapterCount === orchestration.chapterCount
+    && orchestration.progress === 1
+    && orchestration.chapterLayoutManifestHash !== undefined
+    && orchestration.aggregateOutput !== undefined
+    && finalization?.state === "failed"
+    && finalization.claimToken === undefined
+    && finalization.attempts === 0
+    && finalization.error === parent.error
+    && chapterAggregateOutputMatchesV1(parent, sourceOutputUrl, sourceOutputSize)
+    && finalization.sourceOutputUrl === sourceOutputUrl
+    && finalization.sourceOutputSize === sourceOutputSize;
+}
+
+function providerFreeChapterTerminalReplayMatchesV1(
+  parent: RenderJob,
+  sourceOutputUrl: string,
+  sourceOutputSize: number,
+): boolean {
+  const finalization = parent.finalization;
+  if (!finalization) return false;
+  return chapterAggregateOutputMatchesV1(parent, sourceOutputUrl, sourceOutputSize)
+    && finalization.claimToken === undefined
+    && (
+      (
+        parent.status === "done"
+        && finalization.state === "done"
+        && parent.chapterOrchestration?.state === "COMPLETED"
+      )
+      || (
+        parent.status === "error"
+        && finalization.state === "failed"
+        && parent.chapterOrchestration?.state === "FAILED"
+        && Number.isInteger(finalization.attempts)
+        && finalization.attempts >= MAX_RENDER_FINALIZATION_ATTEMPTS
+      )
+    );
+}
+
+async function reconcileProviderFreeChapterTerminalLifecycleV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  currentProjectRevision: ProjectRevisionV1;
+  kind: ProjectRenderFinalizationTransactionCommandV1["kind"];
+  renderJobs: Collection<RenderJob>;
+  session: ClientSession;
+  now: Date;
+}): Promise<void> {
+  if (!isChapterRenderAuthorizationV1(input.authorization)) return;
+  const current = await input.renderJobs.findOne(
+    { _id: input.authorization.jobId },
+    { session: input.session },
+  );
+  if (current?.chapterOrchestration === undefined) return;
+  const parent = parseProviderFreeChapterParentV1(current, input.authorization);
+  if (!parent?.chapterOrchestration) {
+    throw new Error("CHAPTER_PARENT_TERMINAL_IDENTITY_NOT_PROVABLE");
+  }
+  const orchestration = parent.chapterOrchestration;
+  const aggregateOutput = orchestration.aggregateOutput;
+  const finalization = parent.finalization;
+  if (
+    orchestration.chapterCount === undefined
+    || orchestration.chapterLayoutManifestHash === undefined
+    || aggregateOutput === undefined
+    || finalization === undefined
+    || finalization.sourceOutputUrl !== aggregateOutput.url
+    || finalization.sourceOutputSize !== aggregateOutput.sizeBytes
+  ) {
+    throw new Error("CHAPTER_PARENT_TERMINAL_OUTPUT_NOT_PROVABLE");
+  }
+
+  if (input.kind === "complete") {
+    if (
+      parent.status !== "done"
+      || finalization.state !== "done"
+      || finalization.outputUrl === undefined
+      || finalization.outputSize === undefined
+    ) {
+      throw new Error("CHAPTER_PARENT_COMPLETION_NOT_PROVABLE");
+    }
+    const completed = await completeChapterParentOrchestrationV1({
+      authorization: input.authorization,
+      currentProjectRevision: input.currentProjectRevision,
+      selectedRegion: orchestration.selectedRegion,
+      chapterCount: orchestration.chapterCount,
+      chapterLayoutManifestHash: orchestration.chapterLayoutManifestHash,
+      aggregateOutput,
+      finalizedOutput: {
+        url: finalization.outputUrl,
+        sizeBytes: finalization.outputSize,
+      },
+      collection: input.renderJobs,
+      session: input.session,
+      now: input.now,
+    });
+    if (!completed.ok || completed.state !== "COMPLETED") {
+      throw new Error("CHAPTER_PARENT_COMPLETION_WRITE_NOT_PROVED");
+    }
+    return;
+  }
+
+  if (
+    parent.status !== "error"
+    || finalization.state !== "failed"
+    || !Number.isInteger(finalization.attempts)
+    || finalization.attempts < MAX_RENDER_FINALIZATION_ATTEMPTS
+  ) {
+    return;
+  }
+  const failed = await failChapterParentOrchestrationV1({
+    authorization: input.authorization,
+    currentProjectRevision: input.currentProjectRevision,
+    selectedRegion: orchestration.selectedRegion,
+    chapterCount: orchestration.chapterCount,
+    chapterLayoutManifestHash: orchestration.chapterLayoutManifestHash,
+    aggregateOutput,
+    terminalFinalization: true,
+    error: finalization.error ?? parent.error ?? "Chapter finalization failed.",
+    collection: input.renderJobs,
+    session: input.session,
+    now: input.now,
+  });
+  if (!failed.ok || failed.state !== "FAILED") {
+    throw new Error("CHAPTER_PARENT_FAILURE_WRITE_NOT_PROVED");
+  }
+}
+
+async function reconcileProviderFreeChapterStaleLifecycleV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  renderJobs: Collection<RenderJob>;
+  session: ClientSession;
+  now: Date;
+}): Promise<void> {
+  if (!isChapterRenderAuthorizationV1(input.authorization)) return;
+  const current = await input.renderJobs.findOne(
+    { _id: input.authorization.jobId },
+    { session: input.session },
+  );
+  if (current?.chapterOrchestration === undefined) return;
+  const parent = parseProviderFreeChapterParentV1(current, input.authorization);
+  if (!parent?.chapterOrchestration) {
+    throw new Error("CHAPTER_PARENT_STALE_IDENTITY_NOT_PROVABLE");
+  }
+  const orchestration = parent.chapterOrchestration;
+  const aggregateOutput = orchestration.aggregateOutput;
+  const finalization = parent.finalization;
+  if (
+    orchestration.chapterCount === undefined
+    || orchestration.chapterLayoutManifestHash === undefined
+    || aggregateOutput === undefined
+    || parent.status !== "error"
+    || parent.artifactState !== "STALE"
+    || finalization?.state !== "failed"
+    || finalization.claimToken !== undefined
+    || finalization.sourceOutputUrl !== aggregateOutput.url
+    || finalization.sourceOutputSize !== aggregateOutput.sizeBytes
+  ) {
+    throw new Error("CHAPTER_PARENT_STALE_OUTPUT_NOT_PROVABLE");
+  }
+  const stale = await reconcileStaleChapterParentOrchestrationV1({
+    authorization: input.authorization,
+    currentProjectRevision: input.authorization.projectRevision,
+    selectedRegion: orchestration.selectedRegion,
+    chapterCount: orchestration.chapterCount,
+    chapterLayoutManifestHash: orchestration.chapterLayoutManifestHash,
+    aggregateOutput,
+    error: finalization.error ?? parent.error ?? "Chapter finalization became stale.",
+    collection: input.renderJobs,
+    session: input.session,
+    now: input.now,
+  });
+  if (!stale.ok || stale.state !== "STALE") {
+    throw new Error("CHAPTER_PARENT_STALE_WRITE_NOT_PROVED");
+  }
+}
+
+async function fenceStaleProviderFreeChapterAggregateV1(input: {
+  authorization: ProjectRenderJobAuthorizationV1;
+  observedProjectRevision: ProjectRevisionV1 | null;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  error: unknown;
+  now: Date;
+  collection: Collection<RenderJob>;
+  session: ClientSession;
+}): Promise<ProjectRenderFinalizationTransactionResultV1> {
+  if (input.observedProjectRevision !== null) {
+    if (
+      !sameProjectArtifactRevisionV1(
+        input.authorization.projectRevision,
+        input.observedProjectRevision,
+      )
+    ) {
+      // The transaction owner has already proven the project changed. Keep
+      // this branch explicit so an invalid observer cannot stale a live row.
+    } else {
+      return nonCurrentProjectRenderJobResultV1("INPUT_INVALID");
+    }
+  }
+  if (
+    typeof input.sourceOutputUrl !== "string"
+    || !Number.isSafeInteger(input.sourceOutputSize)
+    || input.sourceOutputSize < 0
+  ) {
+    return nonCurrentProjectRenderJobResultV1("INPUT_INVALID");
+  }
+  const current = await input.collection.findOne(
+    { _id: input.authorization.jobId },
+    { session: input.session },
+  );
+  const parsedCurrent = parseProviderFreeChapterParentV1(current, input.authorization);
+  if (!parsedCurrent) return nonCurrentProjectRenderJobResultV1("JOB_NOT_CURRENT");
+  if (providerFreeChapterStaleReplayMatchesV1(
+    parsedCurrent,
+    input.authorization,
+    input.sourceOutputUrl,
+    input.sourceOutputSize,
+  )) {
+    return { ok: true, status: "ALREADY_STALE" };
+  }
+  if (providerFreeChapterTerminalReplayMatchesV1(
+    parsedCurrent,
+    input.sourceOutputUrl,
+    input.sourceOutputSize,
+  )) {
+    return { ok: true, status: "ALREADY_TERMINAL" };
+  }
+  const orchestration = parsedCurrent.chapterOrchestration;
+  if (
+    parsedCurrent.artifactState !== "ACTIVE"
+    || parsedCurrent.status !== "rendering"
+    || !orchestration
+    || !isProviderFreeChapterFinalizationStateV1(parsedCurrent)
+    || !chapterAggregateOutputMatchesV1(
+      parsedCurrent,
+      input.sourceOutputUrl,
+      input.sourceOutputSize,
+    )
+  ) {
+    return nonCurrentProjectRenderJobResultV1("JOB_STATE_NOT_ACTIVE");
+  }
+
+  const errorMessage = (input.error instanceof Error
+    ? input.error.message
+    : String(input.error)).trim().slice(0, 500) || "Chapter aggregate output became stale.";
+  const fenced = await input.collection.updateOne(
+    {
+      _id: input.authorization.jobId,
+      userId: input.authorization.ownerId,
+      requestedByUserId: input.authorization.requestedByUserId,
+      projectId: input.authorization.projectId,
+      status: "rendering",
+      artifactState: "ACTIVE",
+      artifactBinding: { $exists: false },
+      artifactInvalidation: { $exists: false },
+      providerRenderId: { $exists: false },
+      bucketName: { $exists: false },
+      finalization: { $exists: false },
+      "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
+      "projectRenderSnapshotBinding.artifactId": input.authorization.jobId,
+      "projectRenderSnapshotBinding.ownerId": input.authorization.ownerId,
+      "projectRenderSnapshotBinding.projectId": input.authorization.projectId,
+      "projectRenderSnapshotBinding.projectRevision.schemaVersion": 1,
+      "projectRenderSnapshotBinding.projectRevision.value":
+        input.authorization.projectRevision.value,
+      "projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt":
+        input.authorization.projectRevision.compatibilityUpdatedAt,
+      "projectRenderSnapshotBinding.bindingHash": input.authorization.bindingHash,
+      "chapterOrchestration.version": 1,
+      "chapterOrchestration.scope": "CHAPTER_ORCHESTRATION",
+      "chapterOrchestration.aggregateJobId": input.authorization.jobId,
+      "chapterOrchestration.bindingHash": input.authorization.bindingHash,
+      "chapterOrchestration.selectedRegion": orchestration.selectedRegion,
+      "chapterOrchestration.state": {
+        $in: ["READY_FOR_FINALIZATION", "FINALIZING"],
+      },
+      "chapterOrchestration.chapterCount": orchestration.chapterCount,
+      "chapterOrchestration.completedChapterCount": orchestration.completedChapterCount,
+      "chapterOrchestration.progress": orchestration.progress,
+      "chapterOrchestration.chapterLayoutManifestHash": orchestration.chapterLayoutManifestHash,
+      "chapterOrchestration.aggregateOutput.url": input.sourceOutputUrl,
+      "chapterOrchestration.aggregateOutput.sizeBytes": input.sourceOutputSize,
+      "dispatch.version": 1,
+      "dispatch.phase": "NOT_ATTEMPTED",
+      "dispatch.providerRenderId": { $exists: false },
+      "dispatch.providerBucketName": { $exists: false },
+      "dispatch.providerRegion": { $exists: false },
+      "dispatch.providerBoundAt": { $exists: false },
+    } as Filter<RenderJob>,
+    {
+      $set: {
+        status: "error",
+        progress: 0.99,
+        error: errorMessage,
+        completedAt: input.now,
+        artifactState: "STALE",
+        artifactCleanup: {
+          state: "PENDING",
+          pendingArtifactIds: [input.authorization.jobId],
+        },
+        artifactInvalidatedAt: input.now,
+        "chapterOrchestration.state": "STALE",
+        "chapterOrchestration.staleAt": input.now,
+        "chapterOrchestration.failure": {
+          code: "CHAPTER_ORCHESTRATION_STALE",
+          message: errorMessage,
+        },
+        finalization: {
+          version: "editron-render-finalization-v1",
+          state: "failed",
+          sourceOutputUrl: input.sourceOutputUrl,
+          sourceOutputSize: input.sourceOutputSize,
+          attempts: 0,
+          completedAt: input.now,
+          error: errorMessage,
+        },
+      },
+    },
+    { session: input.session },
+  );
+  if (fenced.modifiedCount === 1) return { ok: true, status: "STALE" };
+
+  const latest = await input.collection.findOne(
+    { _id: input.authorization.jobId },
+    { session: input.session },
+  );
+  const parsedLatest = parseProviderFreeChapterParentV1(latest, input.authorization);
+  if (!parsedLatest) return nonCurrentProjectRenderJobResultV1("JOB_NOT_CURRENT");
+  if (providerFreeChapterStaleReplayMatchesV1(
+    parsedLatest,
+    input.authorization,
+    input.sourceOutputUrl,
+    input.sourceOutputSize,
+  )) {
+    return { ok: true, status: "ALREADY_STALE" };
+  }
+  if (providerFreeChapterTerminalReplayMatchesV1(
+    parsedLatest,
+    input.sourceOutputUrl,
+    input.sourceOutputSize,
+  )) {
+    return { ok: true, status: "ALREADY_TERMINAL" };
+  }
+  return nonCurrentProjectRenderJobResultV1("JOB_STATE_NOT_ACTIVE");
 }
 
 async function materializeChapterCleanupAtBoundaryV1(input: {
@@ -2305,6 +2783,12 @@ export class ProjectService {
         if (!fenced.ok) return fenced;
         if (isChapterRenderAuthorizationV1(authorization)) {
           if (fenced.status === "STALE" || fenced.status === "ALREADY_STALE") {
+            await reconcileProviderFreeChapterStaleLifecycleV1({
+              authorization,
+              renderJobs,
+              session,
+              now: transactionAt,
+            });
             await materializeChapterCleanupAtBoundaryV1({
               authorization,
               chapterRenderJobs,
@@ -2463,14 +2947,54 @@ export class ProjectService {
     leaseMs?: number;
     now?: Date;
   }): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+    const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+    if (!parsedAuthorization.success) {
+      return nonCurrentProjectRenderJobResultV1("AUTHORIZATION_INVALID");
+    }
+    const hasProviderRenderId = input.providerRenderId !== undefined;
+    const hasBucketName = input.bucketName !== undefined;
+    const hasRegion = input.region !== undefined;
+    const hasAnyProviderIdentity = hasProviderRenderId || hasBucketName || hasRegion;
+    const hasCompleteProviderIdentity = hasProviderRenderId && hasBucketName && hasRegion;
+    if (
+      hasAnyProviderIdentity !== hasCompleteProviderIdentity
+      || (!hasAnyProviderIdentity
+        && !isProviderFreeChapterFinalizationInputV1(input, parsedAuthorization.data))
+    ) {
+      return nonCurrentProjectRenderJobResultV1("INPUT_INVALID");
+    }
+    const providerFreeChapter = isProviderFreeChapterFinalizationInputV1(
+      input,
+      parsedAuthorization.data,
+    );
     return this.runProjectRenderJobTransactionV1(
       {
         authorization: input.authorization,
         kind: "initial-finalization-claim",
         now: input.now,
       },
-      ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) =>
-        claimProjectRenderJobFinalizationV1({
+      async ({ authorization, currentProjectRevision, renderJobs, session, transactionAt }) => {
+        if (providerFreeChapter) {
+          const current = await renderJobs.findOne(
+            { _id: authorization.jobId },
+            { session },
+          );
+          const parsedCurrent = parseProviderFreeChapterParentV1(current, authorization);
+          if (
+            !parsedCurrent
+            || parsedCurrent.artifactState !== "ACTIVE"
+            || (parsedCurrent.status !== "rendering" && parsedCurrent.status !== "finalizing")
+            || !isProviderFreeChapterFinalizationStateV1(parsedCurrent)
+            || !chapterAggregateOutputMatchesV1(
+              parsedCurrent,
+              input.sourceOutputUrl,
+              input.sourceOutputSize,
+            )
+          ) {
+            return nonCurrentProjectRenderJobResultV1("JOB_STATE_NOT_ACTIVE");
+          }
+        }
+        return claimProjectRenderJobFinalizationV1({
           authorization,
           currentProjectRevision,
           providerRenderId: input.providerRenderId,
@@ -2483,8 +3007,58 @@ export class ProjectService {
           now: transactionAt,
           collection: renderJobs,
           session,
-        }),
-      input.providerRenderId !== undefined
+        });
+      },
+      providerFreeChapter
+        ? async ({
+            authorization,
+            observedProjectRevision,
+            renderJobs,
+            renderSourceCleanupOutbox,
+            chapterRenderJobs,
+            chapterConcatCleanupOutbox,
+            session,
+            transactionAt,
+          }) => {
+            const stale = await fenceStaleProviderFreeChapterAggregateV1({
+              authorization,
+              observedProjectRevision,
+              sourceOutputUrl: input.sourceOutputUrl,
+              sourceOutputSize: input.sourceOutputSize,
+              error: "Project changed before provider-free chapter output finalization.",
+              now: transactionAt,
+              collection: renderJobs,
+              session,
+            });
+            if (!stale.ok) return stale;
+            if (stale.status === "STALE" || stale.status === "ALREADY_STALE") {
+              await materializeChapterCleanupAtBoundaryV1({
+                authorization,
+                chapterRenderJobs,
+                chapterConcatCleanupOutbox,
+                renderSourceCleanupOutbox,
+                renderJobs,
+                session,
+                boundary: "STALE_PROVIDER_OUTPUT",
+                now: transactionAt,
+              });
+            } else if (
+              stale.status === "ALREADY_TERMINAL"
+              && !await materializeTerminalChapterCleanupV1({
+                authorization,
+                chapterRenderJobs,
+                chapterConcatCleanupOutbox,
+                renderSourceCleanupOutbox,
+                renderJobs,
+                session,
+                now: transactionAt,
+              })
+            ) {
+              throw new Error("CHAPTER_RENDER_TERMINAL_CLEANUP_NOT_PROVABLE");
+            }
+            return nonCurrentProjectRenderJobResultV1("PROJECT_REVISION_STALE");
+          }
+        : input.providerRenderId !== undefined
         && input.bucketName !== undefined
         && input.region !== undefined
         ? async ({
@@ -2666,6 +3240,14 @@ export class ProjectService {
               session,
             });
         if (result.ok && result.status === "CURRENT") {
+          await reconcileProviderFreeChapterTerminalLifecycleV1({
+            authorization,
+            currentProjectRevision,
+            kind: input.kind,
+            renderJobs,
+            session,
+            now: transactionAt,
+          });
           if (input.kind === "complete") {
             await materializeChapterCleanupAtBoundaryV1({
               authorization,
@@ -2739,6 +3321,12 @@ export class ProjectService {
         if (!fenced.ok) return fenced;
         if (isChapterRenderAuthorizationV1(authorization)) {
           if (fenced.status === "STALE" || fenced.status === "ALREADY_STALE") {
+            await reconcileProviderFreeChapterStaleLifecycleV1({
+              authorization,
+              renderJobs,
+              session,
+              now: transactionAt,
+            });
             await materializeChapterCleanupAtBoundaryV1({
               authorization,
               chapterRenderJobs,

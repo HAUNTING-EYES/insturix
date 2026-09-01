@@ -21,9 +21,17 @@ import {
   type ProjectRenderSnapshotBindingV1,
 } from "./project-render-snapshot-binding-v1";
 import {
+  RenderJobChapterOrchestrationSchema,
+  RenderJobSchema,
+} from "../schemas/render-job";
+import {
   ProjectRenderJobAuthorizationSchema,
   type ProjectRenderJobAuthorizationV1,
 } from "./render-job-service";
+import {
+  assertChapterChildDispatchV1,
+  type ChapterChildDispatchV1,
+} from "./chapter-render-dispatch-v1";
 
 export const CHAPTER_RENDER_CLEANUP_CHAPTERS_COLLECTION_V1 =
   "editron_render_chapters" as const;
@@ -43,6 +51,7 @@ type ChapterRenderCleanupChildDocumentV1 = {
   parentAdmissionId?: unknown;
   outputUrl?: unknown;
   outputSize?: unknown;
+  dispatch?: unknown;
 };
 
 type ChapterRenderCleanupMaterializationRecordV1 = {
@@ -82,6 +91,11 @@ export type ChapterRenderCleanupParentDocumentV1 = {
   artifactInvalidatedAt?: unknown;
   projectRenderSnapshotBinding?: unknown;
   finalization?: unknown;
+  artifactBinding?: unknown;
+  artifactInvalidation?: unknown;
+  deliveryManifest?: unknown;
+  dispatch?: unknown;
+  chapterOrchestration?: unknown;
 };
 
 export type ChapterRenderCleanupProviderOutputV1 = {
@@ -235,6 +249,7 @@ function parseChildren(
   region: string;
   outputUrl: string;
   outputSize: number;
+  dispatch?: unknown;
 }> {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_CHILDREN) {
     fail("CHILDREN_INVALID");
@@ -265,8 +280,49 @@ function parseChildren(
       region,
       outputUrl,
       outputSize,
+      dispatch: child.dispatch,
     };
   });
+}
+
+function assertProviderFreeChapterChildren(
+  children: readonly {
+    index: number;
+    providerRenderId: string;
+    bucketName: string;
+    region: string;
+    outputUrl: string;
+    outputSize: number;
+    dispatch?: unknown;
+  }[],
+  authorization: ProjectRenderJobAuthorizationV1,
+  binding: ProjectRenderSnapshotBindingV1,
+): void {
+  for (const child of children) {
+    try {
+      assertChapterChildDispatchV1(child.dispatch);
+    } catch {
+      fail("CHILD_DISPATCH_INVALID");
+    }
+    const dispatch = child.dispatch as ChapterChildDispatchV1;
+    if (
+      dispatch.phase !== "BOUND"
+      || dispatch.parentAdmissionId !== authorization.jobId
+      || dispatch.childIndex !== child.index
+      || dispatch.bindingHash !== binding.bindingHash
+      || dispatch.providerRenderId !== child.providerRenderId
+      || dispatch.providerBucketName !== child.bucketName
+      || dispatch.providerRegion !== child.region
+      || !dispatch.attemptStartedAt
+      || !dispatch.providerAcceptedAt
+      || !dispatch.providerBoundAt
+      || !validDate(dispatch.attemptStartedAt)
+      || !validDate(dispatch.providerAcceptedAt)
+      || !validDate(dispatch.providerBoundAt)
+    ) {
+      fail("CHILD_DISPATCH_MISMATCH");
+    }
+  }
 }
 
 function parseConcatResult(
@@ -411,6 +467,71 @@ function assertParentScope(
   }
   parseBinding(parent.projectRenderSnapshotBinding, authorization);
   if (!sameBinding(parent.projectRenderSnapshotBinding as ProjectRenderSnapshotBindingV1, binding)) {
+    fail("PARENT_BINDING_MISMATCH");
+  }
+}
+
+/**
+ * Chapter aggregate parents deliberately have no provider tuple. Re-parse the
+ * strict render row here so cleanup can never turn a malformed or mixed row
+ * into a provider-shaped descriptor. Child provider tuples remain sourced
+ * only from the completed chapter ledger below.
+ */
+function assertProviderFreeChapterParent(
+  parent: ChapterRenderCleanupParentDocumentV1,
+  authorization: ProjectRenderJobAuthorizationV1,
+  binding: ProjectRenderSnapshotBindingV1,
+): void {
+  const parsed = RenderJobSchema.safeParse(parent);
+  if (!parsed.success) fail("PARENT_ORCHESTRATION_INVALID");
+  const job = parsed.data;
+  const orchestration = RenderJobChapterOrchestrationSchema.safeParse(
+    job.chapterOrchestration,
+  );
+  if (!orchestration.success) fail("PARENT_ORCHESTRATION_INVALID");
+  if (
+    job.providerRenderId !== undefined
+    || job.bucketName !== undefined
+    || job.artifactBinding !== undefined
+    || job.artifactInvalidation !== undefined
+    || job.region !== orchestration.data.selectedRegion
+    || job.deliveryManifest?.primaryArtifact.renderId !== authorization.jobId
+  ) {
+    fail("PARENT_PROVIDER_IDENTITY_MISMATCH");
+  }
+  const dispatch = job.dispatch;
+  if (
+    !dispatch
+    || dispatch.version !== 1
+    || dispatch.phase !== "NOT_ATTEMPTED"
+    || dispatch.providerRenderId !== undefined
+    || dispatch.providerBucketName !== undefined
+    || dispatch.providerRegion !== undefined
+    || dispatch.providerBoundAt !== undefined
+  ) {
+    fail("PARENT_PROVIDER_IDENTITY_MISMATCH");
+  }
+  if (
+    orchestration.data.scope !== "CHAPTER_ORCHESTRATION"
+    || orchestration.data.aggregateJobId !== authorization.jobId
+    || orchestration.data.bindingHash !== authorization.bindingHash
+  ) {
+    fail("PARENT_ORCHESTRATION_INVALID");
+  }
+  const aggregateOutput = orchestration.data.aggregateOutput;
+  const finalization = job.finalization;
+  if (
+    !aggregateOutput
+    || !finalization
+    || finalization.sourceOutputUrl !== aggregateOutput.url
+    || finalization.sourceOutputSize !== aggregateOutput.sizeBytes
+  ) {
+    fail("PARENT_PROVIDER_OUTPUT_MISMATCH");
+  }
+  if (
+    !job.projectRenderSnapshotBinding
+    || !sameBinding(job.projectRenderSnapshotBinding, binding)
+  ) {
     fail("PARENT_BINDING_MISMATCH");
   }
 }
@@ -617,7 +738,14 @@ export async function materializeChapterRenderCleanupV1(
     if (!parent) fail("PARENT_ADMISSION_NOT_FOUND");
     assertParentScope(parent, authorization, binding);
     assertParentBoundary(parent, input.boundary);
-    if (
+    const isProviderFreeChapter = parent.chapterOrchestration !== undefined;
+    if (isProviderFreeChapter) {
+      if (input.expectedProviderOutput !== undefined) {
+        fail("PROVIDER_OUTPUT_MISMATCH");
+      }
+      assertProviderFreeChapterParent(parent, authorization, binding);
+      assertProviderFreeChapterChildren(children, authorization, binding);
+    } else if (
       parent.providerRenderId !== undefined
       && parent.providerRenderId !== authorization.jobId
     ) {
@@ -631,26 +759,28 @@ export async function materializeChapterRenderCleanupV1(
         input.session,
       );
     }
-    const finalization = isRecord(parent.finalization) ? parent.finalization : undefined;
-    if (!finalization) fail("PARENT_PROVIDER_OUTPUT_MISSING");
-    const sourceOutputUrl = finalization.sourceOutputUrl;
-    const sourceOutputSize = finalization.sourceOutputSize;
-    if (
-      typeof parent.providerRenderId !== "string"
-      || typeof parent.bucketName !== "string"
-      || typeof parent.region !== "string"
-      || typeof sourceOutputUrl !== "string"
-      || typeof sourceOutputSize !== "number"
-    ) {
-      fail("PARENT_PROVIDER_OUTPUT_MISSING");
+    if (!isProviderFreeChapter) {
+      const finalization = isRecord(parent.finalization) ? parent.finalization : undefined;
+      if (!finalization) fail("PARENT_PROVIDER_OUTPUT_MISSING");
+      const sourceOutputUrl = finalization.sourceOutputUrl;
+      const sourceOutputSize = finalization.sourceOutputSize;
+      if (
+        typeof parent.providerRenderId !== "string"
+        || typeof parent.bucketName !== "string"
+        || typeof parent.region !== "string"
+        || typeof sourceOutputUrl !== "string"
+        || typeof sourceOutputSize !== "number"
+      ) {
+        fail("PARENT_PROVIDER_OUTPUT_MISSING");
+      }
+      assertExpectedProviderOutput({
+        providerRenderId: parent.providerRenderId,
+        bucketName: parent.bucketName,
+        region: parent.region,
+        sourceOutputUrl,
+        sourceOutputSize,
+      }, authorization, children, concatResult);
     }
-    assertExpectedProviderOutput({
-      providerRenderId: parent.providerRenderId,
-      bucketName: parent.bucketName,
-      region: parent.region,
-      sourceOutputUrl,
-      sourceOutputSize,
-    }, authorization, children, concatResult);
   }
   assertExpectedProviderOutput(
     input.expectedProviderOutput,
