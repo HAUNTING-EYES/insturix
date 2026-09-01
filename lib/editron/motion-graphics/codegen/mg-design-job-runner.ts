@@ -207,18 +207,6 @@ export async function enqueueDurableMgDesignJob(
     return { jobId: stored._id, status: 'running', messageId: null };
   }
   const dispatched = await (dependencies.dispatchJob ?? dispatchMgDesignJob)(stored, options.env ?? process.env);
-  await (await getDatabase()).collection(COLLECTIONS.PROJECTS).updateOne(
-    { projectId: input.projectId, userId: input.userId },
-    { $set: {
-      'intelligence.mgDesignJob': {
-        version: JOB_VERSION,
-        jobId: stored._id,
-        status: 'queued',
-        decisionCount: input.edl.decisions.length,
-        queuedAt: now,
-      },
-    } },
-  );
   return { jobId: stored._id, status: 'queued', messageId: dispatched.messageId };
 }
 
@@ -318,14 +306,6 @@ async function failMgDesignJob(
     },
   );
   if (update.matchedCount === 0) return 'stale-lease';
-  await (await getDatabase()).collection(COLLECTIONS.PROJECTS).updateOne(
-    { projectId: job.projectId, userId: job.userId },
-    { $set: {
-      'intelligence.mgDesignJob.status': disposition,
-      'intelligence.mgDesignJob.lastError': error instanceof Error ? error.message : String(error),
-      'intelligence.mgDesignJob.updatedAt': now,
-    } },
-  );
   return disposition;
 }
 

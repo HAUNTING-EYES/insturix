@@ -15,6 +15,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   COLLECTIONS: {
     PROJECTS: 'projects',
     PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
+    MG_DESIGN_JOBS: 'editron_mg_design_jobs',
   },
   getDatabase: vi.fn(async () => ({
     collection: () => ({
@@ -32,6 +33,7 @@ vi.mock('@/lib/editron/motion-graphics/codegen/design/designer-client', () => ({
 import { OverlayType, type Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import {
   buildMgDesignJobId,
+  enqueueDurableMgDesignJob,
   executeQueuedMgDesignJob,
   type CreateMgDesignJobInput,
   type MgDesignExecutionResult,
@@ -187,6 +189,30 @@ describe('durable MG design scheduling', () => {
     }));
   });
 
+  it('enqueues the durable job without creating a project lifecycle mirror', async () => {
+    const stored = designJob('queued');
+    const dispatchJob = vi.fn(async () => ({ messageId: 'qstash-design-1' }));
+
+    await expect(enqueueDurableMgDesignJob({
+      projectId: 'project-1',
+      userId: 'user-1',
+      edl: graphicEdl(),
+      canvas: { width: 1920, height: 1080 },
+      graphicsDensity: 'moderate',
+    }, {
+      dependencies: {
+        createOrGetJob: async () => stored,
+        dispatchJob,
+      },
+    })).resolves.toEqual({
+      jobId: stored._id,
+      status: 'queued',
+      messageId: 'qstash-design-1',
+    });
+    expect(dispatchJob).toHaveBeenCalledOnce();
+    expect(mocks.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
   it('does not claim work before the Director save barrier clears', async () => {
     const claimJob = vi.fn();
     const result = await executeQueuedMgDesignJob('mgd_0123456789abcdef0123456789abcdef', {
@@ -237,8 +263,8 @@ describe('durable MG design scheduling', () => {
   });
 
   it('persists a retry disposition for transient provider failure', async () => {
-    const failJob = vi.fn(async () => 'queued' as const);
     await expect(executeQueuedMgDesignJob('mgd_0123456789abcdef0123456789abcdef', {
+      now: new Date('2026-08-03T06:01:00.000Z'),
       dependencies: {
         getState: async () => ({
           status: 'queued',
@@ -250,9 +276,18 @@ describe('durable MG design scheduling', () => {
         waitForProjectReady: async () => true,
         claimJob: async () => designJob('running'),
         executeJob: async () => { throw new Error('Gemini 429 RESOURCE_EXHAUSTED'); },
-        failJob,
       },
     })).rejects.toMatchObject({ disposition: 'queued' });
-    expect(failJob).toHaveBeenCalledOnce();
+    expect(mocks.projectUpdateOne).toHaveBeenCalledOnce();
+    expect(mocks.projectUpdateOne).toHaveBeenCalledWith(
+      {
+        _id: 'mgd_0123456789abcdef0123456789abcdef',
+        status: 'running',
+        leaseId: expect.stringMatching(/^mgdl_/),
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: 'queued', leaseId: null }),
+      }),
+    );
   });
 });

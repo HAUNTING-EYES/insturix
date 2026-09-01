@@ -7104,7 +7104,7 @@ export class ProjectService {
     assertProjectRevision(input.expectedRevision);
     assertProjectMgDesignCompletionCommandV1(input);
     const completedAt = new Date(input.result.completedAt);
-    const { projectEvidence, ...resultSummary } = input.result;
+    const { projectEvidence } = input.result;
     const { client, db } = await connectToDatabase();
     const session = client.startSession();
     try {
@@ -7142,13 +7142,6 @@ export class ProjectService {
 
         const intelligence = project.intelligence ?? {};
         const setFields: Record<string, unknown> = {
-          "intelligence.mgDesignJob": {
-            version: "mg-design-job-v1",
-            jobId: input.result.jobId,
-            status: "completed",
-            result: resultSummary,
-            completedAt,
-          },
           updatedAt: completedAt,
         };
         if (projectEvidence.mgCodegenRun) {

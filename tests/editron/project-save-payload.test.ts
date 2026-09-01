@@ -1639,6 +1639,10 @@ describe("Editron project save payload compaction", () => {
       }),
       expect.objectContaining({ session: expect.any(Object) }),
     );
+    const projectSet = (
+      persistenceMocks.updateOne.mock.calls[0]?.[1] as { $set?: Record<string, unknown> } | undefined
+    )?.$set;
+    expect(projectSet).not.toHaveProperty("intelligence.mgDesignJob");
     expect(persistenceMocks.updateOne).toHaveBeenNthCalledWith(
       2,
       {
