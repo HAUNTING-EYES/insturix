@@ -19,6 +19,11 @@ import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
 import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import type { PipelineVideoProjectDeliveryRequestV1 } from '@/lib/editron/services/pipeline-video-project-delivery-v1';
+import {
+  PipelineVideoBatchTerminalBlockedErrorV1,
+  recordPipelineVideoBatchTerminalV1,
+  type PipelineVideoBatchTerminalStatusV1,
+} from '@/lib/editron/services/pipeline-video-batch-terminal-publication-v1';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -699,9 +704,10 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   if (!batch) return;
 
   const done = (batch.completed || 0) + (batch.failed || 0);
-  let status = 'processing';
+  let status: 'processing' | PipelineVideoBatchTerminalStatusV1 = 'processing';
   if (done >= batch.totalScenes) {
-    if (batch.failed === 0) status = 'completed';
+    if (done > batch.totalScenes) status = 'partial';
+    else if (batch.failed === 0) status = 'completed';
     else if (batch.completed === 0) status = 'failed';
     else status = 'partial';
   }
@@ -718,15 +724,7 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   const resolvedProjectId = batch.projectId
     || (batch.storyboardId ? (await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any)?.projectId : null);
 
-  // Refresh derived project status whenever a batch finishes
   if (done >= batch.totalScenes && resolvedProjectId) {
-    try {
-      const { projectService } = await import('@/lib/editron/services/project-service');
-      await projectService.refreshProjectStatus(resolvedProjectId);
-    } catch (statusErr: any) {
-      console.warn(`[VideoWorker] Failed to refresh project status for ${resolvedProjectId}:`, statusErr.message);
-    }
-
     const recordDirectorDispatch = async (
       disposition: string,
       details: Record<string, unknown> = {},
@@ -760,6 +758,39 @@ async function updateBatchStatus(batchId: string): Promise<void> {
       console.error(`[VideoWorker] Batch ${batchId} cannot dispatch Director: batch userId is missing.`);
       return;
     }
+
+    const terminalStatus = status === 'processing' ? null : status;
+    if (!terminalStatus) {
+      await recordDirectorDispatch('NOT_DISPATCHED_INVALID_TERMINAL_STATUS');
+      console.error(`[VideoWorker] Batch ${batchId} reached dispatch without a terminal status.`);
+      return;
+    }
+
+    let directorExpectedRevision: ProjectRevisionV1;
+    try {
+      const terminal = await recordPipelineVideoBatchTerminalV1({
+        userId,
+        projectId: resolvedProjectId,
+        batchId,
+        terminalStatus,
+        completed: batch.completed || 0,
+        failed: batch.failed || 0,
+        totalScenes: batch.totalScenes,
+      });
+      directorExpectedRevision = terminal.observedProjectRevision;
+    } catch (terminalErr: unknown) {
+      const reason = terminalErr instanceof PipelineVideoBatchTerminalBlockedErrorV1
+        ? terminalErr.reason
+        : 'UNVERIFIABLE';
+      await recordDirectorDispatch(`NOT_DISPATCHED_PROJECT_TERMINAL_${reason}`, {
+        terminalStatus,
+      });
+      console.error(
+        `[VideoWorker] Batch ${batchId} cannot dispatch Director: project terminal publication ${reason}.`,
+      );
+      return;
+    }
+
     if (!qstashToken || !isInternalQStashWorkerAuthConfigured()) {
       await recordDirectorDispatch('NOT_DISPATCHED_WORKER_AUTH_CONFIGURATION', {
         missingQStashToken: !qstashToken,
@@ -776,12 +807,11 @@ async function updateBatchStatus(batchId: string): Promise<void> {
 
     try {
       const { projectService } = await import('@/lib/editron/services/project-service');
-      const snapshot = await projectService.loadProjectForMutation(userId, resolvedProjectId);
       const prepared = await projectService.preparePipelineDirectorDispatchV1(
         userId,
         resolvedProjectId,
         {
-          expectedRevision: snapshot.revision,
+          expectedRevision: directorExpectedRevision,
           batchId,
         },
       );
