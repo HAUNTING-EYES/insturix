@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { projectService } from '@/lib/editron/services/project-service';
+import { readProjectRevisionV1 } from '@/lib/editron/services/project-revision-v1';
 import { auth } from '@clerk/nextjs/server';
 
 export async function POST(request: NextRequest) {
@@ -13,12 +14,50 @@ export async function POST(request: NextRequest) {
 
     const { projectId, overlayId, currentHtml, editPrompt, width, height } = await request.json();
 
-    if (!projectId || !overlayId || !currentHtml || !editPrompt) {
+    const validOverlayId = (typeof overlayId === 'number'
+      && Number.isSafeInteger(overlayId)
+      && overlayId >= 0)
+      || (typeof overlayId === 'string'
+        && overlayId === overlayId.trim()
+        && overlayId.length > 0
+        && overlayId.length <= 256);
+    if (typeof projectId !== 'string' || !projectId.trim()
+      || !validOverlayId
+      || typeof currentHtml !== 'string' || !currentHtml
+      || typeof editPrompt !== 'string' || !editPrompt.trim()) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const safeWidth = width || 1920;
-    const safeHeight = height || 1080;
+    const project = await projectService.loadProject(userId, projectId);
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+    const expectedRevision = readProjectRevisionV1(project);
+    if (!expectedRevision) {
+      return NextResponse.json({ error: 'Project revision is unavailable' }, { status: 409 });
+    }
+    const overlay = project.overlays.find(
+      (candidate: any) => candidate.id === overlayId,
+    );
+    if (!overlay) {
+      return NextResponse.json({ error: 'HTML scene not found' }, { status: 404 });
+    }
+    if (overlay.type !== 'html-scene') {
+      return NextResponse.json({ error: 'Target overlay is not an HTML scene' }, { status: 409 });
+    }
+    if (typeof overlay.content !== 'string' || overlay.content !== currentHtml) {
+      return NextResponse.json({
+        error: 'HTML scene changed; reload before editing',
+        code: 'PROJECT_MUTATION_CONFLICT',
+      }, { status: 409 });
+    }
+
+    const safeWidth = Number.isFinite(Number(overlay.width)) && Number(overlay.width) > 0
+      ? Number(overlay.width)
+      : (width || 1920);
+    const safeHeight = Number.isFinite(Number(overlay.height)) && Number(overlay.height) > 0
+      ? Number(overlay.height)
+      : (height || 1080);
 
     // Initialize the model
     const model = new ChatGoogleGenerativeAI({
@@ -46,7 +85,7 @@ export async function POST(request: NextRequest) {
       new SystemMessage(systemPrompt),
       new HumanMessage(`
 CURRENT HTML:
-${currentHtml}
+${overlay.content}
 
 EDIT REQUEST:
 ${editPrompt}
@@ -54,12 +93,25 @@ ${editPrompt}
 Return the modified HTML:`)
     ]);
 
-    const newHtml = (result.content as string).replace(/```html/g, '').replace(/```/g, '').trim();
+    if (typeof result.content !== 'string') {
+      return NextResponse.json({ error: 'HTML editor returned non-text output' }, { status: 502 });
+    }
+    const newHtml = result.content.replace(/```html/gi, '').replace(/```/g, '').trim();
+    if (!/^<[a-z][\s\S]*>/i.test(newHtml)) {
+      return NextResponse.json({ error: 'HTML editor returned invalid markup' }, { status: 502 });
+    }
 
     // Update the overlay in the database
-    await projectService.updateOverlay(userId, projectId, overlayId, {
-      content: newHtml,
-    } as any);
+    await projectService.updateOverlayAtRevisionV1(
+      userId,
+      projectId,
+      {
+        expectedRevision,
+        actorKind: 'USER',
+        overlayId,
+        updates: { content: newHtml } as any,
+      },
+    );
 
     return NextResponse.json({ 
       success: true, 
@@ -68,9 +120,16 @@ Return the modified HTML:`)
     });
 
   } catch (error: any) {
+    if (error?.code === 'PROJECT_MUTATION_CONFLICT') {
+      return NextResponse.json({
+        error: 'Project changed while editing the HTML scene; reload and retry',
+        code: error.code,
+        currentRevision: error.currentRevision,
+      }, { status: 409 });
+    }
     console.error('HTML Scene Edit Error:', error);
     return NextResponse.json({ 
-      error: error.message || 'Failed to edit HTML scene' 
+      error: 'Failed to edit HTML scene'
     }, { status: 500 });
   }
 }
