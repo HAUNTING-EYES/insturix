@@ -17,8 +17,14 @@ export const PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1 =
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 const CLEANUP_OUTBOX_ID = /^project-render-source-cleanup_[a-f0-9]{64}$/;
 const CLAIM_TOKEN = /^[A-Za-z0-9_-]{1,200}$/;
+const PARENT_ADMISSION_ID = /^[A-Za-z0-9_.:-]{1,500}$/;
 const PROVIDER_RENDER_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const AWS_BUCKET_NAME = /^(?!.*\.\.)(?!\d{1,3}(?:\.\d{1,3}){3}$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+const MAX_CHAPTER_INDEX_V1 = 100_000;
+
+const STANDARD_RENDER_ARTIFACT_KIND_V1 = "REMOTION_AWS_RENDER_OUTPUT" as const;
+const CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1 =
+  "REMOTION_AWS_CHAPTER_CHILD_RENDER_OUTPUT" as const;
 
 export const ProjectRenderSourceCleanupAwsRegionSchemaV1 = z.enum([
   "eu-central-1",
@@ -49,10 +55,9 @@ export const ProjectRenderSourceCleanupAwsRegionSchemaV1 = z.enum([
 export const ProjectRenderSourceCleanupOutboxIdSchemaV1 = z.string()
   .regex(CLEANUP_OUTBOX_ID);
 
-const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.object({
+const ProjectRenderSourceCleanupDescriptorBaseShapeV1 = {
   schemaVersion: z.literal(1),
   scope: z.literal("PROJECT_RENDER_SOURCE_CLEANUP"),
-  artifactKind: z.literal("REMOTION_AWS_RENDER_OUTPUT"),
   provider: z.literal("REMOTION_AWS_LAMBDA"),
   credentialScopeId: z.literal("EDITRON_REMOTION_AWS_PRIMARY"),
   binding: ProjectRenderSnapshotBindingSchema,
@@ -70,7 +75,15 @@ const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.object({
     sizeBytes: z.number().int().nonnegative(),
   }).strict(),
   createdAt: z.string().datetime(),
-}).strict().superRefine((descriptor, context) => {
+} as const;
+
+function validateProjectRenderSourceCleanupRenderPrefixV1(
+  descriptor: {
+    providerRenderId: string;
+    renderPrefix: string;
+  },
+  context: z.RefinementCtx,
+): void {
   if (descriptor.renderPrefix !== `renders/${descriptor.providerRenderId}/`) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -78,16 +91,83 @@ const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.object({
       message: "Render cleanup prefix must be derived from the provider render ID.",
     });
   }
+}
+
+const ProjectRenderSourceCleanupStandardDescriptorUnsignedSchemaV1 = z.object({
+  ...ProjectRenderSourceCleanupDescriptorBaseShapeV1,
+  artifactKind: z.literal(STANDARD_RENDER_ARTIFACT_KIND_V1),
+}).strict().superRefine(validateProjectRenderSourceCleanupRenderPrefixV1);
+
+const ProjectRenderSourceCleanupChapterChildDescriptorUnsignedSchemaV1 = z.object({
+  ...ProjectRenderSourceCleanupDescriptorBaseShapeV1,
+  artifactKind: z.literal(CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1),
+  parentAdmissionId: z.string().regex(PARENT_ADMISSION_ID),
+  chapterIndex: z.number().int().nonnegative().max(MAX_CHAPTER_INDEX_V1),
+}).strict().superRefine((descriptor, context) => {
+  validateProjectRenderSourceCleanupRenderPrefixV1(descriptor, context);
+  if (descriptor.parentAdmissionId !== descriptor.binding.artifactId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["parentAdmissionId"],
+      message: "Chapter child cleanup must name its exact parent render admission.",
+    });
+  }
 });
 
+const ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1 = z.discriminatedUnion(
+  "artifactKind",
+  [
+    ProjectRenderSourceCleanupStandardDescriptorUnsignedSchemaV1,
+    ProjectRenderSourceCleanupChapterChildDescriptorUnsignedSchemaV1,
+  ],
+);
+
 export const ProjectRenderSourceCleanupDescriptorSchemaV1 =
-  ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1.safeExtend({
+  z.discriminatedUnion("artifactKind", [
+    ProjectRenderSourceCleanupStandardDescriptorUnsignedSchemaV1.safeExtend({
+      descriptorId: ProjectRenderSourceCleanupOutboxIdSchemaV1,
+      descriptorHash: z.string().regex(HEX_SHA256),
+    }).strict(),
+    ProjectRenderSourceCleanupChapterChildDescriptorUnsignedSchemaV1.safeExtend({
+      descriptorId: ProjectRenderSourceCleanupOutboxIdSchemaV1,
+      descriptorHash: z.string().regex(HEX_SHA256),
+    }).strict(),
+  ]);
+export const ProjectRenderSourceCleanupStandardDescriptorSchemaV1 =
+  ProjectRenderSourceCleanupStandardDescriptorUnsignedSchemaV1.safeExtend({
+    descriptorId: ProjectRenderSourceCleanupOutboxIdSchemaV1,
+    descriptorHash: z.string().regex(HEX_SHA256),
+  }).strict();
+export const ProjectRenderSourceCleanupChapterChildDescriptorSchemaV1 =
+  ProjectRenderSourceCleanupChapterChildDescriptorUnsignedSchemaV1.safeExtend({
     descriptorId: ProjectRenderSourceCleanupOutboxIdSchemaV1,
     descriptorHash: z.string().regex(HEX_SHA256),
   }).strict();
 export type ProjectRenderSourceCleanupDescriptorV1 = z.infer<
   typeof ProjectRenderSourceCleanupDescriptorSchemaV1
 >;
+export type ProjectRenderSourceCleanupStandardDescriptorV1 = z.infer<
+  typeof ProjectRenderSourceCleanupStandardDescriptorSchemaV1
+>;
+export type ProjectRenderSourceCleanupChapterChildDescriptorV1 = z.infer<
+  typeof ProjectRenderSourceCleanupChapterChildDescriptorSchemaV1
+>;
+
+/**
+ * Standard rows predate the child contract and include createdAt in their
+ * hash. Keep that legacy identity intact; child identity excludes its audit
+ * timestamp so a retry of the same exact child tuple reuses one outbox row.
+ */
+function projectRenderSourceCleanupDescriptorHashV1(
+  descriptor: z.infer<typeof ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1>
+    | ProjectRenderSourceCleanupDescriptorV1,
+): string {
+  if (descriptor.artifactKind === CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1) {
+    const { createdAt, ...identity } = descriptor;
+    return hashEditronCanonicalJsonV1(identity);
+  }
+  return hashEditronCanonicalJsonV1(descriptor);
+}
 
 const ProjectRenderSourceCleanupLeaseSchemaV1 = z.object({
   claimToken: z.string().regex(CLAIM_TOKEN),
@@ -161,43 +241,16 @@ export type ProjectRenderSourceCleanupOutboxV1 = z.infer<
   typeof ProjectRenderSourceCleanupOutboxSchemaV1
 >;
 
-export function createProjectRenderSourceCleanupOutboxV1(input: {
-  binding: ProjectRenderSnapshotBindingV1;
-  providerRenderId: string;
-  bucketName: string;
-  region: string;
-  sourceOutputUrl: string;
-  sourceOutputSize: number;
-  now?: Date;
-}): ProjectRenderSourceCleanupOutboxV1 {
-  assertProjectRenderSnapshotBindingV1(input.binding);
-  const now = input.now ?? new Date();
-  if (Number.isNaN(now.getTime())) {
-    throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_TIME_INVALID");
-  }
-  const unsigned = ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1.parse({
-    schemaVersion: 1,
-    scope: "PROJECT_RENDER_SOURCE_CLEANUP",
-    artifactKind: "REMOTION_AWS_RENDER_OUTPUT",
-    provider: "REMOTION_AWS_LAMBDA",
-    credentialScopeId: "EDITRON_REMOTION_AWS_PRIMARY",
-    binding: cloneCanonicalEditronJsonV1(input.binding),
-    providerRenderId: input.providerRenderId.trim(),
-    bucketName: input.bucketName.trim(),
-    region: input.region.trim(),
-    renderPrefix: `renders/${input.providerRenderId.trim()}/`,
-    sourceOutput: {
-      url: input.sourceOutputUrl,
-      sizeBytes: input.sourceOutputSize,
-    },
-    createdAt: now.toISOString(),
-  });
-  const descriptorHash = hashEditronCanonicalJsonV1(unsigned);
-  const descriptor: ProjectRenderSourceCleanupDescriptorV1 = {
+function createProjectRenderSourceCleanupOutboxFromUnsignedV1(
+  unsigned: z.infer<typeof ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1>,
+  now: Date,
+): ProjectRenderSourceCleanupOutboxV1 {
+  const descriptorHash = projectRenderSourceCleanupDescriptorHashV1(unsigned);
+  const descriptor = ProjectRenderSourceCleanupDescriptorSchemaV1.parse({
     ...unsigned,
     descriptorId: `project-render-source-cleanup_${descriptorHash}`,
     descriptorHash,
-  };
+  });
   const outbox: ProjectRenderSourceCleanupOutboxV1 = {
     _id: descriptor.descriptorId,
     schemaVersion: 1,
@@ -212,6 +265,115 @@ export function createProjectRenderSourceCleanupOutboxV1(input: {
   return outbox;
 }
 
+function cleanupTimeV1(nowInput: Date | undefined): Date {
+  const now = nowInput ?? new Date();
+  if (Number.isNaN(now.getTime())) {
+    throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_TIME_INVALID");
+  }
+  return now;
+}
+
+type ProjectRenderSourceCleanupProviderInputV1 = {
+  binding: ProjectRenderSnapshotBindingV1;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  now?: Date;
+};
+
+function createUnsignedProjectRenderSourceCleanupDescriptorV1(
+  input: ProjectRenderSourceCleanupProviderInputV1 & {
+    artifactKind: typeof STANDARD_RENDER_ARTIFACT_KIND_V1;
+  },
+  now: Date,
+): z.infer<typeof ProjectRenderSourceCleanupStandardDescriptorUnsignedSchemaV1>;
+function createUnsignedProjectRenderSourceCleanupDescriptorV1(
+  input: ProjectRenderSourceCleanupProviderInputV1 & {
+    artifactKind: typeof CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1;
+    parentAdmissionId: string;
+    chapterIndex: number;
+  },
+  now: Date,
+): z.infer<typeof ProjectRenderSourceCleanupChapterChildDescriptorUnsignedSchemaV1>;
+function createUnsignedProjectRenderSourceCleanupDescriptorV1(
+  input: ProjectRenderSourceCleanupProviderInputV1 & {
+    artifactKind:
+      | typeof STANDARD_RENDER_ARTIFACT_KIND_V1
+      | typeof CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1;
+    parentAdmissionId?: string;
+    chapterIndex?: number;
+  },
+  now: Date,
+): z.infer<typeof ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1> {
+  assertProjectRenderSnapshotBindingV1(input.binding);
+  return ProjectRenderSourceCleanupDescriptorUnsignedSchemaV1.parse({
+    schemaVersion: 1,
+    scope: "PROJECT_RENDER_SOURCE_CLEANUP",
+    artifactKind: input.artifactKind,
+    provider: "REMOTION_AWS_LAMBDA",
+    credentialScopeId: "EDITRON_REMOTION_AWS_PRIMARY",
+    binding: cloneCanonicalEditronJsonV1(input.binding),
+    ...(input.artifactKind === CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1
+      ? {
+          parentAdmissionId: input.parentAdmissionId?.trim(),
+          chapterIndex: input.chapterIndex,
+        }
+      : {}),
+    providerRenderId: input.providerRenderId.trim(),
+    bucketName: input.bucketName.trim(),
+    region: input.region.trim(),
+    renderPrefix: `renders/${input.providerRenderId.trim()}/`,
+    sourceOutput: {
+      url: input.sourceOutputUrl,
+      sizeBytes: input.sourceOutputSize,
+    },
+    createdAt: now.toISOString(),
+  });
+}
+
+export function createProjectRenderSourceCleanupOutboxV1(input: {
+  binding: ProjectRenderSnapshotBindingV1;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  now?: Date;
+}): ProjectRenderSourceCleanupOutboxV1 {
+  const now = cleanupTimeV1(input.now);
+  const unsigned = createUnsignedProjectRenderSourceCleanupDescriptorV1({
+    ...input,
+    artifactKind: STANDARD_RENDER_ARTIFACT_KIND_V1,
+  }, now);
+  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now);
+}
+
+/**
+ * Build one immutable handoff for a single chapter child render. The parent
+ * binding and admission remain the authority; the child tuple is only the
+ * exact Remotion resource that the cleanup consumer may delete.
+ */
+export function createProjectRenderChapterChildSourceCleanupOutboxV1(input: {
+  binding: ProjectRenderSnapshotBindingV1;
+  parentAdmissionId: string;
+  chapterIndex: number;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  now?: Date;
+}): ProjectRenderSourceCleanupOutboxV1 {
+  const now = cleanupTimeV1(input.now);
+  const unsigned = createUnsignedProjectRenderSourceCleanupDescriptorV1({
+    ...input,
+    artifactKind: CHAPTER_CHILD_RENDER_ARTIFACT_KIND_V1,
+  }, now);
+  return createProjectRenderSourceCleanupOutboxFromUnsignedV1(unsigned, now);
+}
+
 export function assertProjectRenderSourceCleanupOutboxV1(
   input: unknown,
 ): asserts input is ProjectRenderSourceCleanupOutboxV1 {
@@ -221,7 +383,7 @@ export function assertProjectRenderSourceCleanupOutboxV1(
   }
   assertProjectRenderSnapshotBindingV1(parsed.data.descriptor.binding);
   const { descriptorId, descriptorHash, ...unsigned } = parsed.data.descriptor;
-  const expectedHash = hashEditronCanonicalJsonV1(unsigned);
+  const expectedHash = projectRenderSourceCleanupDescriptorHashV1(unsigned);
   if (
     descriptorHash !== expectedHash
     || descriptorId !== `project-render-source-cleanup_${expectedHash}`

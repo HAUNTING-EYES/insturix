@@ -13,6 +13,7 @@ import {
   type ProjectRenderSourceCleanupBatchResultV1,
 } from "@/lib/editron/services/project-render-source-cleanup-runtime-v1";
 import {
+  createProjectRenderChapterChildSourceCleanupOutboxV1,
   createProjectRenderSourceCleanupOutboxV1,
   type ProjectRenderSourceCleanupOutboxV1,
 } from "@/lib/editron/services/project-render-source-cleanup-v1";
@@ -54,6 +55,21 @@ function pendingOutbox(): ProjectRenderSourceCleanupOutboxV1 {
   });
 }
 
+function pendingChapterChildOutbox(now = NOW): ProjectRenderSourceCleanupOutboxV1 {
+  const parent = pendingOutbox();
+  return createProjectRenderChapterChildSourceCleanupOutboxV1({
+    binding: parent.descriptor.binding,
+    parentAdmissionId: parent.descriptor.binding.artifactId,
+    chapterIndex: 3,
+    providerRenderId: "provider-chapter-child-3",
+    bucketName: "remotion-chapter-bucket",
+    region: "eu-west-1",
+    sourceOutputUrl: "https://remotion-chapter-bucket.example.test/chapter-3.mp4",
+    sourceOutputSize: 456_789,
+    now,
+  });
+}
+
 type CleanupCollectionMock = Collection<ProjectRenderSourceCleanupOutboxV1> & {
   findOneAndUpdate: ReturnType<typeof vi.fn>;
   findOne: ReturnType<typeof vi.fn>;
@@ -91,6 +107,70 @@ afterEach(() => {
 });
 
 describe("project render source cleanup runtime V1", () => {
+  it("cleans one exact chapter child tuple through the standard lease consumer", async () => {
+    const child = pendingChapterChildOutbox();
+    const replay = pendingChapterChildOutbox(new Date(NOW.getTime() + 60_000));
+    const collection = cleanupCollectionMock(child);
+    const deleteProviderRender = vi.fn(async () => ({ freedBytes: 456_789 }));
+
+    await expect(runProjectRenderSourceCleanupBatchV1({
+      collection,
+      limit: 1,
+      now: NOW,
+      prepareCredentials: vi.fn(async () => undefined),
+      deleteProviderRender,
+    })).resolves.toMatchObject({
+      claimed: 1,
+      completed: 1,
+      failed: 0,
+      results: [{ state: "DONE", freedBytes: 456_789 }],
+    });
+
+    expect(child.descriptor).toMatchObject({
+      artifactKind: "REMOTION_AWS_CHAPTER_CHILD_RENDER_OUTPUT",
+      parentAdmissionId: child.descriptor.binding.artifactId,
+      chapterIndex: 3,
+      providerRenderId: "provider-chapter-child-3",
+      bucketName: "remotion-chapter-bucket",
+      region: "eu-west-1",
+      renderPrefix: "renders/provider-chapter-child-3/",
+      sourceOutput: {
+        url: "https://remotion-chapter-bucket.example.test/chapter-3.mp4",
+        sizeBytes: 456_789,
+      },
+    });
+    expect(replay._id).toBe(child._id);
+    expect(replay.descriptor.createdAt).not.toBe(child.descriptor.createdAt);
+    expect(deleteProviderRender).toHaveBeenCalledWith({
+      region: "eu-west-1",
+      bucketName: "remotion-chapter-bucket",
+      renderId: "provider-chapter-child-3",
+    });
+  });
+
+  it("rejects a child whose admission is not the parent binding or whose bucket is aggregate", () => {
+    const parent = pendingOutbox();
+    const input = {
+      binding: parent.descriptor.binding,
+      parentAdmissionId: parent.descriptor.binding.artifactId,
+      chapterIndex: 0,
+      providerRenderId: "provider-chapter-child-0",
+      bucketName: "remotion-chapter-bucket",
+      region: "us-east-1",
+      sourceOutputUrl: "https://remotion-chapter-bucket.example.test/chapter-0.mp4",
+      sourceOutputSize: 1,
+      now: NOW,
+    };
+    expect(() => createProjectRenderChapterChildSourceCleanupOutboxV1({
+      ...input,
+      parentAdmissionId: "another-parent",
+    })).toThrow();
+    expect(() => createProjectRenderChapterChildSourceCleanupOutboxV1({
+      ...input,
+      bucketName: "chapter-render",
+    })).toThrow();
+  });
+
   it("claims before calling the provider and commits an exact deletion receipt", async () => {
     const collection = cleanupCollectionMock();
     const prepareCredentials = vi.fn(async () => undefined);

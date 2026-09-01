@@ -9,6 +9,7 @@ import {
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   ProjectRenderSourceCleanupOutboxSchemaV1,
   assertProjectRenderSourceCleanupOutboxV1,
+  type ProjectRenderSourceCleanupDescriptorV1,
   type ProjectRenderSourceCleanupOutboxV1,
 } from "./project-render-source-cleanup-v1";
 
@@ -66,6 +67,27 @@ function retryDelayMs(attempts: number): number {
     MAX_RETRY_DELAY_MS,
     30_000 * (2 ** Math.max(0, Math.min(attempts - 1, 10))),
   );
+}
+
+/**
+ * The descriptor schema has already validated the discriminator and all
+ * provider coordinates. Keep the Remotion call limited to that exact tuple;
+ * chapter concat output is never a deleteRender target.
+ */
+function exactProviderRenderDeleteInputV1(
+  descriptor: ProjectRenderSourceCleanupDescriptorV1,
+): Parameters<DeleteProviderRenderV1>[0] {
+  switch (descriptor.artifactKind) {
+    case "REMOTION_AWS_RENDER_OUTPUT":
+    case "REMOTION_AWS_CHAPTER_CHILD_RENDER_OUTPUT":
+      return {
+        region: descriptor.region,
+        bucketName: descriptor.bucketName,
+        renderId: descriptor.providerRenderId,
+      };
+    default:
+      throw new Error("PROJECT_RENDER_SOURCE_CLEANUP_DESCRIPTOR_INVALID");
+  }
 }
 
 async function cleanupCollection(): Promise<Collection<ProjectRenderSourceCleanupOutboxV1>> {
@@ -226,11 +248,9 @@ export async function runProjectRenderSourceCleanupBatchV1(input: {
     result.claimed += 1;
     try {
       await prepareCredentials();
-      const deletion = await deleteProviderRender({
-        region: outbox.descriptor.region,
-        bucketName: outbox.descriptor.bucketName,
-        renderId: outbox.descriptor.providerRenderId,
-      });
+      const deletion = await deleteProviderRender(
+        exactProviderRenderDeleteInputV1(outbox.descriptor),
+      );
       const completion = await completeProjectRenderSourceCleanupV1({
         outbox,
         claimToken,
