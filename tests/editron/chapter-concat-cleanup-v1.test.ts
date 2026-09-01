@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import {
+  AssumeRoleCommand,
+  type AssumeRoleCommandOutput,
+} from "@aws-sdk/client-sts";
 import type { Collection } from "mongodb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,10 +22,12 @@ import {
   type ProjectChapterConcatCleanupOutboxV1,
 } from "@/lib/editron/services/chapter-concat-cleanup-v1";
 import {
+  resetProjectChapterConcatCleanupAwsCredentialsCacheV1,
   resolveProjectChapterConcatCleanupAwsCredentialsV1,
   runProjectChapterConcatCleanupBatchV1,
   type ProjectChapterConcatCleanupDeleteInputV1,
   type ProjectChapterConcatCleanupBatchResultV1,
+  type ProjectChapterConcatCleanupStsClientV1,
 } from "@/lib/editron/services/chapter-concat-cleanup-runtime-v1";
 import { createProjectRenderSnapshotBindingV1 }
   from "@/lib/editron/services/project-render-snapshot-binding-v1";
@@ -29,6 +35,39 @@ import { createProjectRenderSnapshotBindingV1 }
 const NOW = new Date("2026-09-01T08:00:00.000Z");
 const JOB_ID = "chr_123456789012";
 const REPO_ROOT = resolve(__dirname, "../..");
+const CLEANUP_ROLE_ARN = "arn:aws:iam::699773898862:role/editron-chapter-concat-cleanup";
+
+function cleanupEnvironment(
+  overrides: Partial<NodeJS.ProcessEnv> = {},
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: "test",
+    EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: "cleanup-base-key",
+    EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_SECRET_ACCESS_KEY: "cleanup-base-secret",
+    EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN: CLEANUP_ROLE_ARN,
+  };
+  return { ...environment, ...overrides };
+}
+
+function stsResponse(
+  overrides: Record<string, unknown> = {},
+): AssumeRoleCommandOutput {
+  return {
+    Credentials: {
+      AccessKeyId: "ASIAASSUMEDACCESS",
+      SecretAccessKey: "assumed-secret",
+      SessionToken: "assumed-session-token",
+      Expiration: new Date(NOW.getTime() + 60 * 60_000),
+      ...overrides,
+    },
+  } as unknown as AssumeRoleCommandOutput;
+}
+
+function stsClient(
+  send: (command: AssumeRoleCommand) => Promise<AssumeRoleCommandOutput>,
+): ProjectChapterConcatCleanupStsClientV1 {
+  return { send };
+}
 
 function target() {
   const binding = createProjectRenderSnapshotBindingV1({
@@ -138,6 +177,7 @@ function request(secret?: string): Request {
 }
 
 afterEach(() => {
+  resetProjectChapterConcatCleanupAwsCredentialsCacheV1();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -239,16 +279,133 @@ describe("project chapter concat cleanup V1", () => {
     });
   });
 
-  it("fails closed without cleanup credentials and sanitizes provider failures", async () => {
-    expect(() => resolveProjectChapterConcatCleanupAwsCredentialsV1({
+  it("requires cleanup-only base credentials and an exact role ARN", async () => {
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1({
       NODE_ENV: "test",
-    })).toThrow(
+    })).rejects.toThrow(
       "PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_NOT_CONFIGURED",
     );
-    expect(() => resolveProjectChapterConcatCleanupAwsCredentialsV1({
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1({
+      ...cleanupEnvironment(),
+      EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_SECRET_ACCESS_KEY: undefined,
+    })).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_INCOMPLETE");
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1({
+      ...cleanupEnvironment(),
+      EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN: undefined,
+    })).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN_NOT_CONFIGURED");
+
+    for (const roleArn of [
+      "arn:aws:iam::000000000000:role/editron-chapter-concat-cleanup",
+      "arn:aws:iam::699773898862:user/editron-chapter-concat-cleanup",
+      "arn:aws:iam::699773898862:role/editron-chapter-concat-cleanup*",
+      "arn:aws:iam::699773898862:role/",
+    ]) {
+      await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+        cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN: roleArn }),
+      )).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN_INVALID");
+    }
+  });
+
+  it("assumes the configured cleanup role with the exact bounded STS request", async () => {
+    const send = vi.fn(async (command: AssumeRoleCommand) => {
+      expect(command).toBeInstanceOf(AssumeRoleCommand);
+      expect(command.input).toEqual({
+        RoleArn: CLEANUP_ROLE_ARN,
+        RoleSessionName: "editron-chapter-concat-cleanup",
+        DurationSeconds: 900,
+        ExternalId: "cleanup-external-id",
+      });
+      return stsResponse();
+    });
+
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+      cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_EXTERNAL_ID: "cleanup-external-id" }),
+      { now: () => NOW.getTime(), stsClient: stsClient(send) },
+    )).resolves.toEqual({
+      accessKeyId: "ASIAASSUMEDACCESS",
+      secretAccessKey: "assumed-secret",
+      sessionToken: "assumed-session-token",
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits external ID unless explicitly configured and never falls back after STS failure", async () => {
+    const send = vi.fn(async (command: AssumeRoleCommand) => {
+      expect(command.input).toEqual({
+        RoleArn: CLEANUP_ROLE_ARN,
+        RoleSessionName: "editron-chapter-concat-cleanup",
+        DurationSeconds: 900,
+      });
+      return stsResponse();
+    });
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+      cleanupEnvironment(),
+      { now: () => NOW.getTime(), stsClient: stsClient(send) },
+    )).resolves.toMatchObject({ sessionToken: "assumed-session-token" });
+
+    resetProjectChapterConcatCleanupAwsCredentialsCacheV1();
+    const failedSend = vi.fn(async () => {
+      throw new Error("sts-is-unavailable");
+    });
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+      cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: "different-base-key" }),
+      { now: () => NOW.getTime(), stsClient: stsClient(failedSend) },
+    )).rejects.toThrow("sts-is-unavailable");
+    expect(failedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects incomplete or unsafe STS credentials and does not cache near-expiry sessions", async () => {
+    const missingFields = ["AccessKeyId", "SecretAccessKey", "SessionToken", "Expiration"];
+    for (const field of missingFields) {
+      resetProjectChapterConcatCleanupAwsCredentialsCacheV1();
+      const send = vi.fn(async () => stsResponse({ [field]: undefined }));
+      await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+        cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: `base-${field}` }),
+        { now: () => NOW.getTime(), stsClient: stsClient(send) },
+      )).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_INCOMPLETE");
+    }
+
+    resetProjectChapterConcatCleanupAwsCredentialsCacheV1();
+    const nearExpirySend = vi.fn(async () => stsResponse({
+      Expiration: new Date(NOW.getTime() + 4 * 60_000),
+    }));
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(
+      cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: "near-expiry-base-key" }),
+      { now: () => NOW.getTime(), stsClient: stsClient(nearExpirySend) },
+    )).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_EXPIRATION_INVALID");
+  });
+
+  it("refreshes the cache at the safety boundary before STS expiration", async () => {
+    let nowMs = NOW.getTime();
+    let issued = 0;
+    const send = vi.fn(async () => stsResponse({
+      AccessKeyId: `ASIAASSUMEDACCESS${++issued}`,
+      Expiration: new Date(nowMs + 15 * 60_000),
+    }));
+    const env = cleanupEnvironment({ EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: "cache-base-key" });
+    const options = { now: () => nowMs, stsClient: stsClient(send) };
+
+    const first = await resolveProjectChapterConcatCleanupAwsCredentialsV1(env, options);
+    nowMs += 9 * 60_000;
+    const cached = await resolveProjectChapterConcatCleanupAwsCredentialsV1(env, options);
+    expect(cached).toEqual(first);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    nowMs = NOW.getTime() + 10 * 60_000;
+    const refreshed = await resolveProjectChapterConcatCleanupAwsCredentialsV1(env, options);
+    expect(refreshed.accessKeyId).toBe("ASIAASSUMEDACCESS2");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed without cleanup credentials and sanitizes provider failures", async () => {
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1({
       NODE_ENV: "test",
-      EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID: "key-only",
-    })).toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_INCOMPLETE");
+    })).rejects.toThrow(
+      "PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_NOT_CONFIGURED",
+    );
+    await expect(resolveProjectChapterConcatCleanupAwsCredentialsV1(cleanupEnvironment({
+      EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_SECRET_ACCESS_KEY: undefined,
+    }))).rejects.toThrow("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_INCOMPLETE");
 
     const collection = cleanupCollectionMock();
     const providerError = new Error("secret=must-never-be-persisted");

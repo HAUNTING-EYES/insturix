@@ -5,6 +5,12 @@ import {
   S3Client,
   type DeleteObjectCommandInput,
 } from "@aws-sdk/client-s3";
+import {
+  AssumeRoleCommand,
+  STSClient,
+  type AssumeRoleCommandInput,
+  type AssumeRoleCommandOutput,
+} from "@aws-sdk/client-sts";
 import type { Collection } from "mongodb";
 
 import { getDatabase } from "@/lib/editron/db/mongodb";
@@ -23,7 +29,18 @@ const MAX_RETRY_DELAY_MS = 6 * 60 * 60_000;
 const CLEANUP_ACCESS_KEY_ENV = "EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ACCESS_KEY_ID";
 const CLEANUP_SECRET_KEY_ENV = "EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_SECRET_ACCESS_KEY";
 const CLEANUP_SESSION_TOKEN_ENV = "EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_SESSION_TOKEN";
+const CLEANUP_ROLE_ARN_ENV = "EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN";
+const CLEANUP_EXTERNAL_ID_ENV = "EDITRON_CHAPTER_CONCAT_CLEANUP_AWS_EXTERNAL_ID";
+const CLEANUP_STS_REGION = "us-east-1";
+const CLEANUP_EXPECTED_AWS_ACCOUNT_ID = "699773898862";
+const CLEANUP_STS_SESSION_NAME = "editron-chapter-concat-cleanup";
+const CLEANUP_STS_DURATION_SECONDS = 900;
+const CLEANUP_CREDENTIAL_REFRESH_SKEW_MS = 5 * 60_000;
 const SAFE_CREDENTIAL = /^[^\u0000-\u001F\u007F]+$/;
+const SAFE_EXTERNAL_ID = /^[A-Za-z0-9_+=,.@:/-]{1,1224}$/;
+const CLEANUP_ROLE_ARN = new RegExp(
+  `^arn:aws:iam::${CLEANUP_EXPECTED_AWS_ACCOUNT_ID}:role/[A-Za-z0-9+=,.@_-]+(?:/[A-Za-z0-9+=,.@_-]+)*$`,
+);
 
 export type ProjectChapterConcatCleanupAwsCredentialsV1 = {
   accessKeyId: string;
@@ -31,12 +48,36 @@ export type ProjectChapterConcatCleanupAwsCredentialsV1 = {
   sessionToken?: string;
 };
 
-export function resolveProjectChapterConcatCleanupAwsCredentialsV1(
+export type ProjectChapterConcatCleanupStsClientV1 = {
+  send(command: AssumeRoleCommand): Promise<AssumeRoleCommandOutput>;
+};
+
+export type ProjectChapterConcatCleanupAwsCredentialsOptionsV1 = {
+  stsClient?: ProjectChapterConcatCleanupStsClientV1;
+  now?: () => number;
+};
+
+type ProjectChapterConcatCleanupAssumeRoleConfigV1 = {
+  baseCredentials: ProjectChapterConcatCleanupAwsCredentialsV1;
+  roleArn: string;
+  externalId?: string;
+};
+
+type CachedProjectChapterConcatCleanupAwsCredentialsV1 = {
+  config: ProjectChapterConcatCleanupAssumeRoleConfigV1;
+  credentials: ProjectChapterConcatCleanupAwsCredentialsV1;
+  cacheExpiresAtMs: number;
+};
+
+let cachedProjectChapterConcatCleanupAwsCredentialsV1:
+  CachedProjectChapterConcatCleanupAwsCredentialsV1 | null = null;
+
+function resolveProjectChapterConcatCleanupAssumeRoleConfigV1(
   env: NodeJS.ProcessEnv = process.env,
-): ProjectChapterConcatCleanupAwsCredentialsV1 {
+): ProjectChapterConcatCleanupAssumeRoleConfigV1 {
   const accessKeyId = env[CLEANUP_ACCESS_KEY_ENV]?.trim() ?? "";
   const secretAccessKey = env[CLEANUP_SECRET_KEY_ENV]?.trim() ?? "";
-  const sessionToken = env[CLEANUP_SESSION_TOKEN_ENV]?.trim();
+  const sessionToken = env[CLEANUP_SESSION_TOKEN_ENV]?.trim() || undefined;
   if (!accessKeyId && !secretAccessKey && !sessionToken) {
     throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_NOT_CONFIGURED");
   }
@@ -48,11 +89,118 @@ export function resolveProjectChapterConcatCleanupAwsCredentialsV1(
   ))) {
     throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_CREDENTIALS_INVALID");
   }
+  const roleArn = env[CLEANUP_ROLE_ARN_ENV]?.trim() ?? "";
+  if (!roleArn) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN_NOT_CONFIGURED");
+  }
+  if (!CLEANUP_ROLE_ARN.test(roleArn)) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_ROLE_ARN_INVALID");
+  }
+  const configuredExternalId = env[CLEANUP_EXTERNAL_ID_ENV];
+  const externalId = configuredExternalId?.trim();
+  if (
+    configuredExternalId !== undefined
+    && (!externalId || !SAFE_EXTERNAL_ID.test(externalId))
+  ) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_EXTERNAL_ID_INVALID");
+  }
   return {
+    baseCredentials: {
+      accessKeyId,
+      secretAccessKey,
+      ...(sessionToken ? { sessionToken } : {}),
+    },
+    roleArn,
+    ...(externalId ? { externalId } : {}),
+  };
+}
+
+function sameProjectChapterConcatCleanupAssumeRoleConfigV1(
+  left: ProjectChapterConcatCleanupAssumeRoleConfigV1,
+  right: ProjectChapterConcatCleanupAssumeRoleConfigV1,
+): boolean {
+  return left.roleArn === right.roleArn
+    && left.externalId === right.externalId
+    && left.baseCredentials.accessKeyId === right.baseCredentials.accessKeyId
+    && left.baseCredentials.secretAccessKey === right.baseCredentials.secretAccessKey
+    && left.baseCredentials.sessionToken === right.baseCredentials.sessionToken;
+}
+
+function requiredAssumedCredentialV1(
+  value: unknown,
+): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_INCOMPLETE");
+  }
+  const normalized = value.trim();
+  if (!SAFE_CREDENTIAL.test(normalized)) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_INVALID");
+  }
+  return normalized;
+}
+
+export async function resolveProjectChapterConcatCleanupAwsCredentialsV1(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ProjectChapterConcatCleanupAwsCredentialsOptionsV1 = {},
+): Promise<ProjectChapterConcatCleanupAwsCredentialsV1> {
+  const config = resolveProjectChapterConcatCleanupAssumeRoleConfigV1(env);
+  const nowMs = options.now?.() ?? Date.now();
+  if (!Number.isFinite(nowMs)) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_TIME_INVALID");
+  }
+  const cached = cachedProjectChapterConcatCleanupAwsCredentialsV1;
+  if (
+    cached
+    && sameProjectChapterConcatCleanupAssumeRoleConfigV1(cached.config, config)
+    && cached.cacheExpiresAtMs > nowMs
+  ) {
+    return cached.credentials;
+  }
+  cachedProjectChapterConcatCleanupAwsCredentialsV1 = null;
+
+  const stsClient = options.stsClient ?? new STSClient({
+    region: CLEANUP_STS_REGION,
+    credentials: config.baseCredentials,
+  });
+  const assumeRoleInput: AssumeRoleCommandInput = {
+    RoleArn: config.roleArn,
+    RoleSessionName: CLEANUP_STS_SESSION_NAME,
+    DurationSeconds: CLEANUP_STS_DURATION_SECONDS,
+    ...(config.externalId ? { ExternalId: config.externalId } : {}),
+  };
+  const response = await stsClient.send(new AssumeRoleCommand(assumeRoleInput));
+  if (!response?.Credentials) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_NOT_RETURNED");
+  }
+  const assumedCredentials = response.Credentials;
+  const accessKeyId = requiredAssumedCredentialV1(assumedCredentials.AccessKeyId);
+  const secretAccessKey = requiredAssumedCredentialV1(assumedCredentials.SecretAccessKey);
+  const sessionToken = requiredAssumedCredentialV1(assumedCredentials.SessionToken);
+  if (!(assumedCredentials.Expiration instanceof Date)) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_INCOMPLETE");
+  }
+  const expirationMs = assumedCredentials.Expiration.getTime();
+  if (
+    !Number.isFinite(expirationMs)
+    || expirationMs <= nowMs + CLEANUP_CREDENTIAL_REFRESH_SKEW_MS
+  ) {
+    throw new Error("PROJECT_CHAPTER_CONCAT_CLEANUP_AWS_STS_CREDENTIALS_EXPIRATION_INVALID");
+  }
+  const credentials: ProjectChapterConcatCleanupAwsCredentialsV1 = {
     accessKeyId,
     secretAccessKey,
-    ...(sessionToken ? { sessionToken } : {}),
+    sessionToken,
   };
+  cachedProjectChapterConcatCleanupAwsCredentialsV1 = {
+    config,
+    credentials,
+    cacheExpiresAtMs: expirationMs - CLEANUP_CREDENTIAL_REFRESH_SKEW_MS,
+  };
+  return credentials;
+}
+
+export function resetProjectChapterConcatCleanupAwsCredentialsCacheV1(): void {
+  cachedProjectChapterConcatCleanupAwsCredentialsV1 = null;
 }
 
 export type ProjectChapterConcatCleanupDeleteInputV1 = {
