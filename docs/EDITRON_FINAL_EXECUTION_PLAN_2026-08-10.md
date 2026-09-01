@@ -14876,3 +14876,28 @@ mutation, certification or convergence.
 
 The next bounded dependency is the strict render-job owner, followed by
 route/progress/history/finalization/invalidation consumer migration.
+
+## 2026-09-01 vertical-convergence Phase 3G checkpoint
+
+At committed strict render-job owner `bff3de835`, project-render mutation
+authorization is bound to the exact tuple
+`(jobId, ownerId, projectId, projectRevision, PROJECT_SNAPSHOT bindingHash)`.
+The binding carries the exact render-input fingerprint and contained video
+targets. Bound reserve, read, start and progress operations validate that
+tuple; their atomic filters require `artifactState: ACTIVE`, no
+`artifactInvalidation`, no legacy `artifactBinding`, and the exact snapshot
+scope, owner, project, revision and binding hash. All generic legacy render-job
+mutators exclude rows carrying a project-snapshot binding.
+
+This is an owner-level contract only. No route/progress/history/finalization
+success path or invalidation-outbox consumer migration is claimed. Bound
+failure/finalization is currently the next in-progress dependency. The focused
+strict-owner run passed 42/42 tests; full TypeScript, ESLint (`--quiet`) and
+`git diff --check` passed. Queue 5 remains `OPEN`; Queues 3 and 4 remain
+`ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY` and Stage 3 remains blocked.
+This checkpoint does not authorize production mutation, certification or
+convergence.
+
+After bound failure/finalization, the next consumer order is route, progress,
+history, finalization and invalidation-outbox migration with their current
+binding gates.
