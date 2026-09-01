@@ -1,8 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { SchemaType, type GenerationConfig } from '@google/generative-ai';
 import { auth } from '@clerk/nextjs/server';
 import { Receiver } from '@upstash/qstash';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  type ProjectBatchAutoEditLifecycleEventV1,
+  type ProjectMutationReceiptV1,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   buildMediaUploadBatchSummary,
@@ -208,6 +214,32 @@ class ScriptGroundingError extends Error {
   }
 }
 
+async function commitBatchAutoEditProjectLifecycleV1(input: {
+  userId: string;
+  projectId: string;
+  uploadBatchId: string;
+  transitionId: string;
+  expectedRevision?: ProjectRevisionV1;
+  event: ProjectBatchAutoEditLifecycleEventV1;
+}): Promise<ProjectMutationReceiptV1> {
+  const expectedRevision = input.expectedRevision
+    ?? (await projectService.loadProjectForMutation(input.userId, input.projectId)).revision;
+  const result = await projectService.recordBatchAutoEditLifecycleV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision,
+      uploadBatchId: input.uploadBatchId,
+      transitionId: input.transitionId,
+      event: input.event,
+    },
+  );
+  if (result.disposition !== 'RECORDED') {
+    throw new Error(`Batch project lifecycle ownership was rejected (${result.disposition}).`);
+  }
+  return result.receipt;
+}
+
 const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
 const DEFAULT_ORCHESTRATION_DEADLINE_MS = 30 * 60 * 1000;
 const DEFAULT_ORCHESTRATION_FAILURE_LIMIT = 3;
@@ -278,6 +310,7 @@ async function dispatchBatchOrchestration(params: {
   body: FromBatchRequest;
   caller: BatchCaller;
   delaySeconds?: number;
+  deduplicationId?: string;
 }): Promise<string | undefined> {
   if (!isInternalQStashDispatchConfigured()) {
     throw new Error('QStash publisher token and signing keys are required for durable batch orchestration');
@@ -293,6 +326,7 @@ async function dispatchBatchOrchestration(params: {
       'Upstash-Retries': '2',
       'Upstash-Timeout': '300s',
       ...(params.delaySeconds ? { 'Upstash-Delay': `${params.delaySeconds}s` } : {}),
+      ...(params.deduplicationId ? { 'Upstash-Deduplication-Id': params.deduplicationId } : {}),
     },
     body: JSON.stringify(orchestrationRequestBody(params.body, params.caller)),
   });
@@ -1182,13 +1216,13 @@ export async function POST(request: NextRequest) {
           }, { status: 409 });
         }
 
-        const project = await db.collection(COLLECTIONS.PROJECTS).findOne({
-          projectId: activeProjectId,
-          userId,
-          sourceUploadBatchId: uploadBatchId,
-          autoEditStatus: 'needs_input',
-        }, { projection: { _id: 0, projectId: 1 } });
-        if (!project) {
+        const recoverySnapshot = await projectService.loadProjectForMutation(userId, activeProjectId);
+        const recoveryProject = recoverySnapshot.project as unknown as Record<string, unknown>;
+        if (
+          recoveryProject.sourceUploadBatchId !== uploadBatchId
+          || recoveryProject.autoEditStatus !== 'needs_input'
+          || isAssistProject(recoveryProject)
+        ) {
           return NextResponse.json({ success: false, error: 'Recoverable auto-edit project not found.' }, { status: 404 });
         }
 
@@ -1208,6 +1242,7 @@ export async function POST(request: NextRequest) {
         }
 
         const claimNow = new Date();
+        const transitionId = randomUUID();
         const intake = mergeIntake(batch.productionBriefIntake, body);
         const claim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
           {
@@ -1220,6 +1255,7 @@ export async function POST(request: NextRequest) {
             $set: {
               orchestrationStatus: 'requested',
               orchestrationRequestedAt: claimNow,
+              orchestrationTransitionId: transitionId,
               orchestrationAttempt: 0,
               productionBriefIntake: intake,
               updatedAt: claimNow,
@@ -1237,32 +1273,69 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: 'Coverage recovery is already in progress.' }, { status: 409 });
         }
 
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
-          {
-            $set: {
-              autoEditStatus: 'analyzing',
-              autoEditStageDesc: 'Analyzing additional footage',
+        let recoveryReceipt: ProjectMutationReceiptV1;
+        try {
+          recoveryReceipt = await commitBatchAutoEditProjectLifecycleV1({
+            userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            transitionId,
+            expectedRevision: recoverySnapshot.revision,
+            event: {
+              kind: 'COVERAGE_RESUME_STARTED',
               sourceAssetIds: visualAssets.map((asset) => asset.assetId),
-              'storylinePlan.previousScriptCoverage': batch.scriptCoverage ?? null,
-              updatedAt: claimNow,
+              previousScriptCoverage: batch.scriptCoverage ?? null,
             },
-            $unset: {
-              autoEditError: '',
-              autoEditFailedAt: '',
-              'storylinePlan.scriptCoverage': '',
+          });
+        } catch (projectClaimError) {
+          const projectClaimMessage = projectClaimError instanceof Error
+            ? projectClaimError.message
+            : String(projectClaimError);
+          const compensated = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
             },
-          },
-        );
+            {
+              $set: {
+                orchestrationStatus: 'needs_input',
+                orchestrationError: projectClaimMessage,
+                scriptCoverage: batch.scriptCoverage ?? null,
+                orchestrationLastTransitionId: transitionId,
+                updatedAt: new Date(),
+              },
+              $unset: {
+                orchestrationTransitionId: '',
+                orchestrationLeaseUntil: '',
+              },
+            },
+          );
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            error: projectClaimMessage,
+            batchProjectionPending: compensated.matchedCount === 0,
+          }, { status: 409 });
+        }
 
         try {
           const messageId = await dispatchBatchOrchestration({
             baseUrl,
             body,
             caller: { ...caller, pollAttempt: 0, failureCount: 0 },
+            deduplicationId: transitionId,
           });
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+          const dispatchReceipt = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
+            },
             {
               $set: {
                 orchestrationLastDispatchedAt: new Date(),
@@ -1279,32 +1352,55 @@ export async function POST(request: NextRequest) {
             resumedCoverage: true,
             addedVisualAssetIds,
             messageId,
+            batchProjectionPending: dispatchReceipt.matchedCount === 0,
           }, { status: 202 });
         } catch (dispatchError) {
           const dispatchMessage = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+          let projectRestored = true;
+          try {
+            await commitBatchAutoEditProjectLifecycleV1({
+              userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              transitionId,
+              expectedRevision: recoveryReceipt.revision,
+              event: {
+                kind: 'COVERAGE_RESUME_DISPATCH_FAILED',
+                errorMessage: dispatchMessage,
+                scriptCoverage: batch.scriptCoverage ?? null,
+              },
+            });
+          } catch {
+            projectRestored = false;
+          }
+          const batchRestore = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            {
+              uploadBatchId,
+              userId,
+              projectId: activeProjectId,
+              orchestrationStatus: 'requested',
+              orchestrationTransitionId: transitionId,
+            },
             {
               $set: {
-                orchestrationStatus: 'needs_input',
+                orchestrationStatus: projectRestored ? 'needs_input' : 'retryable_error',
                 orchestrationError: dispatchMessage,
                 scriptCoverage: batch.scriptCoverage ?? null,
+                orchestrationLastTransitionId: transitionId,
                 updatedAt: new Date(),
+              },
+              $unset: {
+                orchestrationTransitionId: '',
+                orchestrationLeaseUntil: '',
               },
             },
           );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
-            {
-              $set: {
-                autoEditStatus: 'needs_input',
-                autoEditError: dispatchMessage,
-                'storylinePlan.scriptCoverage': batch.scriptCoverage ?? null,
-                updatedAt: new Date(),
-              },
-            },
-          );
-          return NextResponse.json({ success: false, projectId: activeProjectId, error: dispatchMessage }, { status: 503 });
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            error: dispatchMessage,
+            lifecycleRepairPending: !projectRestored || batchRestore.matchedCount === 0,
+          }, { status: projectRestored ? 503 : 409 });
         }
       }
 
