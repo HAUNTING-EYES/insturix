@@ -323,7 +323,6 @@ export async function POST(request: Request) {
       if (editronProjectId) {
         try {
           await projectService.updateProjectMetadata(editronProjectId, { pipelineStage: 'analyze' });
-          console.log(`[Alyzitron] Project ${editronProjectId} moved to analyze stage`);
         } catch (stageErr: any) {
           console.error(`[Alyzitron] Failed to update project stage (non-blocking): ${stageErr.message}`);
         }
