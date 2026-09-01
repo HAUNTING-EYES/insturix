@@ -29,6 +29,10 @@ const publicationSource = readFileSync(
   join(process.cwd(), 'lib/editron/services/project-analysis-director-publication.ts'),
   'utf8',
 ).replaceAll('\r\n', '\n');
+const deepPublicationSource = readFileSync(
+  join(process.cwd(), 'lib/editron/services/project-analysis-deep-publication.ts'),
+  'utf8',
+).replaceAll('\r\n', '\n');
 
 describe('video-analysis worker zero-edit wiring', () => {
   it('reads the assist lane once, up front, from editMode', () => {
@@ -113,13 +117,18 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).toContain("await advanceAnalysis('computing_params')");
     expect(source).toContain('commitProjectAnalysisPhase1V1');
     expect(source).toContain('commitProjectAnalysisPhase2V1');
+    expect(source).toContain('prepareProjectAnalysisDeepDispatchV1');
+    expect(source).toContain('publishProjectAnalysisDeepDispatchV1');
+    expect(source).toContain('activateProjectAnalysisDeepInlineV1');
+    expect(source).toContain('resumeRun?.deepAnalysisDispatch');
     expect(source).toContain('prepareProjectAnalysisDirectorDispatchV1');
     expect(source).toContain('publishProjectAnalysisDirectorDispatchV1');
     expect(source).toContain("resumeRun?.state === 'directing_queued'");
     expect(source).toContain('resumeRun.runId === analysisRunId');
     expect(source).toContain('resumeRun.sourceAssetId === assetId');
     expect(source).toContain('projectService.failProjectAnalysisRunV1');
-    expect(source).toContain('projectId, userId, orgId, assetId, analysisRunId, videoUrl');
+    expect(source).toContain('videoUrl: input.payload.videoUrl');
+    expect(source).not.toContain('const qstashUrl = `${process.env.QSTASH_URL || \'https://qstash.upstash.io\'}/v2/publish/${tribeUrl}`');
     for (const rawStatus of [
       "autoEditStatus: 'analyzing'",
       "autoEditStatus: 'transcribing'",
@@ -145,6 +154,8 @@ describe('video-analysis worker zero-edit wiring', () => {
   it('binds TRIBE claim, Phase-2 evidence and Director publication to the admitted run', () => {
     expect(tribeSource).toContain('analysisRunId: string');
     expect(tribeSource).toContain('claimProjectAnalysisDeepRunV1');
+    expect(tribeSource).toContain('deepAnalysisDispatchId,');
+    expect(tribeSource).toContain("claim.disposition === 'DEEP_DISPATCH_PENDING'");
     expect(tribeSource).toContain('commitProjectAnalysisPhase2V1');
     expect(tribeSource).toContain('publishProjectAnalysisDirectorDispatchV1');
     expect(tribeSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
@@ -152,6 +163,10 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(publicationSource).toContain('recordProjectAnalysisDirectorDispatchInlineReadyV1');
     expect(publicationSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
     expect(publicationSource).toContain('analysisDirectorDispatchId: input.dispatch.deduplicationId');
+    expect(deepPublicationSource).toContain('recordProjectAnalysisDeepDispatchPublishedV1');
+    expect(deepPublicationSource).toContain('recordProjectAnalysisDeepDispatchInlineReadyV1');
+    expect(deepPublicationSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
+    expect(deepPublicationSource).toContain('deepAnalysisDispatchId: input.dispatch.deduplicationId');
     expect(tribeSource).toContain('if (trackedScan && !directorDispatched && !ownershipLost && !retryable)');
     expect(tribeSource).not.toContain('tribeLockAt');
     for (const rawStatus of [

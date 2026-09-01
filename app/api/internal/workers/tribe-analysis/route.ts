@@ -48,6 +48,7 @@ interface TribeAnalysisPayload {
   orgId?: string;
   assetId: string;
   analysisRunId: string;
+  deepAnalysisDispatchId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
@@ -85,7 +86,7 @@ async function handler(request: NextRequest) {
   try {
     const payload: TribeAnalysisPayload = await request.json();
     const {
-      projectId, userId, assetId, analysisRunId, videoUrl,
+      projectId, userId, assetId, analysisRunId, deepAnalysisDispatchId, videoUrl,
       segmentInputs, visualSegmentInputs, directorPayload,
     } = payload;
     const sourceAssetId = typeof assetId === 'string' ? assetId.trim() : '';
@@ -96,6 +97,10 @@ async function handler(request: NextRequest) {
       || !sourceAssetId
       || !analysisRunId
       || !videoUrl
+      || (deepAnalysisDispatchId !== undefined
+        && (typeof deepAnalysisDispatchId !== 'string'
+          || deepAnalysisDispatchId.trim().length === 0
+          || deepAnalysisDispatchId.length > 200))
       || directorPayload.projectId !== projectId
       || directorPayload.userId !== userId
       || directorPayload.analysisRunId !== analysisRunId
@@ -132,7 +137,14 @@ async function handler(request: NextRequest) {
       expectedRevision: claimSnapshot.revision,
       runId: analysisRunId,
       sourceAssetId,
+      deepAnalysisDispatchId,
     });
+    if (claim.disposition === 'DEEP_DISPATCH_PENDING') {
+      return NextResponse.json(
+        { success: false, error: 'TRIBE dispatch publication is not durable yet.' },
+        { status: 503 },
+      );
+    }
     if (claim.disposition === 'DUPLICATE_ACTIVE') {
       return NextResponse.json({ success: true, skipped: 'duplicate-delivery', stage: 'tribe-analysis' });
     }

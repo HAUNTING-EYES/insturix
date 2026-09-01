@@ -31,6 +31,11 @@ import {
 } from '@/lib/editron/security/internal-worker-auth';
 import { persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
+  ProjectAnalysisDeepPublicationError,
+  activateProjectAnalysisDeepInlineV1,
+  publishProjectAnalysisDeepDispatchV1,
+} from '@/lib/editron/services/project-analysis-deep-publication';
+import {
   ProjectAnalysisDirectorPublicationError,
   activateProjectAnalysisDirectorInlineV1,
   publishProjectAnalysisDirectorDispatchV1,
@@ -47,6 +52,7 @@ import {
 } from '@/lib/editron/production-brief/editorial-preferences';
 import type { CanonicalizeReferenceOutput } from '@/lib/editron/reference-video/canonicalize-reference';
 import type {
+  ProjectAnalysisDeepDispatchV1,
   ProjectAnalysisDirectorDispatchV1,
   ProjectAnalysisRunStateV1,
   ProjectRevisionV1,
@@ -231,6 +237,36 @@ async function handler(request: NextRequest) {
         onClaimed: () => { directorDispatched = true; },
       });
       return videoDirectorResponse(directorResult, Date.now() - startMs);
+    }
+    const resumeDeepDispatch = resumeRun?.deepAnalysisDispatch;
+    if (
+      resumeRun?.state === 'analysis_complete'
+      && resumeRun.runId === analysisRunId
+      && resumeRun.sourceAssetId === assetId
+      && resumeDeepDispatch
+    ) {
+      if (resumeDeepDispatch.status === 'published') {
+        return NextResponse.json({ success: true, totalMs: Date.now() - startMs, resumed: true, skipped: 'tribe-already-dispatched' });
+      }
+      if (resumeDeepDispatch.status === 'inline_ready' || !isInternalQStashDispatchConfigured()) {
+        return NextResponse.json(
+          { success: false, error: 'Prepared inline TRIBE work requires provider-free resume.' },
+          { status: 503 },
+        );
+      }
+      const resumeRawFootageAnalysis = readDeepDispatchRawFootageAnalysis(resumeSnapshot.project);
+      const resumeTribePayload = await buildTribeAnalysisPayloadV1({
+        payload,
+        rawFootageAnalysis: resumeRawFootageAnalysis,
+        directorPayload: resumeDirectorPayload,
+      });
+      await publishPreparedVideoDeepDispatch({
+        payload,
+        tribePayload: resumeTribePayload,
+        dispatch: resumeDeepDispatch,
+        onProviderAccepted: () => { directorDispatched = true; },
+      });
+      return NextResponse.json({ success: true, totalMs: Date.now() - startMs, resumed: true, nextStage: 'tribe-analysis' });
     }
     type ActiveAnalysisState = Exclude<ProjectAnalysisRunStateV1, 'failed'>;
     type AnalysisTargetState = Exclude<ProjectAnalysisRunStateV1, 'queued' | 'failed'>;
@@ -1052,68 +1088,25 @@ async function handler(request: NextRequest) {
     // failed), skip TRIBE and dispatch Director directly.
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
     const directorPayload = { ...resumeDirectorPayload };
+    const preparedDeepDispatch = hasSegments
+      ? await prepareAnalysisDeepDispatch({
+          projectId,
+          userId,
+          analysisRunId,
+          sourceAssetId: assetId,
+        })
+      : undefined;
 
     if (isInternalQStashDispatchConfigured()) {
-      const qstashBaseUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
       if (hasSegments) {
-        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) Ã¢â€ â€™ it dispatches Director
-        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
-          startMs: seg.startMs,
-          endMs: seg.endMs,
-        }));
-        const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
-        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
-        const tribePayload = {
-          projectId, userId, orgId, assetId, analysisRunId, videoUrl,
-          segmentInputs,
-          visualSegmentInputs,
-          directorPayload,
-          creditTransactionId: payload.creditTransactionId,
-          chargedCredits: payload.chargedCredits,
-        };
-
-        const tribeUrl = `${qstashBaseUrl}/api/internal/workers/tribe-analysis`;
-        const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${tribeUrl}`;
-
-        const dispatchRes = await fetch(qstashUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '3',
-            'Upstash-Delay': '2s',
-            // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
-            // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
-            // times out the still-running worker and fires its retry Ã¢â€ â€™ a SECOND concurrent
-            // tribe worker Ã¢â€ â€™ both fight over the Modal GPU Ã¢â€ â€™ V-JEPA/Wav2Vec abort Ã¢â€ â€™ per-moment
-            // signals come back empty Ã¢â€ â€™ monotonous graphics. 800s matches this stage's
-            // maxDuration (tribe route) and is Ã¢â€°Â¤ the QStash free-plan max (900s/15min). 2026-05-30.
-            // NOTE: value MUST carry a unit Ã¢â‚¬â€ QStash parses it as a Go duration; bare '800'
-            // returns HTTP 400 "missing unit in duration". Match the 's' suffix used by Upstash-Delay.
-            'Upstash-Timeout': '800s',
-          },
-          body: JSON.stringify(tribePayload),
+        if (!preparedDeepDispatch) throw new Error('TRIBE dispatch preparation returned no identity.');
+        const tribePayload = await buildTribeAnalysisPayloadV1({ payload, rawFootageAnalysis, directorPayload });
+        await publishPreparedVideoDeepDispatch({
+          payload,
+          tribePayload,
+          dispatch: preparedDeepDispatch,
+          onProviderAccepted: () => { directorDispatched = true; },
         });
-
-        const tribeDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
-        await recordVideoAnalysisCostEvent(payload, {
-          stage: 'tribe_qstash',
-          status: tribeDispatchStatus,
-          provider: 'upstash-qstash',
-          operation: 'queue_message',
-          units: { queueMessages: 1, requestCount: 1 },
-          metadata: { httpStatus: dispatchRes.status, speechSegmentCount: segmentInputs.length, visualSegmentCount: visualSegmentInputs.length },
-        });
-
-        if (!dispatchRes.ok) {
-          const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
-        }
-
-        directorDispatched = true; // TRIBE owns Director dispatch from here
         const totalMs = Date.now() - startMs;
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
@@ -1148,12 +1141,21 @@ async function handler(request: NextRequest) {
     let preparedDispatch: ProjectAnalysisDirectorDispatchV1;
 
     if (hasSegments) {
+      if (!preparedDeepDispatch) throw new Error('Inline TRIBE dispatch preparation returned no identity.');
+      await activateProjectAnalysisDeepInlineV1({
+        projectId,
+        userId,
+        analysisRunId,
+        sourceAssetId: assetId,
+        dispatch: preparedDeepDispatch,
+      });
       const { projectService } = await import('@/lib/editron/services/project-service');
       const deepSnapshot = await projectService.loadProjectForMutation(userId, projectId);
       const deepClaim = await projectService.claimProjectAnalysisDeepRunV1(userId, projectId, {
         expectedRevision: deepSnapshot.revision,
         runId: analysisRunId,
         sourceAssetId: assetId,
+        deepAnalysisDispatchId: preparedDeepDispatch.deduplicationId,
       });
       if (deepClaim.disposition !== 'CLAIMED') {
         throw new AnalysisRunOwnershipLostError(
@@ -1329,6 +1331,147 @@ async function handler(request: NextRequest) {
       { status: retryable ? 503 : ownershipLost ? 409 : 500 },
     );
   }
+}
+
+async function prepareAnalysisDeepDispatch(input: {
+  projectId: string;
+  userId: string;
+  analysisRunId: string;
+  sourceAssetId: string;
+  expectedRevision?: ProjectRevisionV1;
+}): Promise<ProjectAnalysisDeepDispatchV1> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  const expectedRevision = input.expectedRevision ?? (
+    await projectService.loadProjectForMutation(input.userId, input.projectId)
+  ).revision;
+  const prepared = await projectService.prepareProjectAnalysisDeepDispatchV1(
+    input.userId,
+    input.projectId,
+    {
+      expectedRevision,
+      runId: input.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+    },
+  );
+  if (prepared.disposition !== 'ADVANCED' && prepared.disposition !== 'ALREADY_ADVANCED') {
+    throw new AnalysisRunOwnershipLostError(
+      `TRIBE dispatch preparation lost current run ownership (${prepared.disposition}).`,
+    );
+  }
+  if (!prepared.run.deepAnalysisDispatch) {
+    throw new Error('TRIBE dispatch preparation returned no dispatch identity.');
+  }
+  return prepared.run.deepAnalysisDispatch;
+}
+
+async function publishPreparedVideoDeepDispatch(input: {
+  payload: VideoAnalysisPayload;
+  tribePayload: Record<string, unknown>;
+  dispatch: ProjectAnalysisDeepDispatchV1;
+  onProviderAccepted(): void;
+}): Promise<void> {
+  try {
+    const publication = await publishProjectAnalysisDeepDispatchV1({
+      projectId: input.payload.projectId,
+      userId: input.payload.userId,
+      analysisRunId: input.payload.analysisRunId,
+      sourceAssetId: input.payload.assetId,
+      tribePayload: input.tribePayload,
+      dispatch: input.dispatch,
+      onProviderAccepted: input.onProviderAccepted,
+    });
+    await recordVideoAnalysisCostEvent(input.payload, {
+      stage: 'tribe_qstash',
+      status: 'success',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publication.httpStatus,
+        deduplicationId: publication.deduplicationId,
+        providerMessageId: publication.providerMessageId,
+      },
+    });
+  } catch (error: unknown) {
+    const publicationError = error instanceof ProjectAnalysisDeepPublicationError
+      ? error
+      : undefined;
+    await recordVideoAnalysisCostEvent(input.payload, {
+      stage: 'tribe_qstash',
+      status: publicationError?.providerAccepted ? 'success' : 'failed',
+      provider: 'upstash-qstash',
+      operation: 'queue_message',
+      units: { queueMessages: 1, requestCount: 1 },
+      metadata: {
+        httpStatus: publicationError?.httpStatus,
+        deduplicationId: input.dispatch.deduplicationId,
+        providerAccepted: publicationError?.providerAccepted ?? false,
+      },
+    });
+    throw new AnalysisRunRetryableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+type DeepDispatchRawFootageAnalysis = {
+  originalDurationMs: number;
+  segments: Array<{ startMs: number; endMs: number }>;
+};
+
+function readDeepDispatchRawFootageAnalysis(project: unknown): DeepDispatchRawFootageAnalysis {
+  const projectRecord = project && typeof project === 'object' && !Array.isArray(project)
+    ? project as Record<string, unknown>
+    : {};
+  const raw = projectRecord.rawFootageAnalysis;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AnalysisRunOwnershipLostError('Prepared TRIBE dispatch has no committed raw-footage evidence.');
+  }
+  const rawRecord = raw as Record<string, unknown>;
+  const originalDurationMs = rawRecord.originalDurationMs;
+  const segments = Array.isArray(rawRecord.segments) ? rawRecord.segments : [];
+  const normalizedSegments = segments.flatMap((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const segment = value as Record<string, unknown>;
+    return typeof segment.startMs === 'number'
+      && Number.isFinite(segment.startMs)
+      && typeof segment.endMs === 'number'
+      && Number.isFinite(segment.endMs)
+      && segment.endMs > segment.startMs
+      ? [{ startMs: segment.startMs, endMs: segment.endMs }]
+      : [];
+  });
+  if (
+    typeof originalDurationMs !== 'number'
+    || !Number.isFinite(originalDurationMs)
+    || originalDurationMs <= 0
+    || normalizedSegments.length === 0
+  ) throw new AnalysisRunOwnershipLostError('Prepared TRIBE dispatch evidence is incomplete or invalid.');
+  return { originalDurationMs, segments: normalizedSegments };
+}
+
+async function buildTribeAnalysisPayloadV1(input: {
+  payload: VideoAnalysisPayload;
+  rawFootageAnalysis: DeepDispatchRawFootageAnalysis;
+  directorPayload: CanonicalDirectorRunInputV1;
+}): Promise<Record<string, unknown>> {
+  const segmentInputs = input.rawFootageAnalysis.segments.map(segment => ({ ...segment }));
+  const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+  const visualSegmentInputs = buildVjepaCoverageSegments(
+    input.rawFootageAnalysis.originalDurationMs,
+    segmentInputs,
+  );
+  return {
+    projectId: input.payload.projectId,
+    userId: input.payload.userId,
+    orgId: input.payload.orgId,
+    assetId: input.payload.assetId,
+    analysisRunId: input.payload.analysisRunId,
+    videoUrl: input.payload.videoUrl,
+    segmentInputs,
+    visualSegmentInputs,
+    directorPayload: { ...input.directorPayload },
+    creditTransactionId: input.payload.creditTransactionId,
+    chargedCredits: input.payload.chargedCredits,
+  };
 }
 
 async function prepareAnalysisDirectorDispatch(input: {
