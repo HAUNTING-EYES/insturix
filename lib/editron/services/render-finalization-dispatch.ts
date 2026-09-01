@@ -3,12 +3,11 @@ import { z } from 'zod';
 
 import { RenderExpectedDurationMsSchema } from '@/lib/editron/schemas/render-job';
 import { isRenderFinalizerConfigured } from '@/lib/editron/services/render-finalizer-client';
+import { projectService } from '@/lib/editron/services/project-service';
 import {
   claimJobFinalization,
-  claimProjectRenderJobFinalizationV1,
   ProjectRenderJobAuthorizationSchema,
   releaseJobFinalizationClaim,
-  releaseProjectRenderJobFinalizationClaimV1,
   type ClaimedRenderFinalization,
   type ProjectRenderFinalizationClaimV1,
   type ProjectRenderJobNotCurrentResultV1,
@@ -202,13 +201,12 @@ export type BeginProjectRenderFinalizationResultV1 =
  */
 export async function beginProjectRenderFinalizationV1(input: {
   authorization: unknown;
-  currentProjectRevision: unknown;
   providerRenderId?: string;
   bucketName?: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
 }): Promise<BeginProjectRenderFinalizationResultV1> {
-  const claim = await claimProjectRenderJobFinalizationV1(input);
+  const claim = await projectService.claimProjectRenderJobFinalizationTransactionV1(input);
   if (!claim.ok) return claim;
 
   try {
@@ -216,9 +214,8 @@ export async function beginProjectRenderFinalizationV1(input: {
     return { state: 'enqueued', claim, messageId: dispatch.messageId };
   } catch (dispatchError) {
     try {
-      const released = await releaseProjectRenderJobFinalizationClaimV1({
+      const released = await projectService.releaseProjectRenderJobFinalizationClaimTransactionV1({
         authorization: claim.authorization,
-        currentProjectRevision: input.currentProjectRevision,
         claimToken: claim.claimToken,
       });
       if (!released.ok) {

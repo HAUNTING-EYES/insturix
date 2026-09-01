@@ -14,18 +14,18 @@ const routeMocks = vi.hoisted(() => ({
   markProjectRenderJobStarted: vi.fn(),
   failJob: vi.fn(),
   failProjectRenderJob: vi.fn(),
-  failProjectRenderJobFromProvider: vi.fn(),
+  failProjectRenderJobFromProviderTransaction: vi.fn(),
   claimJobFinalization: vi.fn(),
-  claimProjectRenderJobFinalization: vi.fn(),
+  claimProjectRenderJobFinalizationTransaction: vi.fn(),
   releaseJobFinalizationClaim: vi.fn(),
-  releaseProjectRenderJobFinalizationClaim: vi.fn(),
+  releaseProjectRenderJobFinalizationClaimTransaction: vi.fn(),
   getJob: vi.fn(),
   getCurrentProjectRenderJob: vi.fn(),
   getProjectRenderJobAuthorizationByAdmission: vi.fn(),
   claimFailedJobFinalizationRetry: vi.fn(),
-  claimFailedProjectRenderJobFinalizationRetry: vi.fn(),
+  claimFailedProjectRenderJobFinalizationRetryTransaction: vi.fn(),
   releaseFailedJobFinalizationRetryClaim: vi.fn(),
-  releaseFailedProjectRenderJobFinalizationRetryClaim: vi.fn(),
+  releaseFailedProjectRenderJobFinalizationRetryClaimTransaction: vi.fn(),
   reconcileProviderTerminalEvent: vi.fn(),
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
@@ -77,22 +77,14 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   markProjectRenderJobStartedV1: routeMocks.markProjectRenderJobStarted,
   failJob: routeMocks.failJob,
   failProjectRenderJobV1: routeMocks.failProjectRenderJob,
-  failProjectRenderJobFromProviderV1: routeMocks.failProjectRenderJobFromProvider,
   claimJobFinalization: routeMocks.claimJobFinalization,
-  claimProjectRenderJobFinalizationV1: routeMocks.claimProjectRenderJobFinalization,
   releaseJobFinalizationClaim: routeMocks.releaseJobFinalizationClaim,
-  releaseProjectRenderJobFinalizationClaimV1:
-    routeMocks.releaseProjectRenderJobFinalizationClaim,
   getJob: routeMocks.getJob,
   getCurrentProjectRenderJobV1: routeMocks.getCurrentProjectRenderJob,
   getProjectRenderJobAuthorizationByAdmissionV1:
     routeMocks.getProjectRenderJobAuthorizationByAdmission,
   claimFailedJobFinalizationRetry: routeMocks.claimFailedJobFinalizationRetry,
-  claimFailedProjectRenderJobFinalizationRetryV1:
-    routeMocks.claimFailedProjectRenderJobFinalizationRetry,
   releaseFailedJobFinalizationRetryClaim: routeMocks.releaseFailedJobFinalizationRetryClaim,
-  releaseFailedProjectRenderJobFinalizationRetryClaimV1:
-    routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim,
   reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
 }));
@@ -124,6 +116,16 @@ vi.mock('@/lib/editron/services/project-service', () => ({
     loadProject: routeMocks.loadProject,
     loadProjectForRenderSnapshot: routeMocks.loadProjectForRenderSnapshot,
     getProjectRevision: routeMocks.getProjectRevision,
+    failProjectRenderJobFromProviderTransactionV1:
+      routeMocks.failProjectRenderJobFromProviderTransaction,
+    claimProjectRenderJobFinalizationTransactionV1:
+      routeMocks.claimProjectRenderJobFinalizationTransaction,
+    releaseProjectRenderJobFinalizationClaimTransactionV1:
+      routeMocks.releaseProjectRenderJobFinalizationClaimTransaction,
+    claimFailedProjectRenderJobFinalizationRetryTransactionV1:
+      routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction,
+    releaseFailedProjectRenderJobFinalizationRetryClaimTransactionV1:
+      routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaimTransaction,
   },
 }));
 
@@ -282,12 +284,12 @@ describe('Editron render startup boundary', () => {
       status: 'STALE',
     });
     routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
-    routeMocks.releaseProjectRenderJobFinalizationClaim.mockResolvedValue({
+    routeMocks.releaseProjectRenderJobFinalizationClaimTransaction.mockResolvedValue({
       ok: true,
       status: 'CURRENT',
     });
     routeMocks.releaseFailedJobFinalizationRetryClaim.mockResolvedValue(true);
-    routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim.mockResolvedValue({
+    routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaimTransaction.mockResolvedValue({
       ok: true,
       status: 'CURRENT',
     });
@@ -840,7 +842,7 @@ describe('Editron render startup boundary', () => {
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.claimProjectRenderJobFinalization.mockResolvedValueOnce(claim);
+    routeMocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValueOnce(claim);
     const payload = {
       type: 'success',
       renderId: 'render_provider_1',
@@ -861,9 +863,8 @@ describe('Editron render startup boundary', () => {
       authorization: lookup.authorization,
       currentProjectRevision: projectRevision(),
     });
-    expect(routeMocks.claimProjectRenderJobFinalization).toHaveBeenCalledWith({
+    expect(routeMocks.claimProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
       authorization: lookup.authorization,
-      currentProjectRevision: projectRevision(),
       providerRenderId: 'render_provider_1',
       bucketName: 'bucket_1',
       sourceOutputUrl: 'https://bucket.example.test/render.mp4',
@@ -925,7 +926,7 @@ describe('Editron render startup boundary', () => {
       },
     }));
     expect(stale.status).toBe(409);
-    expect(routeMocks.claimProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
     expect(routeMocks.claimJobFinalization).not.toHaveBeenCalled();
     expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
   });
@@ -938,7 +939,7 @@ describe('Editron render startup boundary', () => {
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.failProjectRenderJobFromProvider.mockResolvedValueOnce({
+    routeMocks.failProjectRenderJobFromProviderTransaction.mockResolvedValueOnce({
       ok: true,
       status: 'CURRENT',
     });
@@ -954,9 +955,8 @@ describe('Editron render startup boundary', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(routeMocks.failProjectRenderJobFromProvider).toHaveBeenCalledWith({
+    expect(routeMocks.failProjectRenderJobFromProviderTransaction).toHaveBeenCalledWith({
       authorization: lookup.authorization,
-      currentProjectRevision: projectRevision(),
       providerRenderId: 'render_provider_1',
       bucketName: 'bucket_1',
       error: 'Remotion render timed out',
@@ -984,7 +984,7 @@ describe('Editron render startup boundary', () => {
       },
     }));
     expect(conflictingReplay.status).toBe(409);
-    expect(routeMocks.claimProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.claimProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
 
     const artifactBoundResult = {
       ok: false,
@@ -1017,7 +1017,7 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.claimFailedJobFinalizationRetry).not.toHaveBeenCalled();
   });
 
-  it('rechecks ProjectService immediately before signed webhook mutation', async () => {
+  it('rejects a stale signed webhook inside the ProjectService transaction owner', async () => {
     const lookup = strictProjectRenderLookup('rendering');
     routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
     routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
@@ -1025,9 +1025,12 @@ describe('Editron render startup boundary', () => {
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.getProjectRevision
-      .mockResolvedValueOnce(projectRevision())
-      .mockResolvedValueOnce({ ...projectRevision(), value: 8 });
+    routeMocks.failProjectRenderJobFromProviderTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
 
     const response = await POST_RENDER_WEBHOOK(renderWebhookRequest({
       type: 'timeout',
@@ -1040,8 +1043,8 @@ describe('Editron render startup boundary', () => {
     }));
 
     expect(response.status).toBe(409);
-    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(2);
-    expect(routeMocks.failProjectRenderJobFromProvider).not.toHaveBeenCalled();
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(1);
+    expect(routeMocks.failProjectRenderJobFromProviderTransaction).toHaveBeenCalledOnce();
   });
 
   it('CRITICAL: rejects forged render callbacks before durable state changes', async () => {
@@ -1425,7 +1428,7 @@ describe('Editron render startup boundary', () => {
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.claimFailedProjectRenderJobFinalizationRetry.mockResolvedValueOnce(claim);
+    routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction.mockResolvedValueOnce(claim);
 
     const response = await POST_FINALIZATION_RETRY(
       retryFinalizationRequest('rnd_admission_1'),
@@ -1436,9 +1439,8 @@ describe('Editron render startup boundary', () => {
       'user_collaborator',
       'project_1',
     );
-    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetry).toHaveBeenCalledWith({
+    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction).toHaveBeenCalledWith({
       authorization: lookup.authorization,
-      currentProjectRevision: projectRevision(),
     });
     expect(routeMocks.claimFailedJobFinalizationRetry).not.toHaveBeenCalled();
     expect(routeMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
@@ -1458,7 +1460,7 @@ describe('Editron render startup boundary', () => {
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.claimFailedProjectRenderJobFinalizationRetry.mockResolvedValueOnce(claim);
+    routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction.mockResolvedValueOnce(claim);
     routeMocks.publishJSON.mockRejectedValueOnce(new Error('QStash unavailable'));
 
     const failed = await POST_FINALIZATION_RETRY(
@@ -1466,42 +1468,36 @@ describe('Editron render startup boundary', () => {
     );
 
     expect(failed.status).toBe(503);
-    expect(routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaim).toHaveBeenCalledWith({
+    expect(routeMocks.releaseFailedProjectRenderJobFinalizationRetryClaimTransaction).toHaveBeenCalledWith({
       authorization: claim.authorization,
-      currentProjectRevision: projectRevision(),
       claimToken: claim.claimToken,
       error: expect.any(Error),
     });
     expect(routeMocks.releaseFailedJobFinalizationRetryClaim).not.toHaveBeenCalled();
   });
 
-  it('rechecks project access and revision immediately before strict retry mutation', async () => {
+  it('rejects a stale strict retry inside the ProjectService transaction owner', async () => {
     const lookup = strictProjectRenderLookup('error');
-    const firstSnapshot = {
-      project: { projectId: 'project_1' },
-      revision: projectRevision(),
-      ownerId: 'user_1',
-    };
     routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
     routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
       ok: true,
       status: 'CURRENT',
       job: lookup.job,
     });
-    routeMocks.loadProjectForRenderSnapshot
-      .mockResolvedValueOnce(firstSnapshot)
-      .mockResolvedValueOnce({
-        ...firstSnapshot,
-        revision: { ...projectRevision(), value: 8 },
-      });
+    routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction.mockResolvedValueOnce({
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'PROJECT_REVISION_STALE',
+    });
 
     const stale = await POST_FINALIZATION_RETRY(
       retryFinalizationRequest('rnd_admission_1'),
     );
 
     expect(stale.status).toBe(409);
-    expect(routeMocks.loadProjectForRenderSnapshot).toHaveBeenCalledTimes(2);
-    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetry).not.toHaveBeenCalled();
+    expect(routeMocks.loadProjectForRenderSnapshot).toHaveBeenCalledTimes(1);
+    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetryTransaction).toHaveBeenCalledOnce();
   });
 
   it('keeps failed recovery retryable when queue publication fails and hides foreign jobs', async () => {

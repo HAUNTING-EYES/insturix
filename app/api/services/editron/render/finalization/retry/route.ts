@@ -4,15 +4,12 @@ import { z } from 'zod';
 
 import { enqueueRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
 import {
-  claimFailedProjectRenderJobFinalizationRetryV1,
   claimFailedJobFinalizationRetry,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
-  releaseFailedProjectRenderJobFinalizationRetryClaimV1,
   releaseFailedJobFinalizationRetryClaim,
 } from '@/lib/editron/services/render-job-service';
 import { projectService } from '@/lib/editron/services/project-service';
-import { sameProjectArtifactRevisionV1 } from '@/lib/editron/services/project-artifact-invalidation-v1';
 
 const RetryFinalizationRequestSchema = z.object({
   jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
@@ -71,26 +68,14 @@ export async function POST(request: Request) {
       return notRetryable();
     }
 
-    const refreshedProjectSnapshot = await projectService.loadProjectForRenderSnapshot(
-      userId,
-      lookup.authorization.projectId,
-    );
-    if (
-      !refreshedProjectSnapshot
-      || refreshedProjectSnapshot.ownerId !== lookup.authorization.ownerId
-      || refreshedProjectSnapshot.project.projectId !== lookup.authorization.projectId
-    ) {
-      return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
-    }
-    if (!sameProjectArtifactRevisionV1(projectSnapshot.revision, refreshedProjectSnapshot.revision)) {
-      return projectRenderNotCurrent();
-    }
-
-    const claim = await claimFailedProjectRenderJobFinalizationRetryV1({
+    const claim = await projectService.claimFailedProjectRenderJobFinalizationRetryTransactionV1({
       authorization: lookup.authorization,
-      currentProjectRevision: refreshedProjectSnapshot.revision,
     });
-    if (!claim.ok) return notRetryable();
+    if (!claim.ok) {
+      return claim.reason === 'PROJECT_REVISION_STALE'
+        ? projectRenderNotCurrent()
+        : notRetryable();
+    }
 
     try {
       const dispatch = await enqueueRenderFinalization(claim);
@@ -106,12 +91,12 @@ export async function POST(request: Request) {
         { status: 202 },
       );
     } catch (error) {
-      const released = await releaseFailedProjectRenderJobFinalizationRetryClaimV1({
-        authorization: claim.authorization,
-        currentProjectRevision: refreshedProjectSnapshot.revision,
-        claimToken: claim.claimToken,
-        error,
-      }).catch(() => null);
+      const released = await projectService
+        .releaseFailedProjectRenderJobFinalizationRetryClaimTransactionV1({
+          authorization: claim.authorization,
+          claimToken: claim.claimToken,
+          error,
+        }).catch(() => null);
       if (!released?.ok) {
         console.error(`[RenderFinalizationRetry] Failed to restore strict claim ${claim.claimToken}.`);
       }

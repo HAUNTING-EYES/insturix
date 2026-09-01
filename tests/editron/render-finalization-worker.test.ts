@@ -13,8 +13,8 @@ const mocks = vi.hoisted(() => ({
   getCurrentProjectRenderJob: vi.fn(),
   getProjectRenderJobAuthorizationByAdmission: vi.fn(),
   getProjectRevision: vi.fn(),
-  claimProjectRenderJobFinalization: vi.fn(),
-  releaseProjectRenderJobFinalizationClaim: vi.fn(),
+  claimProjectRenderJobFinalizationTransaction: vi.fn(),
+  releaseProjectRenderJobFinalizationClaimTransaction: vi.fn(),
 }));
 
 vi.mock('@upstash/qstash', () => ({
@@ -46,10 +46,6 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
     mocks.fenceStaleProjectRenderJobFinalization,
   getProjectRenderJobAuthorizationByAdmissionV1:
     mocks.getProjectRenderJobAuthorizationByAdmission,
-  claimProjectRenderJobFinalizationV1:
-    mocks.claimProjectRenderJobFinalization,
-  releaseProjectRenderJobFinalizationClaimV1:
-    mocks.releaseProjectRenderJobFinalizationClaim,
 }));
 
 vi.mock('@/lib/editron/services/project-service', () => ({
@@ -59,6 +55,10 @@ vi.mock('@/lib/editron/services/project-service', () => ({
       mocks.completeProjectRenderJobFinalizationTransaction,
     failProjectRenderJobFinalizationTransactionV1:
       mocks.failProjectRenderJobFinalizationTransaction,
+    claimProjectRenderJobFinalizationTransactionV1:
+      mocks.claimProjectRenderJobFinalizationTransaction,
+    releaseProjectRenderJobFinalizationClaimTransactionV1:
+      mocks.releaseProjectRenderJobFinalizationClaimTransaction,
   },
 }));
 
@@ -199,7 +199,7 @@ describe('render finalization orchestration', () => {
         },
       },
     });
-    mocks.claimProjectRenderJobFinalization.mockResolvedValue({
+    mocks.claimProjectRenderJobFinalizationTransaction.mockResolvedValue({
       ok: true,
       status: 'CURRENT',
       jobId: message.jobId,
@@ -209,7 +209,7 @@ describe('render finalization orchestration', () => {
       expectedDurationMs: message.expectedDurationMs,
       authorization: projectRenderAuthorization,
     });
-    mocks.releaseProjectRenderJobFinalizationClaim.mockResolvedValue({
+    mocks.releaseProjectRenderJobFinalizationClaimTransaction.mockResolvedValue({
       ok: true,
       status: 'CURRENT',
     });
@@ -248,7 +248,6 @@ describe('render finalization orchestration', () => {
   it('carries strict authorization only inside the signed finalizer work message', async () => {
     await expect(beginProjectRenderFinalizationV1({
       authorization: projectRenderAuthorization,
-      currentProjectRevision: projectRevision,
       providerRenderId: 'provider_render_1',
       bucketName: 'bucket_1',
       sourceOutputUrl: message.sourceOutputUrl,
@@ -259,6 +258,13 @@ describe('render finalization orchestration', () => {
       body: strictMessage,
       deduplicationId: message.claimToken,
     }));
+    expect(mocks.claimProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      providerRenderId: 'provider_render_1',
+      bucketName: 'bucket_1',
+      sourceOutputUrl: message.sourceOutputUrl,
+      sourceOutputSize: message.sourceOutputSize,
+    });
   });
 
   it('rejects cross-job authorization and strict rows disguised as legacy before media work', async () => {

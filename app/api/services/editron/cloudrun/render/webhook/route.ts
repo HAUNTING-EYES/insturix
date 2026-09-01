@@ -7,7 +7,6 @@ import {
   beginRenderFinalization,
 } from '@/lib/editron/services/render-finalization-dispatch';
 import {
-  failProjectRenderJobFromProviderV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
   reconcileProviderTerminalEvent,
@@ -16,7 +15,6 @@ import {
   projectService,
   ProjectNotFoundOrForbiddenError,
 } from '@/lib/editron/services/project-service';
-import { sameProjectArtifactRevisionV1 } from '@/lib/editron/services/project-artifact-invalidation-v1';
 
 export const runtime = 'nodejs';
 
@@ -187,18 +185,9 @@ export async function POST(request: Request) {
         : projectRenderNotCurrent();
     }
 
-    const refreshedProjectRevision = await projectService.getProjectRevision(
-      lookup.authorization.ownerId,
-      lookup.authorization.projectId,
-    );
-    if (!sameProjectArtifactRevisionV1(currentProjectRevision, refreshedProjectRevision)) {
-      return projectRenderNotCurrent();
-    }
-
     if (payload.type === 'success') {
       const result = await beginProjectRenderFinalizationV1({
         authorization: lookup.authorization,
-        currentProjectRevision: refreshedProjectRevision,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
         sourceOutputUrl: successfulOutputUrl!,
@@ -206,9 +195,8 @@ export async function POST(request: Request) {
       });
       if (!('state' in result)) return projectRenderNotCurrent();
     } else {
-      const result = await failProjectRenderJobFromProviderV1({
+      const result = await projectService.failProjectRenderJobFromProviderTransactionV1({
         authorization: lookup.authorization,
-        currentProjectRevision: refreshedProjectRevision,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
         error: providerError!,
