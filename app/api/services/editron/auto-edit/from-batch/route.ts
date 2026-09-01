@@ -2291,6 +2291,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const terminalScriptGrounding = error instanceof ScriptGroundingError && !error.retryable;
+    let catchTerminalProjection: BatchTerminalProjectionResultV1 | null = null;
+    let lifecycleRecoveryError: string | null = null;
     if (assistLaneActive && assistReadyCommitted && activeProjectId) {
       console.error('[auto-edit/from-batch] Assist project is ready but its batch projection is pending recovery:', message);
       return NextResponse.json({
@@ -2399,30 +2401,20 @@ export async function POST(request: NextRequest) {
           };
           const coverageGap = error.failureKind === 'coverage_gap';
           const terminalStatus = coverageGap ? 'needs_input' : 'failed';
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-            {
-              $set: {
-                orchestrationStatus: terminalStatus,
-                orchestrationError: message,
-                scriptCoverage: coverageAudit,
-                updatedAt: new Date(),
-              },
-              $unset: { orchestrationLeaseUntil: '' },
+          catchTerminalProjection = await recordAutoProjectThenBatchTerminalV1({
+            db,
+            userId: caller.userId,
+            projectId: activeProjectId,
+            uploadBatchId,
+            event: {
+              kind: coverageGap ? 'SCRIPT_GROUNDING_NEEDS_INPUT' : 'SCRIPT_GROUNDING_FAILED',
+              errorMessage: message,
+              scriptCoverage: coverageAudit,
             },
-          );
-          await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId, userId: caller.userId },
-            {
-              $set: {
-                autoEditStatus: terminalStatus,
-                autoEditError: message,
-                autoEditStageDesc: coverageGap ? 'More footage needed' : 'Script grounding failed',
-                'storylinePlan.scriptCoverage': coverageAudit,
-                updatedAt: new Date(),
-              },
-            },
-          );
+            expectedBatchStatuses: ['composing'],
+            batchStatus: terminalStatus,
+            batchFields: { orchestrationError: message, scriptCoverage: coverageAudit },
+          });
           console.warn(`[auto-edit/from-batch] terminal script grounding failure: ${message}`);
           return NextResponse.json({
             success: false,
@@ -2431,6 +2423,7 @@ export async function POST(request: NextRequest) {
             error: message,
             scriptCoverage: coverageAudit,
             ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
+            ...catchTerminalProjection,
           });
         }
         const nextFailureCount = caller.failureCount + 1;
@@ -2457,36 +2450,55 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', retryScheduled: true }, { status: 202 });
         }
 
-        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-          { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-          { $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
-        );
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          // Assist lane surfaces scan_failed (refund already issued above) — never auto's 'failed'.
-          { $set: { autoEditStatus: assistLaneActive ? 'scan_failed' : 'failed', autoEditError: message, updatedAt: new Date() } },
-        );
+        catchTerminalProjection = assistLaneActive
+          ? await cancelAssistProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              reason: message,
+              expectedBatchStatuses: ['composing'],
+            })
+          : await recordAutoProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              event: { kind: 'ORCHESTRATION_FAILED', errorMessage: message },
+              expectedBatchStatuses: ['composing'],
+              batchStatus: 'failed',
+              batchFields: { orchestrationError: message },
+            });
       } catch (recoveryError) {
         console.error('[auto-edit/from-batch] orchestration recovery failed:', recoveryError);
+        lifecycleRecoveryError = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
       }
-    } else if (activeProjectId) {
+    } else if (activeProjectId && caller && uploadBatchId) {
       try {
         const db = await getDatabase();
-        if (caller && uploadBatchId) {
-          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
-            {
-              $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
-              $unset: { orchestrationLeaseUntil: '' },
-            },
-          );
-        }
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: message, updatedAt: new Date() } },
-        );
+        const snapshot = await projectService.loadProjectForMutation(caller.userId, activeProjectId);
+        catchTerminalProjection = isAssistProject(snapshot.project as unknown as Record<string, unknown>)
+          ? await cancelAssistProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              reason: message,
+              expectedBatchStatuses: ['initializing', 'requested', 'waiting_analysis', 'retryable_error', 'composing'],
+            })
+          : await recordAutoProjectThenBatchTerminalV1({
+              db,
+              userId: caller.userId,
+              projectId: activeProjectId,
+              uploadBatchId,
+              event: { kind: 'ORCHESTRATION_FAILED', errorMessage: message },
+              expectedBatchStatuses: ['initializing', 'requested', 'waiting_analysis', 'retryable_error', 'composing'],
+              batchStatus: 'failed',
+              batchFields: { orchestrationError: message },
+            });
       } catch (statusError) {
-        console.error('[auto-edit/from-batch] project failure status update failed:', statusError);
+        console.error('[auto-edit/from-batch] project failure lifecycle recovery failed:', statusError);
+        lifecycleRecoveryError = statusError instanceof Error ? statusError.message : String(statusError);
       }
     }
 
@@ -2498,6 +2510,8 @@ export async function POST(request: NextRequest) {
       success: false,
       error: message,
       ...(autoRefundSettlement ? { refundSettlement: autoRefundSettlement } : {}),
+      ...(catchTerminalProjection ?? {}),
+      ...(lifecycleRecoveryError ? { lifecycleRepairPending: true, lifecycleRecoveryError } : {}),
     }, { status });
   }
 }
