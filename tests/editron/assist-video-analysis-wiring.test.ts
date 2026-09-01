@@ -95,4 +95,35 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).not.toContain('Math.round(actualDurationSec * 30)');
     expect(source).not.toContain("'overlays.$[vid].durationInFrames': actualFrames");
   });
+
+  it('binds every analysis stage and Phase-1 evidence commit to the admitted run', () => {
+    expect(source).toContain('analysisRunId: string');
+    expect(source).toContain("await advanceAnalysis('analyzing')");
+    expect(source).toContain("await advanceAnalysis('transcribing')");
+    expect(source).toContain("await advanceAnalysis('analyzing_visual_cuts')");
+    expect(source).toContain("await advanceAnalysis('cleaning')");
+    expect(source).toContain("await advanceAnalysis('computing_params')");
+    expect(source).toContain('commitProjectAnalysisPhase1V1');
+    expect(source).toContain('projectService.failProjectAnalysisRunV1');
+    expect(source).toContain('projectId, userId, orgId, assetId, analysisRunId, videoUrl');
+    for (const rawStatus of [
+      "autoEditStatus: 'analyzing'",
+      "autoEditStatus: 'transcribing'",
+      "autoEditStatus: 'analyzing_visual_cuts'",
+      "autoEditStatus: 'cleaning'",
+      "autoEditStatus: 'computing_params'",
+      "autoEditStatus: 'analysis_complete'",
+      "autoEditStatus: 'analyzing_deep'",
+      "autoEditStatus: 'directing_queued'",
+    ]) {
+      expect(source).not.toContain(rawStatus);
+    }
+  });
+
+  it('never terminalizes a later valid run when an old worker loses ownership', () => {
+    expect(source).toContain("readonly code = 'ANALYSIS_RUN_OWNERSHIP_LOST'");
+    expect(source).toContain('const ownershipLost = error instanceof AnalysisRunOwnershipLostError');
+    expect(source).toContain('if (trackedScan && !directorDispatched && !ownershipLost)');
+    expect(source).toContain('{ status: ownershipLost ? 409 : 500 }');
+  });
 });

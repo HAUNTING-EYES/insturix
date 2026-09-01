@@ -10,7 +10,12 @@ import type { ClientSession, Collection, Filter } from "mongodb";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
-import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
+import {
+  canonicalizeEditronJsonV1,
+  hashEditronCanonicalJsonV1,
+} from "./canonical-json-v1";
+import { buildProjectAnalysisAssetSet } from "./project-analysis-storage";
+import type { NativeAudioEvidence } from "./native-audio-evidence";
 import {
   autoBgmDecisionEvidenceHashV1,
   type AutoBgmDecisionEvidence,
@@ -1066,6 +1071,8 @@ export interface ProjectAnalysisRunV1 {
   admittedRevision: ProjectRevisionV1;
   admittedAt: string;
   updatedAt: string;
+  phase1EvidenceHash?: string;
+  phase1EvidenceCommittedAt?: string;
 }
 
 export interface ProjectAnalysisQueueFactsV1 {
@@ -1144,6 +1151,29 @@ export type ProjectAnalysisRunFailureResultV1 =
     }
   | { disposition: "PROJECT_NOT_FOUND" }
   | { disposition: "OWNERSHIP_LOST" };
+
+export interface ProjectAnalysisPhase1EvidenceV1 {
+  nativeAudioEvidence?: NativeAudioEvidence;
+  musicPreference?: string;
+  editorialPreferences?: Record<string, unknown>;
+  syntheticStoryboard?: unknown;
+  geminiFileUri?: string;
+  referenceEditDNA?: unknown;
+  referenceVideoAnalysis?: unknown;
+  rawFootageAnalysis?: unknown;
+  vjepaAnalysis?: unknown;
+  visualCutIntelligence?: unknown;
+  genreParameters?: unknown;
+  genreParametersSignalComputed?: unknown;
+}
+
+export interface ProjectAnalysisPhase1CommitCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  fromState: "transcribing" | "analyzing_visual_cuts" | "cleaning" | "computing_params";
+  evidence: ProjectAnalysisPhase1EvidenceV1;
+}
 
 export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
   expectedRevision: ProjectRevisionV1;
@@ -5730,6 +5760,170 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return { disposition: "RECORDED", run: structuredClone(failedRun), receipt };
+  }
+
+  /**
+   * Commits the fixed Phase-1 analysis evidence and its lifecycle transition in
+   * one project revision. The separate per-asset collection is a derived
+   * retrieval snapshot; this project mutation is the authoritative run write.
+   */
+  async commitProjectAnalysisPhase1V1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisPhase1CommitCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisPhase1CommitCommandV1(input);
+
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(
+      projectRecordValueV1(current, "autoEditAnalysisRunV1"),
+    );
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+
+    const boundNativeAudioEvidence = input.evidence.nativeAudioEvidence
+      ? bindProjectAnalysisNativeAudioEvidenceV1(currentRun, input.evidence.nativeAudioEvidence)
+      : undefined;
+    const evidenceMaterial = {
+      schemaVersion: 1,
+      projectId,
+      userId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      evidence: {
+        ...structuredClone(input.evidence),
+        ...(boundNativeAudioEvidence ? { nativeAudioEvidence: boundNativeAudioEvidence } : {}),
+      },
+    };
+    const phase1EvidenceHash = hashEditronCanonicalJsonV1(evidenceMaterial);
+    if (
+      currentRun.state === "analysis_complete"
+      && currentRun.phase1EvidenceHash === phase1EvidenceHash
+      && projectRecordValueV1(current, "autoEditStatus") === "analysis_complete"
+    ) {
+      return {
+        disposition: "ALREADY_ADVANCED",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (
+      currentRun.state !== input.fromState
+      || projectRecordValueV1(current, "autoEditStatus") !== input.fromState
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const committedAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      state: "analysis_complete",
+      updatedAt: committedAt.toISOString(),
+      phase1EvidenceHash,
+      phase1EvidenceCommittedAt: committedAt.toISOString(),
+    };
+    const evidence = input.evidence;
+    const perAssetSet = buildProjectAnalysisAssetSet(input.sourceAssetId, {
+      rawFootageAnalysis: evidence.rawFootageAnalysis,
+      vjepaAnalysis: evidence.vjepaAnalysis,
+    }, committedAt);
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: input.fromState,
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": input.fromState,
+        overlays: { $elemMatch: { type: "video", assetId: input.sourceAssetId } },
+      },
+      {
+        $set: {
+          autoEditStatus: "analysis_complete",
+          autoEditAnalysisRunV1: nextRun,
+          ...(evidence.syntheticStoryboard !== undefined
+            ? { syntheticStoryboard: structuredClone(evidence.syntheticStoryboard) }
+            : {}),
+          ...(evidence.geminiFileUri !== undefined ? { geminiFileUri: evidence.geminiFileUri } : {}),
+          ...(evidence.referenceEditDNA !== undefined
+            ? { referenceEditDNA: structuredClone(evidence.referenceEditDNA) }
+            : {}),
+          ...(evidence.referenceVideoAnalysis !== undefined
+            ? { referenceVideoAnalysis: structuredClone(evidence.referenceVideoAnalysis) }
+            : {}),
+          ...(evidence.rawFootageAnalysis !== undefined
+            ? { rawFootageAnalysis: structuredClone(evidence.rawFootageAnalysis) }
+            : {}),
+          ...(evidence.vjepaAnalysis !== undefined
+            ? { vjepaAnalysis: structuredClone(evidence.vjepaAnalysis) }
+            : {}),
+          ...perAssetSet,
+          ...(evidence.visualCutIntelligence !== undefined
+            ? { "intelligence.visualCutIntelligence": structuredClone(evidence.visualCutIntelligence) }
+            : {}),
+          ...(evidence.genreParameters !== undefined
+            ? { genreParameters: structuredClone(evidence.genreParameters) }
+            : {}),
+          ...(evidence.genreParametersSignalComputed !== undefined
+            ? { genreParametersSignalComputed: structuredClone(evidence.genreParametersSignalComputed) }
+            : {}),
+          ...(boundNativeAudioEvidence
+            ? {
+                "overlays.$[analysisSource].hasNativeAudio": boundNativeAudioEvidence.hasNativeAudio,
+                "overlays.$[analysisSource].metadata.nativeAudioEvidence": boundNativeAudioEvidence,
+              }
+            : {}),
+          ...(evidence.musicPreference !== undefined
+            ? { musicPreference: evidence.musicPreference }
+            : {}),
+          ...(evidence.editorialPreferences !== undefined
+            ? { editorialPreferences: structuredClone(evidence.editorialPreferences) }
+            : {}),
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      boundNativeAudioEvidence
+        ? { arrayFilters: [{ "analysisSource.type": "video", "analysisSource.assetId": input.sourceAssetId }] }
+        : undefined,
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
   }
 
   /**
@@ -11737,6 +11931,10 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
     || !isPlainRecord(value.admittedRevision)
     || !isBoundedNonEmptyStringV1(value.admittedAt, 100)
     || !isBoundedNonEmptyStringV1(value.updatedAt, 100)
+    || (value.phase1EvidenceHash !== undefined
+      && !isBoundedNonEmptyStringV1(value.phase1EvidenceHash, 128))
+    || (value.phase1EvidenceCommittedAt !== undefined
+      && !isBoundedNonEmptyStringV1(value.phase1EvidenceCommittedAt, 100))
   ) {
     return null;
   }
@@ -11745,6 +11943,8 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
     if (
       Number.isNaN(new Date(value.admittedAt as string).getTime())
       || Number.isNaN(new Date(value.updatedAt as string).getTime())
+      || (value.phase1EvidenceCommittedAt !== undefined
+        && Number.isNaN(new Date(value.phase1EvidenceCommittedAt as string).getTime()))
     ) {
       return null;
     }
@@ -11822,6 +12022,105 @@ function assertProjectAnalysisRunFailureCommandV1(
     );
   }
   assertProjectRevision(input.expectedRevision);
+}
+
+const PROJECT_ANALYSIS_PHASE1_EVIDENCE_FIELDS_V1 = new Set([
+  "nativeAudioEvidence",
+  "musicPreference",
+  "editorialPreferences",
+  "syntheticStoryboard",
+  "geminiFileUri",
+  "referenceEditDNA",
+  "referenceVideoAnalysis",
+  "rawFootageAnalysis",
+  "vjepaAnalysis",
+  "visualCutIntelligence",
+  "genreParameters",
+  "genreParametersSignalComputed",
+]);
+
+function assertProjectAnalysisPhase1CommitCommandV1(
+  input: ProjectAnalysisPhase1CommitCommandV1,
+): void {
+  const fromState: unknown = input.fromState;
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !["transcribing", "analyzing_visual_cuts", "cleaning", "computing_params"].includes(
+      String(fromState),
+    )
+    || !isPlainRecord(input.evidence)
+    || Object.keys(input.evidence).some((key) => !PROJECT_ANALYSIS_PHASE1_EVIDENCE_FIELDS_V1.has(key))
+    || Object.values(input.evidence).some((value) => value === undefined)
+    || (input.evidence.musicPreference !== undefined
+      && !isBoundedNonEmptyStringV1(input.evidence.musicPreference, 100))
+    || (input.evidence.editorialPreferences !== undefined
+      && !isPlainRecord(input.evidence.editorialPreferences))
+    || (input.evidence.geminiFileUri !== undefined
+      && !isBoundedNonEmptyStringV1(input.evidence.geminiFileUri, 2_000))
+    || (input.evidence.nativeAudioEvidence !== undefined
+      && !isValidProjectAnalysisNativeAudioEvidenceV1(input.evidence.nativeAudioEvidence))
+  ) {
+    throw new ProjectMutationWriteError(
+      "Phase-1 analysis commit requires one exact run, source, revision, state and bounded evidence bundle.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+  try {
+    const canonicalEvidence = canonicalizeEditronJsonV1(input.evidence);
+    if (Buffer.byteLength(canonicalEvidence, "utf8") > 8_000_000) {
+      throw new Error("PROJECT_ANALYSIS_EVIDENCE_TOO_LARGE");
+    }
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Phase-1 analysis evidence must be canonical JSON below the project storage limit.",
+    );
+  }
+}
+
+function isValidProjectAnalysisNativeAudioEvidenceV1(value: unknown): value is NativeAudioEvidence {
+  if (!isPlainRecord(value)) return false;
+  const regions = value.speechRegions;
+  return typeof value.hasNativeAudio === "boolean"
+    && typeof value.hasSpeech === "boolean"
+    && (value.source === "transcription" || value.source === "none")
+    && Number.isInteger(value.wordCount)
+    && (value.wordCount as number) >= 0
+    && Number.isFinite(value.speechCoverage)
+    && (value.speechCoverage as number) >= 0
+    && (value.speechCoverage as number) <= 1
+    && Array.isArray(regions)
+    && regions.length <= 180
+    && Number.isInteger(value.regionCount)
+    && value.regionCount === regions.length
+    && regions.every((region) => (
+      isPlainRecord(region)
+      && Number.isFinite(region.sourceStartFrame)
+      && Number.isFinite(region.sourceEndFrame)
+      && Number.isFinite(region.startMs)
+      && Number.isFinite(region.endMs)
+      && (region.sourceStartFrame as number) >= 0
+      && (region.sourceEndFrame as number) > (region.sourceStartFrame as number)
+      && (region.startMs as number) >= 0
+      && (region.endMs as number) > (region.startMs as number)
+    ));
+}
+
+function bindProjectAnalysisNativeAudioEvidenceV1(
+  run: ProjectAnalysisRunV1,
+  evidence: NativeAudioEvidence,
+): NativeAudioEvidence {
+  const material = {
+    ...structuredClone(evidence),
+    sourceAssetId: run.sourceAssetId,
+    sourceVersion: run.admissionHash,
+  };
+  return {
+    ...material,
+    evidenceId: `native_audio_${hashEditronCanonicalJsonV1(material)}`,
+  };
 }
 
 function assertCheckpointRestoreFields(

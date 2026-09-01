@@ -42,6 +42,10 @@ import {
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
 import type { CanonicalizeReferenceOutput } from '@/lib/editron/reference-video/canonicalize-reference';
+import type {
+  ProjectAnalysisRunStateV1,
+} from '@/lib/editron/services/project-service';
+import type { NativeAudioEvidence } from '@/lib/editron/services/native-audio-evidence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
@@ -84,13 +88,26 @@ interface VideoAnalysisPayload {
   pacingFeel?: string;
   musicPreference?: string;
   editorialPreferences?: EditorialPreferences;
+  analysisRunId: string;
   creditTransactionId?: string;
   chargedCredits?: number;
 }
 
+class AnalysisRunOwnershipLostError extends Error {
+  readonly code = 'ANALYSIS_RUN_OWNERSHIP_LOST';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AnalysisRunOwnershipLostError';
+  }
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  let trackedScan: Pick<VideoAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
+  let trackedScan: Pick<
+    VideoAnalysisPayload,
+    'projectId' | 'userId' | 'assetId' | 'analysisRunId' | 'creditTransactionId'
+  > | undefined;
   let directorDispatched = false;
 
   try {
@@ -100,15 +117,21 @@ async function handler(request: NextRequest) {
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
-      editorialPreferences,
+      editorialPreferences, analysisRunId,
     } = payload;
-    trackedScan = { projectId, userId, creditTransactionId: payload.creditTransactionId };
 
     let effectiveDurationSec = durationSec;
 
-    if (!projectId || !userId || !videoUrl) {
+    if (!projectId || !userId || !assetId || !videoUrl || !analysisRunId) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
+    trackedScan = {
+      projectId,
+      userId,
+      assetId,
+      analysisRunId,
+      creditTransactionId: payload.creditTransactionId,
+    };
 
     if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
       console.error('[VideoAnalysisWorker] Dependent worker dispatch is not configured outside development.');
@@ -128,6 +151,26 @@ async function handler(request: NextRequest) {
     const db = await getDatabase();
     const normalizedMusicPreference = normalizeMusicPreference(musicPreference);
     const normalizedEditorialPreferences = normalizeEditorialPreferences(editorialPreferences);
+    type ActiveAnalysisState = Exclude<ProjectAnalysisRunStateV1, 'failed'>;
+    type AnalysisTargetState = Exclude<ProjectAnalysisRunStateV1, 'queued' | 'failed'>;
+    let analysisState: ActiveAnalysisState = 'queued';
+    const advanceAnalysis = async (toState: AnalysisTargetState): Promise<void> => {
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+      const result = await projectService.advanceProjectAnalysisRunV1(userId, projectId, {
+        expectedRevision: snapshot.revision,
+        runId: analysisRunId,
+        sourceAssetId: assetId,
+        fromState: analysisState,
+        toState,
+      });
+      if (result.disposition !== 'ADVANCED' && result.disposition !== 'ALREADY_ADVANCED') {
+        throw new AnalysisRunOwnershipLostError(
+          `Analysis run lost ${analysisState} → ${toState} ownership (${result.disposition}).`,
+        );
+      }
+      analysisState = toState;
+    };
 
     // Director Mode (assist lane): scans run, but NOTHING is cut. Read the lane
     // once up front so the destructive stage (silence removal) is skipped — the
@@ -140,18 +183,7 @@ async function handler(request: NextRequest) {
     const { isAssistProject: isAssistScanLane } = await import('@/lib/editron/services/assist-lane');
     const isAssistScan = isAssistScanLane(scanLaneDoc);
 
-    // Mark project as analyzing
-    await db.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          autoEditStatus: 'analyzing',
-          autoEditStartedAt: new Date(),
-          ...(normalizedMusicPreference ? { musicPreference: normalizedMusicPreference } : {}),
-          ...(normalizedEditorialPreferences ? { editorialPreferences: normalizedEditorialPreferences } : {}),
-        },
-      },
-    );
+    await advanceAnalysis('analyzing');
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Transcription + Cuts FIRST Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // Architecture: cuts FIRST, analyze SECOND.
@@ -162,13 +194,11 @@ async function handler(request: NextRequest) {
     let rawFootageAnalysis: any = null;
     let precutVjepaAnalysis: any = null;
     let visualCutIntelligence: any = null;
+    let nativeAudioEvidence: NativeAudioEvidence | undefined;
 
     const rawFootageStartedAt = Date.now();
+    await advanceAnalysis('transcribing');
     try {
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'transcribing' } },
-      );
       const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
       rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
       await recordVideoAnalysisCostEvent(payload, {
@@ -612,17 +642,7 @@ async function handler(request: NextRequest) {
     if (rawFootageAnalysis) {
       try {
         const { deriveNativeAudioEvidence } = await import('@/lib/editron/services/native-audio-evidence');
-        const nativeAudioEvidence = deriveNativeAudioEvidence(rawFootageAnalysis, 30);
-        await db.collection('projects').updateOne(
-          { projectId },
-          {
-            $set: {
-              'overlays.$[vid].hasNativeAudio': nativeAudioEvidence.hasNativeAudio,
-              'overlays.$[vid].metadata.nativeAudioEvidence': nativeAudioEvidence,
-            },
-          },
-          { arrayFilters: [{ 'vid.type': 'video', 'vid.assetId': assetId }] },
-        );
+        nativeAudioEvidence = deriveNativeAudioEvidence(rawFootageAnalysis, 30);
       } catch (nativeAudioErr: unknown) {
         const msg = nativeAudioErr instanceof Error ? nativeAudioErr.message : String(nativeAudioErr);
         console.warn(`[VideoAnalysisWorker] Native audio evidence persistence failed (non-fatal): ${msg}`);
@@ -633,12 +653,8 @@ async function handler(request: NextRequest) {
     // Speech-heavy footage remains transcript-led; visual evidence can only protect/refine it.
     // Low/no-speech footage is visual-led and may add visual removals/splits.
     if (rawFootageAnalysis) {
+      await advanceAnalysis('analyzing_visual_cuts');
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'analyzing_visual_cuts' } },
-        );
-
         const segmentInputs = (rawFootageAnalysis.segments || []).map((seg: any) => ({
           startMs: seg.startMs,
           endMs: seg.endMs,
@@ -701,12 +717,8 @@ async function handler(request: NextRequest) {
     // computed and persisted above (so chat can offer "cut N silences"), but it is
     // NOT executed here — the user directs each cut later.
     if (!isAssistScan && rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
+      await advanceAnalysis('cleaning');
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'cleaning' } },
-        );
-
         const { executeSilenceRemoval } = await import('@/lib/editron/services/silence-removal-executor');
         await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan);
       } catch (err: unknown) {
@@ -783,11 +795,8 @@ async function handler(request: NextRequest) {
     let genreParameters: any = null;
     let genreParametersSignalComputed: any = null;  // Pre-bandit value for reward feedback
     if (rawFootageAnalysis) {
+      await advanceAnalysis('computing_params');
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'computing_params' } },
-        );
         const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
         const genreOutput = computeGenreParameters({
           rawFootage: rawFootageAnalysis,
@@ -854,30 +863,44 @@ async function handler(request: NextRequest) {
       persistedRawFootageAnalysis = compactRawFootageAnalysisForProject(rawFootageAnalysis);
     }
 
-    const phase1UpdatedAt = new Date();
-    const phase1PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
-      rawFootageAnalysis: persistedRawFootageAnalysis,
-      vjepaAnalysis: precutVjepaAnalysis,
-    }, phase1UpdatedAt);
-
-    await db.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          autoEditStatus: 'analysis_complete',
-          ...(syntheticStoryboard && { syntheticStoryboard }),
-          ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
-          ...(editDNA && { referenceEditDNA: editDNA }),
-          ...(referenceVideoAnalysis && { referenceVideoAnalysis }),
-          ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
-          ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
-          ...phase1PerAssetSet,
-          ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
-          ...(genreParameters && { genreParameters }),
-          ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
-          updatedAt: phase1UpdatedAt,
-        },
+    if (!['transcribing', 'analyzing_visual_cuts', 'cleaning', 'computing_params'].includes(analysisState)) {
+      throw new Error(`Analysis run cannot commit Phase 1 from ${analysisState}.`);
+    }
+    const phase1FromState = analysisState as 'transcribing' | 'analyzing_visual_cuts' | 'cleaning' | 'computing_params';
+    const { projectService: phase1ProjectService } = await import('@/lib/editron/services/project-service');
+    const phase1Snapshot = await phase1ProjectService.loadProjectForMutation(userId, projectId);
+    const phase1Commit = await phase1ProjectService.commitProjectAnalysisPhase1V1(userId, projectId, {
+      expectedRevision: phase1Snapshot.revision,
+      runId: analysisRunId,
+      sourceAssetId: assetId,
+      fromState: phase1FromState,
+      evidence: {
+        ...(nativeAudioEvidence ? { nativeAudioEvidence } : {}),
+        ...(normalizedMusicPreference ? { musicPreference: normalizedMusicPreference } : {}),
+        ...(normalizedEditorialPreferences
+          ? { editorialPreferences: { ...normalizedEditorialPreferences } }
+          : {}),
+        ...(syntheticStoryboard ? { syntheticStoryboard } : {}),
+        ...(syntheticStoryboard?.geminiFileUri ? { geminiFileUri: syntheticStoryboard.geminiFileUri } : {}),
+        ...(editDNA ? { referenceEditDNA: editDNA } : {}),
+        ...(referenceVideoAnalysis ? { referenceVideoAnalysis } : {}),
+        ...(persistedRawFootageAnalysis ? { rawFootageAnalysis: persistedRawFootageAnalysis } : {}),
+        ...(precutVjepaAnalysis ? { vjepaAnalysis: precutVjepaAnalysis } : {}),
+        ...(visualCutIntelligence ? { visualCutIntelligence } : {}),
+        ...(genreParameters ? { genreParameters } : {}),
+        ...(genreParametersSignalComputed ? { genreParametersSignalComputed } : {}),
       },
+    });
+    if (phase1Commit.disposition !== 'ADVANCED' && phase1Commit.disposition !== 'ALREADY_ADVANCED') {
+      throw new AnalysisRunOwnershipLostError(
+        `Analysis run lost Phase-1 ownership (${phase1Commit.disposition}).`,
+      );
+    }
+    analysisState = 'analysis_complete';
+    const phase1UpdatedAt = new Date(
+      phase1Commit.disposition === 'ADVANCED'
+        ? phase1Commit.receipt.committedAt
+        : (phase1Commit.run.phase1EvidenceCommittedAt ?? phase1Commit.run.updatedAt),
     );
 
     try {
@@ -948,6 +971,7 @@ async function handler(request: NextRequest) {
     // failed), skip TRIBE and dispatch Director directly.
     const directorPayload = {
       projectId, userId,
+      analysisRunId,
       profileId: initialProfileId,
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
@@ -974,7 +998,7 @@ async function handler(request: NextRequest) {
         const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
-          projectId, userId, orgId, assetId, videoUrl,
+          projectId, userId, orgId, assetId, analysisRunId, videoUrl,
           segmentInputs,
           visualSegmentInputs,
           directorPayload,
@@ -1025,10 +1049,7 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
         // No segments Ã¢â‚¬â€ skip TRIBE, dispatch Director directly
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'directing_queued' } },
-        );
+        await advanceAnalysis('directing_queued');
 
         const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
         const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
@@ -1073,12 +1094,8 @@ async function handler(request: NextRequest) {
     let wav2vecAnalysis: any = null;
 
     if (hasSegments) {
+      await advanceAnalysis('analyzing_deep');
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'analyzing_deep' } },
-        );
-
         const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
           startMs: seg.startMs,
           endMs: seg.endMs,
@@ -1204,6 +1221,7 @@ async function handler(request: NextRequest) {
     }
 
     // Run Director inline
+    await advanceAnalysis('directing_queued');
     await db.collection('projects').updateOne(
       { projectId },
       { $set: { autoEditStatus: 'directing' } },
@@ -1295,11 +1313,12 @@ async function handler(request: NextRequest) {
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
+    const ownershipLost = error instanceof AnalysisRunOwnershipLostError;
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
     // Mark project as failed Ã¢â‚¬â€ but only if TRIBE/Director hasn't already been dispatched
     // (if dispatched, the downstream worker owns the final status)
-    if (trackedScan && !directorDispatched) {
+    if (trackedScan && !directorDispatched && !ownershipLost) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -1313,15 +1332,32 @@ async function handler(request: NextRequest) {
           creditTransactionId: trackedScan.creditTransactionId,
         });
         if (settlement === 'not-assist') {
-          await db.collection('projects').updateOne(
-            { projectId: trackedScan.projectId, userId: trackedScan.userId },
-            { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          const { projectService } = await import('@/lib/editron/services/project-service');
+          const snapshot = await projectService.loadProjectForMutation(
+            trackedScan.userId,
+            trackedScan.projectId,
           );
+          const failed = await projectService.failProjectAnalysisRunV1(
+            trackedScan.userId,
+            trackedScan.projectId,
+            {
+              expectedRevision: snapshot.revision,
+              runId: trackedScan.analysisRunId,
+              sourceAssetId: trackedScan.assetId,
+              errorMessage: msg,
+            },
+          );
+          if (failed.disposition !== 'RECORDED' && failed.disposition !== 'ALREADY_RECORDED') {
+            throw new Error(`Analysis failure lost current run ownership (${failed.disposition}).`);
+          }
         }
       } catch (err: unknown) { console.warn('[VideoAnalysisWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: msg },
+      { status: ownershipLost ? 409 : 500 },
+    );
   }
 }
 

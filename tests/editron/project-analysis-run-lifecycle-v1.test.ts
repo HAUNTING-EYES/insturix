@@ -232,4 +232,96 @@ describe("ProjectService analysis-run lifecycle V1", () => {
       vi.useRealTimers();
     }
   });
+
+  it("atomically binds Phase-1 evidence, native audio, lifecycle and receipt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T12:00:04.000Z"));
+    try {
+      persistenceMocks.findOne.mockResolvedValueOnce(project("computing_params"));
+      persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+      const { projectService } = await import("@/lib/editron/services/project-service");
+      const captured = await projectService.captureMutationReceipts(() => (
+        projectService.commitProjectAnalysisPhase1V1(USER_ID, PROJECT_ID, {
+          expectedRevision: revision(),
+          runId: RUN_ID,
+          sourceAssetId: ASSET_ID,
+          fromState: "computing_params",
+          evidence: {
+            rawFootageAnalysis: { transcription: { words: [{ text: "hello" }] } },
+            vjepaAnalysis: { modelVersion: "vjepa-2" },
+            nativeAudioEvidence: {
+              hasNativeAudio: true,
+              hasSpeech: true,
+              source: "transcription",
+              wordCount: 1,
+              speechCoverage: 0.5,
+              speechRegions: [{
+                sourceStartFrame: 0,
+                sourceEndFrame: 30,
+                startMs: 0,
+                endMs: 1000,
+              }],
+              regionCount: 1,
+            },
+          },
+        })
+      ));
+
+      expect(captured.value).toMatchObject({
+        disposition: "ADVANCED",
+        run: {
+          state: "analysis_complete",
+          phase1EvidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          phase1EvidenceCommittedAt: "2026-09-01T12:00:04.000Z",
+        },
+      });
+      expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectRevision: 4,
+          autoEditStatus: "computing_params",
+          "autoEditAnalysisRunV1.runId": RUN_ID,
+          overlays: { $elemMatch: { type: "video", assetId: ASSET_ID } },
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            autoEditStatus: "analysis_complete",
+            rawFootageAnalysis: expect.any(Object),
+            "rawFootageAnalysisByAsset.YXNzZXRfdmlkZW9fMQ": expect.any(Object),
+            "overlays.$[analysisSource].hasNativeAudio": true,
+            "overlays.$[analysisSource].metadata.nativeAudioEvidence": expect.objectContaining({
+              sourceAssetId: ASSET_ID,
+              sourceVersion: "analysis_admission_hash",
+              evidenceId: expect.stringMatching(/^native_audio_[a-f0-9]{64}$/),
+            }),
+          }),
+          $inc: { projectRevision: 1 },
+        }),
+        { arrayFilters: [{ "analysisSource.type": "video", "analysisSource.assetId": ASSET_ID }] },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects malformed or oversized Phase-1 evidence before Mongo", async () => {
+    const { projectService } = await import("@/lib/editron/services/project-service");
+    await expect(projectService.commitProjectAnalysisPhase1V1(USER_ID, PROJECT_ID, {
+      expectedRevision: revision(),
+      runId: RUN_ID,
+      sourceAssetId: ASSET_ID,
+      fromState: "computing_params",
+      evidence: {
+        nativeAudioEvidence: {
+          hasNativeAudio: true,
+          hasSpeech: true,
+          source: "transcription",
+          wordCount: 1,
+          speechCoverage: 0.5,
+          speechRegions: [],
+          regionCount: 1,
+        },
+      },
+    })).rejects.toThrow("bounded evidence bundle");
+    expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+  });
 });
