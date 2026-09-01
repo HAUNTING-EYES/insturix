@@ -356,6 +356,7 @@ export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
   | "AUTO_EDIT_ASSEMBLY"
   | "REPLACE_EDITOR_STATE"
+  | "RESTORE_CHECKPOINT_STATE"
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
   | "REPLACE_CAPTION_FAMILY"
@@ -1146,6 +1147,8 @@ export interface CapturedProjectMutationReceiptsV1<T> {
 }
 
 export interface ProjectCheckpointRestoreInputV1 {
+  checkpointId: string;
+  actorKind: ProjectTimelineChangeActorKindV1;
   expectedRevision: ProjectRevisionV1;
   setFields: Record<string, unknown>;
   unsetFields: string[];
@@ -1153,6 +1156,7 @@ export interface ProjectCheckpointRestoreInputV1 {
 
 export interface ProjectCheckpointRestoreReceiptV1 {
   receipt: ProjectMutationReceiptV1;
+  timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
   project: Record<string, unknown>;
 }
 
@@ -8395,6 +8399,10 @@ export class ProjectService {
     input: ProjectCheckpointRestoreInputV1,
   ): Promise<ProjectCheckpointRestoreReceiptV1> {
     assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (!isBoundedNonEmptyStringV1(input.checkpointId, 200)) {
+      throw new ProjectMutationWriteError("Checkpoint restore requires one bounded checkpoint identity.");
+    }
     assertCheckpointRestoreFields(input.setFields, input.unsetFields);
     assertProjectGeneratedCompositionCheckpointRestoreV1(
       projectId,
@@ -8402,9 +8410,103 @@ export class ProjectService {
       input.unsetFields,
     );
 
+    const db = await getDatabase();
+    const currentProject = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!currentProject) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(currentProject);
+    if (
+      currentRevision.value !== input.expectedRevision.value
+      || currentRevision.compatibilityUpdatedAt !== input.expectedRevision.compatibilityUpdatedAt
+    ) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(currentProject)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "Checkpoint restore cannot run while a Director mutation lease is active.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(currentProject),
+      new Date(),
+    );
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "Checkpoint restore cannot run while timeline range locks are active.",
+      );
+    }
+
+    const prospectiveProject = structuredClone(currentProject) as unknown as Record<string, unknown>;
+    Object.assign(prospectiveProject, structuredClone(input.setFields));
+    for (const field of input.unsetFields) delete prospectiveProject[field];
+    const fps = prospectiveProject.fps;
+    const durationInFrames = prospectiveProject.durationInFrames;
+    const dimensions = prospectiveProject.playerDimensions as EditorState["playerDimensions"] | undefined;
+    const aspectRatio = prospectiveProject.aspectRatio;
+    const prospectiveOverlays = prospectiveProject.overlays;
+    if (
+      !isProjectTimelineFpsV1(fps)
+      || !Number.isSafeInteger(durationInFrames)
+      || (durationInFrames as number) < 0
+      || !validDimensions(dimensions)
+      || dimensions.width <= 0
+      || dimensions.height <= 0
+      || !["16:9", "9:16", "1:1", "4:5"].includes(String(aspectRatio))
+      || !Array.isArray(prospectiveOverlays)
+      || prospectiveOverlays.length > 100_000
+    ) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore requires one exact supported project timeline.",
+      );
+    }
+    const exactDurationInFrames = durationInFrames as number;
+    indexOverlaySetForFamilyReplacementV1(prospectiveOverlays, "candidate");
+    const restoredFrameRanges = overlayFamilyFrameRangesV1(
+      prospectiveOverlays,
+      "checkpoint restore",
+    );
+    if (restoredFrameRanges.some((range) => range.endFrame > exactDurationInFrames)) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore overlays must remain inside the project duration.",
+      );
+    }
+
     const committedAt = new Date();
+    const afterRevision = projectMutationReceiptAfterV1(
+      projectId,
+      input.expectedRevision,
+      committedAt,
+    ).revision;
+    const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
+      receiptId: `timeline-checkpoint-restore_${nanoid(18)}`,
+      projectId,
+      operation: "RESTORE_CHECKPOINT_STATE",
+      actorKind: input.actorKind,
+      fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlays: currentProject.overlays ?? [],
+      afterOverlays: prospectiveOverlays,
+      changedPaths: [
+        ...Object.keys(input.setFields),
+        ...input.unsetFields,
+        "timelineRangeChangeReceipts",
+      ],
+    });
     const update: Record<string, unknown> = {
       $set: { ...input.setFields, updatedAt: committedAt },
+      $push: {
+        timelineRangeChangeReceipts: {
+          $each: [timelineChangeReceipt],
+          $slice: -200,
+        },
+      },
       $inc: { projectRevision: 1 },
     };
     if (input.unsetFields.length > 0) {
@@ -8413,7 +8515,6 @@ export class ProjectService {
       );
     }
 
-    const db = await getDatabase();
     const restoredProject = (await db
       .collection(COLLECTIONS.PROJECTS)
       .findOneAndUpdate(
@@ -8435,18 +8536,9 @@ export class ProjectService {
       throw new ProjectMutationConflictError(projectRevisionFor(latest));
     }
 
-    const receipt: ProjectMutationReceiptV1 = {
-      schemaVersion: 1,
-      projectId,
-      revision: {
-        schemaVersion: 1,
-        value: input.expectedRevision.value + 1,
-        compatibilityUpdatedAt: committedAt.toISOString(),
-      },
-      committedAt: committedAt.toISOString(),
-    };
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, committedAt);
     this.publishMutationReceipt(receipt);
-    return { receipt, project: restoredProject };
+    return { receipt, timelineChangeReceipt, project: restoredProject };
   }
 
   /**
@@ -16630,7 +16722,8 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     | "REPLACE_CAPTION_FAMILY"
     | "REPLACE_BACKGROUND_MUSIC"
     | "ALIGN_CUTS_TO_BEATS"
-    | "REPLACE_EDITOR_STATE";
+    | "REPLACE_EDITOR_STATE"
+    | "RESTORE_CHECKPOINT_STATE";
   actorKind: ProjectTimelineChangeActorKindV1;
   fps: number;
   beforeProjectRevision: ProjectRevisionV1;

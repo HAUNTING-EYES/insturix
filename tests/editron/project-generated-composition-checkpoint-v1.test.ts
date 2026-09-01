@@ -75,6 +75,18 @@ describe("generated composition checkpoint participation", () => {
   });
 
   it("restores the whole field through ProjectService and advances once", async () => {
+    persistence.findOne.mockResolvedValue({
+      projectId: "project-1",
+      userId: "user-1",
+      overlays: [],
+      generatedCompositions: [],
+      aspectRatio: "16:9",
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 0,
+      projectRevision: REVISION.value,
+      updatedAt: new Date(REVISION.compatibilityUpdatedAt),
+    });
     persistence.findOneAndUpdate.mockResolvedValue({
       projectId: "project-1",
       generatedCompositions: [],
@@ -85,6 +97,8 @@ describe("generated composition checkpoint participation", () => {
       "user-1",
       "project-1",
       {
+        checkpointId: "checkpoint-generated-composition",
+        actorKind: "SYSTEM",
         expectedRevision: REVISION,
         setFields: { generatedCompositions: [] },
         unsetFields: [],
@@ -137,6 +151,8 @@ describe("generated composition checkpoint participation", () => {
       "user-1",
       "project-1",
       {
+        checkpointId: "checkpoint-partial-composition",
+        actorKind: "SYSTEM",
         expectedRevision: REVISION,
         setFields: { "generatedCompositions.0": {} },
         unsetFields: [],
@@ -146,6 +162,8 @@ describe("generated composition checkpoint participation", () => {
       "user-1",
       "project-1",
       {
+        checkpointId: "checkpoint-invalid-composition",
+        actorKind: "SYSTEM",
         expectedRevision: REVISION,
         setFields: { generatedCompositions: [{}] },
         unsetFields: [],

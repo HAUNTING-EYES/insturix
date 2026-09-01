@@ -947,6 +947,7 @@ describe('chat AI edit transaction runtime', () => {
           revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: committedAt },
           committedAt,
         },
+        timelineChangeReceipt: {} as any,
         project: emulateMongoRoundTrip(persistedProject),
       };
     });
@@ -1120,6 +1121,7 @@ describe('chat AI edit transaction runtime', () => {
       metadata: { title: 'mutated' },
       unrelatedWorkerReceipt: { preserved: true },
     };
+    infrastructureMocks.findOne.mockResolvedValue(persistedProject);
     infrastructureMocks.findOneAndUpdate.mockImplementation(async (
       filter: Record<string, unknown>,
       update: { $set: Record<string, unknown>; $unset?: Record<string, unknown>; $inc: Record<string, number> },
@@ -1143,14 +1145,85 @@ describe('chat AI edit transaction runtime', () => {
     });
 
     const restored = await projectService.restoreCheckpointState('user_1', 'proj_1', {
+      checkpointId: 'ckpt_direct_restore',
+      actorKind: 'SYSTEM',
       expectedRevision,
       setFields: { overlays: structuredClone(ORIGINAL_PROJECT.overlays), fps: 30 },
       unsetFields: ['metadata'],
     });
 
     expect(restored.receipt.revision).toMatchObject({ schemaVersion: 1, value: 8 });
+    expect(restored.timelineChangeReceipt).toMatchObject({
+      operation: 'RESTORE_CHECKPOINT_STATE',
+      actorKind: 'SYSTEM',
+      beforeProjectRevision: { value: 7 },
+      afterProjectRevision: { value: 8 },
+      rangeObservation: 'EXACT',
+    });
     expect(restored.project).toMatchObject({ projectRevision: 8, unrelatedWorkerReceipt: { preserved: true } });
     expect(restored.project.metadata).toBeUndefined();
+  });
+
+  it('blocks checkpoint restore for live mutation leases, range locks, and invalid timebases', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const baseProject = {
+      ...structuredClone(ORIGINAL_PROJECT),
+      projectRevision: 7,
+      updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
+    };
+    infrastructureMocks.findOne
+      .mockResolvedValueOnce({
+        ...baseProject,
+        directorLock: true,
+        directorLockAt: new Date(),
+        directorLockToken: 'director_restore_block',
+      })
+      .mockResolvedValueOnce({
+        ...baseProject,
+        timelineRangeCutLocks: [{
+          schemaVersion: 1,
+          lockId: 'timeline-cut-lock_abcdefghijklmnopqr',
+          actorKind: 'AGENT',
+          frameRange: { startFrame: 0, endFrame: 30 },
+          acquiredAt: '2026-08-09T01:00:00.000Z',
+          expiresAt: '2099-08-09T01:01:00.000Z',
+        }],
+      })
+      .mockResolvedValueOnce(baseProject);
+    infrastructureMocks.getDatabase.mockResolvedValue({
+      collection: (name: string) => {
+        if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
+        return { findOneAndUpdate: infrastructureMocks.findOneAndUpdate, findOne: infrastructureMocks.findOne };
+      },
+    });
+    const restore = (setFields: Record<string, unknown>) => projectService.restoreCheckpointState(
+      'user_1',
+      'proj_1',
+      {
+        checkpointId: 'ckpt_restore_barriers',
+        actorKind: 'SYSTEM',
+        expectedRevision,
+        setFields,
+        unsetFields: [],
+      },
+    );
+
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({ code: 'PROJECT_REVISION_CONFLICT' });
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({
+        code: 'PROJECT_TIMELINE_RANGE_LOCKED',
+        blockingLockIds: ['timeline-cut-lock_abcdefghijklmnopqr'],
+      });
+    await expect(restore({
+      overlays: structuredClone(ORIGINAL_PROJECT.overlays),
+      fps: 0,
+    })).rejects.toMatchObject({ code: 'PROJECT_MUTATION_WRITE_FAILED' });
+    expect(infrastructureMocks.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('rejects a stale browser-selected restore with zero project or checkpoint mutation', async () => {
@@ -1232,6 +1305,7 @@ describe('chat AI edit transaction runtime', () => {
           revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
           committedAt: '2026-08-09T01:00:01.000Z',
         },
+        timelineChangeReceipt: {} as any,
         project: structuredClone(ORIGINAL_PROJECT),
       })
       .mockRejectedValueOnce(new ProjectMutationConflictError({
@@ -1364,7 +1438,11 @@ describe('chat AI edit transaction runtime', () => {
       projectId: 'proj_1',
       reloadProject: true,
     });
-    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1', { projectId: 'proj_1', expectedRevision });
+    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+      actorKind: 'USER',
+    });
 
     restoreSpy.mockResolvedValueOnce({
       restored: false,

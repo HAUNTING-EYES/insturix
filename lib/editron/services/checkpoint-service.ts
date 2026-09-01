@@ -15,6 +15,7 @@ import {
   projectService,
   type ProjectMutationReceiptV1,
   type ProjectRevisionV1,
+  type ProjectTimelineChangeActorKindV1,
 } from './project-service';
 
 export type CheckpointType = 'initial' | 'before-llm' | 'after-llm' | 'user-edit';
@@ -142,6 +143,7 @@ export interface RestoreProjectCheckpointResult {
 export interface RestoreProjectCheckpointOptions {
   projectId?: string;
   expectedRevision?: ProjectRevisionV1;
+  actorKind?: ProjectTimelineChangeActorKindV1;
 }
 
 const CURRENT_STATE_HASH_VERSION = 2 as const;
@@ -490,6 +492,8 @@ export class CheckpointService {
         userId,
         checkpoint.projectId,
         {
+          checkpointId,
+          actorKind: options.actorKind ?? 'UNKNOWN_LEGACY_CALLER',
           expectedRevision: options.expectedRevision,
           setFields,
           unsetFields,

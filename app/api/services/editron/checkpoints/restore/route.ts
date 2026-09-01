@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId, {
       projectId,
       expectedRevision,
+      actorKind: 'USER',
     });
     if (!verification.restored) {
       return NextResponse.json(
