@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Collection } from "mongodb";
+import type { ClientSession, Collection } from "mongodb";
 
 import {
   createPendingRenderJob,
@@ -815,6 +815,7 @@ describe("Project render-job owner V1", () => {
 
   it("keeps bound startup and finalization claims on the exact current job", async () => {
     const collection = makeCollection();
+    const session = {} as ClientSession;
     const binding = makeBinding();
     const authorization = makeAuthorization(binding);
     const now = new Date("2026-08-31T00:03:00.000Z");
@@ -930,6 +931,7 @@ describe("Project render-job owner V1", () => {
       error: "finalizer failed",
       now,
       collection,
+      session,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
     const finalizationFailure = collection.updateOne.mock.calls.at(-1)!;
     expect(JSON.stringify(finalizationFailure[0])).toContain(binding.bindingHash);
@@ -938,6 +940,7 @@ describe("Project render-job owner V1", () => {
       "finalization.state": "failed",
     }));
     expect(finalizationFailure[1].$set.status).not.toBe("done");
+    expect(finalizationFailure[2]).toEqual({ session });
 
     collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
     const wrongClaim = await failProjectRenderJobFinalizationV1({
@@ -1188,6 +1191,7 @@ describe("Project render-job owner V1", () => {
 
   it("fences only the exact stale running finalization claim", async () => {
     const collection = makeCollection();
+    const session = {} as ClientSession;
     const binding = makeBinding();
     const authorization = makeAuthorization(binding);
     const staleRevision = { ...REVISION, value: REVISION.value + 1 };
@@ -1201,6 +1205,7 @@ describe("Project render-job owner V1", () => {
       error: "project changed before finalization",
       now,
       collection,
+      session,
     })).resolves.toEqual({ ok: true, status: "STALE" });
     const [filter, update] = collection.updateOne.mock.calls[0]!;
     expect(JSON.stringify(filter)).toContain(binding.bindingHash);
@@ -1231,6 +1236,7 @@ describe("Project render-job owner V1", () => {
       },
     });
     expect(JSON.stringify(filter)).toContain('"artifactCleanup":{"$exists":false}');
+    expect(collection.updateOne.mock.calls[0]![2]).toEqual({ session });
 
     collection.updateOne.mockClear();
     const current = await fenceStaleProjectRenderJobFinalizationV1({
@@ -1301,6 +1307,7 @@ describe("Project render-job owner V1", () => {
 
   it("requires a verified exact-duration receipt before bound finalization success", async () => {
     const collection = makeCollection();
+    const session = {} as ClientSession;
     const binding = makeBinding();
     const authorization = makeAuthorization(binding);
     const current = makeFinalizingJob(binding, "complete-claim");
@@ -1316,12 +1323,18 @@ describe("Project render-job owner V1", () => {
       result: FINALIZER_RESULT,
       now: completedAt,
       collection,
+      session,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    expect(collection.findOne.mock.calls[0]![1]).toEqual({ session });
     const completionFilter = collection.findOneAndUpdate.mock.calls[0]![0];
     expect(JSON.stringify(completionFilter)).toContain(binding.bindingHash);
     expect(JSON.stringify(completionFilter)).toContain('"expectedDurationMs":5000');
     expect(JSON.stringify(completionFilter)).toContain('"finalization.claimToken":"complete-claim"');
     const completionUpdate = collection.findOneAndUpdate.mock.calls[0]![1];
+    expect(collection.findOneAndUpdate.mock.calls[0]![2]).toEqual({
+      returnDocument: "after",
+      session,
+    });
     expect(completionUpdate.$set).toEqual(expect.objectContaining({
       status: "done",
       progress: 1,

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Collection, type Filter } from 'mongodb';
+import { type ClientSession, type Collection, type Filter } from 'mongodb';
 import { z } from 'zod';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
@@ -745,6 +745,7 @@ export async function fenceStaleProjectRenderJobFinalizationV1(input: {
   error: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<
   | ProjectRenderJobNotCurrentResultV1
   | {
@@ -814,10 +815,14 @@ export async function fenceStaleProjectRenderJobFinalizationV1(input: {
         'finalization.leaseExpiresAt': '',
       },
     },
+    { session: input.session },
   );
   if (fenced.modifiedCount === 1) return { ok: true, status: 'STALE' };
 
-  const latest = await jobs.findOne({ _id: parsedAuthorization.data.jobId });
+  const latest = await jobs.findOne(
+    { _id: parsedAuthorization.data.jobId },
+    { session: input.session },
+  );
   if (!latest?.projectRenderSnapshotBinding || latest.artifactBinding !== undefined) {
     return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   }
@@ -1671,6 +1676,7 @@ export async function completeProjectRenderJobFinalizationV1(input: {
   result: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1691,6 +1697,7 @@ export async function completeProjectRenderJobFinalizationV1(input: {
       'finalization.state': 'running',
       'finalization.claimToken': claimToken,
     }),
+    { session: input.session },
   );
   if (!current) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(current, validation.authorization);
@@ -1747,7 +1754,7 @@ export async function completeProjectRenderJobFinalizationV1(input: {
         error: '',
       },
     },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session: input.session },
   );
   if (!completed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const completedInvalidReason = validateCurrentProjectRenderJob(
@@ -1768,6 +1775,7 @@ export async function failProjectRenderJobFinalizationV1(input: {
   error: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1799,6 +1807,7 @@ export async function failProjectRenderJobFinalizationV1(input: {
         'finalization.leaseExpiresAt': '',
       },
     },
+    { session: input.session },
   );
   return failed.modifiedCount === 1
     ? currentProjectRenderJobMutationResult()

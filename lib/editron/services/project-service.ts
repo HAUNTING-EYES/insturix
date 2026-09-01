@@ -10,6 +10,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
+import {
+  PROJECT_ARTIFACT_NOT_CURRENT,
+  ProjectRenderJobAuthorizationSchema,
+  completeProjectRenderJobFinalizationV1 as completeBoundProjectRenderJobFinalizationV1,
+  failProjectRenderJobFinalizationV1 as failBoundProjectRenderJobFinalizationV1,
+  fenceStaleProjectRenderJobFinalizationV1,
+  type ProjectRenderJobMutationResultV1,
+} from "./render-job-service";
 import type {
   Keyframe,
   KeyframeTrack,
@@ -1343,6 +1351,32 @@ export interface ProjectRenderSnapshotReadV1 {
   ownerId: string;
 }
 
+type ProjectRenderFinalizationTransactionCommandV1 =
+  | {
+      kind: "complete";
+      authorization: unknown;
+      claimToken: string;
+      result: unknown;
+      now?: Date;
+    }
+  | {
+      kind: "failure";
+      authorization: unknown;
+      claimToken: string;
+      error: unknown;
+      now?: Date;
+    };
+
+type ProjectRenderFinalizationTransactionResultV1 =
+  | ProjectRenderJobMutationResultV1
+  | {
+      ok: true;
+      status: "STALE" | "ALREADY_STALE" | "CLAIM_REPLACED" | "ALREADY_TERMINAL";
+    };
+
+const PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1 =
+  "renderFinalizationTransactionFenceV1";
+
 export interface ProjectListItem {
   projectId: string;
   name: string;
@@ -1799,6 +1833,164 @@ export class ProjectService {
     )) as Pick<Project, "projectRevision" | "updatedAt"> | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
     return projectRevisionFor(project);
+  }
+
+  /**
+   * Publish one receipt-verified final render only while its bound project
+   * revision is still current. The temporary project write fence makes the
+   * project read and render-job CAS one serializable transaction boundary.
+   */
+  async completeProjectRenderJobFinalizationTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    result: unknown;
+    now?: Date;
+  }): Promise<ProjectRenderFinalizationTransactionResultV1> {
+    return this.reconcileProjectRenderJobFinalizationTransactionV1({
+      kind: "complete",
+      ...input,
+    });
+  }
+
+  /** Fail an exact finalization claim under the same project revision fence. */
+  async failProjectRenderJobFinalizationTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    error: unknown;
+    now?: Date;
+  }): Promise<ProjectRenderFinalizationTransactionResultV1> {
+    return this.reconcileProjectRenderJobFinalizationTransactionV1({
+      kind: "failure",
+      ...input,
+    });
+  }
+
+  private async reconcileProjectRenderJobFinalizationTransactionV1(
+    input: ProjectRenderFinalizationTransactionCommandV1,
+  ): Promise<ProjectRenderFinalizationTransactionResultV1> {
+    const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(
+      input.authorization,
+    );
+    if (!parsedAuthorization.success) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "AUTHORIZATION_INVALID",
+      };
+    }
+
+    const authorization = parsedAuthorization.data;
+    const completedAt = input.now ?? new Date();
+    const transactionToken = randomBytes(16).toString("hex");
+    const { client, db } = await connectToDatabase();
+    const session = client.startSession();
+    try {
+      const result = await session.withTransaction(async () => {
+        const projects = db.collection(COLLECTIONS.PROJECTS);
+        const lockedProject = (await projects.findOneAndUpdate(
+          {
+            projectId: authorization.projectId,
+            userId: authorization.ownerId,
+            ...projectRevisionPredicate(authorization.projectRevision),
+          },
+          {
+            $set: {
+              [PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1]: {
+                schemaVersion: 1,
+                transactionToken,
+                jobId: authorization.jobId,
+                kind: input.kind,
+                acquiredAt: completedAt,
+              },
+            },
+          },
+          {
+            projection: { projectRevision: 1, updatedAt: 1 },
+            returnDocument: "after",
+            session,
+          },
+        )) as Pick<Project, "projectRevision" | "updatedAt"> | null;
+
+        if (!lockedProject) {
+          const observedProject = (await projects.findOne(
+            {
+              projectId: authorization.projectId,
+              userId: authorization.ownerId,
+            },
+            {
+              projection: { projectRevision: 1, updatedAt: 1 },
+              session,
+            },
+          )) as Pick<Project, "projectRevision" | "updatedAt"> | null;
+          const observedProjectRevision = observedProject
+            ? projectRevisionFor(observedProject)
+            : null;
+          return fenceStaleProjectRenderJobFinalizationV1({
+            authorization,
+            observedProjectRevision,
+            claimToken: input.claimToken,
+            error: input.kind === "failure"
+              ? input.error
+              : "Project changed before final render publication.",
+            now: completedAt,
+            session,
+          });
+        }
+
+        const currentProjectRevision = projectRevisionFor(lockedProject);
+        const jobResult = input.kind === "complete"
+          ? await completeBoundProjectRenderJobFinalizationV1({
+              authorization,
+              currentProjectRevision,
+              claimToken: input.claimToken,
+              result: input.result,
+              now: completedAt,
+              session,
+            })
+          : await failBoundProjectRenderJobFinalizationV1({
+              authorization,
+              currentProjectRevision,
+              claimToken: input.claimToken,
+              error: input.error,
+              now: completedAt,
+              session,
+            });
+
+        const released = await projects.updateOne(
+          {
+            projectId: authorization.projectId,
+            userId: authorization.ownerId,
+            [`${PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1}.transactionToken`]:
+              transactionToken,
+          },
+          {
+            $unset: {
+              [PROJECT_RENDER_FINALIZATION_TRANSACTION_FENCE_V1]: "",
+            },
+          },
+          { session },
+        );
+        if (released.matchedCount !== 1 || released.modifiedCount !== 1) {
+          throw new ProjectMutationWriteError(
+            "Render finalization transaction fence could not be released.",
+          );
+        }
+        return jobResult;
+      }, {
+        readConcern: { level: "snapshot" },
+        writeConcern: { w: "majority" },
+        readPreference: "primary",
+      });
+      if (!result) {
+        throw new ProjectMutationWriteError(
+          "Render finalization transaction returned no result.",
+        );
+      }
+      return result;
+    } finally {
+      await session.endSession();
+    }
   }
 
   /**
