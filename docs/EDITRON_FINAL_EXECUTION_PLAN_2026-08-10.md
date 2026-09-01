@@ -14901,3 +14901,24 @@ convergence.
 After bound failure/finalization, the next consumer order is route, progress,
 history, finalization and invalidation-outbox migration with their current
 binding gates.
+
+## 2026-09-01 vertical-convergence Phase 3H checkpoint
+
+At commits `a03c68731` and `e06fc5b63`, strict whole-project startup failure,
+finalization and completion-effects owners are present. Their bound CAS is
+scoped to the exact owner, project, revision, snapshot binding, delivery
+manifest, provider identity, bucket identity, claim token, expected duration
+and finalizer receipt. Legacy render-job mutators remain fenced away from
+project-snapshot rows.
+
+The focused strict-owner run passed 45/45 tests; full TypeScript and ESLint
+passed. The render route also has its Step 0 dead-state cleanup. This remains
+owner-level infrastructure: product render, progress, webhook, finalizer,
+retry, active/history routes and their success paths are not migrated; no
+provider or live-render proof exists. Queue 5 remains `ACTIVE_PARTIAL`,
+Queues 3 and 4 remain `ACTIVE_PARTIAL`, Stage 2.5 remains `MODIFY` and Stage
+3 remains blocked. No authorization or convergence is claimed.
+
+Bound failure/finalization is the current in-progress dependency, followed by
+the route/progress/history/finalization and invalidation-outbox consumer
+migrations under the same binding gates.
