@@ -35,6 +35,7 @@ vi.mock("@/lib/editron/services/project-service", () => ({
 import {
   bindProjectRenderDispatchFromSignedProofV1,
   classifyProjectRenderDispatchRecoveryV1,
+  getProjectRenderDispatchAdmissionProofV1,
   sweepProjectRenderDispatchRecoveryV1,
   validateSignedProjectRenderDispatchProofV1,
 } from "@/lib/editron/services/render-dispatch-recovery-v1";
@@ -165,12 +166,19 @@ function authorizationFor(job: RenderJob) {
   });
 }
 
-function makeCollection(rows: RenderJob[]): Collection<RenderJob> {
+function makeCollection(
+  rows: RenderJob[],
+  captureFilter?: (filter: unknown) => void,
+): Collection<RenderJob> {
   const toArray = vi.fn(async () => rows);
   const limit = vi.fn(() => ({ toArray }));
   const sort = vi.fn(() => ({ limit }));
+  const find = vi.fn((filter: unknown) => {
+    captureFilter?.(filter);
+    return { sort };
+  });
   return {
-    find: vi.fn(() => ({ sort })),
+    find,
   } as unknown as Collection<RenderJob>;
 }
 
@@ -238,6 +246,112 @@ describe("Editron render dispatch recovery V1", () => {
       errors: 0,
     });
     expect(bind).toHaveBeenCalledOnce();
+  });
+
+  it("excludes chapter parents and chr_ compatibility admissions before recovery binding", async () => {
+    const standardJob = makeJob("UNKNOWN", PROVIDER_TUPLE);
+    const futureChapterParent = {
+      ...makeJob("UNKNOWN", PROVIDER_TUPLE),
+      chapterOrchestration: { scope: "CHAPTER_ORCHESTRATION" },
+    } as unknown as RenderJob;
+    const compatibilityChapterAdmission = {
+      ...makeJob("UNKNOWN", PROVIDER_TUPLE),
+      _id: "chr_123456789012",
+    };
+    let recoveryFilter: unknown;
+    const bind = vi.fn(async () => ({ ok: true as const, status: "BOUND" as const }));
+
+    expect(classifyProjectRenderDispatchRecoveryV1(futureChapterParent)).toMatchObject({
+      disposition: "NOT_ELIGIBLE",
+      reason: "CHAPTER_ORCHESTRATION_PARENT_EXCLUDED_FROM_STANDARD_RECOVERY",
+    });
+    expect(classifyProjectRenderDispatchRecoveryV1(compatibilityChapterAdmission)).toMatchObject({
+      jobId: "chr_123456789012",
+      disposition: "NOT_ELIGIBLE",
+      reason: "CHAPTER_ADMISSION_ID_EXCLUDED_FROM_STANDARD_RECOVERY",
+    });
+    await expect(bindProjectRenderDispatchFromSignedProofV1({
+      authorization: {},
+      job: futureChapterParent,
+      ...PROVIDER_TUPLE,
+    })).resolves.toEqual({
+      ok: false,
+      reason: "CHAPTER_ORCHESTRATION_PARENT_EXCLUDED_FROM_STANDARD_RECOVERY",
+    });
+    await expect(bindProjectRenderDispatchFromSignedProofV1({
+      authorization: {},
+      job: compatibilityChapterAdmission,
+      ...PROVIDER_TUPLE,
+    })).resolves.toEqual({
+      ok: false,
+      reason: "CHAPTER_ADMISSION_ID_EXCLUDED_FROM_STANDARD_RECOVERY",
+    });
+    expect(recoveryMocks.bindProjectRenderDispatchRecoveryTransactionV1).not.toHaveBeenCalled();
+
+    const sweep = await sweepProjectRenderDispatchRecoveryV1({
+      // Return adversarial chapter rows even though Mongo must exclude them;
+      // the classifier guard proves they cannot reach the binder if a stale
+      // query or test double violates the filter contract.
+      collection: makeCollection(
+        [futureChapterParent, compatibilityChapterAdmission, standardJob],
+        (filter) => { recoveryFilter = filter; },
+      ),
+      limit: 3,
+      bindProviderTuple: bind,
+    });
+
+    expect(recoveryFilter).toMatchObject({
+      _id: { $not: /^chr_/ },
+      "chapterOrchestration.scope": { $ne: "CHAPTER_ORCHESTRATION" },
+    });
+    expect(sweep).toMatchObject({
+      scanned: 3,
+      provable: 1,
+      bound: 1,
+      quarantined: 0,
+      skipped: 2,
+      errors: 0,
+    });
+    expect(sweep.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        disposition: "NOT_ELIGIBLE",
+        reason: "CHAPTER_ORCHESTRATION_PARENT_EXCLUDED_FROM_STANDARD_RECOVERY",
+      }),
+      expect.objectContaining({
+        jobId: "chr_123456789012",
+        disposition: "NOT_ELIGIBLE",
+        reason: "CHAPTER_ADMISSION_ID_EXCLUDED_FROM_STANDARD_RECOVERY",
+      }),
+      expect.objectContaining({
+        jobId: JOB_ID,
+        disposition: "BOUND_FROM_PROVIDER_TUPLE",
+      }),
+    ]));
+    expect(bind).toHaveBeenCalledOnce();
+    expect(bind).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({ jobId: JOB_ID }),
+      providerTuple: PROVIDER_TUPLE,
+    }));
+
+    const admissionFindOne = vi.fn(async () => null);
+    const admissionCollection = {
+      findOne: admissionFindOne,
+    } as unknown as Collection<RenderJob>;
+    await expect(getProjectRenderDispatchAdmissionProofV1({
+      jobId: "chr_123456789012",
+      expectedBindingHash: "0".repeat(64),
+      collection: admissionCollection,
+    })).resolves.toBeNull();
+    expect(admissionFindOne).not.toHaveBeenCalled();
+    await expect(getProjectRenderDispatchAdmissionProofV1({
+      jobId: JOB_ID,
+      expectedBindingHash: "0".repeat(64),
+      collection: admissionCollection,
+    })).resolves.toBeNull();
+    expect(admissionFindOne).toHaveBeenCalledWith({
+      _id: JOB_ID,
+      "chapterOrchestration.scope": { $ne: "CHAPTER_ORCHESTRATION" },
+    });
   });
 
   it("rejects token and split provider tuple evidence", () => {

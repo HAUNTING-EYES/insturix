@@ -2,6 +2,7 @@ import type { Collection, Filter } from "mongodb";
 
 import { getDatabase } from "@/lib/editron/db/mongodb";
 import {
+  RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1,
   RenderJobSchema,
   type RenderJob,
 } from "@/lib/editron/schemas/render-job";
@@ -24,6 +25,12 @@ export const MAX_PROJECT_RENDER_DISPATCH_RECOVERY_BATCH_SIZE_V1 = 10;
 export const DEFAULT_PROJECT_RENDER_DISPATCH_RECOVERY_BATCH_SIZE_V1 = 5;
 export const PROJECT_RENDER_DISPATCH_RECOVERY_COLLECTION_V1 =
   PROJECT_RENDER_JOBS_COLLECTION_V1;
+
+const CHAPTER_ADMISSION_ID_PREFIX_V1 = /^chr_/;
+
+type ChapterParentRecoveryExclusionReasonV1 =
+  | "CHAPTER_ORCHESTRATION_PARENT_EXCLUDED_FROM_STANDARD_RECOVERY"
+  | "CHAPTER_ADMISSION_ID_EXCLUDED_FROM_STANDARD_RECOVERY";
 
 type ProviderTupleV1 = {
   providerRenderId: string;
@@ -78,7 +85,8 @@ export type ProjectRenderDispatchRecoveryProofValidationV1 =
         | "DISPATCH_LEDGER_INVALID"
         | "PROVIDER_TUPLE_MISMATCH"
         | "PROVIDER_REGION_MISMATCH"
-        | "PROJECT_RENDER_BINDING_INVALID";
+        | "PROJECT_RENDER_BINDING_INVALID"
+        | ChapterParentRecoveryExclusionReasonV1;
     };
 
 export type ProjectRenderDispatchAdmissionProofV1 = {
@@ -145,6 +153,26 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/**
+ * Standard dispatch recovery has no authority over chapter aggregates. Keep
+ * this guard before strict parsing so compatibility or malformed rows cannot
+ * reach provider-tuple binding merely because a test double or stale query
+ * returns a chapter admission.
+ */
+function chapterParentRecoveryExclusionReasonV1(
+  value: unknown,
+): ChapterParentRecoveryExclusionReasonV1 | null {
+  const raw = record(value);
+  const orchestration = record(raw?.chapterOrchestration);
+  if (orchestration?.scope === RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1) {
+    return "CHAPTER_ORCHESTRATION_PARENT_EXCLUDED_FROM_STANDARD_RECOVERY";
+  }
+  if (typeof raw?._id === "string" && CHAPTER_ADMISSION_ID_PREFIX_V1.test(raw._id)) {
+    return "CHAPTER_ADMISSION_ID_EXCLUDED_FROM_STANDARD_RECOVERY";
+  }
+  return null;
 }
 
 function expectedAttemptTokenV1(
@@ -231,10 +259,19 @@ function persistedProviderTupleV1(value: unknown): {
 export function classifyProjectRenderDispatchRecoveryV1(
   value: unknown,
 ): ProjectRenderDispatchRecoveryClassificationV1 {
+  const raw = record(value);
+  const rawDispatch = record(raw?.dispatch);
+  const chapterExclusionReason = chapterParentRecoveryExclusionReasonV1(value);
+  if (chapterExclusionReason) {
+    return {
+      jobId: typeof raw?._id === "string" ? raw._id : null,
+      phase: typeof rawDispatch?.phase === "string" ? rawDispatch.phase : null,
+      disposition: "NOT_ELIGIBLE",
+      reason: chapterExclusionReason,
+    };
+  }
   const parsed = RenderJobSchema.safeParse(value);
   if (!parsed.success) {
-    const raw = record(value);
-    const rawDispatch = record(raw?.dispatch);
     return {
       jobId: typeof raw?._id === "string" ? raw._id : null,
       phase: typeof rawDispatch?.phase === "string" ? rawDispatch.phase : null,
@@ -340,6 +377,10 @@ export function validateSignedProjectRenderDispatchProofV1(input: {
   bucketName: unknown;
   region: unknown;
 }): ProjectRenderDispatchRecoveryProofValidationV1 {
+  const chapterExclusionReason = chapterParentRecoveryExclusionReasonV1(input.job);
+  if (chapterExclusionReason) {
+    return { ok: false, reason: chapterExclusionReason };
+  }
   const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
   if (!parsedAuthorization.success) return { ok: false, reason: "AUTHORIZATION_INVALID" };
   const authorization = parsedAuthorization.data;
@@ -442,13 +483,17 @@ export async function getProjectRenderDispatchAdmissionProofV1(input: {
   if (
     !boundedInputString(input.jobId, 500)
     || !/^[a-f0-9]{64}$/.test(input.expectedBindingHash)
+    || CHAPTER_ADMISSION_ID_PREFIX_V1.test(input.jobId)
   ) {
     return null;
   }
   const collection = input.collection ?? (await getDatabase()).collection<RenderJob>(
     PROJECT_RENDER_DISPATCH_RECOVERY_COLLECTION_V1,
   );
-  const stored = await collection.findOne({ _id: input.jobId });
+  const stored = await collection.findOne({
+    _id: input.jobId,
+    "chapterOrchestration.scope": { $ne: RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1 },
+  });
   const parsed = RenderJobSchema.safeParse(stored);
   if (!parsed.success) return null;
   const job = parsed.data;
@@ -494,6 +539,8 @@ function recoveryFilterV1(): Filter<RenderJob> {
   return {
     artifactState: "ACTIVE",
     artifactBinding: { $exists: false },
+    _id: { $not: CHAPTER_ADMISSION_ID_PREFIX_V1 },
+    [`chapterOrchestration.scope`]: { $ne: RENDER_JOB_CHAPTER_ORCHESTRATION_SCOPE_V1 },
     "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
     "dispatch.version": 1,
     "dispatch.phase": { $in: ["ATTEMPTING", "UNKNOWN"] },
