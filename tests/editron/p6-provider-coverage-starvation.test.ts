@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   }));
   return {
     collection,
+    inspectEncodedSfxAudio: vi.fn(),
     projectDocs,
     updateOne,
     uploadMedia: vi.fn(),
@@ -19,6 +20,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@/lib/editron/services/upload-service', () => ({
   uploadMedia: mocks.uploadMedia,
+}));
+
+vi.mock('@/lib/pipeline/audio-conditioning', () => ({
+  inspectEncodedSfxAudio: mocks.inspectEncodedSfxAudio,
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -110,6 +115,14 @@ describe('P6 provider and coverage starvation', () => {
     vi.clearAllMocks();
     mocks.projectDocs.clear();
     delete process.env.FREESOUND_API_KEY;
+    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+      durationMs: 800,
+      sampleRate: 48_000,
+      channels: 2,
+      loudness: { metric: 'integrated-lufs', valueDb: -18 },
+      truePeakDbtp: -3,
+      clippingRisk: false,
+    });
     mocks.uploadMedia.mockResolvedValue({
       assetId: 'sfx_lib_freesound',
       signedUrl: 'https://cdn.example.com/sfx_lib_freesound.mp3',
