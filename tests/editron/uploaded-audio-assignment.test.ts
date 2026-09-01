@@ -138,10 +138,14 @@ function createTimelineDependencies():
     documents: Map<string, Record<string, unknown>>;
     insertCount: () => number;
   } {
-  const base = createDependencies();
+  const base = createDependencies([{ ...SOURCE_ASSET, duration: 2 }]);
   const project: Record<string, unknown> = {
     projectId: 'project_1',
     userId: 'user_1',
+    fps: 30,
+    durationInFrames: 300,
+    projectRevision: 7,
+    updatedAt: NOW,
     overlays: [],
   };
   let appends = 0;
@@ -166,13 +170,22 @@ function createTimelineDependencies():
     ) => {
       const overlays = project.overlays as Array<Record<string, unknown>>;
       if (overlays.some((candidate) => candidate.id === overlay.id)) {
-        return { attached: false };
+        return {
+          disposition: 'ALREADY_ATTACHED' as const,
+          currentRevision: {
+            schemaVersion: 1 as const,
+            value: 8,
+            compatibilityUpdatedAt: NOW.toISOString(),
+          },
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
       }
       appends += 1;
       overlays.push(overlay);
       return {
-        attached: true,
-        receipt: {
+        disposition: 'APPLIED' as const,
+        mutationReceipt: {
           schemaVersion: 1 as const,
           projectId: 'project_1',
           revision: {
@@ -182,6 +195,7 @@ function createTimelineDependencies():
           },
           committedAt: NOW.toISOString(),
         },
+        timelineChangeReceipt: {} as never,
       };
     }),
   };
@@ -370,7 +384,7 @@ describe('uploaded audio assignment', () => {
   it('returns a revision conflict rather than reporting success when the prepared timeline is stale', async () => {
     const dependencies = createTimelineDependencies();
     dependencies.commitTimelineOverlayThroughProjectService = vi.fn()
-      .mockResolvedValue({ attached: false });
+      .mockRejectedValue({ code: 'PROJECT_REVISION_CONFLICT' });
 
     await expect(assignUploadedAudioToTimeline(
       timelineAssignmentInput(),

@@ -126,6 +126,7 @@ import {
   getGeneratedNativeVideoReceiptIssue,
   type AudioRightsContract,
 } from "@/lib/editron/shared/render-request-payload";
+import { sfxAcousticMeasurementSchema } from "@/lib/pipeline/sfx-acoustic-measurement";
 import {
   createPendingProjectGeneratedCompositionStateV1,
   hasSamePreparedCompositionMaterialV1,
@@ -475,6 +476,24 @@ export interface ProjectOverlayAddCommandV1 {
   actorKind: ProjectTimelineChangeActorKindV1;
   overlay: Overlay;
 }
+
+export interface ProjectUploadedAudioAttachCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: Exclude<
+    ProjectTimelineChangeActorKindV1,
+    "UNKNOWN_LEGACY_CALLER"
+  >;
+  overlay: Overlay;
+}
+
+export type ProjectUploadedAudioAttachResultV1 =
+  | ({ disposition: "APPLIED" } & ProjectDirectOverlayMutationResultV1)
+  | {
+      disposition: "ALREADY_ATTACHED";
+      currentRevision: ProjectRevisionV1;
+      mutationReceipt: null;
+      timelineChangeReceipt: null;
+    };
 
 export type ProjectOverlayIdentityV1 = number | string;
 
@@ -8907,52 +8926,114 @@ export class ProjectService {
   }
 
   /**
-   * Attach one stable overlay identity only if the project is still at the
-   * caller's snapshot revision. A repeat delivery of the same command returns
-   * without a second write or a manufactured receipt.
+   * Attach one server-assigned uploaded-audio derivative at the caller's
+   * project snapshot. The stored MEDIA_ASSETS receipt is authoritative; a
+   * caller cannot forge rights, role, placement, or acoustic evidence.
    */
-  async addOverlayIfAbsent(
+  async attachUploadedAudioAtRevisionV1(
     userId: string,
     projectId: string,
-    input: {
-      expectedRevision: ProjectRevisionV1;
-      overlay: Overlay;
-    },
-  ): Promise<{
-    attached: boolean;
-    receipt?: ProjectMutationReceiptV1;
-  }> {
+    input: ProjectUploadedAudioAttachCommandV1,
+  ): Promise<ProjectUploadedAudioAttachResultV1> {
     assertProjectRevision(input.expectedRevision);
-    const db = await getDatabase();
-    const project = (await db
-      .collection(COLLECTIONS.PROJECTS)
-      .findOne(
-        { projectId, userId },
-        { projection: { fps: 1, projectRevision: 1, updatedAt: 1 } },
-      )) as unknown as Pick<
-        Project,
-        "fps" | "projectRevision" | "updatedAt"
-      > | null;
-    if (!project || !sameProjectRevisionV1(input.expectedRevision, projectRevisionFor(project))) {
-      return { attached: false };
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    const requestedMaterial = readUploadedAudioTimelineMaterialV1(input.overlay);
+    const overlayFrameRange = overlayTimelineFrameRangeV1(input.overlay);
+    if (!overlayFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Uploaded audio requires an exact positive project-frame range.",
+      );
     }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    const projectDurationInFrames = project.durationInFrames;
+    if (!isProjectTimelineFpsV1(project.fps)
+      || !Number.isSafeInteger(projectDurationInFrames)
+      || projectDurationInFrames <= 0
+      || overlayFrameRange.endFrame > projectDurationInFrames) {
+      throw new ProjectMutationWriteError(
+        "Uploaded audio requires a supported in-project frame range.",
+      );
+    }
+
+    const derivativeAsset = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({
+      assetId: requestedMaterial.derivativeAssetId,
+      userId,
+      projectId,
+    });
+    assertUploadedAudioDerivativeAssetV1(
+      derivativeAsset,
+      requestedMaterial,
+      userId,
+      projectId,
+      project.fps,
+    );
+
+    const existing = project.overlays?.find((overlay) => (
+      String(overlay.id) === String(input.overlay.id)
+    ));
+    if (existing) {
+      const existingMaterial = readUploadedAudioTimelineMaterialV1(existing);
+      if (!sameCanonicalProjectMutationValueV1(existingMaterial, requestedMaterial)) {
+        throw new ProjectMutationWriteError(
+          `Uploaded-audio overlay ${String(input.overlay.id)} already exists with different material.`,
+        );
+      }
+      return {
+        disposition: "ALREADY_ATTACHED",
+        currentRevision,
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before attaching uploaded audio.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      overlayFrameRange,
+    ));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the uploaded-audio attachment.",
+      );
+    }
+
     const overlayWithReceipt = ensureAtomicOverlayReceipt(input.overlay, {
-      source: "project-service-add-overlay-if-absent",
-      intent: `persist-${input.overlay.type}`,
-      reason: "overlay was attached through ProjectService at one project revision",
+      source: "project-service-attach-uploaded-audio-v1",
+      intent: `attach-uploaded-${requestedMaterial.mediaRole}`,
+      reason: "stored assignment, rights, source handles, revision, and range locks validated",
     });
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
-      value: input.expectedRevision.value + 1,
+      value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
     const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
       receiptId: `timeline-overlay-add_${nanoid(18)}`,
       projectId,
       operation: "ADD_OVERLAY",
-      fps: project.fps || 30,
-      beforeProjectRevision: input.expectedRevision,
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
       afterProjectRevision: afterRevision,
       committedAt: committedAt.toISOString(),
       beforeOverlay: null,
@@ -8977,17 +9058,42 @@ export class ProjectService {
         $inc: { projectRevision: 1 },
       },
     );
-    if (result.matchedCount === 0) return { attached: false };
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      const latestRevision = projectRevisionFor(latest);
+      const racedExisting = latest.overlays?.find((overlay) => (
+        String(overlay.id) === String(input.overlay.id)
+      ));
+      if (racedExisting) {
+        const racedMaterial = readUploadedAudioTimelineMaterialV1(racedExisting);
+        if (sameCanonicalProjectMutationValueV1(racedMaterial, requestedMaterial)) {
+          return {
+            disposition: "ALREADY_ATTACHED",
+            currentRevision: latestRevision,
+            mutationReceipt: null,
+            timelineChangeReceipt: null,
+          };
+        }
+        throw new ProjectMutationWriteError(
+          `Uploaded-audio overlay ${String(input.overlay.id)} raced with different material.`,
+        );
+      }
+      throw new ProjectMutationConflictError(latestRevision);
+    }
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
 
-    const receipt: ProjectMutationReceiptV1 = {
+    const mutationReceipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId,
       revision: afterRevision,
       committedAt: committedAt.toISOString(),
     };
-    this.publishMutationReceipt(receipt);
-    return { attached: true, receipt };
+    this.publishMutationReceipt(mutationReceipt);
+    return { disposition: "APPLIED", mutationReceipt, timelineChangeReceipt };
   }
 
   /**
@@ -16014,6 +16120,208 @@ function sameCanonicalProjectMutationValueV1(left: unknown, right: unknown): boo
   if (left === undefined || right === undefined) return left === right;
   return canonicalProjectMutationValueHashV1(left)
     === canonicalProjectMutationValueHashV1(right);
+}
+
+const PROJECT_UPLOADED_AUDIO_ASSIGNMENT_VERSION_V1 =
+  "editron-uploaded-audio-assignment-v1";
+const PROJECT_UPLOADED_AUDIO_TIMELINE_VERSION_V1 =
+  "editron-uploaded-audio-timeline-v1";
+const PROJECT_UPLOADED_AUDIO_ROLES_V1 = new Set([
+  "sfx",
+  "voiceover",
+  "dubbing",
+  "other",
+]);
+
+type ProjectUploadedAudioTimelineMaterialV1 = Readonly<{
+  overlayId: number;
+  derivativeAssetId: string;
+  sourceAssetId: string;
+  idempotencyKey: string;
+  mediaRole: "sfx" | "voiceover" | "dubbing" | "other";
+  from: number;
+  durationInFrames: number;
+  row: number;
+  requestedRow: number;
+  startFromSound: number;
+  content: string;
+  audioRights: Readonly<Record<string, unknown>>;
+  sfxAcousticMeasurement: unknown;
+}>;
+
+function readUploadedAudioTimelineMaterialV1(
+  overlay: Overlay,
+): ProjectUploadedAudioTimelineMaterialV1 {
+  const shape = overlay as Overlay & {
+    assetId?: unknown;
+    audioRights?: unknown;
+    content?: unknown;
+    startFromSound?: unknown;
+    styles?: unknown;
+    metadata?: unknown;
+  };
+  const metadata = isPlainRecord(shape.metadata) ? shape.metadata : null;
+  const receipt = metadata && isPlainRecord(metadata.uploadedAudioAssignment)
+    ? metadata.uploadedAudioAssignment
+    : null;
+  const placement = receipt && isPlainRecord(receipt.placement)
+    ? receipt.placement
+    : null;
+  const rights = isPlainRecord(shape.audioRights) ? shape.audioRights : null;
+  const mediaRole = receipt?.mediaRole;
+  const derivativeAssetId = receipt?.derivativeAssetId;
+  const sourceAssetId = receipt?.sourceAssetId;
+  const idempotencyKey = receipt?.idempotencyKey;
+  const requestedRow = placement?.requestedRow;
+  const resolvedRow = placement?.resolvedRow;
+  const startFromSound = placement?.startFromSound;
+  const styles = isPlainRecord(shape.styles)
+    ? shape.styles as Record<string, unknown>
+    : null;
+  const rightsIssue = getAudioRightsContractIssue(rights);
+  const expectedRow = mediaRole === "sfx"
+    ? ROW.SFX
+    : mediaRole === "voiceover" || mediaRole === "dubbing"
+      ? ROW.VOICEOVER
+      : requestedRow === ROW.BGM
+        ? ROW.SFX
+        : requestedRow;
+  const commonInvalid = overlay.type !== "sound"
+    || !Number.isSafeInteger(overlay.id)
+    || overlay.id < 0
+    || !isBoundedNonEmptyStringV1(derivativeAssetId, 500)
+    || !isBoundedNonEmptyStringV1(sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(idempotencyKey, 128)
+    || !/^[A-Za-z0-9_-]{8,128}$/.test(idempotencyKey)
+    || !PROJECT_UPLOADED_AUDIO_ROLES_V1.has(String(mediaRole))
+    || receipt?.version !== PROJECT_UPLOADED_AUDIO_TIMELINE_VERSION_V1
+    || shape.assetId !== derivativeAssetId
+    || metadata?.source !== "uploaded-audio-assignment"
+    || metadata.audioRole !== mediaRole
+    || metadata.sourceAssetId !== sourceAssetId
+    || !Number.isSafeInteger(shape.from)
+    || shape.from < 0
+    || !Number.isSafeInteger(shape.durationInFrames)
+    || shape.durationInFrames <= 0
+    || !Number.isSafeInteger(shape.row)
+    || shape.row < 0
+    || shape.row > 63
+    || typeof requestedRow !== "number"
+    || !Number.isSafeInteger(requestedRow)
+    || requestedRow < 0
+    || requestedRow > 63
+    || resolvedRow !== shape.row
+    || expectedRow !== shape.row
+    || typeof startFromSound !== "number"
+    || !Number.isSafeInteger(startFromSound)
+    || startFromSound < 0
+    || shape.startFromSound !== startFromSound
+    || placement?.from !== shape.from
+    || placement.durationInFrames !== shape.durationInFrames
+    || typeof shape.content !== "string"
+    || shape.content.trim().length === 0
+    || shape.content.length > 200
+    || styles?.volume !== 1
+    || rightsIssue !== null
+    || rights?.source !== "user-upload"
+    || rights.userChoice !== "attested"
+    || rights.licensed !== true
+    || rights.mediaRole !== mediaRole
+    || !isPlainRecord(rights.evidence)
+    || rights.evidence.sourceAssetId !== sourceAssetId;
+  if (commonInvalid) {
+    throw new ProjectMutationWriteError(
+      "Uploaded-audio overlay material is malformed or not bound to its assignment receipt.",
+    );
+  }
+
+  const sfxMeasurement = metadata.sfxAcousticMeasurement;
+  if (mediaRole === "sfx" && !sfxAcousticMeasurementSchema.safeParse(sfxMeasurement).success) {
+    throw new ProjectMutationWriteError(
+      "Uploaded SFX requires current server-measured acoustic evidence.",
+    );
+  }
+  if (mediaRole !== "sfx" && sfxMeasurement !== undefined) {
+    throw new ProjectMutationWriteError(
+      "Non-SFX uploaded audio cannot claim SFX acoustic evidence.",
+    );
+  }
+
+  return {
+    overlayId: overlay.id,
+    derivativeAssetId: derivativeAssetId as string,
+    sourceAssetId: sourceAssetId as string,
+    idempotencyKey: idempotencyKey as string,
+    mediaRole: mediaRole as ProjectUploadedAudioTimelineMaterialV1["mediaRole"],
+    from: shape.from,
+    durationInFrames: shape.durationInFrames,
+    row: shape.row,
+    requestedRow: requestedRow as number,
+    startFromSound: startFromSound as number,
+    content: shape.content as string,
+    audioRights: rights,
+    sfxAcousticMeasurement: sfxMeasurement,
+  };
+}
+
+function assertUploadedAudioDerivativeAssetV1(
+  value: unknown,
+  material: ProjectUploadedAudioTimelineMaterialV1,
+  userId: string,
+  projectId: string,
+  fps: number,
+): void {
+  const asset = isPlainRecord(value) ? value : null;
+  const receipt = asset && isPlainRecord(asset.audioAssignmentReceipt)
+    ? asset.audioAssignmentReceipt
+    : null;
+  const assetRights = asset && isPlainRecord(asset.audioRights)
+    ? asset.audioRights
+    : null;
+  const durationSeconds = asset?.duration;
+  const sourceDurationInFrames = typeof durationSeconds === "number"
+    && Number.isFinite(durationSeconds)
+    && durationSeconds > 0
+    ? Math.ceil(durationSeconds * fps)
+    : null;
+  const invalid = !asset
+    || asset.assetId !== material.derivativeAssetId
+    || asset.userId !== userId
+    || asset.projectId !== projectId
+    || asset.type !== "audio"
+    || asset.source !== "user-upload"
+    || asset.parentAssetId !== material.sourceAssetId
+    || asset.assignmentStatus !== "attached"
+    || receipt?.version !== PROJECT_UPLOADED_AUDIO_ASSIGNMENT_VERSION_V1
+    || receipt.idempotencyKey !== material.idempotencyKey
+    || receipt.sourceAssetId !== material.sourceAssetId
+    || receipt.derivativeAssetId !== material.derivativeAssetId
+    || receipt.mediaRole !== material.mediaRole
+    || receipt.userId !== userId
+    || receipt.projectId !== projectId
+    || getAudioRightsContractIssue(assetRights) !== null
+    || !sameCanonicalProjectMutationValueV1(assetRights, material.audioRights)
+    || sourceDurationInFrames === null
+    || material.startFromSound + material.durationInFrames > sourceDurationInFrames;
+  if (invalid) {
+    throw new ProjectMutationWriteError(
+      "Uploaded-audio derivative evidence is missing, stale, or lacks source handles.",
+    );
+  }
+
+  if (material.mediaRole === "sfx") {
+    const parsed = sfxAcousticMeasurementSchema.safeParse(
+      asset.sfxAcousticMeasurement,
+    );
+    if (!parsed.success || !sameCanonicalProjectMutationValueV1(
+      parsed.data,
+      material.sfxAcousticMeasurement,
+    )) {
+      throw new ProjectMutationWriteError(
+        "Uploaded SFX acoustic evidence does not match the stored derivative.",
+      );
+    }
+  }
 }
 
 function readProjectDottedValueV1(project: Project, path: string): unknown {

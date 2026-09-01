@@ -107,7 +107,12 @@ export async function runUploadedSfxRenderCanary() {
       ) => {
         const overlays = project.overlays as Array<Record<string, unknown>>;
         if (overlays.some(candidate => candidate.id === overlay.id)) {
-          return { attached: false };
+          return {
+            disposition: 'ALREADY_ATTACHED' as const,
+            currentRevision: expectedRevision,
+            mutationReceipt: null,
+            timelineChangeReceipt: null,
+          };
         }
         overlays.push(ensureAtomicOverlayReceipt(overlay as never, {
           source: 'uploaded-audio-assignment',
@@ -116,8 +121,8 @@ export async function runUploadedSfxRenderCanary() {
         }) as unknown as Record<string, unknown>);
         appendCount++;
         return {
-          attached: true,
-          receipt: {
+          disposition: 'APPLIED' as const,
+          mutationReceipt: {
             schemaVersion: 1 as const,
             projectId: PROJECT_ID,
             revision: {
@@ -127,6 +132,7 @@ export async function runUploadedSfxRenderCanary() {
             },
             committedAt: '2026-08-03T00:00:00.000Z',
           },
+          timelineChangeReceipt: {} as never,
         };
       },
     };

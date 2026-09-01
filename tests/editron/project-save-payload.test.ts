@@ -6,6 +6,7 @@ import {
   mergeServerOwnedOverlayDataForSave,
   serializeEditorStateForSave,
 } from "@/lib/editron/shared/project-save-payload";
+import { AUDIO_RIGHTS_ATTESTATION_VERSION } from "@/lib/editron/shared/render-request-payload";
 
 const persistenceMocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: {
     PROJECTS: "editron_prev.projects",
     MG_DESIGN_JOBS: "editron_mg_design_jobs",
+    MEDIA_ASSETS: "editron_prev.media_assets",
   },
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
@@ -102,6 +104,91 @@ function mgDesignCompletionCommand() {
       },
     },
   };
+}
+
+function uploadedAudioOwnerFixture() {
+  const attestedAt = "2026-08-11T05:59:00.000Z";
+  const audioRights = {
+    mediaRole: "sfx",
+    source: "user-upload",
+    userChoice: "attested",
+    licensed: true,
+    evidence: {
+      kind: "user-attestation",
+      sourceAssetId: "audio_source_1",
+      attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+      attestedAt,
+      attestedBy: "user_1",
+    },
+  };
+  const sfxAcousticMeasurement = {
+    version: "sfx-acoustic-measurement-v1",
+    algorithm: "ffmpeg-ebur128-v1",
+    loudnessMetric: "integrated-lufs",
+    loudnessDb: -18,
+    integratedLufs: -18,
+    truePeakDbtp: -3,
+    sampleRateHz: 48_000,
+    channelCount: 1,
+    durationMs: 2_000,
+    measuredAt: attestedAt,
+    sourceHashSha256: "a".repeat(64),
+  };
+  const overlay = {
+    id: 2,
+    type: "sound",
+    from: 45,
+    row: 0,
+    durationInFrames: 30,
+    startFromSound: 3,
+    assetId: "audio_use_1",
+    content: "Impact hit",
+    styles: { volume: 1 },
+    audioRights,
+    metadata: {
+      source: "uploaded-audio-assignment",
+      audioRole: "sfx",
+      sourceAssetId: "audio_source_1",
+      sfxAcousticMeasurement,
+      uploadedAudioAssignment: {
+        version: "editron-uploaded-audio-timeline-v1",
+        idempotencyKey: "audio_use_001",
+        sourceAssetId: "audio_source_1",
+        derivativeAssetId: "audio_use_1",
+        mediaRole: "sfx",
+        placement: {
+          from: 45,
+          durationInFrames: 30,
+          requestedRow: 6,
+          startFromSound: 3,
+          resolvedRow: 0,
+        },
+      },
+    },
+  };
+  const asset = {
+    assetId: "audio_use_1",
+    userId: "user_1",
+    projectId: "proj_1",
+    type: "audio",
+    source: "user-upload",
+    parentAssetId: "audio_source_1",
+    assignmentStatus: "attached",
+    duration: 2,
+    audioRights,
+    sfxAcousticMeasurement,
+    audioAssignmentReceipt: {
+      version: "editron-uploaded-audio-assignment-v1",
+      idempotencyKey: "audio_use_001",
+      sourceAssetId: "audio_source_1",
+      derivativeAssetId: "audio_use_1",
+      mediaRole: "sfx",
+      userId: "user_1",
+      projectId: "proj_1",
+      attestedAt,
+    },
+  };
+  return { asset, overlay };
 }
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -1819,15 +1906,18 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it("attaches a stable overlay once through the writer and emits one receipt", async () => {
+  it("attaches rights-bound uploaded audio once and emits an exact receipt", async () => {
     const updatedAt = "2026-08-11T06:00:00.000Z";
+    const { asset, overlay } = uploadedAudioOwnerFixture();
     persistenceMocks.findOne.mockResolvedValueOnce({
       projectId: "proj_1",
       userId: "user_1",
       fps: 30,
+      durationInFrames: 300,
+      overlays: [],
       projectRevision: 7,
       updatedAt: new Date(updatedAt),
-    });
+    }).mockResolvedValueOnce(asset);
     persistenceMocks.updateOne.mockResolvedValueOnce({
       matchedCount: 1,
       modifiedCount: 1,
@@ -1837,25 +1927,20 @@ describe("Editron project save payload compaction", () => {
     );
 
     const captured = await projectService.captureMutationReceipts(() => (
-      projectService.addOverlayIfAbsent("user_1", "proj_1", {
+      projectService.attachUploadedAudioAtRevisionV1("user_1", "proj_1", {
         expectedRevision: {
           schemaVersion: 1,
           value: 7,
           compatibilityUpdatedAt: updatedAt,
         },
-        overlay: {
-          id: 2,
-          type: "sound",
-          from: 45,
-          row: 0,
-          durationInFrames: 30,
-        } as any,
+        actorKind: "USER",
+        overlay: overlay as any,
       })
     ));
 
     expect(captured.value).toMatchObject({
-      attached: true,
-      receipt: {
+      disposition: "APPLIED",
+      mutationReceipt: {
         projectId: "proj_1",
         revision: { value: 8 },
       },
@@ -1879,6 +1964,7 @@ describe("Editron project save payload compaction", () => {
     const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
     expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
       operation: "ADD_OVERLAY",
+      actorKind: "USER",
       rangeObservation: "EXACT",
       writeFrameRangesBefore: [{ startFrame: 45, endFrame: 75 }],
       affectedFrameRangesAfter: [{ startFrame: 45, endFrame: 75 }],
@@ -1890,81 +1976,145 @@ describe("Editron project save payload compaction", () => {
     });
   });
 
-  it("does not manufacture a receipt when a stable overlay is already present or stale", async () => {
+  it("recognizes only an identical uploaded-audio replay without a new receipt", async () => {
     const updatedAt = "2026-08-11T06:01:00.000Z";
+    const { asset, overlay } = uploadedAudioOwnerFixture();
     persistenceMocks.findOne.mockResolvedValueOnce({
       projectId: "proj_1",
       userId: "user_1",
       fps: 30,
+      durationInFrames: 300,
+      overlays: [overlay],
       projectRevision: 8,
       updatedAt: new Date("2026-08-11T06:01:01.000Z"),
-    });
+    }).mockResolvedValueOnce(asset);
     const { projectService } = await import(
       "@/lib/editron/services/project-service",
     );
 
     const captured = await projectService.captureMutationReceipts(() => (
-      projectService.addOverlayIfAbsent("user_1", "proj_1", {
+      projectService.attachUploadedAudioAtRevisionV1("user_1", "proj_1", {
         expectedRevision: {
           schemaVersion: 1,
           value: 7,
           compatibilityUpdatedAt: updatedAt,
         },
-        overlay: {
-          id: 2,
-          type: "sound",
-          from: 45,
-          row: 0,
-          durationInFrames: 30,
-        } as any,
+        actorKind: "USER",
+        overlay: overlay as any,
       })
     ));
 
-    expect(captured).toEqual({ value: { attached: false }, receipts: [] });
+    expect(captured.value).toMatchObject({
+      disposition: "ALREADY_ATTACHED",
+      currentRevision: { value: 8 },
+      mutationReceipt: null,
+      timelineChangeReceipt: null,
+    });
+    expect(captured.receipts).toEqual([]);
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it("records unrepresentable direct attachment timing as unknown instead of fabricating a range", async () => {
+  it("rejects a stale uploaded-audio write when no identical replay exists", async () => {
     const updatedAt = "2026-08-11T06:01:30.000Z";
+    const { asset, overlay } = uploadedAudioOwnerFixture();
     persistenceMocks.findOne.mockResolvedValueOnce({
       projectId: "proj_1",
       userId: "user_1",
       fps: 30,
-      projectRevision: 7,
-      updatedAt: new Date(updatedAt),
-    });
-    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+      durationInFrames: 300,
+      overlays: [],
+      projectRevision: 8,
+      updatedAt: new Date("2026-08-11T06:01:31.000Z"),
+    }).mockResolvedValueOnce(asset);
     const { projectService } = await import(
       "@/lib/editron/services/project-service",
     );
 
-    await projectService.addOverlayIfAbsent("user_1", "proj_1", {
+    await expect(projectService.attachUploadedAudioAtRevisionV1("user_1", "proj_1", {
       expectedRevision: {
         schemaVersion: 1,
         value: 7,
         compatibilityUpdatedAt: updatedAt,
       },
-      overlay: {
-        id: 3,
-        type: "sound",
-        from: 45,
-        row: 0,
-        durationInFrames: 0,
-      } as any,
-    });
+      actorKind: "USER",
+      overlay: overlay as any,
+    })).rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
 
-    const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
-    expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
-      operation: "ADD_OVERLAY",
-      rangeObservation: "UNKNOWN_LEGACY_OVERLAY_TIMING",
-      writeFrameRangesBefore: [],
-      affectedFrameRangesAfter: [],
-      overlayTemporalChange: {
-        beforeFrameRange: null,
-        afterFrameRange: null,
-        unionFrameRange: null,
+  it("rejects uploaded audio without enough source handles", async () => {
+    const updatedAt = "2026-08-11T06:01:40.000Z";
+    const { asset, overlay } = uploadedAudioOwnerFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    }).mockResolvedValueOnce({ ...asset, duration: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.attachUploadedAudioAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "USER",
+        overlay: overlay as any,
       },
+    )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects uploaded audio that overlaps an active range lock", async () => {
+    const updatedAt = "2026-08-11T06:01:50.000Z";
+    const { asset, overlay } = uploadedAudioOwnerFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+      timelineRangeCutLocks: [{
+        schemaVersion: 1,
+        lockId: "timeline-cut-lock_abcdefghijklmnopqr",
+        actorKind: "AGENT",
+        frameRange: { startFrame: 50, endFrame: 60 },
+        acquiredAt: "2026-08-11T06:01:49.000Z",
+        expiresAt: "2099-08-11T06:02:50.000Z",
+      }],
+    }).mockResolvedValueOnce(asset);
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.attachUploadedAudioAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "USER",
+        overlay: overlay as any,
+      },
+    )).rejects.toMatchObject({
+      code: "PROJECT_TIMELINE_RANGE_LOCKED",
+      blockingLockIds: ["timeline-cut-lock_abcdefghijklmnopqr"],
     });
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("commits an MG delivery, its selected SFX, and its worker outcome at one revision", async () => {

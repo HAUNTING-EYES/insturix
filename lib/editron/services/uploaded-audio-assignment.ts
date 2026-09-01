@@ -10,6 +10,7 @@ import type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measure
 import type {
   ProjectMutationReceiptV1,
   ProjectRevisionV1,
+  ProjectUploadedAudioAttachResultV1,
 } from './project-service';
 
 const ASSIGNMENT_VERSION = 'editron-uploaded-audio-assignment-v1';
@@ -155,10 +156,7 @@ export interface UploadedAudioTimelineAssignmentDependencies
     projectId: string,
     expectedRevision: ProjectRevisionV1,
     overlay: Record<string, unknown>,
-  ): Promise<{
-    attached: boolean;
-    receipt?: ProjectMutationReceiptV1;
-  }>;
+  ): Promise<ProjectUploadedAudioAttachResultV1>;
 }
 
 const defaultDependencies: UploadedAudioAssignmentDependencies = {
@@ -289,18 +287,11 @@ const defaultTimelineDependencies: UploadedAudioTimelineAssignmentDependencies =
     expectedRevision,
     overlay,
   ) {
-    const { ensureAtomicOverlayReceipt } = await import(
-      '@/lib/editron/engine/overlay-atomic-receipts'
-    );
     const { projectService } = await import('./project-service');
-    const persistedOverlay = ensureAtomicOverlayReceipt(overlay as never, {
-      source: 'uploaded-audio-assignment',
-      intent: `persist-uploaded-${String(asRecord(overlay.audioRights)?.mediaRole ?? 'audio')}`,
-      reason: 'uploaded audio was rights-attested and attached by the server',
-    });
-    return projectService.addOverlayIfAbsent(userId, projectId, {
+    return projectService.attachUploadedAudioAtRevisionV1(userId, projectId, {
       expectedRevision,
-      overlay: persistedOverlay as never,
+      actorKind: 'USER',
+      overlay: overlay as never,
     });
   },
 };
@@ -453,7 +444,7 @@ export async function assignUploadedAudioToTimeline(
   const overlayId = buildTimelineOverlayId(input);
   const overlay = buildTimelineOverlay(input, assignment, overlayId);
 
-  let attachment: { attached: boolean; receipt?: ProjectMutationReceiptV1 };
+  let attachment: ProjectUploadedAudioAttachResultV1;
   try {
     attachment = await dependencies.commitTimelineOverlayThroughProjectService(
       input.userId,
@@ -462,6 +453,16 @@ export async function assignUploadedAudioToTimeline(
       overlay,
     );
   } catch (error) {
+    const ownerCode = asRecord(error)?.code;
+    if (ownerCode === 'PROJECT_REVISION_CONFLICT'
+      || ownerCode === 'PROJECT_TIMELINE_RANGE_LOCKED') {
+      throw assignmentError(
+        'PROJECT_REVISION_CONFLICT',
+        'The timeline changed or became locked while uploaded audio was being prepared. Review the latest timeline and retry.',
+        409,
+        error,
+      );
+    }
     throw assignmentError(
       'PROJECT_PERSISTENCE_FAILED',
       'Uploaded audio could not be attached to the project timeline',
@@ -491,13 +492,6 @@ export async function assignUploadedAudioToTimeline(
   }
   const persisted = overlays.find((candidate) => candidate.id === overlayId);
   if (!persisted) {
-    if (!attachment.attached) {
-      throw assignmentError(
-        'PROJECT_REVISION_CONFLICT',
-        'The timeline changed while uploaded audio was being prepared. Review the latest timeline and retry.',
-        409,
-      );
-    }
     throw assignmentError(
       'PROJECT_PERSISTENCE_FAILED',
       'Uploaded audio was not present after the project timeline commit',
@@ -508,11 +502,11 @@ export async function assignUploadedAudioToTimeline(
 
   return {
     ...assignment,
-    replayed: assignment.replayed || !attachment.attached,
+    replayed: assignment.replayed || attachment.disposition === 'ALREADY_ATTACHED',
     overlayId,
     overlays,
-    ...(attachment.receipt
-      ? { projectMutationReceipt: attachment.receipt }
+    ...(attachment.mutationReceipt
+      ? { projectMutationReceipt: attachment.mutationReceipt }
       : {}),
   };
 }
