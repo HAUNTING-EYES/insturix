@@ -401,7 +401,11 @@ describe('Editron render startup boundary', () => {
     routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
     routeMocks.reconcileProviderTerminalEvent.mockResolvedValue(undefined);
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
-    routeMocks.transitionProjectStatus.mockResolvedValue(undefined);
+    routeMocks.transitionProjectStatus.mockResolvedValue({
+      success: true,
+      previousStatus: 'editing',
+      disposition: 'COMMITTED',
+    });
     routeMocks.dbFindOne.mockResolvedValue(null);
     routeMocks.dbFindOneAndUpdate.mockResolvedValue(null);
     routeMocks.dbUpdateOne.mockResolvedValue({ matchedCount: 1 });
@@ -537,6 +541,28 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('surfaces lifecycle reconciliation when the provider render started but status CAS was rejected', async () => {
+    routeMocks.transitionProjectStatus.mockResolvedValueOnce({
+      success: false,
+      previousStatus: 'editing',
+      error: 'Status changed concurrently',
+    });
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'success',
+      data: {
+        renderId: 'render_1',
+        trackingStatus: 'recovery_required',
+        projectStatusTracking: 'recovery_required',
+      },
+    });
+    expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledTimes(1);
+    expect(routeMocks.failJob).not.toHaveBeenCalled();
   });
 
   it('CRITICAL: preserves the reference-track handoff while excluding it from Lambda input', async () => {
@@ -2674,6 +2700,9 @@ function chapterChildFixture(
     dispatch,
     job: {
       _id: parentAdmissionId,
+      artifactLifecycleVersion: 1,
+      artifactState: 'ACTIVE',
+      retentionState: 'RETAINED',
       projectRenderSnapshotBinding: binding,
       chapters: [chapter],
     },

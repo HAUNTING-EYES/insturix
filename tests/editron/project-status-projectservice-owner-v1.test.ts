@@ -103,8 +103,28 @@ describe('Project status ProjectService owner V1', () => {
       }),
     );
     expect(result.success).toBe(true);
+    expect(result.disposition).toBe('COMMITTED');
     expect(result.receipt?.revision.value).toBe(3);
     expect(mocks.emitBrandEvent).toHaveBeenCalledOnce();
+  });
+
+  it('acknowledges an already-current replay without duplicating history or events', async () => {
+    const setup = store(project({ status: 'rendering' }));
+
+    await expect(transitionProjectStatus(
+      'project_1',
+      'user_1',
+      'rendering',
+      'render_started',
+      undefined,
+      setup.port,
+    )).resolves.toEqual({
+      success: true,
+      previousStatus: 'rendering',
+      disposition: 'ALREADY_CURRENT',
+    });
+    expect(setup.saveProjectWithReceipt).not.toHaveBeenCalled();
+    expect(mocks.emitBrandEvent).not.toHaveBeenCalled();
   });
 
   it('records bounded failure evidence and clears it only on an allowed recovery', async () => {

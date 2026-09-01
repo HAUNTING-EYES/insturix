@@ -128,6 +128,7 @@ export async function transitionProjectStatus(
   previousStatus?: ProjectStatus;
   error?: string;
   receipt?: ProjectMutationReceiptV1;
+  disposition?: 'COMMITTED' | 'ALREADY_CURRENT';
 }> {
   const normalizedProjectId = nonEmptyString(projectId, 500);
   const normalizedUserId = nonEmptyString(userId, 500);
@@ -158,6 +159,13 @@ export async function transitionProjectStatus(
   const currentStatus = snapshot.project.status ?? 'draft';
   if (!isProjectStatus(currentStatus)) {
     return { success: false, error: 'Project has an invalid current status' };
+  }
+  if (currentStatus === newStatus) {
+    return {
+      success: true,
+      previousStatus: currentStatus,
+      disposition: 'ALREADY_CURRENT',
+    };
   }
   const allowed = VALID_TRANSITIONS[currentStatus];
 
@@ -238,7 +246,12 @@ export async function transitionProjectStatus(
     },
   }).catch((err) => console.error('[ProjectStatus] Event emission failed:', err));
 
-  return { success: true, previousStatus: currentStatus, receipt };
+  return {
+    success: true,
+    previousStatus: currentStatus,
+    receipt,
+    disposition: 'COMMITTED',
+  };
 }
 
 // ==================== Query ====================

@@ -746,10 +746,25 @@ export async function POST(request: Request) {
     }
 
     // Brand Intelligence: transition to rendering
+    let projectStatusTracking: 'committed' | 'already_current' | 'recovery_required' = 'recovery_required';
     try {
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-      await transitionProjectStatus(canonicalProjectId, userId, 'rendering', 'render_started');
+      const statusResult = await transitionProjectStatus(
+        canonicalProjectId,
+        userId,
+        'rendering',
+        'render_started',
+      );
+      if (!statusResult.success) {
+        trackingStatus = 'recovery_required';
+        console.warn(`[Render] Status transition rejected: ${statusResult.error ?? 'unknown reason'}`);
+      } else {
+        projectStatusTracking = statusResult.disposition === 'ALREADY_CURRENT'
+          ? 'already_current'
+          : 'committed';
+      }
     } catch (brandErr: any) {
+      trackingStatus = 'recovery_required';
       console.warn(`[Render] Status transition failed: ${brandErr.message}`);
     }
 
@@ -770,6 +785,7 @@ export async function POST(request: Request) {
         deliveryManifest,
         renderAdmissionId,
         trackingStatus: finalTracking,
+        projectStatusTracking,
         ...(mgIntegrity ? { mgIntegrity } : {}),
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
