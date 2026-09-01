@@ -560,13 +560,23 @@ export async function markProjectRenderJobStartedV1(input: {
 export async function updateProjectRenderJobProgressV1(input: {
   authorization: unknown;
   currentProjectRevision: unknown;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
   progress: number;
   collection?: Collection<RenderJob>;
   session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
-  if (!Number.isFinite(input.progress) || input.progress < 0 || input.progress > 1) {
+  if (
+    !isBoundRenderInputString(input.providerRenderId)
+    || !isBoundRenderInputString(input.bucketName)
+    || !isBoundRenderInputString(input.region, 100)
+    || !Number.isFinite(input.progress)
+    || input.progress < 0
+    || input.progress > 1
+  ) {
     return nonCurrentProjectRenderJobResult('INPUT_INVALID');
   }
   const jobs = input.collection ?? await getCollection();
@@ -574,7 +584,12 @@ export async function updateProjectRenderJobProgressV1(input: {
     {
       $and: [
         currentProjectRenderJobFilter(validation.authorization),
-        { status: { $in: ['pending', 'queued', 'rendering', 'finalizing'] } },
+        {
+          providerRenderId: input.providerRenderId.trim(),
+          bucketName: input.bucketName.trim(),
+          region: input.region.trim(),
+          status: { $in: ['pending', 'queued', 'rendering', 'finalizing'] },
+        },
       ],
     },
     { $set: { progress: input.progress } },

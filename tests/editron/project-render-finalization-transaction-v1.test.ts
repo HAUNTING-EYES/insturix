@@ -388,6 +388,9 @@ describe("project render finalization transaction owner v1", () => {
 
     await expect(projectService.updateProjectRenderJobProgressTransactionV1({
       authorization: AUTHORIZATION,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      region: "us-east-1",
       progress: 0.42,
       now,
     })).resolves.toEqual({ ok: true, status: "CURRENT" });
@@ -416,6 +419,9 @@ describe("project render finalization transaction owner v1", () => {
     expect(renderJobMocks.updateProgress).toHaveBeenCalledWith(expect.objectContaining({
       authorization: AUTHORIZATION,
       currentProjectRevision: AUTHORIZATION.projectRevision,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      region: "us-east-1",
       progress: 0.42,
       collection: fixture.renderJobs,
       session: fixture.session,

@@ -807,6 +807,9 @@ describe("Project render-job owner V1", () => {
     await expect(updateProjectRenderJobProgressV1({
       authorization,
       currentProjectRevision: REVISION,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      region: "us-east-1",
       progress: 0.42,
       collection,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
@@ -822,6 +825,9 @@ describe("Project render-job owner V1", () => {
           "deliveryManifest.primaryArtifact.renderId": JOB_ID,
         }),
         expect.objectContaining({
+          providerRenderId: "provider-render-1",
+          bucketName: "editron-render-output",
+          region: "us-east-1",
           status: { $in: ["pending", "queued", "rendering", "finalizing"] },
         }),
       ]),
@@ -832,6 +838,9 @@ describe("Project render-job owner V1", () => {
     const stale = await updateProjectRenderJobProgressV1({
       authorization,
       currentProjectRevision: { ...REVISION, value: REVISION.value + 1 },
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      region: "us-east-1",
       progress: 0.5,
       collection,
     });
@@ -842,6 +851,9 @@ describe("Project render-job owner V1", () => {
     const stateMismatch = await updateProjectRenderJobProgressV1({
       authorization,
       currentProjectRevision: REVISION,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      region: "us-east-1",
       progress: 0.5,
       collection,
     });

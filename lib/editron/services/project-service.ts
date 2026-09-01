@@ -1947,6 +1947,9 @@ export class ProjectService {
   /** Persist provider progress only while the bound project revision is current. */
   async updateProjectRenderJobProgressTransactionV1(input: {
     authorization: unknown;
+    providerRenderId: string;
+    bucketName: string;
+    region: string;
     progress: number;
     now?: Date;
   }): Promise<ProjectRenderJobMutationResultV1> {
@@ -1956,6 +1959,9 @@ export class ProjectService {
         updateProjectRenderJobProgressV1({
           authorization,
           currentProjectRevision,
+          providerRenderId: input.providerRenderId,
+          bucketName: input.bucketName,
+          region: input.region,
           progress: input.progress,
           collection: renderJobs,
           session,

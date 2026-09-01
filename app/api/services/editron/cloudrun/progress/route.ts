@@ -108,6 +108,7 @@ export async function GET(request: Request) {
         persistedJob,
         renderId,
         bucketName,
+        region,
         strictAuthorization,
       });
     }
@@ -161,6 +162,9 @@ export async function GET(request: Request) {
     if (strictAuthorization) {
       const updated = await projectService.updateProjectRenderJobProgressTransactionV1({
         authorization: strictAuthorization,
+        providerRenderId: renderId,
+        bucketName,
+        region,
         progress: progress.overallProgress,
       });
       if (!updated.ok) return projectRenderNotCurrentResponse();
@@ -201,6 +205,7 @@ async function chapterRenderProgress(input: {
   persistedJob: RenderJob;
   renderId: string;
   bucketName: string;
+  region: RenderRegion;
   strictAuthorization?: ProjectRenderJobAuthorizationV1;
 }) {
   const { getChapterRenderProgress } = await import('@/lib/editron/services/chapter-renderer');
@@ -269,6 +274,9 @@ async function chapterRenderProgress(input: {
   if (input.strictAuthorization) {
     const updated = await projectService.updateProjectRenderJobProgressTransactionV1({
       authorization: input.strictAuthorization,
+      providerRenderId: input.renderId,
+      bucketName: input.bucketName,
+      region: input.region,
       progress: progress.overallProgress,
     });
     if (!updated.ok) return projectRenderNotCurrentResponse();
