@@ -1042,6 +1042,65 @@ export interface ProjectPipelineDirectorDispatchV1 {
   preparedAt: string;
 }
 
+export type ProjectAnalysisRunStateV1 =
+  | "queued"
+  | "analyzing"
+  | "transcribing"
+  | "analyzing_visual_cuts"
+  | "cleaning"
+  | "computing_params"
+  | "analysis_complete"
+  | "analyzing_deep"
+  | "directing_queued";
+
+export interface ProjectAnalysisRunV1 {
+  schemaVersion: 1;
+  runId: string;
+  admissionHash: string;
+  sourceAssetId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+  lane: "auto" | "assist";
+  state: ProjectAnalysisRunStateV1;
+  admittedRevision: ProjectRevisionV1;
+  admittedAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectAnalysisQueueFactsV1 {
+  referenceAssetId?: string;
+  referenceVideoSource?: {
+    kind: "remote-url" | "youtube-url" | "instagram-url";
+    sourceLabel: string;
+    sourceFingerprint: string;
+  };
+  referenceImageAssetIds?: string[];
+  editorialPreferences?: Record<string, unknown>;
+}
+
+export interface ProjectAnalysisRunAdmissionCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  sourceAssetId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+  lane: "auto" | "assist";
+  queueFacts?: ProjectAnalysisQueueFactsV1;
+}
+
+export type ProjectAnalysisRunAdmissionResultV1 =
+  | {
+      disposition: "ADMITTED";
+      run: ProjectAnalysisRunV1;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "ALREADY_ADMITTED";
+      run: ProjectAnalysisRunV1;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "NOT_ELIGIBLE" };
+
 export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
   expectedRevision: ProjectRevisionV1;
   batchId: string;
@@ -1430,6 +1489,8 @@ export interface Project {
   pipelineVideoDeliveryInvalidationAdmissionsV1?: PipelineVideoDeliveryInvalidationAdmissionV1[];
   /** Bounded replay history for source-bound Video Analysis duration corrections. */
   videoAnalysisDurationCorrectionReceipts?: ProjectVideoAnalysisDurationCorrectionReceiptV1[];
+  /** Exact paid source-analysis identity; worker stages may not infer or replace it. */
+  autoEditAnalysisRunV1?: ProjectAnalysisRunV1;
   /** Legacy-compatible warning records; V1 entries are issued only by ProjectService. */
   qualityWarnings?: unknown[];
   /** Bounded cut-specific coordination leases; no other command honors them yet. */
@@ -5267,6 +5328,165 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return receipt;
+  }
+
+  /**
+   * Admits one newly-saved source project to the paid analysis lifecycle. This
+   * is project state rather than queue state: the queue publication occurs
+   * only after this exact user/source/charge/revision receipt is durable.
+   */
+  async admitProjectAnalysisRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisRunAdmissionCommandV1,
+  ): Promise<ProjectAnalysisRunAdmissionResultV1> {
+    assertProjectAnalysisRunAdmissionCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const admissionHash = projectAnalysisRunAdmissionHashV1(projectId, userId, input);
+    const existing = readProjectAnalysisRunV1(
+      projectRecordValueV1(current, "autoEditAnalysisRunV1"),
+    );
+    if (existing) {
+      if (
+        existing.admissionHash === admissionHash
+        && existing.sourceAssetId === input.sourceAssetId
+        && existing.creditTransactionId === input.creditTransactionId
+        && existing.chargedCredits === input.chargedCredits
+        && existing.lane === input.lane
+        && existing.state === "queued"
+        && projectRecordValueV1(current, "autoEditStatus") === "queued"
+      ) {
+        return {
+          disposition: "ALREADY_ADMITTED",
+          run: structuredClone(existing),
+          currentRevision,
+        };
+      }
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const ownsSource = current.overlays.some((overlay) => (
+      overlay.type === "video" && overlay.assetId === input.sourceAssetId
+    ));
+    const laneEligible = input.lane === "assist"
+      ? (
+          isAssistProjectRecordV1(current)
+          && projectRecordValueV1(current, "assistCreditTransactionId") === input.creditTransactionId
+          && projectRecordValueV1(current, "assistChargedCredits") === input.chargedCredits
+        )
+      : !isAssistProjectRecordV1(current);
+    if (
+      !ownsSource
+      || !laneEligible
+      || projectRecordValueV1(current, "autoEditStatus") !== undefined
+      || projectRecordValueV1(current, "directorRunToken") !== undefined
+      || projectRecordValueV1(current, "pipelineDirectorDispatch") !== undefined
+      || projectRecordValueV1(current, "pendingDirectorProfileId") !== undefined
+      || projectRecordValueV1(current, "pendingDirectorUserId") !== undefined
+    ) {
+      return { disposition: "NOT_ELIGIBLE" };
+    }
+
+    const admittedAt = new Date();
+    const run: ProjectAnalysisRunV1 = {
+      schemaVersion: 1,
+      runId: `analysis_run_${nanoid(20)}`,
+      admissionHash,
+      sourceAssetId: input.sourceAssetId,
+      creditTransactionId: input.creditTransactionId,
+      chargedCredits: input.chargedCredits,
+      lane: input.lane,
+      state: "queued",
+      admittedRevision: structuredClone(input.expectedRevision),
+      admittedAt: admittedAt.toISOString(),
+      updatedAt: admittedAt.toISOString(),
+    };
+    const queueFacts = input.queueFacts ?? {};
+    const admittedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: { $exists: false },
+        autoEditAnalysisRunV1: { $exists: false },
+        directorRunToken: { $exists: false },
+        pipelineDirectorDispatch: { $exists: false },
+        pendingDirectorProfileId: { $exists: false },
+        pendingDirectorUserId: { $exists: false },
+        overlays: { $elemMatch: { type: "video", assetId: input.sourceAssetId } },
+        ...(input.lane === "assist"
+          ? {
+              editMode: "assist",
+              assistCreditTransactionId: input.creditTransactionId,
+              assistChargedCredits: input.chargedCredits,
+            }
+          : { editMode: { $ne: "assist" } }),
+      },
+      {
+        $set: {
+          autoEditMode: "asset",
+          autoEditStatus: "queued",
+          autoEditAnalysisRunV1: run,
+          sourceAssetId: input.sourceAssetId,
+          ...(queueFacts.referenceAssetId && { referenceAssetId: queueFacts.referenceAssetId }),
+          ...(queueFacts.referenceVideoSource && {
+            referenceVideoSource: structuredClone(queueFacts.referenceVideoSource),
+          }),
+          ...(queueFacts.referenceImageAssetIds?.length && {
+            referenceImageAssetIds: [...queueFacts.referenceImageAssetIds],
+          }),
+          ...(queueFacts.editorialPreferences && {
+            editorialPreferences: structuredClone(queueFacts.editorialPreferences),
+          }),
+          updatedAt: admittedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+    if (!admittedProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+
+    const returnedRun = readProjectAnalysisRunV1(
+      projectRecordValueV1(admittedProject, "autoEditAnalysisRunV1"),
+    );
+    const revision = projectRevisionFor(admittedProject);
+    if (
+      !returnedRun
+      || returnedRun.runId !== run.runId
+      || returnedRun.admissionHash !== admissionHash
+      || projectRecordValueV1(admittedProject, "autoEditStatus") !== "queued"
+      || revision.value !== input.expectedRevision.value + 1
+      || revision.compatibilityUpdatedAt !== admittedAt.toISOString()
+    ) {
+      throw new ProjectMutationWriteError(
+        "Analysis admission did not return its exact writer-issued run and revision.",
+      );
+    }
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision,
+      committedAt: admittedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADMITTED", run: structuredClone(returnedRun), receipt };
   }
 
   /**
@@ -11203,6 +11423,92 @@ function projectRevisionPredicate(
     ...revisionCounterPredicate,
     updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
   };
+}
+
+function assertProjectAnalysisRunAdmissionCommandV1(
+  input: ProjectAnalysisRunAdmissionCommandV1,
+): void {
+  const facts = input.queueFacts;
+  const source = facts?.referenceVideoSource;
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.creditTransactionId, 500)
+    || !Number.isFinite(input.chargedCredits)
+    || input.chargedCredits < 0
+    || (input.lane !== "auto" && input.lane !== "assist")
+    || (facts !== undefined && !isPlainRecord(facts))
+    || (facts?.referenceAssetId !== undefined
+      && !isBoundedNonEmptyStringV1(facts.referenceAssetId, 500))
+    || (source !== undefined && (
+      !isPlainRecord(source)
+      || !["remote-url", "youtube-url", "instagram-url"].includes(source.kind)
+      || !isBoundedNonEmptyStringV1(source.sourceLabel, 1_000)
+      || !isBoundedNonEmptyStringV1(source.sourceFingerprint, 500)
+    ))
+    || (facts?.referenceImageAssetIds !== undefined && (
+      !Array.isArray(facts.referenceImageAssetIds)
+      || facts.referenceImageAssetIds.length > 100
+      || facts.referenceImageAssetIds.some((id) => !isBoundedNonEmptyStringV1(id, 500))
+    ))
+    || (facts?.editorialPreferences !== undefined
+      && !isPlainRecord(facts.editorialPreferences))
+  ) {
+    throw new ProjectMutationWriteError(
+      "Analysis admission requires one exact revision, source, charge, lane and bounded queue facts.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function projectAnalysisRunAdmissionHashV1(
+  projectId: string,
+  userId: string,
+  input: ProjectAnalysisRunAdmissionCommandV1,
+): string {
+  return hashEditronCanonicalJsonV1({
+    schemaVersion: 1,
+    projectId,
+    userId,
+    sourceAssetId: input.sourceAssetId,
+    creditTransactionId: input.creditTransactionId,
+    chargedCredits: input.chargedCredits,
+    lane: input.lane,
+    queueFacts: input.queueFacts ?? {},
+  });
+}
+
+function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
+  if (
+    !isPlainRecord(value)
+    || value.schemaVersion !== 1
+    || !isBoundedNonEmptyStringV1(value.runId, 200)
+    || !isBoundedNonEmptyStringV1(value.admissionHash, 128)
+    || !isBoundedNonEmptyStringV1(value.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(value.creditTransactionId, 500)
+    || !Number.isFinite(value.chargedCredits)
+    || (value.chargedCredits as number) < 0
+    || (value.lane !== "auto" && value.lane !== "assist")
+    || value.state !== "queued"
+    || !isPlainRecord(value.admittedRevision)
+    || !isBoundedNonEmptyStringV1(value.admittedAt, 100)
+    || !isBoundedNonEmptyStringV1(value.updatedAt, 100)
+  ) {
+    return null;
+  }
+  try {
+    assertProjectRevision(value.admittedRevision as unknown as ProjectRevisionV1);
+    if (
+      Number.isNaN(new Date(value.admittedAt as string).getTime())
+      || Number.isNaN(new Date(value.updatedAt as string).getTime())
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return structuredClone(value) as unknown as ProjectAnalysisRunV1;
 }
 
 function assertCheckpointRestoreFields(
