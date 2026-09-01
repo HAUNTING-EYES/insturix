@@ -29,7 +29,6 @@ import {
   isInternalWorkerInlineFallbackAllowed,
   withInternalQStashWorkerAuth,
 } from '@/lib/editron/security/internal-worker-auth';
-import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
@@ -1201,114 +1200,23 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // Director Mode (assist lane): scans are complete and persisted — hand the
-    // pen to the user instead of running the inline Director (dev path). The
-    // production Stage-3 director worker carries the same guard.
-    const { isAssistProject: isAssistLaneProject, ASSIST_STATUS_READY: assistReadyStatus } = await import('@/lib/editron/services/assist-lane');
-    const assistLaneOwner = await db.collection('projects').findOne(
-      { projectId },
-      { projection: { editMode: 1 } },
-    );
-    if (isAssistLaneProject(assistLaneOwner)) {
-      const { projectService } = await import('@/lib/editron/services/project-service');
-      const assistCompletion = await projectService.claimDirectorRunV1(userId, projectId);
-      if (assistCompletion.disposition !== 'ASSIST_PROJECT') {
-        throw new Error(
-          `Assist completion lost current project ownership (${assistCompletion.disposition}).`,
-        );
-      }
-      return NextResponse.json({ success: true, projectId, status: assistReadyStatus, directorSkipped: true });
-    }
-
-    // Run Director inline
     await advanceAnalysis('directing_queued');
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { autoEditStatus: 'directing' } },
-    );
-
-    // D-016: Profile selection removed Ã¢â‚¬â€ signal system + Utility AI drive all editing decisions.
-    // Content type still available in rawFootageAnalysis.contentTypeDetection for creative brief context.
-    const profileId = initialProfileId;
-
-    let brief: any = undefined;
-    const userPrefs = {
-      ...(captionStyle && { captionStyle }),
-      ...(transitionPreference && { transitionPreference }),
-      ...(zoomBehavior && { zoomBehavior }),
-      ...(motionGraphics && { motionGraphics }),
-      ...(pacingFeel && { pacingFeel }),
-      ...(normalizedMusicPreference && { musicPreference: normalizedMusicPreference }),
-      ...(normalizedEditorialPreferences && { editorialPreferences: normalizedEditorialPreferences }),
-      ...(platform && { platform }),
-      ...(userIntent && { intent: userIntent }),
-    };
-    if (editDNA) {
-      brief = {
-        ...userPrefs,
-        overrides: {
-          ...(editDNA.pacing?.overall && { pacing: editDNA.pacing.overall }),
-          ...(editDNA.cutRhythm?.avgCutsPerMinute && { cutsPerMinute: editDNA.cutRhythm.avgCutsPerMinute }),
-          ...(editDNA.transitions?.dominant && { defaultTransition: editDNA.transitions.dominant }),
-          ...(editDNA.graphicsDensity && { graphicsDensity: editDNA.graphicsDensity }),
-        },
-      };
-    } else if (Object.keys(userPrefs).length > 0) {
-      brief = { ...userPrefs, modifiers: [] };
-    }
-
-    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-    await executeDirectorPlan(projectId, userId, profileId, brief);
-
-    const totalMs = Date.now() - startMs;
-    const projectAfterDirector = await db.collection('projects').findOne(
-      { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
-    );
-    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
-    const learningDecision = resolveEditronLearningOutcome({
-      hasQualityReview: !!projectAfterDirector?.qualityReview,
-      qualityScore: projectAfterDirector?.qualityReview?.overallScore,
-      criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
-      qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
-      renderedQualityStatus: renderedQualityEvidence?.renderedQualityStatus,
-      renderedAestheticStatus: renderedQualityEvidence?.renderedAestheticStatus,
-      artifactStatus: renderedQualityEvidence?.artifactStatus,
-      renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount,
+    const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run');
+    const directorResult = await runCanonicalDirectorV1(directorPayload, {
+      onClaimed: () => { directorDispatched = true; },
     });
-    const completionSet: Record<string, unknown> = {
-      autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
-      autoEditCompletedAt: new Date(),
-      autoEditDurationMs: totalMs,
-      directorProfileUsed: profileId,
-    };
-    const completionUpdate: Record<string, unknown> = { $set: completionSet };
-    if (!learningDecision.shouldRecord) {
-      completionSet.projectStatus = 'needs-attention';
-      completionSet.autoEditHealth = 'needs_review';
-      completionSet.autoEditWarning = learningDecision.reason === 'missing_quality_review'
-        ? 'Director completed without a persisted quality review.'
-        : `Director completed with quality score ${learningDecision.qualityScore ?? 0} and ${projectAfterDirector?.qualityReview?.criticalCount ?? 0} critical issue(s).`;
-    } else {
-      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
+    const totalMs = Date.now() - startMs;
+    if (directorResult.disposition === 'ASSIST_READY') {
+      return NextResponse.json({
+        success: true,
+        projectId,
+        status: directorResult.status,
+        directorSkipped: true,
+      });
     }
-    await db.collection('projects').updateOne(
-      { projectId },
-      completionUpdate,
-    );
-    try {
-      if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
-        const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
-          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
-          renderedAestheticStatus:
-            renderedQualityEvidence?.renderedAestheticStatus ??
-            renderedQualityEvidence?.renderedQualityStatus ??
-            renderedQualityEvidence?.artifactStatus,
-        });
-      }
-    } catch (err: unknown) { console.warn('[VideoAnalysisWorker] bandit outcome recording failed:', err instanceof Error ? err.message : err); }
-
+    if (directorResult.disposition === 'ALREADY_PROCESSED' || directorResult.disposition === 'OWNERSHIP_LOST') {
+      return NextResponse.json({ success: true, totalMs, skipped: true, reason: 'director-ownership-lost' });
+    }
     return NextResponse.json({ success: true, totalMs });
 
   } catch (error: unknown) {

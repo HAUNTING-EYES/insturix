@@ -50,9 +50,11 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(tribeSource).toContain('creditTransactionId: trackedScan.creditTransactionId');
   });
 
-  it('commits the inline Assist ready state through the ProjectService claim owner', () => {
-    expect(source).toContain('const assistCompletion = await projectService.claimDirectorRunV1(userId, projectId)');
-    expect(source).toContain("assistCompletion.disposition !== 'ASSIST_PROJECT'");
+  it('delegates inline Assist completion to the canonical Director owner', () => {
+    expect(source).toContain("const { runCanonicalDirectorV1 } = await import('@/lib/editron/services/canonical-director-run')");
+    expect(source).toContain('const directorResult = await runCanonicalDirectorV1(directorPayload, {');
+    expect(source).toContain("directorResult.disposition === 'ASSIST_READY'");
+    expect(source).not.toContain('projectService.claimDirectorRunV1(userId, projectId)');
     expect(source).not.toContain("{ projectId, autoEditStatus: { $ne: 'scan_failed' } }");
   });
 

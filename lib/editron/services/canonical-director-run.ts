@@ -1,8 +1,5 @@
 import type { DirectorResult, ProjectBrief } from '@/lib/editron/data/edit-profile-types';
-import {
-  normalizeEditorialPreferences,
-  type EditorialPreferences,
-} from '@/lib/editron/production-brief/editorial-preferences';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import {
   resolveDirectorCompletionHealth,
   type DirectorCompletionHealth,
@@ -15,13 +12,13 @@ export interface CanonicalDirectorRunInputV1 {
   profileId: string;
   platform?: string;
   userIntent?: string;
-  captionStyle?: ProjectBrief['captionStyle'];
-  transitionPreference?: ProjectBrief['transitionPreference'];
-  zoomBehavior?: ProjectBrief['zoomBehavior'];
-  motionGraphics?: ProjectBrief['motionGraphics'];
-  pacingFeel?: ProjectBrief['pacingFeel'];
-  musicPreference?: ProjectBrief['musicPreference'];
-  editorialPreferences?: EditorialPreferences;
+  captionStyle?: unknown;
+  transitionPreference?: unknown;
+  zoomBehavior?: unknown;
+  motionGraphics?: unknown;
+  pacingFeel?: unknown;
+  musicPreference?: unknown;
+  editorialPreferences?: unknown;
   pipelineDirectorDispatchToken?: string;
 }
 
@@ -39,7 +36,6 @@ export type CanonicalDirectorRunResultV1 =
     };
 
 type UnknownRecord = Record<string, unknown>;
-type BriefPacing = NonNullable<ProjectBrief['overrides']>['pacing'];
 
 function asRecord(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -59,17 +55,8 @@ function validProjectStartMs(value: unknown): number | null {
     : null;
 }
 
-function validPacing(value: unknown): BriefPacing | undefined {
-  return typeof value === 'string'
-    && ['fast', 'medium', 'slow', 'variable', 'beat-synced'].includes(value)
-    ? value as BriefPacing
-    : undefined;
-}
-
-function validGraphicsDensity(value: unknown): 'heavy' | 'moderate' | 'minimal' | undefined {
-  return value === 'heavy' || value === 'moderate' || value === 'minimal'
-    ? value
-    : undefined;
+function enumValue<T extends string>(value: unknown, values: readonly T[]): T | undefined {
+  return typeof value === 'string' && values.includes(value as T) ? value as T : undefined;
 }
 
 function boundedString(value: unknown, maxLength = 200): string | undefined {
@@ -86,13 +73,19 @@ function buildDirectorBriefV1(
   const editorialPreferences = normalizeEditorialPreferences(input.editorialPreferences)
     ?? normalizeEditorialPreferences(projectDoc.editorialPreferences)
     ?? normalizeEditorialPreferences(productionBrief?.editorialPreferences);
+  const captionStyle = enumValue(input.captionStyle, ['word_by_word', 'sentence', 'key_phrases', 'none']);
+  const transitionPreference = enumValue(input.transitionPreference, ['minimal', 'subtle', 'dynamic', 'energetic']);
+  const zoomBehavior = enumValue(input.zoomBehavior, ['none', 'subtle', 'moderate', 'aggressive']);
+  const motionGraphics = enumValue(input.motionGraphics, ['none', 'stats_only', 'full']);
+  const pacingFeel = enumValue(input.pacingFeel, ['calm', 'balanced', 'energetic', 'fast']);
+  const musicPreference = enumValue(input.musicPreference, ['none', 'subtle_bed', 'energetic', 'match_video']);
   const userPrefs: Omit<ProjectBrief, 'modifiers' | 'overrides'> = {
-    ...(input.captionStyle && { captionStyle: input.captionStyle }),
-    ...(input.transitionPreference && { transitionPreference: input.transitionPreference }),
-    ...(input.zoomBehavior && { zoomBehavior: input.zoomBehavior }),
-    ...(input.motionGraphics && { motionGraphics: input.motionGraphics }),
-    ...(input.pacingFeel && { pacingFeel: input.pacingFeel }),
-    ...(input.musicPreference && { musicPreference: input.musicPreference }),
+    ...(captionStyle && { captionStyle }),
+    ...(transitionPreference && { transitionPreference }),
+    ...(zoomBehavior && { zoomBehavior }),
+    ...(motionGraphics && { motionGraphics }),
+    ...(pacingFeel && { pacingFeel }),
+    ...(musicPreference && { musicPreference }),
     ...(boundedString(input.platform) && { platform: boundedString(input.platform) }),
     ...(boundedString(input.userIntent, 2_000) && { intent: boundedString(input.userIntent, 2_000) }),
     ...(editorialPreferences && { editorialPreferences }),
@@ -107,9 +100,9 @@ function buildDirectorBriefV1(
 
   const editDnaPacing = asRecord(editDNA.pacing);
   const editDnaTransitions = asRecord(editDNA.transitions);
-  const pacing = validPacing(editDnaPacing?.overall);
+  const pacing = enumValue(editDnaPacing?.overall, ['fast', 'medium', 'slow', 'variable', 'beat-synced']);
   const defaultTransition = boundedString(editDnaTransitions?.dominant);
-  const graphicsDensity = validGraphicsDensity(editDNA.graphicsDensity);
+  const graphicsDensity = enumValue(editDNA.graphicsDensity, ['heavy', 'moderate', 'minimal']);
   const overrides: ProjectBrief['overrides'] = {
     ...(pacing && { pacing }),
     ...(defaultTransition && { defaultTransition }),
@@ -134,6 +127,7 @@ function assertCanonicalDirectorRunInputV1(input: CanonicalDirectorRunInputV1): 
 
 export async function runCanonicalDirectorV1(
   input: CanonicalDirectorRunInputV1,
+  observer?: { onClaimed?(): void },
 ): Promise<CanonicalDirectorRunResultV1> {
   assertCanonicalDirectorRunInputV1(input);
   const startedAtMs = Date.now();
@@ -174,6 +168,7 @@ export async function runCanonicalDirectorV1(
       throw new Error(`ProjectService returned an invalid claimed Director project for ${input.projectId}.`);
     }
     trackedDirectorRun = { projectId: input.projectId, userId: input.userId, runToken: runClaim.runToken };
+    observer?.onClaimed?.();
     if (!asRecord(projectDoc.rawFootageAnalysis)) {
       console.warn(
         `[CanonicalDirector] rawFootageAnalysis is unavailable for ${input.projectId}; `

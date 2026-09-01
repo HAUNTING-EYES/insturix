@@ -112,24 +112,25 @@ describe('director worker completion health', () => {
     expect(dashboardSource).toContain("if (status === 'needs_review')");
   });
 
-  it('keeps inline worker bandit writes behind the shared learning gate', () => {
+  it('routes queued and inline Director execution through one quality/terminal owner', () => {
+    const canonicalSource = readFileSync(
+      join(process.cwd(), 'lib/editron/services/canonical-director-run.ts'),
+      'utf8',
+    );
     for (const routePath of [
       'app/api/internal/workers/video-analysis/route.ts',
       'app/api/internal/workers/tribe-analysis/route.ts',
     ]) {
       const source = readFileSync(join(process.cwd(), routePath), 'utf8');
 
-      expect(source).toContain("import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate'");
-      expect(source).toContain('const learningDecision = resolveEditronLearningOutcome({');
-      expect(source).toContain('intelligence.renderedQualityEvidence');
-      expect(source).toContain('qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-      expect(source).toContain('renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount');
-      expect(source).toContain("autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review'");
-      expect(source).toContain('learningDecision.shouldRecord && learningDecision.qualityScore !== null');
-      expect(source).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
-      expect(source).not.toContain('if (criticalCount <= 5)');
-      expect(source).not.toContain('?? 50');
+      expect(source).toContain("import('@/lib/editron/services/canonical-director-run')");
+      expect(source).toContain('runCanonicalDirectorV1(');
+      expect(source).not.toContain("{ $set: { autoEditStatus: 'directing' } }");
+      expect(source).not.toContain('executeDirectorPlan(projectId');
     }
+    expect(canonicalSource).toContain('resolveDirectorCompletionHealth(');
+    expect(canonicalSource).toContain('completeDirectorRunV1(');
+    expect(canonicalSource).toContain('failDirectorRunV1(');
   });
 
   it('passes rendered quality evidence into the Director worker bandit write', () => {
