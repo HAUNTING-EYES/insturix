@@ -20,6 +20,10 @@ import {
   type DirectorAuditFactV1,
 } from "./director-audit-fact-v1";
 import {
+  assertPersistedDirectorDecisionLogV1,
+  type PersistedDirectorDecisionLogV1,
+} from "./director-decision-log-v1";
+import {
   MAX_RENDER_FINALIZATION_ATTEMPTS,
   PROJECT_ARTIFACT_NOT_CURRENT,
   PROJECT_RENDER_JOBS_COLLECTION_V1,
@@ -1064,6 +1068,12 @@ export interface ProjectDirectorAuditFactCommandV1 {
   expectedRevision: ProjectRevisionV1;
   directorLeaseId: string;
   fact: DirectorAuditFactV1;
+}
+
+export interface ProjectDirectorDecisionLogCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  directorLeaseId: string;
+  decisionLog: PersistedDirectorDecisionLogV1;
 }
 
 /**
@@ -5127,6 +5137,77 @@ export class ProjectService {
       throw new ProjectMutationConflictError(
         projectRevisionFor(latest),
         "Director audit fact is stale or its Director lease is no longer active.",
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
+  }
+
+  /**
+   * Persists bounded calibration evidence without allowing the full in-memory
+   * decision graph to grow the project document without limit.
+   */
+  async recordDirectorDecisionLogV1(
+    userId: string,
+    projectId: string,
+    input: ProjectDirectorDecisionLogCommandV1,
+  ): Promise<ProjectMutationReceiptV1> {
+    assertProjectDirectorDecisionLogCommandV1(userId, projectId, input);
+
+    const db = await getDatabase();
+    const committedAt = new Date();
+    const decisionLogHash = hashEditronCanonicalJsonV1(input.decisionLog);
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        directorLock: true,
+        directorLockToken: input.directorLeaseId,
+        autoEditStatus: "directing",
+      },
+      {
+        $set: {
+          "intelligence.decisionLog": structuredClone(input.decisionLog),
+          "intelligence.directorDecisionLogBinding": {
+            schemaVersion: 1,
+            decisionLogHash,
+            sourceSnapshotIdentityHash: input.decisionLog.sourceSnapshotIdentityHash,
+            sourceProjectRevision: structuredClone(input.expectedRevision),
+            predecessor: "ACTIVE_DIRECTOR_LEASE",
+            affectedRange: null,
+            affectedRangeReason: "PROJECT_WIDE_NON_RENDERABLE_CALIBRATION_EVIDENCE",
+            rightsRequirement: "NOT_APPLICABLE_NO_MEDIA_ATTACHED",
+            invalidationRequirement: "NOT_REQUIRED_NO_RENDERABLE_STATE_CHANGE",
+            recordedAt: committedAt,
+          },
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(
+        projectRevisionFor(latest),
+        "Director decision-log evidence is stale or its Director lease is no longer active.",
       );
     }
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
@@ -10281,6 +10362,30 @@ function assertProjectDirectorAuditFactCommandV1(
   ) {
     throw new ProjectMutationWriteError(
       "Director audit fact must carry one exact revision and active lease.",
+    );
+  }
+  assertProjectRevision(input.expectedRevision);
+}
+
+function assertProjectDirectorDecisionLogCommandV1(
+  userId: string,
+  projectId: string,
+  input: ProjectDirectorDecisionLogCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.directorLeaseId, 200)
+  ) {
+    throw new ProjectMutationWriteError(
+      "Director decision log must carry one exact revision and active lease.",
+    );
+  }
+  try {
+    assertPersistedDirectorDecisionLogV1(input.decisionLog, { projectId, userId });
+  } catch {
+    throw new ProjectMutationWriteError(
+      "Director decision log must be bounded and bound to the exact project and user.",
     );
   }
   assertProjectRevision(input.expectedRevision);

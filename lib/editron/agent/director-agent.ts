@@ -41,6 +41,7 @@ import {
   type DirectorAuditFactV1,
   type PostBundleProfileActionPolicySummaryV1,
 } from '@/lib/editron/services/director-audit-fact-v1';
+import { buildPersistedDirectorDecisionLogV1 } from '@/lib/editron/services/director-decision-log-v1';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -1263,16 +1264,37 @@ export async function executeDirectorPlan(
                 projectId, userId, humanizedEdl.decisions, contentMode,
                 totalDurationMs, vjepaLookup,
               );
-              // Persist to MongoDB for render-time outcome capture
-              try {
-                const snapDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-                await snapDb.collection('projects').updateOne(
-                  { projectId },
-                  { $set: { 'intelligence.decisionLog': decisionLog } },
+              if (directorLeaseId === null) {
+                throw new ProjectMutationWriteError(
+                  'Director decision-log evidence requires the active Director lease.',
                 );
-              } catch (err: unknown) { console.warn('[Director] persistence is non-fatal:', err instanceof Error ? err.message : err); }
+              }
+              const decisionLogReceipt = await projectService.recordDirectorDecisionLogV1(
+                userId,
+                projectId,
+                {
+                  expectedRevision: directorCurrentRevision,
+                  directorLeaseId,
+                  decisionLog: buildPersistedDirectorDecisionLogV1(decisionLog),
+                },
+              );
+              directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+                projectId,
+                currentRevision: directorCurrentRevision,
+                receipts: [decisionLogReceipt],
+              });
               console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
             } catch (snapErr: any) {
+              if (
+                snapErr instanceof ProjectMutationConflictError
+                || snapErr instanceof ProjectMutationWriteError
+                || snapErr instanceof ProjectNotFoundOrForbiddenError
+              ) {
+                throw snapErr;
+              }
+              if (snapErr instanceof Error && snapErr.message === 'DIRECTOR_DECISION_LOG_INVALID') {
+                throw new ProjectMutationWriteError('Computed Director decision-log evidence is invalid.');
+              }
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
             }
 
@@ -1287,6 +1309,13 @@ export async function executeDirectorPlan(
             console.warn('[Director] Path E: Creative Brief returned null or empty — falling through to Path D');
           }
         } catch (pathEErr: any) {
+          if (
+            pathEErr instanceof ProjectMutationConflictError
+            || pathEErr instanceof ProjectMutationWriteError
+            || pathEErr instanceof ProjectNotFoundOrForbiddenError
+          ) {
+            throw pathEErr;
+          }
           console.error(`[Director] Path E failed (${pathEErr.message}), falling through to Path D`);
         }
       }
