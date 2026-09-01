@@ -354,6 +354,9 @@ export async function POST(request: Request) {
       bindingHash: binding.bindingHash,
     });
     renderAttemptToken = dispatchIdentity.attemptToken;
+    const chapterWebhook = usesChapterRendering
+      ? buildRemotionChapterChildWebhook(request)
+      : null;
     const webhook = usesChapterRendering
       ? null
       : buildRemotionRenderWebhook(
@@ -540,6 +543,7 @@ export async function POST(request: Request) {
           region,
           authorization: renderAuthorization!,
           binding,
+          chapterWebhook: chapterWebhook!,
         },
       );
 
@@ -1071,5 +1075,23 @@ function buildRemotionRenderWebhook(
       projectRenderBindingHash: bindingHash,
       editronRenderAttemptToken: attemptToken,
     },
+  };
+}
+
+function buildRemotionChapterChildWebhook(request: Request) {
+  const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new Error('REMOTION_WEBHOOK_SECRET is required for chapter child rendering');
+  }
+  const webhookUrl = new URL(
+    '/api/services/editron/cloudrun/render/chapter-webhook',
+    request.url,
+  );
+  if (webhookUrl.protocol !== 'https:' && webhookUrl.hostname !== 'localhost') {
+    throw new Error('Remotion chapter child webhook must use HTTPS');
+  }
+  return {
+    url: webhookUrl.toString(),
+    secret,
   };
 }

@@ -179,8 +179,18 @@ import { POST } from '@/app/api/services/editron/cloudrun/render/route';
 import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
 import { POST as POST_FINALIZATION_RETRY } from '@/app/api/services/editron/render/finalization/retry/route';
 import { POST as POST_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/webhook/route';
+import { POST as POST_CHAPTER_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/chapter-webhook/route';
 import { RenderAudioRightsAuthorityError } from '@/lib/editron/services/render-audio-rights-authority';
 import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
+import {
+  createChapterChildDispatchIdentityV1,
+  createChapterChildDispatchV1,
+} from '@/lib/editron/services/chapter-render-dispatch-v1';
+import {
+  buildContainedVideoTargetsV1,
+  buildProjectRenderSourceSnapshotV1,
+  createProjectRenderSnapshotBindingV1,
+} from '@/lib/editron/services/project-render-snapshot-binding-v1';
 
 describe('Editron render startup boundary', () => {
   beforeEach(() => {
@@ -630,6 +640,10 @@ describe('Editron render startup boundary', () => {
           projectRevision: projectRevision(),
           bindingHash: reservation.binding.bindingHash,
         }),
+        chapterWebhook: {
+          url: 'https://app.example.test/api/services/editron/cloudrun/render/chapter-webhook',
+          secret: 'test-remotion-webhook-secret',
+        },
       },
     );
     expect(routeMocks.markProjectRenderJobStarted).toHaveBeenCalledWith(expect.objectContaining({
@@ -651,6 +665,179 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('accepts a signed child success, binds the exact ATTEMPTING tuple, and never calls a provider', async () => {
+    const fixture = chapterChildFixture('ATTEMPTING');
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+    routeMocks.dbFindOne.mockResolvedValue(fixture.job);
+    routeMocks.dbUpdateOne.mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+
+    const response = await POST_CHAPTER_RENDER_WEBHOOK(
+      chapterWebhookRequest(chapterWebhookPayload(fixture)),
+    );
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.validateWebhookSignature).toHaveBeenCalledWith({
+      secret: 'test-remotion-webhook-secret',
+      body: expect.objectContaining({ type: 'success' }),
+      signatureHeader: 'sha512=test-signature',
+    });
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledTimes(2);
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('accepts the provider success shape without size but waits for output proof', async () => {
+    const fixture = chapterChildFixture('ATTEMPTING');
+    const payload = chapterWebhookPayload(fixture);
+    delete (payload as { outputSizeInBytes?: number }).outputSizeInBytes;
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+    routeMocks.dbFindOne.mockResolvedValue(fixture.job);
+    routeMocks.dbUpdateOne.mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+
+    const response = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(payload));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledOnce();
+    expect(routeMocks.dbUpdateOne.mock.calls[0]?.[1]).not.toMatchObject({
+      $set: expect.objectContaining({ 'chapters.$.status': 'completed' }),
+    });
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('binds a retained UNKNOWN tuple, records failure, and makes an exact replay read-only', async () => {
+    const fixture = chapterChildFixture('UNKNOWN');
+    const terminalFixture = chapterChildFixture('BOUND', {
+      status: 'failed',
+      error: 'Remotion chapter render timed out',
+    });
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+    routeMocks.dbFindOne
+      .mockResolvedValueOnce(fixture.job)
+      .mockResolvedValueOnce(terminalFixture.job);
+    routeMocks.dbUpdateOne
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1, modifiedCount: 0 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
+
+    const payload = chapterWebhookPayload(fixture, { type: 'timeout' });
+    const first = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(payload));
+    const second = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(payload));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledTimes(3);
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+  });
+
+  it('accepts the installed Remotion structured error payload', async () => {
+    const fixture = chapterChildFixture('ATTEMPTING');
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+    routeMocks.dbFindOne.mockResolvedValue(fixture.job);
+    routeMocks.dbUpdateOne.mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const base = chapterWebhookPayload(fixture);
+    const payload = {
+      type: 'error' as const,
+      renderId: base.renderId,
+      bucketName: base.bucketName,
+      customData: base.customData,
+      errors: [{
+        type: 'renderer' as const,
+        message: 'Renderer failed',
+        name: 'Error',
+        stack: 'Error: Renderer failed',
+        frame: 10,
+        chunk: 0,
+        isFatal: true,
+        attempt: 1,
+        willRetry: false,
+        totalAttempts: 1,
+        tmpDir: { files: [{ filename: 'stderr.log', size: 12 }], total: 12 },
+        s3Location: '',
+        explanation: null,
+      }],
+    };
+
+    const response = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(payload));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledTimes(2);
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('rejects forged, malformed, and mismatched child callbacks before mutation', async () => {
+    const fixture = chapterChildFixture('UNKNOWN');
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+
+    const malformed = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(
+      chapterWebhookPayload(fixture, {
+        type: 'success',
+        outputFile: 'http://bucket.example.test/render.mp4',
+      }),
+    ));
+    expect(malformed.status).toBe(400);
+    expect(routeMocks.dbFindOne).not.toHaveBeenCalled();
+
+    routeMocks.validateWebhookSignature.mockImplementationOnce(() => {
+      throw new Error('forged');
+    });
+    const forged = await POST_CHAPTER_RENDER_WEBHOOK(
+      chapterWebhookRequest(chapterWebhookPayload(fixture)),
+    );
+    expect(forged.status).toBe(409);
+    expect(routeMocks.dbFindOne).not.toHaveBeenCalled();
+
+    routeMocks.validateWebhookSignature.mockImplementation(() => undefined);
+    routeMocks.dbFindOne.mockResolvedValue(fixture.job);
+    const wrongToken = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(
+      chapterWebhookPayload(fixture, {
+        customData: {
+          ...chapterWebhookPayload(fixture).customData,
+          editronChapterAttemptToken: `editron_chapter_child_attempt_v1_${'a'.repeat(64)}`,
+        },
+      }),
+    ));
+    expect(wrongToken.status).toBe(409);
+    expect(routeMocks.dbFindOne).not.toHaveBeenCalled();
+
+    const wrongBinding = 'f'.repeat(64);
+    const wrongBindingToken = createChapterChildDispatchIdentityV1({
+      parentAdmissionId: fixture.parentAdmissionId,
+      childIndex: fixture.childIndex,
+      bindingHash: wrongBinding,
+    }).attemptToken;
+    const bindingMismatch = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(
+      chapterWebhookPayload(fixture, {
+        customData: {
+          ...chapterWebhookPayload(fixture).customData,
+          editronChapterBindingHash: wrongBinding,
+          editronChapterAttemptToken: wrongBindingToken,
+        },
+      }),
+    ));
+    expect(bindingMismatch.status).toBe(409);
+    expect(routeMocks.dbUpdateOne).not.toHaveBeenCalled();
+
+    const tupleMismatch = await POST_CHAPTER_RENDER_WEBHOOK(chapterWebhookRequest(
+      chapterWebhookPayload(fixture, { renderId: 'different-child-render' }),
+    ));
+    expect(tupleMismatch.status).toBe(409);
+    expect(routeMocks.dbUpdateOne).not.toHaveBeenCalled();
   });
 
   it('CRITICAL: rejects unverified renderer bundles and client-owned render form', async () => {
@@ -2097,6 +2284,168 @@ function strictProjectRenderClaim() {
     authorization: strictProjectRenderAuthorization(),
     binding: strictProjectRenderBinding(),
   };
+}
+
+function chapterChildFixture(
+  phase: 'ATTEMPTING' | 'UNKNOWN' | 'BOUND',
+  terminal: {
+    status?: 'rendering' | 'completed' | 'failed';
+    error?: string;
+  } = {},
+) {
+  const parentAdmissionId = 'chr_123456789012';
+  const childIndex = 0;
+  const ownerId = 'chapter-child-owner';
+  const projectId = 'chapter-child-project';
+  const provider = {
+    providerRenderId: 'child-render-1',
+    bucketName: 'remotion-child-output',
+    region: 'us-east-1',
+  };
+  const project = {
+    overlays: [],
+    durationInFrames: 120,
+    fps: 30,
+    playerDimensions: { width: 1920, height: 1080 },
+  };
+  const source = buildProjectRenderSourceSnapshotV1({
+    project,
+    inputProps: { renderMode: 'preview' },
+  });
+  const binding = createProjectRenderSnapshotBindingV1({
+    artifactKind: 'RENDERED_PREVIEW',
+    artifactId: parentAdmissionId,
+    ownerId,
+    projectId,
+    projectRevision: projectRevision(),
+    sequenceId: 'sequence-1',
+    compositionId: 'composition-1',
+    renderContract: { renderer: 'remotion-lambda', codec: 'h264' },
+    durationInFrames: 120,
+    fps: 30,
+    width: 1920,
+    height: 1080,
+    projectRenderSource: source,
+    containedVideoTargets: buildContainedVideoTargetsV1(project.overlays),
+  });
+  const identity = createChapterChildDispatchIdentityV1({
+    parentAdmissionId,
+    childIndex,
+    bindingHash: binding.bindingHash,
+  });
+  const baseDispatch = createChapterChildDispatchV1({
+    parentAdmissionId,
+    childIndex,
+    bindingHash: binding.bindingHash,
+  });
+  const attemptStartedAt = new Date('2026-09-01T00:00:01.000Z');
+  const providerAcceptedAt = new Date('2026-09-01T00:00:02.000Z');
+  const providerBoundAt = new Date('2026-09-01T00:00:03.000Z');
+  const dispatch = phase === 'ATTEMPTING'
+    ? { ...baseDispatch, phase, attemptStartedAt }
+    : phase === 'UNKNOWN'
+      ? {
+          ...baseDispatch,
+          phase,
+          attemptStartedAt,
+          providerAcceptedAt,
+          unknownAt: new Date('2026-09-01T00:00:03.000Z'),
+          unknownReason: 'provider response/write boundary was ambiguous',
+          providerRenderId: provider.providerRenderId,
+          providerBucketName: provider.bucketName,
+          providerRegion: provider.region,
+        }
+      : {
+          ...baseDispatch,
+          phase,
+          attemptStartedAt,
+          providerAcceptedAt,
+          providerBoundAt,
+          providerRenderId: provider.providerRenderId,
+          providerBucketName: provider.bucketName,
+          providerRegion: provider.region,
+        };
+  const status = terminal.status ?? 'rendering';
+  const chapter = {
+    index: childIndex,
+    status,
+    ...(phase === 'ATTEMPTING' ? {} : {
+      renderId: provider.providerRenderId,
+      bucketName: provider.bucketName,
+      region: provider.region,
+    }),
+    ...(status === 'failed' ? { error: terminal.error ?? 'Remotion chapter render timed out' } : {}),
+    ...(status === 'completed' ? {
+      outputUrl: 'https://bucket.example.test/render.mp4',
+      outputSize: 44_583_988,
+    } : {}),
+    dispatch,
+  };
+  return {
+    parentAdmissionId,
+    childIndex,
+    bindingHash: binding.bindingHash,
+    attemptToken: identity.attemptToken,
+    ...provider,
+    binding,
+    dispatch,
+    job: {
+      _id: parentAdmissionId,
+      projectRenderSnapshotBinding: binding,
+      chapters: [chapter],
+    },
+  };
+}
+
+function chapterWebhookPayload(
+  fixture: ReturnType<typeof chapterChildFixture>,
+  overrides: {
+    type?: 'success' | 'timeout';
+    renderId?: string;
+    customData?: Record<string, unknown>;
+    outputFile?: string;
+    outputSizeInBytes?: number;
+  } = {},
+) {
+  const customData = {
+    editronChapterParentAdmissionId: fixture.parentAdmissionId,
+    editronChapterIndex: String(fixture.childIndex),
+    editronChapterAttemptToken: fixture.attemptToken,
+    editronChapterBindingHash: fixture.bindingHash,
+    editronChapterRegion: fixture.region,
+    ...overrides.customData,
+  };
+  if (overrides.type === 'timeout') {
+    return {
+      type: 'timeout' as const,
+      renderId: overrides.renderId ?? fixture.providerRenderId,
+      bucketName: fixture.bucketName,
+      customData,
+    };
+  }
+  return {
+    type: 'success' as const,
+    renderId: overrides.renderId ?? fixture.providerRenderId,
+    bucketName: fixture.bucketName,
+    outputFile: overrides.outputFile ?? 'https://bucket.example.test/render.mp4',
+    outputSizeInBytes: overrides.outputSizeInBytes ?? 44_583_988,
+    customData,
+  };
+}
+
+function chapterWebhookRequest(payload: unknown): Request {
+  return new Request(
+    'https://app.example.test/api/services/editron/cloudrun/render/chapter-webhook',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-remotion-mode': 'production',
+        'x-remotion-signature': 'sha512=test-signature',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 function renderRequest(overrides: Record<string, unknown> = {}): Request {

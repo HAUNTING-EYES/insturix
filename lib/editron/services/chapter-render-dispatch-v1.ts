@@ -870,3 +870,351 @@ export async function quarantineChapterChildDispatchV1(input: {
 }
 
 export const recordChapterChildDispatchUnknownV1 = quarantineChapterChildDispatchV1;
+
+export type ChapterChildTerminalEventV1 =
+  | {
+      type: "success";
+      outputUrl: string;
+      outputSize?: number;
+    }
+  | {
+      type: "error";
+      error: string;
+    }
+  | {
+      type: "timeout";
+      error?: string;
+    };
+
+export type ChapterChildTerminalCallbackResultV1 =
+  | {
+      ok: true;
+      status: "RECONCILED" | "ALREADY_RECONCILED" | "BOUND_AWAITING_OUTPUT_PROOF";
+    }
+  | {
+      ok: false;
+      status: "REJECTED";
+      reason: string;
+    };
+
+function terminalCallbackRejected(
+  reason: string,
+): ChapterChildTerminalCallbackResultV1 {
+  return { ok: false, status: "REJECTED", reason };
+}
+
+function terminalCallbackError(event: ChapterChildTerminalEventV1): string | undefined {
+  if (event.type === "success") return undefined;
+  const message = event.type === "timeout"
+    ? event.error ?? "Remotion chapter render timed out"
+    : event.error;
+  const normalized = message.trim();
+  return (normalized || "Remotion chapter render failed").slice(0, 1_000);
+}
+
+function terminalOutputUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function terminalOutputSize(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value > 0;
+}
+
+type ChapterTerminalRecordV1 = {
+  index?: unknown;
+  status?: unknown;
+  renderId?: unknown;
+  bucketName?: unknown;
+  region?: unknown;
+  outputUrl?: unknown;
+  outputSize?: unknown;
+  error?: unknown;
+  dispatch?: unknown;
+};
+
+function exactTerminalReplay(
+  chapter: ChapterTerminalRecordV1,
+  dispatch: ChapterChildDispatchV1,
+  tuple: ChapterChildProviderTupleV1,
+  event: ChapterChildTerminalEventV1,
+): boolean {
+  if (
+    dispatch.phase !== "BOUND"
+    || chapter.status !== (event.type === "success" ? "completed" : "failed")
+    || chapter.renderId !== tuple.providerRenderId
+    || chapter.bucketName !== tuple.bucketName
+    || chapter.region !== tuple.region
+    || dispatch.providerRenderId !== tuple.providerRenderId
+    || dispatch.providerBucketName !== tuple.bucketName
+    || dispatch.providerRegion !== tuple.region
+  ) {
+    return false;
+  }
+  if (event.type === "success") {
+    return chapter.outputUrl === event.outputUrl
+      && (event.outputSize === undefined || chapter.outputSize === event.outputSize)
+      && terminalOutputUrl(chapter.outputUrl)
+      && terminalOutputSize(chapter.outputSize);
+  }
+  return chapter.error === terminalCallbackError(event);
+}
+
+/**
+ * Reconcile an authenticated Remotion terminal event for exactly one chapter.
+ *
+ * Authentication is deliberately owned by the route. This owner proves the
+ * durable parent snapshot, deterministic child identity, existing attempt
+ * evidence and exact provider tuple, then performs one fenced terminal CAS.
+ * It never calls a provider, refunds credits, retries a render, enqueues
+ * concat, or completes the parent aggregate.
+ */
+export async function reconcileChapterChildTerminalCallbackV1(input: {
+  parentAdmissionId: string;
+  childIndex: number;
+  bindingHash: string;
+  attemptToken: string;
+  providerRenderId: string;
+  bucketName: string;
+  region: string;
+  event: ChapterChildTerminalEventV1;
+  now?: Date;
+  collection?: ChapterChildDispatchCollection;
+}): Promise<ChapterChildTerminalCallbackResultV1> {
+  const parentAdmissionId = input.parentAdmissionId.trim();
+  const bindingHash = input.bindingHash.trim();
+  const attemptToken = input.attemptToken.trim();
+  if (!PARENT_ADMISSION_ID.test(parentAdmissionId)) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PARENT_INVALID");
+  }
+  if (!HEX_SHA256.test(bindingHash)) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_BINDING_INVALID");
+  }
+  if (!validChildIndex(input.childIndex)) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_CHILD_INDEX_INVALID");
+  }
+  let expectedIdentity: ChapterChildDispatchIdentityV1;
+  try {
+    expectedIdentity = createChapterChildDispatchIdentityV1({
+      parentAdmissionId,
+      childIndex: input.childIndex,
+      bindingHash,
+    });
+  } catch {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_IDENTITY_INVALID");
+  }
+  if (attemptToken !== expectedIdentity.attemptToken) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_IDENTITY_INVALID");
+  }
+  const tuple = providerTuple({
+    providerRenderId: input.providerRenderId,
+    bucketName: input.bucketName,
+    region: input.region,
+  });
+  if (!tuple) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PROVIDER_TUPLE_INVALID");
+  }
+  if (input.event.type === "success"
+    && (
+      !terminalOutputUrl(input.event.outputUrl)
+      || input.event.outputSize !== undefined && !terminalOutputSize(input.event.outputSize)
+    )) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_OUTPUT_INVALID");
+  }
+  const now = input.now ?? new Date();
+  if (!validDate(now)) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_TIME_INVALID");
+  }
+
+  const collection = await resolveCollection(input.collection);
+  const stored = await collection.findOne({ _id: parentAdmissionId } as never);
+  if (!stored || typeof stored !== "object") {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PARENT_NOT_FOUND");
+  }
+  const storedRecord = stored as Record<string, unknown>;
+  const binding = bindingForParent(
+    storedRecord.projectRenderSnapshotBinding,
+    parentAdmissionId,
+  );
+  if (!binding || binding.bindingHash !== bindingHash) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_BINDING_MISMATCH");
+  }
+  const chapters = storedRecord.chapters;
+  if (!Array.isArray(chapters)) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PARENT_INVALID");
+  }
+  const chapter = chapters.find((candidate): candidate is ChapterTerminalRecordV1 =>
+    typeof candidate === "object"
+    && candidate !== null
+    && (candidate as ChapterTerminalRecordV1).index === input.childIndex,
+  );
+  if (!chapter) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_CHILD_NOT_FOUND");
+  }
+  let dispatch: ChapterChildDispatchV1;
+  try {
+    assertChapterChildDispatchV1(chapter.dispatch);
+    dispatch = chapter.dispatch;
+  } catch {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_DISPATCH_INVALID");
+  }
+  if (
+    dispatch.parentAdmissionId !== parentAdmissionId
+    || dispatch.childIndex !== input.childIndex
+    || dispatch.bindingHash !== bindingHash
+    || dispatch.attemptToken !== attemptToken
+  ) {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_SCOPE_MISMATCH");
+  }
+  if (dispatch.phase === "NOT_ATTEMPTED") {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_DISPATCH_NOT_READY");
+  }
+  const storedTupleValues = [chapter.renderId, chapter.bucketName, chapter.region];
+  const hasStoredTuple = storedTupleValues.some((value) => value !== undefined);
+  if (hasStoredTuple) {
+    const storedTuple = providerTuple({
+      providerRenderId: typeof chapter.renderId === "string" ? chapter.renderId : "",
+      bucketName: typeof chapter.bucketName === "string" ? chapter.bucketName : "",
+      region: typeof chapter.region === "string" ? chapter.region : "",
+    });
+    if (!storedTuple
+      || storedTuple.providerRenderId !== tuple.providerRenderId
+      || storedTuple.bucketName !== tuple.bucketName
+      || storedTuple.region !== tuple.region) {
+      return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_PROVIDER_MISMATCH");
+    }
+  }
+
+  if (chapter.status === "completed" || chapter.status === "failed") {
+    return exactTerminalReplay(chapter, dispatch, tuple, input.event)
+      ? { ok: true, status: "ALREADY_RECONCILED" }
+      : terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_TERMINAL_CONFLICT");
+  }
+  if (chapter.status !== "rendering") {
+    return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_STATUS_INVALID");
+  }
+
+  const bound = await bindChapterChildDispatchV1({
+    parentAdmissionId,
+    childIndex: input.childIndex,
+    binding,
+    attemptToken,
+    providerRenderId: tuple.providerRenderId,
+    bucketName: tuple.bucketName,
+    region: tuple.region,
+    now,
+    collection,
+  });
+  if (!bound.ok) {
+    return terminalCallbackRejected(`CHAPTER_CHILD_CALLBACK_DISPATCH_${bound.reason}`);
+  }
+
+  // Remotion 4.0.509's signed success payload proves the output URL but does
+  // not include the byte size. Bind the exact provider tuple, then leave the
+  // child nonterminal until the existing progress owner proves a positive
+  // `outputSizeInBytes`. Never invent an artifact size at ingress.
+  if (input.event.type === "success" && input.event.outputSize === undefined) {
+    return { ok: true, status: "BOUND_AWAITING_OUTPUT_PROOF" };
+  }
+
+  const terminalError = terminalCallbackError(input.event);
+  const filter = {
+    _id: parentAdmissionId,
+    "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
+    "projectRenderSnapshotBinding.artifactId": parentAdmissionId,
+    "projectRenderSnapshotBinding.bindingHash": bindingHash,
+    chapters: {
+      $elemMatch: {
+        index: input.childIndex,
+        status: "rendering",
+        renderId: tuple.providerRenderId,
+        bucketName: tuple.bucketName,
+        region: tuple.region,
+        "dispatch.version": CHAPTER_CHILD_DISPATCH_CONTRACT_VERSION_V1,
+        "dispatch.scope": CHAPTER_CHILD_DISPATCH_SCOPE_V1,
+        "dispatch.phase": "BOUND",
+        "dispatch.parentAdmissionId": parentAdmissionId,
+        "dispatch.childIndex": input.childIndex,
+        "dispatch.bindingHash": bindingHash,
+        "dispatch.attemptToken": attemptToken,
+        ...tupleFilter(tuple),
+        "dispatch.attemptStartedAt": { $exists: true },
+        "dispatch.providerAcceptedAt": { $exists: true },
+        "dispatch.providerBoundAt": { $exists: true },
+      },
+    },
+  };
+  const update = input.event.type === "success"
+    ? {
+        $set: {
+          "chapters.$.status": "completed",
+          "chapters.$.outputUrl": input.event.outputUrl,
+          "chapters.$.outputSize": input.event.outputSize,
+          updatedAt: now,
+        },
+        $unset: { "chapters.$.error": "" as const },
+      }
+    : {
+        $set: {
+          "chapters.$.status": "failed",
+          "chapters.$.error": terminalError,
+          updatedAt: now,
+        },
+        $unset: {
+          "chapters.$.outputUrl": "" as const,
+          "chapters.$.outputSize": "" as const,
+        },
+      };
+  const transition = await collection.updateOne(filter as never, update as never);
+  if (transitionWriteWasProved(transition)) {
+    return { ok: true, status: "RECONCILED" };
+  }
+  if (!acknowledgedWriteWasReceived(transition)) {
+    throw new Error("CHAPTER_CHILD_CALLBACK_TERMINAL_WRITE_UNPROVED");
+  }
+
+  const replay = await collection.findOne({ _id: parentAdmissionId } as never);
+  if (replay && typeof replay === "object") {
+    const replayRecord = replay as Record<string, unknown>;
+    const replayBinding = bindingForParent(
+      replayRecord.projectRenderSnapshotBinding,
+      parentAdmissionId,
+    );
+    const replayChapters = replayRecord.chapters;
+    const replayChapter = Array.isArray(replayChapters)
+      ? replayChapters.find((candidate): candidate is ChapterTerminalRecordV1 =>
+          typeof candidate === "object"
+          && candidate !== null
+          && (candidate as ChapterTerminalRecordV1).index === input.childIndex,
+        )
+      : undefined;
+    if (replayBinding?.bindingHash === bindingHash && replayChapter) {
+      try {
+        assertChapterChildDispatchV1(replayChapter.dispatch);
+        const replayDispatch = replayChapter.dispatch;
+        if (
+          replayDispatch.parentAdmissionId === parentAdmissionId
+          && replayDispatch.childIndex === input.childIndex
+          && replayDispatch.bindingHash === bindingHash
+          && replayDispatch.attemptToken === attemptToken
+          && replayDispatch.providerRenderId === tuple.providerRenderId
+          && replayDispatch.providerBucketName === tuple.bucketName
+          && replayDispatch.providerRegion === tuple.region
+          && exactTerminalReplay(replayChapter, replayDispatch, tuple, input.event)
+        ) {
+          return { ok: true, status: "ALREADY_RECONCILED" };
+        }
+      } catch {
+        // The durable state is not a valid exact replay; fail closed below.
+      }
+    }
+  }
+  return terminalCallbackRejected("CHAPTER_CHILD_CALLBACK_TERMINAL_NOT_CURRENT");
+}

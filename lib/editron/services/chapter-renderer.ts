@@ -122,6 +122,8 @@ interface ChapterRenderJob {
   ownerId?: string;
   /** Selected AWS region for this job; legacy rows may omit it. */
   region?: string;
+  /** Public child callback endpoint; the secret is never persisted. */
+  chapterWebhookUrl?: string;
   /** Final concatenated video URL */
   outputUrl?: string;
   /** Immutable strict concat input/output identity, persisted before QStash dispatch. */
@@ -273,6 +275,12 @@ type ChapterRenderStartOptionsV1 = {
   region: string;
   authorization: ProjectRenderJobAuthorizationV1;
   binding: ProjectRenderSnapshotBindingV1;
+  chapterWebhook: ChapterChildWebhookConfigV1;
+};
+
+export type ChapterChildWebhookConfigV1 = {
+  url: string;
+  secret: string;
 };
 
 function assertChapterRegion(region: string): string {
@@ -283,6 +291,23 @@ function assertChapterRegion(region: string): string {
 
 function isStrictChapterRenderJob(job: Partial<ChapterRenderJob>): boolean {
   return job.projectRenderSnapshotBinding !== undefined;
+}
+
+function resolveChapterChildWebhook(
+  job: Partial<ChapterRenderJob>,
+  supplied?: ChapterChildWebhookConfigV1,
+): ChapterChildWebhookConfigV1 | undefined {
+  if (!isStrictChapterRenderJob(job)) return supplied;
+  const persistedUrl = typeof job.chapterWebhookUrl === 'string'
+    ? job.chapterWebhookUrl.trim()
+    : '';
+  if (!persistedUrl) return undefined;
+  if (supplied && supplied.url.trim() !== persistedUrl) {
+    throw new Error('CHAPTER_RENDER_CHILD_WEBHOOK_URL_MISMATCH');
+  }
+  const secret = supplied?.secret.trim() || process.env.REMOTION_WEBHOOK_SECRET?.trim();
+  if (!secret || !isHttpsUrl(persistedUrl)) return undefined;
+  return { url: persistedUrl, secret };
 }
 
 function chapterProviderIdentityIsComplete(chapter: Partial<Chapter>): boolean {
@@ -318,10 +343,37 @@ function readChapterOutputSize(value: unknown): number | undefined {
 function isHttpsUrl(value: unknown): value is string {
   if (typeof value !== 'string' || !value.trim()) return false;
   try {
-    return new URL(value).protocol === 'https:';
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0;
   } catch {
     return false;
   }
+}
+
+function buildChapterChildWebhook(
+  config: ChapterChildWebhookConfigV1,
+  input: {
+  parentAdmissionId: string;
+  childIndex: number;
+  attemptToken: string;
+  bindingHash: string;
+  region: string;
+  },
+) {
+  if (!config.secret.trim() || !isHttpsUrl(config.url)) {
+    throw new Error('CHAPTER_RENDER_CHILD_WEBHOOK_CONFIG_INVALID');
+  }
+  return {
+    url: config.url,
+    secret: config.secret,
+    customData: {
+      editronChapterParentAdmissionId: input.parentAdmissionId,
+      editronChapterIndex: String(input.childIndex),
+      editronChapterAttemptToken: input.attemptToken,
+      editronChapterBindingHash: input.bindingHash,
+      editronChapterRegion: input.region,
+    },
+  };
 }
 
 function buildProjectChapterConcatTargetV1(
@@ -402,6 +454,7 @@ async function startSingleChapterRender(
     totalFrames: number;
     overlays: Overlay[];
     binding?: ProjectRenderSnapshotBindingV1;
+    chapterWebhook?: ChapterChildWebhookConfigV1;
   },
 ): Promise<void> {
   const strictBinding = ctx.binding;
@@ -420,6 +473,11 @@ async function startSingleChapterRender(
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       await failChapter(db, jobId, chapter, message);
+      return;
+    }
+
+    if (!ctx.chapterWebhook) {
+      await failChapter(db, jobId, chapter, 'CHAPTER_RENDER_CHILD_WEBHOOK_CONFIG_MISSING');
       return;
     }
 
@@ -494,7 +552,15 @@ async function startSingleChapterRender(
           editronChapterIndex: String(chapter.index),
           editronChapterAttemptToken: dispatch.attemptToken,
           editronChapterBindingHash: strictBinding.bindingHash,
+          editronChapterRegion: ctx.region,
         },
+        webhook: buildChapterChildWebhook(ctx.chapterWebhook, {
+          parentAdmissionId: jobId,
+          childIndex: chapter.index,
+          attemptToken: dispatch.attemptToken,
+          bindingHash: strictBinding.bindingHash,
+          region: ctx.region,
+        }),
       });
       const parsedTuple = ChapterChildProviderTupleSchemaV1.safeParse({
         providerRenderId: typeof renderId === 'string' ? renderId.trim() : '',
@@ -620,7 +686,12 @@ async function startSingleChapterRender(
  */
 export async function startPendingChapters(
   jobId: string,
-  opts?: { serveUrl?: string; functionName?: string; region?: string },
+  opts?: {
+    serveUrl?: string;
+    functionName?: string;
+    region?: string;
+    chapterWebhook?: ChapterChildWebhookConfigV1;
+  },
 ): Promise<void> {
   const db = await getDatabase();
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
@@ -651,6 +722,14 @@ export async function startPendingChapters(
   // repair a missing strict region from current process configuration: doing
   // so could poll or start a child in a different provider account/region.
   const strictJob = isStrictChapterRenderJob(job);
+  let chapterWebhook: ChapterChildWebhookConfigV1 | undefined;
+  try {
+    chapterWebhook = resolveChapterChildWebhook(job, opts?.chapterWebhook);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const chapter of pending) await failChapter(db, jobId, chapter, message);
+    return;
+  }
   const persistedRegion = typeof job.region === 'string' && job.region.trim()
     ? job.region.trim()
     : undefined;
@@ -685,7 +764,12 @@ export async function startPendingChapters(
     height: job.height,
     totalFrames: job.totalFrames,
     overlays: (job.overlays ?? []) as Overlay[],
-    ...(strictJob ? { binding: job.projectRenderSnapshotBinding } : {}),
+    ...(strictJob
+      ? {
+          binding: job.projectRenderSnapshotBinding,
+          chapterWebhook,
+        }
+      : {}),
   };
   for (const chapter of pending) {
     await startSingleChapterRender(db, jobId, chapter, ctx);
@@ -729,6 +813,11 @@ export async function startChapterRender(
       || !sameProjectArtifactRevisionV1(options.binding.projectRevision, authorization.data.projectRevision)
     ) {
       throw new Error('CHAPTER_RENDER_PROJECT_RENDER_BINDING_SCOPE_MISMATCH');
+    }
+    if (!options.chapterWebhook
+      || !isHttpsUrl(options.chapterWebhook.url)
+      || !options.chapterWebhook.secret.trim()) {
+      throw new Error('CHAPTER_RENDER_CHILD_WEBHOOK_CONFIG_INVALID');
     }
     projectRenderSnapshotBinding = structuredClone(options.binding);
   }
@@ -796,6 +885,9 @@ export async function startChapterRender(
     region: selectedRegion,
     ...(projectRenderSnapshotBinding ? { projectRenderSnapshotBinding } : {}),
     ...(projectRenderSnapshotBinding ? { ownerId: projectRenderSnapshotBinding.ownerId } : {}),
+    ...(projectRenderSnapshotBinding && options?.chapterWebhook
+      ? { chapterWebhookUrl: options.chapterWebhook.url }
+      : {}),
     createdAt,
     updatedAt: createdAt,
     expiresAt: renderChapterExpiresAt(createdAt, planType),
@@ -809,7 +901,12 @@ export async function startChapterRender(
   // getChapterRenderProgress() as each running chapter finishes — keeping total renderer Lambdas under
   // the AWS account limit instead of firing every chapter at once (which throttled the chunks and timed
   // out the per-chapter main function after 600s).
-  await startPendingChapters(jobId, { serveUrl, functionName, region: selectedRegion });
+  await startPendingChapters(jobId, {
+    serveUrl,
+    functionName,
+    region: selectedRegion,
+    ...(options?.chapterWebhook ? { chapterWebhook: options.chapterWebhook } : {}),
+  });
 
   return { jobId, chapters: chapters.length };
 }
