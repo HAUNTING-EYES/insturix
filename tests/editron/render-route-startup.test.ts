@@ -964,6 +964,86 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
   });
 
+  it('rejects conflicting duplicate output and artifact-bound fallback', async () => {
+    const finalizingLookup = strictProjectRenderLookup('finalizing');
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(finalizingLookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: finalizingLookup.job,
+    });
+    const conflictingReplay = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'success',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      outputFile: 'https://bucket.example.test/different.mp4',
+      outputSizeInBytes: 44_583_988,
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+    expect(conflictingReplay.status).toBe(409);
+    expect(routeMocks.claimProjectRenderJobFinalization).not.toHaveBeenCalled();
+
+    const artifactBoundResult = {
+      ok: false,
+      status: 'NON_CURRENT',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      reason: 'JOB_NOT_CURRENT',
+    };
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(
+      artifactBoundResult,
+    );
+    const artifactWebhook = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+    expect(artifactWebhook.status).toBe(409);
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(
+      artifactBoundResult,
+    );
+    const artifactRetry = await POST_FINALIZATION_RETRY(
+      retryFinalizationRequest('rnd_admission_1'),
+    );
+    expect(artifactRetry.status).toBe(404);
+    expect(routeMocks.claimFailedJobFinalizationRetry).not.toHaveBeenCalled();
+  });
+
+  it('rechecks ProjectService immediately before signed webhook mutation', async () => {
+    const lookup = strictProjectRenderLookup('rendering');
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.getProjectRevision
+      .mockResolvedValueOnce(projectRevision())
+      .mockResolvedValueOnce({ ...projectRevision(), value: 8 });
+
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+        projectRenderBindingHash: 'b'.repeat(64),
+      },
+    }));
+
+    expect(response.status).toBe(409);
+    expect(routeMocks.getProjectRevision).toHaveBeenCalledTimes(2);
+    expect(routeMocks.failProjectRenderJobFromProvider).not.toHaveBeenCalled();
+  });
+
   it('CRITICAL: rejects forged render callbacks before durable state changes', async () => {
     routeMocks.validateWebhookSignature.mockImplementation(() => {
       throw new Error('Signatures do not match');
@@ -1395,6 +1475,35 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.releaseFailedJobFinalizationRetryClaim).not.toHaveBeenCalled();
   });
 
+  it('rechecks project access and revision immediately before strict retry mutation', async () => {
+    const lookup = strictProjectRenderLookup('error');
+    const firstSnapshot = {
+      project: { projectId: 'project_1' },
+      revision: projectRevision(),
+      ownerId: 'user_1',
+    };
+    routeMocks.getProjectRenderJobAuthorizationByAdmission.mockResolvedValueOnce(lookup);
+    routeMocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: lookup.job,
+    });
+    routeMocks.loadProjectForRenderSnapshot
+      .mockResolvedValueOnce(firstSnapshot)
+      .mockResolvedValueOnce({
+        ...firstSnapshot,
+        revision: { ...projectRevision(), value: 8 },
+      });
+
+    const stale = await POST_FINALIZATION_RETRY(
+      retryFinalizationRequest('rnd_admission_1'),
+    );
+
+    expect(stale.status).toBe(409);
+    expect(routeMocks.loadProjectForRenderSnapshot).toHaveBeenCalledTimes(2);
+    expect(routeMocks.claimFailedProjectRenderJobFinalizationRetry).not.toHaveBeenCalled();
+  });
+
   it('keeps failed recovery retryable when queue publication fails and hides foreign jobs', async () => {
     const failedJob = {
       _id: 'rnd_admission_1',
@@ -1790,6 +1899,15 @@ function strictProjectRenderLookup(
               attempts: 1,
             },
           }
+        : status === 'finalizing'
+          ? {
+              finalization: {
+                state: 'running' as const,
+                sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+                sourceOutputSize: 44_583_988,
+                attempts: 1,
+              },
+            }
         : {}),
       projectRenderSnapshotBinding: strictProjectRenderBinding(),
     },

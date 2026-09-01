@@ -380,12 +380,41 @@ describe("Project render-job owner V1", () => {
     });
     expect(legacy).toMatchObject({ ok: false, status: "NOT_PROJECT_RENDER_JOB" });
 
+    const artifactBinding = createProjectArtifactBindingV1({
+      artifactKind: "RENDERED_PREVIEW",
+      artifactId: JOB_ID,
+      ownerId: OWNER_ID,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      target: binding.containedVideoTargets[0]!,
+    });
+    collection.findOne.mockResolvedValueOnce(RenderJobSchema.parse({
+      ...createPendingRenderJob(
+        JOB_ID,
+        OWNER_ID,
+        PROJECT_ID,
+        "us-east-1",
+        5_000,
+        artifactBinding,
+      ),
+      deliveryManifest: DELIVERY_MANIFEST,
+    }));
+    const artifactBound = await getProjectRenderJobAuthorizationByAdmissionV1({
+      jobId: JOB_ID,
+      collection,
+    });
+    expect(artifactBound).toMatchObject({
+      ok: false,
+      status: "NON_CURRENT",
+      reason: "JOB_NOT_CURRENT",
+    });
+
     const invalid = await getProjectRenderJobAuthorizationByAdmissionV1({
       jobId: "",
       collection,
     });
     expect(invalid).toMatchObject({ ok: false, reason: "INPUT_INVALID" });
-    expect(collection.findOne).toHaveBeenCalledTimes(3);
+    expect(collection.findOne).toHaveBeenCalledTimes(4);
   });
 
   it("requires an exact snapshot binding before reserving a project render", async () => {

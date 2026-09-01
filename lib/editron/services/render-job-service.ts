@@ -466,6 +466,9 @@ export async function getProjectRenderJobAuthorizationByAdmissionV1(input: {
   if (!parsedJob.success) return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
   const job = parsedJob.data;
   if (job.projectRenderSnapshotBinding === undefined) {
+    if (job.artifactBinding !== undefined) {
+      return nonCurrentProjectRenderJobResult('JOB_NOT_CURRENT');
+    }
     return { ok: false, status: 'NOT_PROJECT_RENDER_JOB', job };
   }
   if (

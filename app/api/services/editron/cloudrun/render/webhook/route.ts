@@ -16,6 +16,7 @@ import {
   projectService,
   ProjectNotFoundOrForbiddenError,
 } from '@/lib/editron/services/project-service';
+import { sameProjectArtifactRevisionV1 } from '@/lib/editron/services/project-artifact-invalidation-v1';
 
 export const runtime = 'nodejs';
 
@@ -153,36 +154,64 @@ export async function POST(request: Request) {
     if (hasStoredProviderIdentity && !exactProviderIdentity) {
       return projectRenderNotCurrent();
     }
+    const successfulOutputUrl = payload.type === 'success'
+      ? payload.outputFile ?? payload.outputUrl
+      : null;
+    if (payload.type === 'success' && !successfulOutputUrl) {
+      throw new Error('Successful Remotion webhook has no output URL');
+    }
+    const sourceOutputSize = payload.type === 'success'
+      ? payload.outputSizeInBytes ?? 0
+      : null;
     if (
       payload.type === 'success'
       && exactProviderIdentity
       && (current.job.status === 'finalizing' || current.job.status === 'done')
     ) {
-      return NextResponse.json({ type: 'success', state: 'already_reconciled' });
+      const storedFinalization = current.job.finalization;
+      const exactStoredSource = storedFinalization?.sourceOutputUrl === successfulOutputUrl
+        && storedFinalization?.sourceOutputSize === sourceOutputSize;
+      const validStoredState = current.job.status === 'finalizing'
+        ? storedFinalization?.state === 'running'
+        : storedFinalization?.state === 'done' && storedFinalization.receipt !== undefined;
+      return exactStoredSource && validStoredState
+        ? NextResponse.json({ type: 'success', state: 'already_reconciled' })
+        : projectRenderNotCurrent();
     }
+    const providerError = payload.type === 'success'
+      ? null
+      : terminalError(payload).error.trim().slice(0, 1000);
     if (payload.type !== 'success' && exactProviderIdentity && current.job.status === 'error') {
-      return NextResponse.json({ type: 'success', state: 'already_reconciled' });
+      return current.job.finalization === undefined && current.job.error === providerError
+        ? NextResponse.json({ type: 'success', state: 'already_reconciled' })
+        : projectRenderNotCurrent();
+    }
+
+    const refreshedProjectRevision = await projectService.getProjectRevision(
+      lookup.authorization.ownerId,
+      lookup.authorization.projectId,
+    );
+    if (!sameProjectArtifactRevisionV1(currentProjectRevision, refreshedProjectRevision)) {
+      return projectRenderNotCurrent();
     }
 
     if (payload.type === 'success') {
-      const outputUrl = payload.outputFile ?? payload.outputUrl;
-      if (!outputUrl) throw new Error('Successful Remotion webhook has no output URL');
       const result = await beginProjectRenderFinalizationV1({
         authorization: lookup.authorization,
-        currentProjectRevision,
+        currentProjectRevision: refreshedProjectRevision,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
-        sourceOutputUrl: outputUrl,
-        sourceOutputSize: payload.outputSizeInBytes ?? 0,
+        sourceOutputUrl: successfulOutputUrl!,
+        sourceOutputSize: sourceOutputSize!,
       });
       if (!('state' in result)) return projectRenderNotCurrent();
     } else {
       const result = await failProjectRenderJobFromProviderV1({
         authorization: lookup.authorization,
-        currentProjectRevision,
+        currentProjectRevision: refreshedProjectRevision,
         providerRenderId: payload.renderId,
         bucketName: payload.bucketName,
-        error: terminalError(payload).error,
+        error: providerError!,
       });
       if (!result.ok) return projectRenderNotCurrent();
     }
