@@ -60,6 +60,8 @@ import {
   isAssistProject,
   parseEditMode,
   partitionAssistAssets,
+  registerAssistScanCharge,
+  settleAssistScanFailure,
 } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
@@ -996,6 +998,9 @@ export async function POST(request: NextRequest) {
   let body: FromBatchRequest | null = null;
   let uploadBatchId: string | null = null;
   let activeProjectId: string | null = null;
+  let assistCharge: { transactionId: string; chargedCredits: number } | null = null;
+  let assistChargeRegistered = false;
+  let assistReadyCommitted = false;
   let baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   try {
@@ -1622,6 +1627,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'orchestration-lease-held' });
     }
 
+    const laneOwner = await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId: activeProjectId, userId },
+      { projection: { editMode: 1, autoEditStatus: 1 } },
+    );
+    assistLaneActive = isAssistProject(laneOwner);
+    if (assistLaneActive && laneOwner?.autoEditStatus === ASSIST_STATUS_READY) {
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: { $ne: 'failed' } },
+        {
+          $set: { orchestrationStatus: 'assist_ready', updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: ASSIST_STATUS_READY,
+        recoveredBatchProjection: true,
+      });
+    }
+
     creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
     if (!creditCheck.allowed) {
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
@@ -1637,6 +1663,47 @@ export async function POST(request: NextRequest) {
     const deduction = await creditCheck.deduct();
     creditsDeducted = true;
 
+    if (assistLaneActive) {
+      const { getCreditCost } = await import('@/lib/config/creditCosts');
+      assistCharge = {
+        transactionId: deduction.transactionId,
+        chargedCredits: getCreditCost('editron', 'auto_edit_analysis', creditOptions),
+      };
+      const registration = await registerAssistScanCharge(db, {
+        projectId: activeProjectId,
+        userId,
+        creditTransactionId: assistCharge.transactionId,
+        chargedCredits: assistCharge.chargedCredits,
+      });
+      if (!('terminal' in registration)) {
+        throw new Error(`Assist charge registration failed closed (${registration.disposition}).`);
+      }
+      assistChargeRegistered = true;
+      if (registration.terminal) {
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: activeProjectId,
+          userId,
+          reason: 'Director Mode scan cancelled during charge registration — full refund',
+          creditTransactionId: assistCharge.transactionId,
+        });
+        creditsDeducted = settlement !== 'refunded';
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          { uploadBatchId, userId, projectId: activeProjectId },
+          {
+            $set: { orchestrationStatus: 'failed', orchestrationError: 'Cancelled by user', updatedAt: new Date() },
+            $unset: { orchestrationLeaseUntil: '' },
+          },
+        );
+        return NextResponse.json({
+          success: true,
+          projectId: activeProjectId,
+          status: 'scan_failed',
+          cancelledDuringChargeRegistration: true,
+          refundPending: settlement !== 'refunded',
+        });
+      }
+    }
+
     const intake = mergeIntake(batch.productionBriefIntake, body);
     const analysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
       projectId: activeProjectId,
@@ -1650,23 +1717,7 @@ export async function POST(request: NextRequest) {
     // Director Mode (assist lane): scans are done and credits are deducted — lay the
     // clips down chronologically, hydrate the project-level analysis fields chat
     // grounds in, and hand the pen to the user. NO storyline, NO director, NO edits.
-    const laneOwner = await db.collection(COLLECTIONS.PROJECTS).findOne(
-      { projectId: activeProjectId },
-      { projection: { editMode: 1 } },
-    );
-    if (isAssistProject(laneOwner)) {
-      assistLaneActive = true;
-      // MONEY (battle-lane P0): the deduction happened at compose above, but the
-      // txId used to be persisted only on the ready-write — which a user cancel
-      // mid-compose beats, stranding the charge. Persist the refund handle FIRST,
-      // BEFORE the multi-second lay-down, so cancel can always find and refund it.
-      const { getCreditCost } = await import('@/lib/config/creditCosts');
-      const assistCharged = getCreditCost('editron', 'auto_edit_analysis', creditOptions);
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
-        { $set: { assistCreditTransactionId: deduction.transactionId, assistChargedCredits: assistCharged } },
-      );
-
+    if (assistLaneActive && assistCharge) {
       const { usableAssets, excludedNoDurationAssetIds } = partitionAssistAssets(visualAssets);
       const timeline = await materializeChronologicalFallback(usableAssets, userId, uploadBatchId, dims);
       if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
@@ -1688,8 +1739,14 @@ export async function POST(request: NextRequest) {
         ...hydration.degradedVideoAssetIds,
       ])).sort();
       const readyWrite = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-        { projectId: activeProjectId, autoEditStatus: { $ne: 'scan_failed' } },
+        {
+          projectId: activeProjectId,
+          userId,
+          editMode: 'assist',
+          assistCreditTransactionId: assistCharge.transactionId,
+          assistChargedCredits: assistCharge.chargedCredits,
+          autoEditStatus: { $nin: ['scan_failed', ASSIST_STATUS_READY, 'complete'] },
+        },
         {
           $set: {
             ...hydration.set,
@@ -1701,23 +1758,22 @@ export async function POST(request: NextRequest) {
         },
       );
       if (readyWrite.matchedCount === 0) {
-        // Cancelled mid-compose. Cancel already flipped scan_failed; ensure the
-        // deduction is refunded (idempotent at the service via originalTransactionId)
-        // and never mark the batch ready.
-        const { CreditsService } = await import('@/lib/services/creditsService');
-        await CreditsService.refundForWallet(
-          billingWallet, assistCharged, 'Director Mode scan cancelled during lay-down — full refund',
-          { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: deduction.transactionId, projectId: activeProjectId ?? undefined },
-        ).then(() => db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-        )).catch((e) => {
-          console.error('[DirectorMode][REFUND-FAILED][MONEY] mid-compose cancel refund failed — flagging for support:', e instanceof Error ? e.message : e);
-          return db.collection(COLLECTIONS.PROJECTS).updateOne({ projectId: activeProjectId }, { $set: { assistRefundPending: true } });
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: activeProjectId,
+          userId,
+          reason: 'Director Mode scan cancelled during lay-down — full refund',
+          creditTransactionId: assistCharge.transactionId,
         });
         console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${activeProjectId}).`);
-        return NextResponse.json({ success: true, projectId: activeProjectId, status: 'scan_failed', cancelledDuringLaydown: true });
+        return NextResponse.json({
+          success: true,
+          projectId: activeProjectId,
+          status: 'scan_failed',
+          cancelledDuringLaydown: true,
+          refundPending: settlement !== 'refunded' && settlement !== 'unverifiable-run',
+        });
       }
+      assistReadyCommitted = true;
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         // Never resurrect a cancelled batch (its orchestrationStatus is 'failed').
         { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: { $ne: 'failed' } },
@@ -1934,7 +1990,78 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const terminalScriptGrounding = error instanceof ScriptGroundingError && !error.retryable;
-    if (creditCheck && creditsDeducted && !queuedOrRanDirector) {
+    if (assistLaneActive && assistReadyCommitted && activeProjectId) {
+      console.error('[auto-edit/from-batch] Assist project is ready but its batch projection is pending recovery:', message);
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: ASSIST_STATUS_READY,
+        batchProjectionPending: true,
+      }, { status: 202 });
+    }
+    if (
+      assistLaneActive
+      && assistCharge
+      && assistChargeRegistered
+      && !assistReadyCommitted
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      const db = await getDatabase();
+      const settlement = await settleAssistScanFailure(db, {
+        projectId: activeProjectId,
+        userId: caller.userId,
+        reason: message,
+        creditTransactionId: assistCharge.transactionId,
+      });
+      creditsDeducted = settlement !== 'refunded';
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+        {
+          $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      console.error('[auto-edit/from-batch] Assist compose failed:', message);
+      return NextResponse.json({
+        success: false,
+        projectId: activeProjectId,
+        status: 'scan_failed',
+        error: message,
+        refundPending: settlement !== 'refunded',
+      }, { status: 500 });
+    }
+    if (
+      assistLaneActive
+      && assistCharge
+      && !assistChargeRegistered
+      && creditCheck
+      && creditsDeducted
+      && !queuedOrRanDirector
+      && activeProjectId
+      && caller
+      && uploadBatchId
+    ) {
+      await creditCheck.refund('Assist charge registration failed before project binding').catch((refundError) => {
+        console.error('[auto-edit/from-batch] unbound Assist credit refund failed:', refundError);
+      });
+      const db = await getDatabase();
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+        {
+          $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      return NextResponse.json({
+        success: false,
+        projectId: activeProjectId,
+        status: 'scan_failed',
+        error: message,
+      }, { status: 500 });
+    }
+    if (creditCheck && creditsDeducted && !queuedOrRanDirector && !assistLaneActive) {
       await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
         console.error('[auto-edit/from-batch] credit refund failed:', refundError);
       });

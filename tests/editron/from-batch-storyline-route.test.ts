@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => ({
   synthesizeImageScenes: vi.fn(),
   readProjectAssetAnalyses: vi.fn(),
   refundCredits: vi.fn(),
+  refundForWallet: vi.fn(),
   receiverVerify: vi.fn(),
   resolveAssetUrl: vi.fn(),
   resolveProductionBrief: vi.fn(),
@@ -66,6 +67,9 @@ vi.mock('@upstash/qstash/nextjs', () => ({
   verifySignatureAppRouter: (handler: unknown) => handler,
 }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
+vi.mock('@/lib/services/creditsService', () => ({
+  CreditsService: { refundForWallet: mocks.refundForWallet },
+}));
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
@@ -405,6 +409,7 @@ describe('from-batch storyline route handoff', () => {
     mocks.createProject.mockResolvedValue({ projectId: 'proj_batch_1' });
     mocks.deductCredits.mockResolvedValue({ transactionId: 'credit_tx_1' });
     mocks.refundCredits.mockResolvedValue(undefined);
+    mocks.refundForWallet.mockResolvedValue({ success: true });
     mocks.resolveAssetUrl.mockImplementation(async (assetId: string) => `https://cdn.test/${assetId}`);
     mocks.isR2Available.mockReturnValue(false);
     mocks.hydrateStorylineAnalysesForBatch.mockResolvedValue({
@@ -494,7 +499,7 @@ describe('from-batch storyline route handoff', () => {
     });
     mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
     mocks.saveProject.mockResolvedValue(undefined);
-    mocks.updateProject.mockResolvedValue({ acknowledged: true });
+    mocks.updateProject.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     mocks.findProject.mockResolvedValue(null);
     mocks.updateBatch.mockResolvedValue({ acknowledged: true, matchedCount: 1 });
   });
@@ -740,7 +745,12 @@ describe('from-batch storyline route handoff', () => {
     // Filter carries the cancel-wins guard: a cancelled project is never resurrected.
     expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledOnce();
     expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1', autoEditStatus: { $ne: 'scan_failed' } },
+      expect.objectContaining({
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        editMode: 'assist',
+        assistCreditTransactionId: 'credit_tx_1',
+      }),
       expect.objectContaining({
         $set: expect.objectContaining({
           autoEditStatus: 'ready_for_chat',
@@ -769,6 +779,16 @@ describe('from-batch storyline route handoff', () => {
       orchestrationRequestedAt: new Date(),
     };
     mocks.findProject.mockResolvedValue({ editMode: 'assist' });
+    mocks.findProject
+      .mockResolvedValueOnce({ editMode: 'assist' })
+      .mockResolvedValueOnce({ editMode: 'assist', autoEditStatus: 'composing' })
+      .mockResolvedValue({
+        editMode: 'assist',
+        autoEditStatus: 'composing',
+        assistCreditTransactionId: 'credit_tx_1',
+        assistChargedCredits: 10,
+        userId: 'user_1',
+      });
     mocks.saveProject.mockRejectedValue(new Error('storage write exploded'));
 
     await POST(request({
@@ -777,13 +797,46 @@ describe('from-batch storyline route handoff', () => {
     }, true) as never);
 
     // The deduction preceded the failure and no director was dispatched → full refund.
-    expect(mocks.refundCredits).toHaveBeenCalledOnce();
+    expect(mocks.refundForWallet).toHaveBeenCalledOnce();
     // The user-facing truth is the lane's failure state, not auto's.
     expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
-      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+      expect.objectContaining({
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        assistCreditTransactionId: 'credit_tx_1',
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed', assistRefundPending: true }) }),
     );
     expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('repairs an already-ready Assist batch projection without charging or composing again', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'composing',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({ editMode: 'assist', autoEditStatus: 'ready_for_chat' });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 2, failureCount: 0 },
+    }, true) as never);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      status: 'ready_for_chat',
+      recoveredBatchProjection: true,
+    });
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'assist_ready' }) }),
+    );
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
   });
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
