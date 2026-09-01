@@ -1117,7 +1117,7 @@ function checkpointRuntime(order: string[]) {
     userId: string,
     projectId: string,
     receiptId: string,
-    writerIssuedReceipt?: ProjectMutationReceiptV1,
+    writerIssuedReceipt: ProjectMutationReceiptV1,
   ) => {
     const value = checkpoints.get(checkpointId);
     if (!value || value.userId !== userId || value.projectId !== projectId) {

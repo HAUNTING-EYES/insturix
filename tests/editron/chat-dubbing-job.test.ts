@@ -199,7 +199,7 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
       userId: string,
       projectId: string,
       receiptId: string,
-      writerIssuedReceipt?: ProjectMutationReceiptV1,
+      writerIssuedReceipt: ProjectMutationReceiptV1,
     ): Promise<CheckpointRollbackReceiptV1> => {
       const checkpoint = checkpoints.get(checkpointId);
       if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId) {
