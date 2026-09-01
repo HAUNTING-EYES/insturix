@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   completeProjectRenderJobFinalizationTransaction: vi.fn(),
   failJobFinalization: vi.fn(),
   failProjectRenderJobFinalizationTransaction: vi.fn(),
-  fenceStaleProjectRenderJobFinalization: vi.fn(),
+  fenceStaleProjectRenderJobFinalizationTransaction: vi.fn(),
   getCurrentProjectRenderJob: vi.fn(),
   getProjectRenderJobAuthorizationByAdmission: vi.fn(),
   getProjectRevision: vi.fn(),
@@ -42,8 +42,6 @@ vi.mock('@/lib/editron/services/render-job-service', async (importOriginal) => (
   getCurrentProjectRenderJobV1: mocks.getCurrentProjectRenderJob,
   completeJobFinalization: mocks.completeJobFinalization,
   failJobFinalization: mocks.failJobFinalization,
-  fenceStaleProjectRenderJobFinalizationV1:
-    mocks.fenceStaleProjectRenderJobFinalization,
   getProjectRenderJobAuthorizationByAdmissionV1:
     mocks.getProjectRenderJobAuthorizationByAdmission,
 }));
@@ -55,6 +53,8 @@ vi.mock('@/lib/editron/services/project-service', () => ({
       mocks.completeProjectRenderJobFinalizationTransaction,
     failProjectRenderJobFinalizationTransactionV1:
       mocks.failProjectRenderJobFinalizationTransaction,
+    fenceStaleProjectRenderJobFinalizationTransactionV1:
+      mocks.fenceStaleProjectRenderJobFinalizationTransaction,
     claimProjectRenderJobFinalizationTransactionV1:
       mocks.claimProjectRenderJobFinalizationTransaction,
     releaseProjectRenderJobFinalizationClaimTransactionV1:
@@ -157,7 +157,7 @@ describe('render finalization orchestration', () => {
       ok: true,
       status: 'CURRENT',
     });
-    mocks.fenceStaleProjectRenderJobFinalization.mockResolvedValue({
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValue({
       ok: true,
       status: 'STALE',
     });
@@ -377,12 +377,94 @@ describe('render finalization orchestration', () => {
     });
     expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
     expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
-    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
       authorization: projectRenderAuthorization,
       observedProjectRevision: projectRevision,
       claimToken: message.claimToken,
       error: 'Project changed before render finalization.',
     });
+  });
+
+  it('acknowledges a terminal chapter after transactional cleanup recovery is proved', async () => {
+    const chapterMessage = {
+      ...message,
+      jobId: 'chr_123456789012',
+    };
+    const chapterAuthorization = {
+      ...projectRenderAuthorization,
+      jobId: chapterMessage.jobId,
+    };
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: {
+        _id: chapterMessage.jobId,
+        status: 'done',
+        artifactCleanup: { state: 'PENDING' },
+      },
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'ALREADY_TERMINAL',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      {
+        ...chapterMessage,
+        projectRenderAuthorization: chapterAuthorization,
+      },
+    ));
+
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      skipped: 'job_already_terminal',
+    });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: chapterAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: chapterMessage.claimToken,
+      error: 'Terminal render retains pending cleanup work.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a standard terminal when transactional cleanup recovery is unproved', async () => {
+    mocks.getCurrentProjectRenderJob.mockResolvedValueOnce({
+      ok: true,
+      status: 'CURRENT',
+      job: {
+        _id: message.jobId,
+        status: 'done',
+        artifactCleanup: { state: 'PENDING' },
+      },
+    });
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
+      ok: true,
+      status: 'ALREADY_TERMINAL',
+    });
+
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      strictMessage,
+    ));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'Strict terminal render cleanup handoff was not proved.',
+    });
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
+      authorization: projectRenderAuthorization,
+      observedProjectRevision: projectRevision,
+      claimToken: message.claimToken,
+      error: 'Terminal render retains pending cleanup work.',
+    });
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
   });
 
   it('fences the exact strict claim when its project was deleted before media work', async () => {
@@ -397,7 +479,7 @@ describe('render finalization orchestration', () => {
     ));
 
     await expect(response.json()).resolves.toMatchObject({ skipped: 'project_not_current' });
-    expect(mocks.fenceStaleProjectRenderJobFinalization).toHaveBeenCalledWith({
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).toHaveBeenCalledWith({
       authorization: projectRenderAuthorization,
       observedProjectRevision: null,
       claimToken: message.claimToken,
@@ -413,7 +495,7 @@ describe('render finalization orchestration', () => {
       code: 'PROJECT_ARTIFACT_NOT_CURRENT',
       reason: 'PROJECT_REVISION_STALE',
     });
-    mocks.fenceStaleProjectRenderJobFinalization.mockResolvedValueOnce({
+    mocks.fenceStaleProjectRenderJobFinalizationTransaction.mockResolvedValueOnce({
       ok: false,
       status: 'NON_CURRENT',
       code: 'PROJECT_ARTIFACT_NOT_CURRENT',
@@ -444,7 +526,7 @@ describe('render finalization orchestration', () => {
     ));
 
     expect(response.status).toBe(500);
-    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
     expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
   });
 
@@ -469,7 +551,7 @@ describe('render finalization orchestration', () => {
       claimToken: message.claimToken,
       result: finalizerResult,
     });
-    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
   });
 
   it('keeps an unproved strict publication state retryable after media work', async () => {
@@ -619,7 +701,7 @@ describe('render finalization orchestration', () => {
       error: expect.stringContaining('after 4 attempt(s)'),
     });
     expect(mocks.getProjectRevision).not.toHaveBeenCalled();
-    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
     expect(mocks.failJobFinalization).not.toHaveBeenCalled();
   });
 
@@ -667,7 +749,7 @@ describe('render finalization orchestration', () => {
     ));
 
     expect(response.status).toBe(500);
-    expect(mocks.fenceStaleProjectRenderJobFinalization).not.toHaveBeenCalled();
+    expect(mocks.fenceStaleProjectRenderJobFinalizationTransaction).not.toHaveBeenCalled();
     expect(mocks.failJobFinalization).not.toHaveBeenCalled();
   });
 
