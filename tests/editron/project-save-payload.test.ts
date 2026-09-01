@@ -1633,6 +1633,136 @@ describe("Editron project save payload compaction", () => {
     });
   });
 
+  it("atomically replaces a source video with an auto-edit assembly and ripples later overlays", async () => {
+    const updatedAt = "2026-08-11T02:15:40.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 390,
+      overlays: [
+        {
+          id: 10,
+          type: "video",
+          assetId: "asset_raw",
+          from: 0,
+          durationInFrames: 300,
+          videoStartTime: 0,
+        },
+        {
+          id: 20,
+          type: "text",
+          from: 360,
+          durationInFrames: 30,
+          content: "Later title",
+        },
+      ],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    const result = await projectService.applyAutoEditAssemblyV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "SYSTEM",
+        sourceOverlayId: 10,
+        cuts: [
+          { clipId: 101, sourceStartFrame: 0, sourceEndFrame: 60 },
+          { clipId: 102, sourceStartFrame: 120, sourceEndFrame: 210 },
+        ],
+      },
+    );
+
+    expect(result).toMatchObject({
+      clipIds: [101, 102],
+      clipsCreated: 2,
+      totalDurationInFrames: 150,
+      timelineChangeReceipt: {
+        operation: "AUTO_EDIT_ASSEMBLY",
+        actorKind: "SYSTEM",
+        writeFrameRangesBefore: [{ startFrame: 0, endFrame: 390 }],
+        affectedFrameRangesAfter: [{ startFrame: 0, endFrame: 240 }],
+        ripple: {
+          kind: "REPLACE_SOURCE_WITH_ASSEMBLY",
+          sourceBeforeFrameRange: { startFrame: 0, endFrame: 300 },
+          assemblyAfterFrameRange: { startFrame: 0, endFrame: 150 },
+          shiftedBeforeFrameRange: { startFrame: 300, endFrame: 390 },
+          shiftedAfterFrameRange: { startFrame: 150, endFrame: 240 },
+          deltaFrames: -150,
+        },
+      },
+    });
+    const update = persistenceMocks.updateOne.mock.calls[0][1];
+    expect(update.$set.durationInFrames).toBe(240);
+    expect(update.$set.overlays).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 101,
+        from: 0,
+        durationInFrames: 60,
+        videoStartTime: 0,
+      }),
+      expect.objectContaining({
+        id: 102,
+        from: 60,
+        durationInFrames: 90,
+        videoStartTime: 120,
+      }),
+      expect.objectContaining({ id: 20, from: 210 }),
+    ]));
+    expect(persistenceMocks.updateOne.mock.calls[0][0]).toMatchObject({
+      projectId: "proj_1",
+      userId: "user_1",
+      "overlays.id": 10,
+      projectRevision: 7,
+      updatedAt: new Date(updatedAt),
+    });
+  });
+
+  it("blocks auto-edit assembly before writing when an overlay depends on the source video", async () => {
+    const updatedAt = "2026-08-11T02:15:50.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [
+        { id: 10, type: "video", from: 0, durationInFrames: 300, videoStartTime: 0 },
+        { id: 11, type: "caption", sourceVideoId: 10, from: 0, durationInFrames: 300 },
+      ],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.applyAutoEditAssemblyV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "SYSTEM",
+        sourceOverlayId: 10,
+        cuts: [{ clipId: 101, sourceStartFrame: 0, sourceEndFrame: 60 }],
+      },
+    )).rejects.toThrow("depends on the source video");
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it("rejects a caller-bound overlay deletion that overlaps an active range lock", async () => {
     const updatedAt = "2026-08-11T02:16:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({

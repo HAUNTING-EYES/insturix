@@ -346,6 +346,7 @@ export type ProjectTimelineChangeActorKindV1 =
 
 export type ProjectTimelineRangeChangeOperationV1 =
   | "CUT_TIMELINE_RANGE"
+  | "AUTO_EDIT_ASSEMBLY"
   | "ADD_OVERLAY"
   | "UPDATE_OVERLAY"
   | "APPLY_VIDEO_SPEED_RAMP"
@@ -367,6 +368,14 @@ export type ProjectTimelineRippleEffectV1 =
       kind: "RETIME_AND_SHIFT_LEFT";
       retimedBeforeFrameRange: TimelineFrameRangeV1;
       retimedAfterFrameRange: TimelineFrameRangeV1;
+      shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
+      shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
+      deltaFrames: number;
+    }
+  | {
+      kind: "REPLACE_SOURCE_WITH_ASSEMBLY";
+      sourceBeforeFrameRange: TimelineFrameRangeV1;
+      assemblyAfterFrameRange: TimelineFrameRangeV1;
       shiftedBeforeFrameRange: TimelineFrameRangeV1 | null;
       shiftedAfterFrameRange: TimelineFrameRangeV1 | null;
       deltaFrames: number;
@@ -470,6 +479,26 @@ export interface ProjectOverlayDeleteCommandV1 {
   expectedRevision: ProjectRevisionV1;
   actorKind: ProjectTimelineChangeActorKindV1;
   overlayId: ProjectOverlayIdentityV1;
+}
+
+export interface ProjectAutoEditAssemblyCutV1 {
+  clipId: ProjectOverlayIdentityV1;
+  sourceStartFrame: number;
+  sourceEndFrame: number;
+}
+
+export interface ProjectAutoEditAssemblyCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  sourceOverlayId: ProjectOverlayIdentityV1;
+  cuts: readonly ProjectAutoEditAssemblyCutV1[];
+}
+
+export interface ProjectAutoEditAssemblyResultV1
+  extends ProjectDirectOverlayMutationResultV1 {
+  clipIds: readonly ProjectOverlayIdentityV1[];
+  clipsCreated: number;
+  totalDurationInFrames: number;
 }
 
 export interface ProjectVideoSpeedRampCommandV1 {
@@ -11701,6 +11730,307 @@ export class ProjectService {
     };
     this.publishMutationReceipt(mutationReceipt);
     return { mutationReceipt, timelineChangeReceipt };
+  }
+
+  async applyAutoEditAssemblyV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAutoEditAssemblyCommandV1,
+  ): Promise<ProjectAutoEditAssemblyResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    assertProjectOverlayIdentityV1(input.sourceOverlayId, "update");
+    if (!Array.isArray(input.cuts) || input.cuts.length < 1 || input.cuts.length > 10_000) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly requires between one and 10,000 exact source cuts.",
+      );
+    }
+    const clipIds = input.cuts.map((cut) => cut.clipId);
+    for (const cut of input.cuts) {
+      assertProjectOverlayIdentityV1(cut.clipId, "update");
+      if (!Number.isSafeInteger(cut.sourceStartFrame)
+        || !Number.isSafeInteger(cut.sourceEndFrame)
+        || cut.sourceStartFrame < 0
+        || cut.sourceEndFrame <= cut.sourceStartFrame) {
+        throw new ProjectMutationWriteError(
+          "Auto-edit assembly cuts require exact positive half-open source-frame ranges.",
+        );
+      }
+    }
+    if (new Set(clipIds.map((id) => `${typeof id}:${String(id)}`)).size !== clipIds.length
+      || clipIds.some((id) => id === input.sourceOverlayId)) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly clip identities must be unique and distinct from the source overlay.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)
+      || !Number.isSafeInteger(project.durationInFrames)
+      || project.durationInFrames < 1
+      || !Array.isArray(project.overlays)) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly requires an exact supported project timeline.",
+      );
+    }
+    const sourceOverlay = project.overlays.find(
+      (overlay) => (overlay as { id?: unknown }).id === input.sourceOverlayId,
+    );
+    if (!sourceOverlay || sourceOverlay.type !== "video") {
+      throw new ProjectMutationWriteError(
+        `Auto-edit source video ${String(input.sourceOverlayId)} was not found.`,
+      );
+    }
+    const sourceBeforeFrameRange = overlayTimelineFrameRangeV1(sourceOverlay);
+    if (!sourceBeforeFrameRange || sourceBeforeFrameRange.endFrame > project.durationInFrames) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit source video requires an exact in-bounds project-frame range.",
+      );
+    }
+    const sourceStartFrame = projectVideoSourceStartFrameV1(sourceOverlay);
+    const sourceEndFrame = sourceStartFrame + sourceOverlay.durationInFrames;
+    if (input.cuts.some((cut) => (
+      cut.sourceStartFrame < sourceStartFrame
+      || cut.sourceEndFrame > sourceEndFrame
+    ))) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly requested source frames outside the exposed source handles.",
+      );
+    }
+
+    const existingIdentityKeys = new Set(project.overlays.map((overlay) => (
+      `${typeof (overlay as { id?: unknown }).id}:${String((overlay as { id?: unknown }).id)}`
+    )));
+    if (clipIds.some((id) => existingIdentityKeys.has(`${typeof id}:${String(id)}`))) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly clip identity collides with an existing overlay.",
+      );
+    }
+    const sourceIdentity = String(input.sourceOverlayId);
+    const otherOverlayRanges = project.overlays
+      .filter((overlay) => overlay !== sourceOverlay)
+      .map((overlay) => ({ overlay, range: overlayTimelineFrameRangeV1(overlay) }));
+    if (otherOverlayRanges.some(({ range }) => !range)) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly cannot safely ripple an overlay with unknown timing.",
+      );
+    }
+    if (otherOverlayRanges.some(({ overlay }) => {
+      const candidate = overlay as unknown as Record<string, unknown>;
+      return [candidate.sourceVideoId, candidate.clipAId, candidate.clipBId]
+        .some((value) => value !== undefined && String(value) === sourceIdentity);
+    })) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly is blocked while another overlay depends on the source video.",
+      );
+    }
+    if (otherOverlayRanges.some(({ range }) => (
+      frameRangesOverlapHalfOpenV1(range!, sourceBeforeFrameRange)
+    ))) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly is blocked by another overlay that overlaps the source range.",
+      );
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before applying auto-edit.",
+      );
+    }
+
+    const totalDurationInFrames = input.cuts.reduce(
+      (sum, cut) => sum + (cut.sourceEndFrame - cut.sourceStartFrame),
+      0,
+    );
+    const assemblyAfterFrameRange: TimelineFrameRangeV1 = {
+      startFrame: sourceBeforeFrameRange.startFrame,
+      endFrame: sourceBeforeFrameRange.startFrame + totalDurationInFrames,
+    };
+    const deltaFrames = totalDurationInFrames
+      - (sourceBeforeFrameRange.endFrame - sourceBeforeFrameRange.startFrame);
+    const afterDurationInFrames = project.durationInFrames + deltaFrames;
+    if (!Number.isSafeInteger(afterDurationInFrames) || afterDurationInFrames < 1) {
+      throw new ProjectMutationWriteError(
+        "Auto-edit assembly produced an invalid project duration.",
+      );
+    }
+    const writeFrameRange: TimelineFrameRangeV1 = {
+      startFrame: sourceBeforeFrameRange.startFrame,
+      endFrame: project.durationInFrames,
+    };
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(lock.frameRange, writeFrameRange));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the auto-edit ripple range.",
+      );
+    }
+
+    let nextTimelineFrame = sourceBeforeFrameRange.startFrame;
+    const assembledOverlays = input.cuts.map((cut) => {
+      const durationInFrames = cut.sourceEndFrame - cut.sourceStartFrame;
+      const next = withAtomicOverlayUpdateReceipt(
+        sourceOverlay,
+        {
+          id: cut.clipId,
+          from: nextTimelineFrame,
+          durationInFrames,
+          sourceStartFrame: cut.sourceStartFrame,
+          sourceEndFrame: cut.sourceEndFrame,
+          videoStartTime: cut.sourceStartFrame,
+          metadata: {
+            ...((sourceOverlay as unknown as Record<string, any>).metadata ?? {}),
+            autoEditAssembly: {
+              sourceOverlayId: input.sourceOverlayId,
+              sourceStartFrame: cut.sourceStartFrame,
+              sourceEndFrame: cut.sourceEndFrame,
+            },
+          },
+        } as Partial<Overlay>,
+        {
+          source: "project-service-auto-edit-assembly-v1",
+          intent: "materialize-auto-edit-cut",
+          reason: "source cut materialized by one caller-bound atomic assembly",
+        },
+      );
+      nextTimelineFrame += durationInFrames;
+      return next;
+    });
+    const shiftedOverlays: Overlay[] = [];
+    const nextOverlays = project.overlays.flatMap((overlay) => {
+      if (overlay === sourceOverlay) return assembledOverlays;
+      const range = overlayTimelineFrameRangeV1(overlay)!;
+      if (range.startFrame < sourceBeforeFrameRange.endFrame) return [overlay];
+      const shifted = withAtomicOverlayUpdateReceipt(
+        overlay,
+        { from: overlay.from + deltaFrames },
+        {
+          source: "project-service-auto-edit-assembly-v1",
+          intent: "ripple-overlay-after-auto-edit",
+          reason: "later overlay shifted by the exact auto-edit assembly delta",
+        },
+      );
+      shiftedOverlays.push(shifted);
+      return [shifted];
+    });
+    const cleanOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(nextOverlays),
+      "project-service-auto-edit-assembly-v1",
+    );
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const shiftedBeforeFrameRange = otherOverlayRanges.some(
+      ({ range }) => range!.startFrame >= sourceBeforeFrameRange.endFrame,
+    ) ? {
+        startFrame: sourceBeforeFrameRange.endFrame,
+        endFrame: project.durationInFrames,
+      } : null;
+    const shiftedAfterFrameRange = shiftedBeforeFrameRange ? {
+      startFrame: assemblyAfterFrameRange.endFrame,
+      endFrame: afterDurationInFrames,
+    } : null;
+    const affectedOverlayRefs = [
+      overlayReferenceForTimelineChangeV1(sourceOverlay),
+      ...assembledOverlays.map(overlayReferenceForTimelineChangeV1),
+      ...shiftedOverlays.map(overlayReferenceForTimelineChangeV1),
+    ];
+    const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
+      schemaVersion: 1,
+      receiptId: `timeline-auto-edit_${nanoid(18)}`,
+      projectId,
+      operation: "AUTO_EDIT_ASSEMBLY",
+      actorKind: input.actorKind,
+      coordinateDomain: "PROJECT_TIMELINE_FRAME_V1",
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      readFrameRangesBefore: [writeFrameRange],
+      writeFrameRangesBefore: [writeFrameRange],
+      affectedFrameRangesAfter: [{
+        startFrame: assemblyAfterFrameRange.startFrame,
+        endFrame: afterDurationInFrames,
+      }],
+      affectedOverlayRefs: [...new Set(affectedOverlayRefs)],
+      changedPaths: ["overlays", "durationInFrames", "timelineRangeChangeReceipts"],
+      rangeObservation: "EXACT",
+      overlayTemporalChange: null,
+      timelineCoordinateTransform: null,
+      sourceTimeTransform: null,
+      splitChildren: [],
+      ripple: {
+        kind: "REPLACE_SOURCE_WITH_ASSEMBLY",
+        sourceBeforeFrameRange,
+        assemblyAfterFrameRange,
+        shiftedBeforeFrameRange,
+        shiftedAfterFrameRange,
+        deltaFrames,
+      },
+      downstreamInvalidation: {
+        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        affectedFrameRangesBefore: [writeFrameRange],
+      },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": input.sourceOverlayId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: {
+          overlays: cleanOverlays,
+          durationInFrames: afterDurationInFrames,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return {
+      clipIds,
+      clipsCreated: clipIds.length,
+      totalDurationInFrames,
+      mutationReceipt,
+      timelineChangeReceipt,
+    };
   }
 }
 

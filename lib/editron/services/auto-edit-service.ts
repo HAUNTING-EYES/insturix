@@ -439,73 +439,52 @@ export async function executeAutoEdit(
 
   const fps = project.fps || 30;
 
-  // Find the source video overlay
-  const sourceOverlay = project.overlays.find(
-    (o: any) => o.id === Number(videoOverlayId) && o.type === 'video',
-  );
-  if (!sourceOverlay) throw new Error(`Video overlay ${videoOverlayId} not found.`);
-
-  // Strategy: delete the original video overlay, then create new clip overlays
-  // for each cut in the plan, placed sequentially on the timeline.
-
-  // Delete the original overlay
-  await projectService.deleteOverlay(userId, projectId, sourceOverlay.id);
-
-  const projectAfterDelete = await projectService.loadProject(userId, projectId);
-  if (!projectAfterDelete) throw new Error('Project disappeared after removing the source overlay.');
-  let expectedRevision = readProjectRevisionV1(projectAfterDelete);
+  const numericOverlayId = /^\d+$/.test(videoOverlayId) ? Number(videoOverlayId) : null;
+  const sourceMatches = project.overlays.filter((overlay: any) => (
+    overlay.type === 'video'
+    && (overlay.id === videoOverlayId || overlay.id === numericOverlayId)
+  ));
+  if (sourceMatches.length !== 1) {
+    throw new Error(
+      sourceMatches.length === 0
+        ? `Video overlay ${videoOverlayId} not found.`
+        : `Video overlay ${videoOverlayId} is ambiguous across legacy identities.`,
+    );
+  }
+  const sourceOverlay = sourceMatches[0];
+  const expectedRevision = readProjectRevisionV1(project);
   if (!expectedRevision) {
-    throw new Error('The project revision is unavailable after removing the source overlay.');
+    throw new Error('The project revision is unavailable before applying auto-edit.');
   }
-
-  // Create new clips in script order, placed sequentially
-  let currentFrame = sourceOverlay.from || 0; // Start where the original video was
-
-  for (const cut of plan.cuts) {
-    const clipDurationFrames = cut.sourceEndFrame - cut.sourceStartFrame;
-    if (clipDurationFrames <= 0) continue;
-
-    const newId = Date.now() + Math.floor(Math.random() * 10000);
-    const newOverlay = {
-      ...sourceOverlay,
-      id: newId,
-      from: currentFrame,
-      durationInFrames: clipDurationFrames,
-      videoStartTime: cut.sourceStartFrame,
-    };
-
-    const addResult = await projectService.addOverlayAtRevisionV1(
-      userId,
-      projectId,
-      {
-        expectedRevision,
-        actorKind: 'SYSTEM',
-        overlay: newOverlay as any,
-      },
-    );
-    expectedRevision = addResult.mutationReceipt.revision;
-    currentFrame += clipDurationFrames;
+  const positiveCuts = plan.cuts.filter(
+    (cut) => cut.sourceEndFrame > cut.sourceStartFrame,
+  );
+  if (positiveCuts.length === 0) {
+    throw new Error('Auto-edit plan contains no positive source-frame cuts.');
   }
-
-  // Recalculate project duration
-  const updatedProject = await projectService.loadProject(userId, projectId);
-  if (updatedProject && updatedProject.overlays?.length) {
-    const maxFrame = Math.max(
-      ...updatedProject.overlays.map((o: any) => (o.from || 0) + (o.durationInFrames || 0)),
-    );
-    if (maxFrame > 0) {
-      await projectService.updateProject(userId, projectId, { durationInFrames: maxFrame });
-    }
+  const clipIdBase = Date.now() * 1_000;
+  const cuts = positiveCuts.map((cut, index) => ({
+    clipId: clipIdBase + index,
+    sourceStartFrame: cut.sourceStartFrame,
+    sourceEndFrame: cut.sourceEndFrame,
+  }));
+  if (cuts.some((cut) => !Number.isSafeInteger(cut.clipId))) {
+    throw new Error('Auto-edit could not allocate stable clip identities.');
   }
-
-  const totalDurationFrames = plan.cuts.reduce(
-    (sum, cut) => sum + (cut.sourceEndFrame - cut.sourceStartFrame),
-    0,
+  const result = await projectService.applyAutoEditAssemblyV1(
+    userId,
+    projectId,
+    {
+      expectedRevision,
+      actorKind: 'SYSTEM',
+      sourceOverlayId: sourceOverlay.id,
+      cuts,
+    },
   );
 
   return {
-    message: `Auto-edit complete: created ${plan.cuts.length} clips from script, total ${Math.round((totalDurationFrames / fps) * 10) / 10}s`,
-    clipsCreated: plan.cuts.length,
-    totalDurationFrames,
+    message: `Auto-edit complete: created ${result.clipsCreated} clips from script, total ${Math.round((result.totalDurationInFrames / fps) * 10) / 10}s`,
+    clipsCreated: result.clipsCreated,
+    totalDurationFrames: result.totalDurationInFrames,
   };
 }
