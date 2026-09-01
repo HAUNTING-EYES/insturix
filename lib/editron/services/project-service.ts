@@ -6,7 +6,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes } from "node:crypto";
-import type { ClientSession, Collection } from "mongodb";
+import type { ClientSession, Collection, Filter } from "mongodb";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
@@ -15,6 +15,7 @@ import {
   PROJECT_ARTIFACT_NOT_CURRENT,
   PROJECT_RENDER_JOBS_COLLECTION_V1,
   ProjectRenderJobAuthorizationSchema,
+  createProjectRenderDispatchIdentityV1,
   claimFailedProjectRenderJobFinalizationRetryV1,
   claimProjectRenderCompletionEffectsV1,
   claimProjectRenderJobFinalizationV1,
@@ -34,9 +35,13 @@ import {
   type ProjectRenderJobMutationResultV1,
   type ProjectRenderJobNotCurrentResultV1,
 } from "./render-job-service";
-import type { RenderJob } from "../schemas/render-job";
+import {
+  RenderJobSchema,
+  type RenderJob,
+} from "../schemas/render-job";
 import {
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
+  ProjectRenderSourceCleanupAwsRegionSchemaV1,
   type ProjectRenderSourceCleanupOutboxV1,
 } from "./project-render-source-cleanup-v1";
 import type {
@@ -1372,6 +1377,13 @@ export interface ProjectRenderSnapshotReadV1 {
   ownerId: string;
 }
 
+export type ProjectRenderDispatchBindingRecoveryResultV1 =
+  | ProjectRenderJobNotCurrentResultV1
+  | {
+      ok: true;
+      status: "BOUND" | "ALREADY_BOUND";
+    };
+
 type ProjectRenderFinalizationTransactionCommandV1 =
   | {
       kind: "complete";
@@ -1398,7 +1410,8 @@ type ProjectRenderJobTransactionKindV1 =
   | "progress"
   | "completion-effects-claim"
   | "completion-effects-complete"
-  | "completion-effects-release";
+  | "completion-effects-release"
+  | "dispatch-recovery-bind";
 
 interface ProjectRenderJobTransactionContextV1 {
   authorization: ProjectRenderJobAuthorizationV1;
@@ -1884,6 +1897,211 @@ export class ProjectService {
     )) as Pick<Project, "projectRevision" | "updatedAt"> | null;
     if (!project) throw new ProjectNotFoundOrForbiddenError();
     return projectRevisionFor(project);
+  }
+
+  /**
+   * Bind provider evidence only under an explicit signed-callback or exact
+   * persisted-tuple proof source. This is deliberately a ProjectService
+   * transaction so the live project revision fence and dispatch CAS cannot
+   * be observed as separate decisions by recovery or a signed webhook.
+   */
+  async bindProjectRenderDispatchRecoveryTransactionV1(input: {
+    authorization: unknown;
+    attemptToken: string;
+    providerRenderId: string;
+    bucketName: string;
+    region: string;
+    proofSource: "SIGNED_CALLBACK" | "PERSISTED_PROVIDER_TUPLE";
+    now?: Date;
+  }): Promise<ProjectRenderDispatchBindingRecoveryResultV1> {
+    const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
+    if (!parsedAuthorization.success) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "AUTHORIZATION_INVALID",
+      };
+    }
+    if (
+      !isBoundedNonEmptyStringV1(input.attemptToken, 200)
+      || !isBoundedNonEmptyStringV1(input.providerRenderId, 500)
+      || !isBoundedNonEmptyStringV1(input.bucketName, 500)
+      || !isBoundedNonEmptyStringV1(input.region, 100)
+    ) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "INPUT_INVALID",
+      };
+    }
+    const region = input.region.trim();
+    if (!ProjectRenderSourceCleanupAwsRegionSchemaV1.safeParse(region).success) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "INPUT_INVALID",
+      };
+    }
+    const authorization = parsedAuthorization.data;
+    const attemptToken = input.attemptToken.trim();
+    const providerRenderId = input.providerRenderId.trim();
+    const bucketName = input.bucketName.trim();
+    const identity = createProjectRenderDispatchIdentityV1({
+      jobId: authorization.jobId,
+      bindingHash: authorization.bindingHash,
+    });
+    if (attemptToken !== identity.attemptToken) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "INPUT_INVALID",
+      };
+    }
+    if (
+      input.proofSource !== "SIGNED_CALLBACK"
+      && input.proofSource !== "PERSISTED_PROVIDER_TUPLE"
+    ) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "INPUT_INVALID",
+      };
+    }
+    const providerProofFilter: Filter<RenderJob> = input.proofSource === "SIGNED_CALLBACK"
+      ? {
+          $or: [
+            {
+              providerRenderId: { $exists: false },
+              bucketName: { $exists: false },
+              "dispatch.providerRenderId": { $exists: false },
+              "dispatch.providerBucketName": { $exists: false },
+              "dispatch.providerRegion": { $exists: false },
+            },
+            {
+              providerRenderId,
+              bucketName,
+              "dispatch.providerRenderId": providerRenderId,
+              "dispatch.providerBucketName": bucketName,
+              "dispatch.providerRegion": region,
+            },
+          ],
+        }
+      : {
+          providerRenderId,
+          bucketName,
+          "dispatch.providerRenderId": providerRenderId,
+          "dispatch.providerBucketName": bucketName,
+          "dispatch.providerRegion": region,
+        };
+
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization,
+        kind: "dispatch-recovery-bind",
+        now: input.now,
+      },
+      async ({ authorization: currentAuthorization, renderJobs, session, transactionAt }) => {
+        const exactDispatchFilter: Filter<RenderJob> = {
+          _id: currentAuthorization.jobId,
+          userId: currentAuthorization.ownerId,
+          requestedByUserId: currentAuthorization.requestedByUserId,
+          projectId: currentAuthorization.projectId,
+          artifactState: "ACTIVE",
+          artifactInvalidation: { $exists: false },
+          artifactBinding: { $exists: false },
+          "projectRenderSnapshotBinding.scope": "PROJECT_SNAPSHOT",
+          "projectRenderSnapshotBinding.artifactId": currentAuthorization.jobId,
+          "projectRenderSnapshotBinding.ownerId": currentAuthorization.ownerId,
+          "projectRenderSnapshotBinding.projectId": currentAuthorization.projectId,
+          "projectRenderSnapshotBinding.projectRevision.schemaVersion": 1,
+          "projectRenderSnapshotBinding.projectRevision.value":
+            currentAuthorization.projectRevision.value,
+          "projectRenderSnapshotBinding.projectRevision.compatibilityUpdatedAt":
+            currentAuthorization.projectRevision.compatibilityUpdatedAt,
+          "projectRenderSnapshotBinding.bindingHash": currentAuthorization.bindingHash,
+          "deliveryManifest.version": "editron-render-delivery-manifest-v1",
+          "deliveryManifest.primaryArtifact.renderId": currentAuthorization.jobId,
+          status: { $in: ["pending", "queued", "rendering"] },
+          region,
+          "dispatch.version": 1,
+          "dispatch.phase": { $in: ["ATTEMPTING", "UNKNOWN"] },
+          "dispatch.attemptToken": identity.attemptToken,
+          "dispatch.creditIdempotencyKey": identity.creditIdempotencyKey,
+          "dispatch.billingState": "RECORDED",
+          "dispatch.creditTransactionId": { $exists: true },
+          "dispatch.attemptStartedAt": { $type: "date" },
+          ...providerProofFilter,
+        };
+        const bound = await renderJobs.updateOne(
+          exactDispatchFilter,
+          {
+            $set: {
+              status: "rendering",
+              providerRenderId,
+              bucketName,
+              region,
+              "dispatch.phase": "BOUND",
+              "dispatch.providerBoundAt": transactionAt,
+              "dispatch.providerRenderId": providerRenderId,
+              "dispatch.providerBucketName": bucketName,
+              "dispatch.providerRegion": region,
+            },
+            $unset: {
+              "dispatch.unknownReason": "",
+            },
+          },
+          { session },
+        );
+        if (bound.matchedCount === 1) {
+          return { ok: true as const, status: "BOUND" as const };
+        }
+
+        const latest = await renderJobs.findOne(
+          { _id: currentAuthorization.jobId },
+          { session },
+        );
+        const parsedLatest = RenderJobSchema.safeParse(latest);
+        const latestBinding = parsedLatest.success
+          ? parsedLatest.data.projectRenderSnapshotBinding
+          : undefined;
+        const latestDispatch = parsedLatest.success ? parsedLatest.data.dispatch : undefined;
+        if (
+          parsedLatest.success
+          && latestBinding?.scope === "PROJECT_SNAPSHOT"
+          && latestBinding.artifactId === currentAuthorization.jobId
+          && latestBinding.ownerId === currentAuthorization.ownerId
+          && latestBinding.projectId === currentAuthorization.projectId
+          && latestBinding.bindingHash === currentAuthorization.bindingHash
+          && parsedLatest.data.userId === currentAuthorization.ownerId
+          && parsedLatest.data.requestedByUserId === currentAuthorization.requestedByUserId
+          && parsedLatest.data.projectId === currentAuthorization.projectId
+          && parsedLatest.data.providerRenderId === providerRenderId
+          && parsedLatest.data.bucketName === bucketName
+          && parsedLatest.data.region === region
+          && latestDispatch?.version === 1
+          && latestDispatch.phase === "BOUND"
+          && latestDispatch.attemptToken === identity.attemptToken
+          && latestDispatch.billingState === "RECORDED"
+          && latestDispatch.creditTransactionId !== undefined
+          && latestDispatch.providerRenderId === providerRenderId
+          && latestDispatch.providerBucketName === bucketName
+          && latestDispatch.providerRegion === region
+        ) {
+          return { ok: true as const, status: "ALREADY_BOUND" as const };
+        }
+        return {
+          ok: false as const,
+          status: "NON_CURRENT" as const,
+          code: PROJECT_ARTIFACT_NOT_CURRENT,
+          reason: "JOB_STATE_NOT_ACTIVE" as const,
+        };
+      },
+    );
   }
 
   /**

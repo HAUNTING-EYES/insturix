@@ -12,6 +12,11 @@ import {
   reconcileProviderTerminalEvent,
 } from '@/lib/editron/services/render-job-service';
 import {
+  bindProjectRenderDispatchFromSignedProofV1,
+  getProjectRenderDispatchAdmissionProofV1,
+  validateSignedProjectRenderDispatchProofV1,
+} from '@/lib/editron/services/render-dispatch-recovery-v1';
+import {
   projectService,
   ProjectNotFoundOrForbiddenError,
 } from '@/lib/editron/services/project-service';
@@ -26,6 +31,7 @@ const StaticPayloadSchema = z.object({
     editronRenderAdmissionId: z.string().regex(/^rnd_[A-Za-z0-9_-]+$/),
     projectRenderBindingHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     renderRegion: ProjectRenderSourceCleanupAwsRegionSchemaV1.optional(),
+    editronRenderAttemptToken: z.string().min(1).max(200).optional(),
   }).passthrough(),
 });
 
@@ -122,7 +128,16 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ type: 'success' });
     }
-    if (!lookup.ok) return projectRenderNotCurrent();
+    if (!lookup.ok) {
+      if (payload.type === 'success') {
+        await cleanupKnownStaleProjectRenderSuccess({
+          jobId,
+          bindingHash: payload.customData.projectRenderBindingHash,
+          payload,
+        });
+      }
+      return projectRenderNotCurrent();
+    }
     if (!payload.customData.projectRenderBindingHash) {
       return NextResponse.json(
         { type: 'error', message: 'Project render binding hash is required' },
@@ -145,6 +160,13 @@ export async function POST(request: Request) {
       );
     } catch (error) {
       if (error instanceof ProjectNotFoundOrForbiddenError) {
+        if (payload.type === 'success') {
+          await cleanupKnownStaleProjectRenderSuccess({
+            jobId,
+            bindingHash: payload.customData.projectRenderBindingHash,
+            payload,
+          });
+        }
         return projectRenderNotCurrent();
       }
       throw error;
@@ -153,7 +175,34 @@ export async function POST(request: Request) {
       authorization: lookup.authorization,
       currentProjectRevision,
     });
-    if (!current.ok) return projectRenderNotCurrent();
+    if (!current.ok) {
+      if (payload.type === 'success') {
+        await cleanupKnownStaleProjectRenderSuccess({
+          jobId,
+          bindingHash: payload.customData.projectRenderBindingHash,
+          payload,
+        });
+      }
+      return projectRenderNotCurrent();
+    }
+    const dispatchProof = validateSignedProjectRenderDispatchProofV1({
+      authorization: lookup.authorization,
+      job: current.job,
+      attemptToken: payload.customData.editronRenderAttemptToken,
+      providerRenderId: payload.renderId,
+      bucketName: payload.bucketName,
+      region: renderRegion,
+    });
+    if (!dispatchProof.ok) return projectRenderNotCurrent();
+    const bound = await bindProjectRenderDispatchFromSignedProofV1({
+      authorization: lookup.authorization,
+      job: current.job,
+      attemptToken: payload.customData.editronRenderAttemptToken,
+      providerRenderId: payload.renderId,
+      bucketName: payload.bucketName,
+      region: renderRegion,
+    });
+    if (!bound.ok) return projectRenderNotCurrent();
     const hasStoredProviderIdentity = current.job.providerRenderId !== undefined
       || current.job.bucketName !== undefined;
     const exactProviderIdentity = current.job.providerRenderId === payload.renderId
@@ -228,6 +277,39 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ type: 'success' });
+}
+
+async function cleanupKnownStaleProjectRenderSuccess(input: {
+  jobId: string;
+  bindingHash?: string;
+  payload: Extract<z.infer<typeof WebhookPayloadSchema>, { type: 'success' }>;
+}): Promise<boolean> {
+  const outputUrl = input.payload.outputFile ?? input.payload.outputUrl;
+  const renderRegion = input.payload.customData.renderRegion;
+  if (!input.bindingHash || !outputUrl || !renderRegion) return false;
+  const admission = await getProjectRenderDispatchAdmissionProofV1({
+    jobId: input.jobId,
+    expectedBindingHash: input.bindingHash,
+  });
+  if (!admission) return false;
+  const proof = validateSignedProjectRenderDispatchProofV1({
+    authorization: admission.authorization,
+    job: admission.job,
+    attemptToken: input.payload.customData.editronRenderAttemptToken,
+    providerRenderId: input.payload.renderId,
+    bucketName: input.payload.bucketName,
+    region: renderRegion,
+  });
+  if (!proof.ok) return false;
+  await beginProjectRenderFinalizationV1({
+    authorization: proof.authorization,
+    providerRenderId: proof.providerTuple.providerRenderId,
+    bucketName: proof.providerTuple.bucketName,
+    region: proof.providerTuple.region,
+    sourceOutputUrl: outputUrl,
+    sourceOutputSize: input.payload.outputSizeInBytes ?? 0,
+  });
+  return true;
 }
 
 function terminalError(payload: Exclude<z.infer<typeof WebhookPayloadSchema>, { type: 'success' }>) {
