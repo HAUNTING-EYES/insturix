@@ -181,6 +181,8 @@ export interface DirectorResult {
    * instead of reconstructing a revision from stale route-local state.
    */
   terminalProjectReceipt?: ProjectMutationReceiptV1;
+  /** Durable async children created by this exact Director run. */
+  pendingAsyncChildJobIds?: string[];
   decisionAuthority?: {
     version: 'decision-authority-v1';
     source: 'unified-decision-bundle' | 'fallback-reactive' | 'profile-driven';

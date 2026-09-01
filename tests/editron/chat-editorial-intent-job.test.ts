@@ -564,28 +564,15 @@ describe('durable chat editorial-intent jobs', () => {
 
   it('tracks the deferred MG design job as a pending child instead of declining mid-chain', async () => {
     const store = new MemoryStore(queuedJob());
-    let loadCount = 0;
     const checkpoint = checkpointRuntime([]);
 
     const result = await runChatEditorialIntentJob(workerPayload(), {
       store,
-      loadProject: async () => {
-        loadCount += 1;
-        return loadCount === 1
-          ? project('before')
-          : {
-            ...project('before'),
-            intelligence: {
-              mgDesignJob: {
-                version: 1,
-                jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                status: 'queued',
-                decisionCount: 1,
-              },
-            },
-          };
-      },
-      executeDirector: async () => directorResult(0),
+      loadProject: async () => project('before'),
+      executeDirector: async () => ({
+        ...directorResult(0),
+        pendingAsyncChildJobIds: ['mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+      }),
       loadChildJobs: async (jobIds) => jobIds.map((jobId) => ({
         _id: jobId,
         status: 'queued' as const,
@@ -630,7 +617,6 @@ describe('durable chat editorial-intent jobs', () => {
       loadProject: async () => ({
         ...project('before'),
         intelligence: {
-          mgDesignJob: { jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'completed' },
           mgCodegenRun: {
             outcomes: [{ status: 'queued', jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }],
           },

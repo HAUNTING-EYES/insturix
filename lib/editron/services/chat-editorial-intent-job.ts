@@ -94,6 +94,7 @@ interface DirectorExecutionResult {
   warnings: string[];
   actionsSkipped: Array<{ action: string; reason: string }>;
   decisionAuthority?: Record<string, unknown>;
+  pendingAsyncChildJobIds?: string[];
 }
 
 export interface ChatEditorialIntentJobStore {
@@ -319,7 +320,13 @@ export async function runChatEditorialIntentJob(
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-editorial-intent');
     const resultData = directorResultData(director);
-    const pendingChildJobIds = pendingMgRenderJobIds(afterProject);
+    const directorChildJobIds = (director.pendingAsyncChildJobIds ?? [])
+      .filter((jobId): jobId is string => (
+        typeof jobId === 'string' && /^mgd_[a-f0-9]{32}$/.test(jobId)
+      ));
+    const pendingChildJobIds = [
+      ...new Set([...directorChildJobIds, ...pendingMgRenderJobIds(afterProject)]),
+    ].sort().slice(0, 100);
     if (pendingChildJobIds.length > 0) {
       await deps.store.markWaitingChildren(
         job._id,
@@ -771,10 +778,10 @@ async function loadMgRenderChildJobs(
       { _id: { $in: jobIds }, projectId, userId },
       { projection },
     ).toArray(),
-    // The deferred MG design job lives in its own collection ('editron_mg_design_jobs'); a parent tracking
-    // only render jobs would never see it. Kept as a literal to mirror mg-design-job-runner.ts JOB_COLLECTION.
+    // The deferred MG design job is an explicit Director-reported child and
+    // retains its authoritative lifecycle in the dedicated durable collection.
     db.collection<MgRenderChildJobSnapshot>(
-      'editron_mg_design_jobs' as never,
+      COLLECTIONS.MG_DESIGN_JOBS,
     ).find(
       { _id: { $in: jobIds }, projectId, userId } as never,
       { projection },
@@ -910,16 +917,6 @@ function pendingMgRenderJobIds(project: Record<string, unknown>): string[] {
     const jobId = cleanString(entry?.jobId);
     return entry?.status === 'queued' && jobId ? [jobId] : [];
   });
-  // The deferred video-level MG DESIGN job is also a pending child of this intent: it is enqueued during the
-  // Director run (intelligence.mgDesignJob on the project) and later queues the render jobs. Without tracking
-  // it here the parent can decline ('unified-planner-produced-no-material-change') while its own MG chain is
-  // still in flight — the grounded-process-mg matrix failure (2026-08-03).
-  const designJob = objectRecord(intelligence?.mgDesignJob);
-  const designJobId = cleanString(designJob?.jobId);
-  const designStatus = cleanString(designJob?.status);
-  if (designJobId && (designStatus === 'queued' || designStatus === 'running')) {
-    jobIds.push(designJobId);
-  }
   return [...new Set(jobIds)].sort();
 }
 

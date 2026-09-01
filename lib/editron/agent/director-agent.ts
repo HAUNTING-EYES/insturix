@@ -207,6 +207,18 @@ function summarizeDecisionExecutionTrace(executionResult?: ExecutionResult) {
   };
 }
 
+function recordDirectorAsyncChildren(
+  result: DirectorResult,
+  executionResult: ExecutionResult,
+): void {
+  const designJob = executionResult.mgDesignJob;
+  const jobId = designJob?.jobId?.trim();
+  if (!designJob || !jobId || (designJob.status !== 'queued' && designJob.status !== 'running')) return;
+  result.pendingAsyncChildJobIds = [
+    ...new Set([...(result.pendingAsyncChildJobIds ?? []), jobId]),
+  ].slice(0, 100);
+}
+
 function summarizeCanonicalTimelineFromDecisions(decisions: UnifiedDecisionBundle['edl']['decisions']) {
   const stamps = decisions
     .map((decision) => decision.params?.canonicalTimeline)
@@ -1884,6 +1896,7 @@ export async function executeDirectorPlan(
             unifiedDecisionBundle.graphicsDensity,
             { deferMgDesign: true },
           );
+          recordDirectorAsyncChildren(result, unifiedExecutionResult);
 
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
@@ -2289,6 +2302,7 @@ export async function executeDirectorPlan(
             densityFromSignalsOrNeutral(pathDGenreParams),
             { deferMgDesign: true },
           );
+          recordDirectorAsyncChildren(result, edlResult);
 
           // Build summary by decision type
           for (const d of edl.decisions) {
