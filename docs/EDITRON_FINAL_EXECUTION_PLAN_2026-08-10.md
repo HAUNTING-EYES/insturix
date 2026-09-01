@@ -16443,3 +16443,49 @@ serially; (2) return to unfinished Queues 3 and 4, which alone may be worked in
 parallel under the founder's current authorization; (3) implement Queue 6
 serially; and (4) certify agency verticals serially unless the founder explicitly
 authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phases 4N–4O checkpoint
+
+Commits `76cf23369`, `1ac346485` and `cf5a1997f` close the stale-caller
+revision and range-lock slice for direct overlay addition. All listed commits
+are pushed on `infrastructure-improvs-+Editron`.
+
+ProjectService now exposes `addOverlayAtRevisionV1` as the only live direct
+overlay-add owner. It requires the caller's exact project revision and actor,
+requires a positive exactly representable project-frame range and valid overlay
+identity, rejects unsupported project FPS, rejects an active Director mutation
+lease, rejects overlap with an active timeline range lock, rechecks overlay
+identity and project revision in the Mongo CAS, and returns both the project
+mutation receipt and exact range-change receipt. A deliberately stale caller
+and an overlapping lock both stop before mutation.
+
+Every live chat and script-auto-edit add caller now supplies a revision derived
+from the same project snapshot that produced the overlay form. Long-running
+HTML, caption, motion-graphic and SFX generation therefore cannot refresh to a
+new project revision after producing output. Sequential auto-edit clip adds
+advance from the preceding writer receipt. The former `addOverlay` method and
+all executable callers/mocks were removed; historical research/catalog strings
+are not runtime owners.
+
+Focused verification passed 148/148 ProjectService, chat mechanical, provider
+asset, speech/caption, Phase-3G, chat form/intent and stale-recovery tests. The
+targeted quiet ESLint checks, repeated 8-GB TypeScript checks and
+`git diff --check` passed. Full-repository quiet ESLint remains required at the
+aggregate Queue 5 closure and is not claimed here. No provider call, render,
+storage spend, wallet mutation, paid-cohort rerun or model inference occurred.
+
+This is not overlay-mutation or universal Queue 5 closure. Direct overlay
+update/delete and complete-family replacement still infer or partially infer
+current owner state and require their caller-bound command migrations.
+`addOverlayIfAbsent` remains a separate specialized writer requiring its own
+lock/rights/invalidation classification. Media rights/source evidence,
+predecessor proof and durable derivative invalidation are not yet universal for
+direct overlay addition. Multi-write split and transition operations also
+remain non-transactional until their dedicated composite owners land.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. The next
+serial Queue 5 slice is caller-bound overlay update/delete, followed by
+complete-family replacement and the remaining specialized ProjectService
+writers. Only after Queue 5's applicable prerequisites close does work return
+to Queues 3 and 4 under the existing parallelization authorization.
