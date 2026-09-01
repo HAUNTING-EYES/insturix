@@ -212,11 +212,7 @@ describe("ProjectService generated-composition lifecycle V1", () => {
     await expect(projectService.updateProject(USER_ID, PROJECT_ID, {
       generatedCompositions: [],
     })).rejects.toBeInstanceOf(ProjectMutationWriteError);
-    await expect(projectService.replaceOverlayFamilyAtomic(USER_ID, PROJECT_ID, {
-      expectedUpdatedAt: new Date(REVISION.compatibilityUpdatedAt),
-      overlays: [],
-      projectUpdates: { "generatedCompositions.0": {} },
-    })).rejects.toBeInstanceOf(ProjectMutationWriteError);
+    expect("replaceOverlayFamilyAtomic" in projectService).toBe(false);
     await expect(projectService.saveProjectWithReceipt(USER_ID, PROJECT_ID, {
       overlays: [],
       aspectRatio: "16:9",
