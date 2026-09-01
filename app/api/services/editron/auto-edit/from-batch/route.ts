@@ -1927,25 +1927,6 @@ export async function POST(request: NextRequest) {
     queuedOrRanDirector = true;
     const directorQueuedAt = new Date();
 
-    if (dispatch.messageId) {
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        {
-          projectId: activeProjectId,
-          userId,
-          autoEditStatus: { $in: ['directing_queued', 'directing'] },
-        },
-        {
-          $set: {
-            directorMessageId: dispatch.messageId,
-            directorQueuedAt,
-            updatedAt: directorQueuedAt,
-          },
-          $unset: { autoEditError: '', autoEditFailedAt: '', 'intelligence.directorDeliveryFailure': '' },
-        },
-      );
-    }
-
-
     await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
       { uploadBatchId, userId, projectId: activeProjectId },
       {

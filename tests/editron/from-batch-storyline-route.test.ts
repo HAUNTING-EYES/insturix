@@ -1121,17 +1121,9 @@ describe('from-batch storyline route handoff', () => {
       notes: 'Keep the proof sequence clear.',
     });
     expect(directorPayload.pipelineDirectorDispatchToken).toBe('pipeline_director_dispatch_batch_1');
-    expect(mocks.updateProject).toHaveBeenCalledWith(
-      {
-        projectId: 'proj_batch_1',
-        userId: 'user_1',
-        autoEditStatus: { $in: ['directing_queued', 'directing'] },
-      },
-      expect.objectContaining({
-        $set: expect.objectContaining({ directorMessageId: 'msg_1' }),
-        $unset: expect.objectContaining({ 'intelligence.directorDeliveryFailure': '' }),
-      }),
-    );
+    expect(mocks.updateProject.mock.calls.some(([, update]) => (
+      (update as { $set?: { directorMessageId?: unknown } })?.$set?.directorMessageId !== undefined
+    ))).toBe(false);
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
       expect.objectContaining({
