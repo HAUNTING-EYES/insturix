@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Collection } from 'mongodb';
 
 const mocks = vi.hoisted(() => ({
@@ -547,5 +549,23 @@ describe('Editron render billing recovery V1', () => {
       request('Bearer billing-cron-secret'),
       runner,
     )).resolves.toMatchObject({ status: 503 });
+  });
+
+  it('registers the bounded cron schedule and billing-uncertainty index', () => {
+    const vercel = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8'),
+    ) as { crons: Array<{ path: string; schedule: string }> };
+    expect(vercel.crons).toContainEqual({
+      path: '/api/cron/recover-editron-render-billing',
+      schedule: '*/5 * * * *',
+    });
+
+    const mongoSource = readFileSync(
+      resolve(process.cwd(), 'lib/editron/db/mongodb.ts'),
+      'utf8',
+    );
+    expect(mongoSource).toContain("name: 'billing_recovery_unknown_job_v1'");
+    expect(mongoSource).toContain("'dispatch.billingState': 1");
+    expect(mongoSource).toContain("'dispatch.billingUnknownAt': 1");
   });
 });

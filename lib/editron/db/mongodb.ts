@@ -216,6 +216,19 @@ export async function initializeIndexes(): Promise<void> {
       },
       name: 'dispatch_recovery_attempt_job',
     },
+    {
+      key: {
+        artifactState: 1,
+        'projectRenderSnapshotBinding.scope': 1,
+        'dispatch.version': 1,
+        'dispatch.phase': 1,
+        'dispatch.billingState': 1,
+        status: 1,
+        'dispatch.billingUnknownAt': 1,
+        _id: 1,
+      },
+      name: 'billing_recovery_unknown_job_v1',
+    },
   ]);
 
   // Strict chapter children retain their own provider-call evidence inside the
