@@ -457,6 +457,19 @@ export interface ProjectOverlayAddCommandV1 {
   overlay: Overlay;
 }
 
+export interface ProjectOverlayUpdateCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  overlayId: number;
+  updates: Partial<Overlay>;
+}
+
+export interface ProjectOverlayDeleteCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  overlayId: number;
+}
+
 export interface ProjectVideoSpeedRampCommandV1 {
   expectedRevision: ProjectRevisionV1;
   actorKind: ProjectTimelineChangeActorKindV1;
@@ -11065,6 +11078,147 @@ export class ProjectService {
     this.publishMutationReceipt(receipt);
   }
 
+  async updateOverlayAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectOverlayUpdateCommandV1,
+  ): Promise<ProjectDirectOverlayMutationResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (!Number.isSafeInteger(input.overlayId) || input.overlayId < 0) {
+      throw new ProjectMutationWriteError(
+        "Overlay update requires a non-negative integer identity.",
+      );
+    }
+    if (!isPlainRecord(input.updates)
+      || Object.prototype.hasOwnProperty.call(input.updates, "id")
+      || Object.prototype.hasOwnProperty.call(input.updates, "type")) {
+      throw new ProjectMutationWriteError(
+        "Overlay update cannot replace the overlay identity or family.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Overlay update requires a supported project frame rate.",
+      );
+    }
+    const currentOverlay = project.overlays?.find(
+      (overlay) => overlay.id === input.overlayId,
+    );
+    if (!currentOverlay) {
+      throw new ProjectMutationWriteError(
+        `Overlay ${input.overlayId} was not found in project ${projectId}.`,
+      );
+    }
+    const updatedOverlay = withAtomicOverlayUpdateReceipt(
+      currentOverlay,
+      input.updates,
+      {
+        source: "project-service-update-overlay-at-revision-v1",
+        intent: `update-${currentOverlay.type}`,
+        reason: "overlay mutated through a caller-bound ProjectService command",
+      },
+    );
+    const beforeFrameRange = overlayTimelineFrameRangeV1(currentOverlay);
+    const afterFrameRange = overlayTimelineFrameRangeV1(updatedOverlay);
+    if (!beforeFrameRange || !afterFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Overlay update requires exact positive before and after project-frame ranges.",
+      );
+    }
+    const writeFrameRange = unionTimelineFrameRangesV1(
+      beforeFrameRange,
+      afterFrameRange,
+    )!;
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before updating the overlay.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      writeFrameRange,
+    ));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the overlay update.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay_${nanoid(18)}`,
+      projectId,
+      operation: "UPDATE_OVERLAY",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: currentOverlay,
+      afterOverlay: updatedOverlay,
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": input.overlayId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: {
+          "overlays.$[elem]": updatedOverlay,
+          updatedAt: committedAt,
+        },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          } as never,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { arrayFilters: [{ "elem.id": input.overlayId }] },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return { mutationReceipt, timelineChangeReceipt };
+  }
+
   /**
    * Replace a complete overlay family and related project evidence in one
    * compare-and-swap write. A concurrent editor save wins; callers must retry
@@ -11436,6 +11590,123 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
+  }
+
+  async deleteOverlayAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectOverlayDeleteCommandV1,
+  ): Promise<ProjectDirectOverlayMutationResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    if (!Number.isSafeInteger(input.overlayId) || input.overlayId < 0) {
+      throw new ProjectMutationWriteError(
+        "Overlay deletion requires a non-negative integer identity.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Overlay deletion requires a supported project frame rate.",
+      );
+    }
+    const currentOverlay = project.overlays?.find(
+      (overlay) => overlay.id === input.overlayId,
+    );
+    if (!currentOverlay) {
+      throw new ProjectMutationWriteError(
+        `Overlay ${input.overlayId} was not found in project ${projectId}.`,
+      );
+    }
+    const writeFrameRange = overlayTimelineFrameRangeV1(currentOverlay);
+    if (!writeFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Overlay deletion requires an exact positive project-frame range.",
+      );
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before deleting the overlay.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      writeFrameRange,
+    ));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the overlay deletion.",
+      );
+    }
+
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay-delete_${nanoid(18)}`,
+      projectId,
+      operation: "DELETE_OVERLAY",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: currentOverlay,
+      afterOverlay: null,
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": input.overlayId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $pull: { overlays: { id: input.overlayId } } as any,
+        $set: { updatedAt: committedAt },
+        $push: {
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as never,
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return { mutationReceipt, timelineChangeReceipt };
   }
 }
 

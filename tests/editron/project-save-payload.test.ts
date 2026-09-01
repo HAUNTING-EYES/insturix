@@ -1416,6 +1416,187 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
+  it("updates an overlay only at the caller-bound project revision", async () => {
+    const updatedAt = "2026-08-11T02:13:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [{
+        id: 4,
+        type: "text",
+        from: 30,
+        row: 1,
+        durationInFrames: 60,
+        content: "before",
+      }],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const result = await projectService.updateOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "USER",
+        overlayId: 4,
+        updates: { from: 75, durationInFrames: 45, content: "after" } as any,
+      },
+    );
+
+    expect(result.timelineChangeReceipt).toMatchObject({
+      operation: "UPDATE_OVERLAY",
+      actorKind: "USER",
+      writeFrameRangesBefore: [{ startFrame: 30, endFrame: 120 }],
+      overlayTemporalChange: {
+        beforeFrameRange: { startFrame: 30, endFrame: 90 },
+        afterFrameRange: { startFrame: 75, endFrame: 120 },
+        unionFrameRange: { startFrame: 30, endFrame: 120 },
+      },
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        userId: "user_1",
+        "overlays.id": 4,
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      }),
+      expect.objectContaining({ $inc: { projectRevision: 1 } }),
+      { arrayFilters: [{ "elem.id": 4 }] },
+    );
+  });
+
+  it("rejects a stale caller-bound overlay update before writing", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [{ id: 4, type: "text", from: 30, durationInFrames: 60 }],
+      updatedAt: new Date("2026-08-11T02:14:00.000Z"),
+      projectRevision: 8,
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.updateOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T02:13:00.000Z",
+        },
+        actorKind: "AGENT",
+        overlayId: 4,
+        updates: { content: "stale" } as any,
+      },
+    )).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("deletes an overlay only at the caller-bound project revision", async () => {
+    const updatedAt = "2026-08-11T02:15:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [{ id: 5, type: "image", from: 90, durationInFrames: 45 }],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const result = await projectService.deleteOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "AGENT",
+        overlayId: 5,
+      },
+    );
+
+    expect(result.timelineChangeReceipt).toMatchObject({
+      operation: "DELETE_OVERLAY",
+      actorKind: "AGENT",
+      writeFrameRangesBefore: [{ startFrame: 90, endFrame: 135 }],
+      affectedFrameRangesAfter: [],
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        userId: "user_1",
+        "overlays.id": 5,
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      }),
+      expect.objectContaining({
+        $pull: { overlays: { id: 5 } },
+        $inc: { projectRevision: 1 },
+      }),
+    );
+  });
+
+  it("rejects a caller-bound overlay deletion that overlaps an active range lock", async () => {
+    const updatedAt = "2026-08-11T02:16:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [{ id: 5, type: "image", from: 90, durationInFrames: 45 }],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+      timelineRangeCutLocks: [{
+        schemaVersion: 1,
+        lockId: "timeline-cut-lock_stuvwxyzabcdefghij",
+        actorKind: "SYSTEM",
+        frameRange: { startFrame: 100, endFrame: 130 },
+        acquiredAt: "2026-08-11T02:16:01.000Z",
+        expiresAt: "2099-08-11T02:17:01.000Z",
+      }],
+    });
+    const { ProjectTimelineRangeCutLockConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.deleteOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "AGENT",
+        overlayId: 5,
+      },
+    )).rejects.toMatchObject({
+      code: "PROJECT_TIMELINE_RANGE_LOCKED",
+      blockingLockIds: ["timeline-cut-lock_stuvwxyzabcdefghij"],
+    } satisfies Partial<InstanceType<typeof ProjectTimelineRangeCutLockConflictError>>);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it("attaches a stable overlay once through the writer and emits one receipt", async () => {
     const updatedAt = "2026-08-11T06:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
