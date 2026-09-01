@@ -66,6 +66,12 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
       { status: 404 },
     );
   }
+  if (!strictAuthorization && job.projectRenderSnapshotBinding !== undefined) {
+    return NextResponse.json(
+      { success: false, error: 'Strict render authorization is required.' },
+      { status: 400 },
+    );
+  }
   if (job.status === 'done' || job.status === 'error') {
     return NextResponse.json({ success: true, skipped: 'job_already_terminal' });
   }

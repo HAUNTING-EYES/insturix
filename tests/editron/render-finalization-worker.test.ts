@@ -58,6 +58,7 @@ import {
   beginProjectRenderFinalizationV1,
   enqueueRenderFinalization,
   parseRenderFinalizationFailureEnvelope,
+  RenderFinalizationJobMessageSchema,
   resolveRenderFinalizationPipelineConfig,
 } from '@/lib/editron/services/render-finalization-dispatch';
 import { POST as FINALIZE } from '@/app/api/internal/workers/render-finalizer/route';
@@ -224,6 +225,37 @@ describe('render finalization orchestration', () => {
       body: strictMessage,
       deduplicationId: message.claimToken,
     }));
+  });
+
+  it('rejects cross-job authorization and strict rows disguised as legacy before media work', async () => {
+    expect(RenderFinalizationJobMessageSchema.safeParse({
+      ...strictMessage,
+      projectRenderAuthorization: {
+        ...projectRenderAuthorization,
+        jobId: 'rnd_different_job',
+      },
+    }).success).toBe(false);
+
+    mocks.getJob.mockResolvedValueOnce({
+      _id: message.jobId,
+      status: 'finalizing',
+      expectedDurationMs: message.expectedDurationMs,
+      projectRenderSnapshotBinding: { scope: 'PROJECT_SNAPSHOT' },
+      finalization: {
+        state: 'running',
+        claimToken: message.claimToken,
+        sourceOutputUrl: message.sourceOutputUrl,
+        sourceOutputSize: message.sourceOutputSize,
+      },
+    });
+    const response = await FINALIZE(jsonRequest(
+      'https://preview.example.test/api/internal/workers/render-finalizer',
+      message,
+    ));
+
+    expect(response.status).toBe(400);
+    expect(mocks.finalizeRenderArtifact).not.toHaveBeenCalled();
+    expect(mocks.completeJobFinalization).not.toHaveBeenCalled();
   });
 
   it('finalizes and publishes only through the active database claim', async () => {

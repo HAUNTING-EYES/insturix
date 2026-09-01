@@ -24,7 +24,18 @@ export const RenderFinalizationJobMessageSchema = z.object({
   sourceOutputSize: z.number().int().nonnegative(),
   expectedDurationMs: RenderExpectedDurationMsSchema,
   projectRenderAuthorization: ProjectRenderJobAuthorizationSchema.optional(),
-}).strict();
+}).strict().superRefine((message, context) => {
+  if (
+    message.projectRenderAuthorization
+    && message.projectRenderAuthorization.jobId !== message.jobId
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['projectRenderAuthorization', 'jobId'],
+      message: 'Project render authorization belongs to a different finalization job.',
+    });
+  }
+});
 
 export type RenderFinalizationJobMessage = z.infer<typeof RenderFinalizationJobMessageSchema>;
 
