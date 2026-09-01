@@ -1494,6 +1494,12 @@ export type ProjectBatchAutoEditLifecycleEventV1 =
       scriptCoverage: Record<string, unknown>;
     }
   | {
+      kind: "PRE_DIRECTOR_REFUND_PENDING";
+      creditTransactionId: string;
+      chargedCredits: number;
+      reason: string;
+    }
+  | {
       kind: "PRE_DIRECTOR_REFUND_RECORDED";
       creditTransactionId: string;
       chargedCredits: number;
@@ -7793,6 +7799,7 @@ export class ProjectService {
         sourceUploadBatchId: input.uploadBatchId,
         autoEditStatus: currentStatus,
         editMode: { $ne: "assist" },
+        ...transition.filter,
       },
       {
         $set: transition.set,
@@ -13569,7 +13576,10 @@ function assertProjectBatchAutoEditLifecycleCommandV1(
     }
     return;
   }
-  if (input.event.kind === "PRE_DIRECTOR_REFUND_RECORDED") {
+  if (
+    input.event.kind === "PRE_DIRECTOR_REFUND_PENDING"
+    || input.event.kind === "PRE_DIRECTOR_REFUND_RECORDED"
+  ) {
     if (
       !isBoundedNonEmptyStringV1(input.event.creditTransactionId, 256)
       || !Number.isFinite(input.event.chargedCredits)
@@ -13593,6 +13603,7 @@ function batchAutoEditLifecycleEligibleStatusesV1(
       return new Set(["needs_input"]);
     case "COVERAGE_RESUME_DISPATCH_FAILED":
       return new Set(["analyzing"]);
+    case "PRE_DIRECTOR_REFUND_PENDING":
     case "PRE_DIRECTOR_REFUND_RECORDED":
       return new Set(["analysis_complete", "directing_queued"]);
     case "ORCHESTRATION_FAILED":
@@ -13611,6 +13622,7 @@ function batchAutoEditLifecycleUpdateV1(
 ): {
   set: Record<string, unknown>;
   unset: Record<string, "">;
+  filter: Record<string, unknown>;
 } {
   const audit = {
     schemaVersion: 1,
@@ -13636,6 +13648,7 @@ function batchAutoEditLifecycleUpdateV1(
           autoEditFailedAt: "",
           "storylinePlan.scriptCoverage": "",
         },
+        filter: {},
       };
     case "COVERAGE_RESUME_DISPATCH_FAILED":
       return {
@@ -13648,6 +13661,7 @@ function batchAutoEditLifecycleUpdateV1(
           updatedAt: committedAt,
         },
         unset: {},
+        filter: {},
       };
     case "SCRIPT_GROUNDING_NEEDS_INPUT":
     case "SCRIPT_GROUNDING_FAILED": {
@@ -13663,8 +13677,29 @@ function batchAutoEditLifecycleUpdateV1(
           updatedAt: committedAt,
         },
         unset: {},
+        filter: {},
       };
     }
+    case "PRE_DIRECTOR_REFUND_PENDING":
+      return {
+        set: {
+          autoEditRefundPending: {
+            schemaVersion: 1,
+            uploadBatchId,
+            creditTransactionId: event.creditTransactionId,
+            chargedCredits: event.chargedCredits,
+            reason: event.reason,
+            requestedAt: committedAt.toISOString(),
+          },
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {},
+        filter: {
+          autoEditRefunded: { $ne: true },
+          autoEditRefundPending: null,
+        },
+      };
     case "PRE_DIRECTOR_REFUND_RECORDED":
       return {
         set: {
@@ -13681,7 +13716,15 @@ function batchAutoEditLifecycleUpdateV1(
           "intelligence.batchAutoEditLifecycle": audit,
           updatedAt: committedAt,
         },
-        unset: {},
+        unset: { autoEditRefundPending: "" },
+        filter: {
+          "autoEditRefundPending.schemaVersion": 1,
+          "autoEditRefundPending.uploadBatchId": uploadBatchId,
+          "autoEditRefundPending.creditTransactionId": event.creditTransactionId,
+          "autoEditRefundPending.chargedCredits": event.chargedCredits,
+          "autoEditRefundPending.reason": event.reason,
+          autoEditRefunded: { $ne: true },
+        },
       };
     default: {
       const stage = event.kind === "NO_USABLE_VISUAL_ASSETS"
@@ -13701,6 +13744,7 @@ function batchAutoEditLifecycleUpdateV1(
           updatedAt: committedAt,
         },
         unset: {},
+        filter: {},
       };
     }
   }

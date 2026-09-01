@@ -160,12 +160,116 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
     );
   });
 
-  it("records the exact pre-Director refund identity without changing status", async () => {
-    persistence.findOne.mockResolvedValueOnce(project({ autoEditStatus: "directing_queued" }));
-    persistence.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+  it("records and finalizes the exact pre-Director refund identity without changing status", async () => {
+    const refundAt = "2026-09-01T12:03:00.000Z";
+    const refundEvent = {
+      creditTransactionId: "credit_tx_exact",
+      chargedCredits: 15,
+      reason: "Director publication failed",
+    } as const;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(refundAt));
+    try {
+      persistence.findOne
+        .mockResolvedValueOnce(project({ autoEditStatus: "directing_queued" }))
+        .mockResolvedValueOnce(project({
+          autoEditStatus: "directing_queued",
+          projectRevision: 8,
+          updatedAt: new Date(refundAt),
+          autoEditRefundPending: {
+            schemaVersion: 1,
+            uploadBatchId: BATCH_ID,
+            ...refundEvent,
+            requestedAt: refundAt,
+          },
+        }));
+      persistence.updateOne
+        .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+        .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+      const { projectService } = await import("@/lib/editron/services/project-service");
+
+      const pending = await projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
+        expectedRevision: REVISION,
+        uploadBatchId: BATCH_ID,
+        transitionId: TRANSITION_ID,
+        event: { kind: "PRE_DIRECTOR_REFUND_PENDING", ...refundEvent },
+      });
+      expect(pending).toMatchObject({
+        disposition: "RECORDED",
+        receipt: { revision: { value: 8, compatibilityUpdatedAt: refundAt } },
+      });
+      expect(persistence.updateOne).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          autoEditStatus: "directing_queued",
+          autoEditRefunded: { $ne: true },
+          autoEditRefundPending: null,
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            autoEditRefundPending: expect.objectContaining({
+              uploadBatchId: BATCH_ID,
+              ...refundEvent,
+            }),
+          }),
+        }),
+      );
+
+      const recorded = await projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 8,
+          compatibilityUpdatedAt: refundAt,
+        },
+        uploadBatchId: BATCH_ID,
+        transitionId: TRANSITION_ID,
+        event: { kind: "PRE_DIRECTOR_REFUND_RECORDED", ...refundEvent },
+      });
+      expect(recorded).toMatchObject({ disposition: "RECORDED", receipt: { revision: { value: 9 } } });
+      expect(persistence.updateOne).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          autoEditStatus: "directing_queued",
+          "autoEditRefundPending.schemaVersion": 1,
+          "autoEditRefundPending.uploadBatchId": BATCH_ID,
+          "autoEditRefundPending.creditTransactionId": refundEvent.creditTransactionId,
+          "autoEditRefundPending.chargedCredits": refundEvent.chargedCredits,
+          "autoEditRefundPending.reason": refundEvent.reason,
+          autoEditRefunded: { $ne: true },
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            autoEditRefunded: true,
+            autoEditRefundReceipt: expect.objectContaining({
+              uploadBatchId: BATCH_ID,
+              ...refundEvent,
+            }),
+          }),
+          $unset: { autoEditRefundPending: "" },
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not finalize a refund when the pending identity no longer matches", async () => {
+    persistence.findOne
+      .mockResolvedValueOnce(project({
+        autoEditStatus: "directing_queued",
+        autoEditRefundPending: {
+          schemaVersion: 1,
+          uploadBatchId: BATCH_ID,
+          creditTransactionId: "credit_tx_other",
+          chargedCredits: 10,
+          reason: "Different refund",
+        },
+      }))
+      .mockResolvedValueOnce(project({ projectRevision: 8 }));
+    persistence.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
     const { projectService } = await import("@/lib/editron/services/project-service");
 
-    const result = await projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
+    await expect(projectService.recordBatchAutoEditLifecycleV1(USER_ID, PROJECT_ID, {
       expectedRevision: REVISION,
       uploadBatchId: BATCH_ID,
       transitionId: TRANSITION_ID,
@@ -175,22 +279,8 @@ describe("ProjectService batch auto-edit lifecycle V1", () => {
         chargedCredits: 15,
         reason: "Director publication failed",
       },
-    });
-
-    expect(result.disposition).toBe("RECORDED");
-    expect(persistence.updateOne).toHaveBeenCalledWith(
-      expect.objectContaining({ autoEditStatus: "directing_queued" }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          autoEditRefunded: true,
-          autoEditRefundReceipt: expect.objectContaining({
-            uploadBatchId: BATCH_ID,
-            creditTransactionId: "credit_tx_exact",
-            chargedCredits: 15,
-          }),
-        }),
-      }),
-    );
+    })).resolves.toMatchObject({ disposition: "PROJECT_STATE_CHANGED", currentRevision: { value: 8 } });
+    expect(persistence.updateOne).toHaveBeenCalledOnce();
   });
 
   it.each([
