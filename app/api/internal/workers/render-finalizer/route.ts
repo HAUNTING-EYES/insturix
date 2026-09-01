@@ -9,7 +9,6 @@ import { finalizeRenderArtifact } from '@/lib/editron/services/render-finalizer-
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   completeJobFinalization,
-  completeProjectRenderJobFinalizationV1,
   fenceStaleProjectRenderJobFinalizationV1,
   getCurrentProjectRenderJobV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
@@ -111,7 +110,7 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
     expectedDurationMs: message.expectedDurationMs,
   });
   const completed = strictAuthorization
-    ? await completeStrictFinalization({
+    ? await projectService.completeProjectRenderJobFinalizationTransactionV1({
         authorization: strictAuthorization,
         claimToken: message.claimToken,
         result,
@@ -121,45 +120,21 @@ async function finalizeMessage(message: RenderFinalizationJobMessage) {
         claimToken: message.claimToken,
         result,
       });
-  if (typeof completed === 'boolean' ? !completed : !completed.ok) {
+  if (typeof completed === 'boolean') {
+    if (!completed) {
+      return NextResponse.json({ success: true, skipped: 'claim_changed_during_finalization' });
+    }
+  } else if (!completed.ok) {
+    if (completed.reason === 'JOB_STATE_NOT_ACTIVE') {
+      return NextResponse.json({ success: true, skipped: 'claim_changed_during_finalization' });
+    }
+    throw new Error(
+      `Strict render publication state is not provably safe: ${completed.reason}.`,
+    );
+  } else if (completed.status !== 'CURRENT') {
     return NextResponse.json({ success: true, skipped: 'claim_changed_during_finalization' });
   }
   return NextResponse.json({ success: true, jobId: message.jobId });
-}
-
-async function completeStrictFinalization(input: {
-  authorization: NonNullable<RenderFinalizationJobMessage['projectRenderAuthorization']>;
-  claimToken: string;
-  result: unknown;
-}) {
-  const currentProjectRevision = await readCurrentProjectRevision(
-    input.authorization.ownerId,
-    input.authorization.projectId,
-  );
-  if (!currentProjectRevision) {
-    await requireStaleFinalizationFence({
-      authorization: input.authorization,
-      observedProjectRevision: null,
-      claimToken: input.claimToken,
-      error: 'Project no longer exists during render finalization.',
-    });
-    return { ok: false as const };
-  }
-  const completed = await completeProjectRenderJobFinalizationV1({
-    authorization: input.authorization,
-    currentProjectRevision,
-    claimToken: input.claimToken,
-    result: input.result,
-  });
-  if (!completed.ok && completed.reason === 'PROJECT_REVISION_STALE') {
-    await requireStaleFinalizationFence({
-      authorization: input.authorization,
-      observedProjectRevision: currentProjectRevision,
-      claimToken: input.claimToken,
-      error: 'Project changed during render finalization.',
-    });
-  }
-  return completed;
 }
 
 async function requireStaleFinalizationFence(input: {

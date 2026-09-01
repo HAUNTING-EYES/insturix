@@ -5,8 +5,6 @@ import { parseRenderFinalizationFailureEnvelope } from '@/lib/editron/services/r
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   failJobFinalization,
-  failProjectRenderJobFinalizationV1,
-  fenceStaleProjectRenderJobFinalizationV1,
   getProjectRenderJobAuthorizationByAdmissionV1,
 } from '@/lib/editron/services/render-job-service';
 
@@ -32,45 +30,24 @@ async function handler(request: NextRequest) {
     const strictAuthorization = failure.message.projectRenderAuthorization;
     let failed: boolean;
     if (strictAuthorization) {
-      let currentProjectRevision;
-      try {
-        currentProjectRevision = await projectService.getProjectRevision(
-          strictAuthorization.ownerId,
-          strictAuthorization.projectId,
-        );
-      } catch (error) {
-        if (isProjectNotFound(error)) {
-          await requireStaleFinalizationFence({
-            authorization: strictAuthorization,
-            observedProjectRevision: null,
-            claimToken: failure.message.claimToken,
-            error: failure.error,
-          });
-          return NextResponse.json({ success: true, skipped: 'project_not_current' });
-        }
-        throw error;
-      }
-      const strictFailure = await failProjectRenderJobFinalizationV1({
+      const strictFailure = await projectService.failProjectRenderJobFinalizationTransactionV1({
         authorization: strictAuthorization,
-        currentProjectRevision,
         claimToken: failure.message.claimToken,
         error: failure.error,
       });
-      if (!strictFailure.ok && strictFailure.reason === 'PROJECT_REVISION_STALE') {
-        await requireStaleFinalizationFence({
-          authorization: strictAuthorization,
-          observedProjectRevision: currentProjectRevision,
-          claimToken: failure.message.claimToken,
-          error: failure.error,
-        });
-        failed = true;
-      } else if (!strictFailure.ok) {
+      if (!strictFailure.ok) {
         throw new Error(
           `Strict render finalization failure state is not provably current: ${strictFailure.reason}.`,
         );
-      } else {
-        failed = true;
       }
+      if (
+        strictFailure.status === 'CLAIM_REPLACED'
+        || strictFailure.status === 'ALREADY_TERMINAL'
+        || strictFailure.status === 'ALREADY_STALE'
+      ) {
+        return NextResponse.json({ success: true, skipped: 'stale_finalization_claim' });
+      }
+      failed = true;
     } else {
       const legacyAdmission = await getProjectRenderJobAuthorizationByAdmissionV1({
         jobId: failure.message.jobId,
@@ -97,28 +74,6 @@ async function handler(request: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-async function requireStaleFinalizationFence(input: {
-  authorization: NonNullable<
-    ReturnType<typeof parseRenderFinalizationFailureEnvelope>['message']['projectRenderAuthorization']
-  >;
-  observedProjectRevision: unknown | null;
-  claimToken: string;
-  error: string;
-}) {
-  const fenced = await fenceStaleProjectRenderJobFinalizationV1(input);
-  if (!fenced.ok) {
-    throw new Error(`Strict stale finalization claim could not be fenced: ${fenced.reason}.`);
-  }
-  return fenced;
-}
-
-function isProjectNotFound(error: unknown): boolean {
-  return error !== null
-    && typeof error === 'object'
-    && 'code' in error
-    && error.code === 'PROJECT_NOT_FOUND_OR_FORBIDDEN';
 }
 
 const hasSigningKeys = Boolean(
