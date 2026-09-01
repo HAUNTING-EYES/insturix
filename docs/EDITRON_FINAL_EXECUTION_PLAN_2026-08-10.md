@@ -15967,3 +15967,52 @@ Queue 3-4 media chain, where only those two queues have the founder's current
 permission for parallel execution; (3) implement Queue 6 serially; and (4)
 certify the agency verticals serially unless the founder explicitly grants new
 parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4F checkpoint
+
+Commits `b76cb16d1`, `e27f7d4d6`, `d28e83522`, `520e72784`,
+`1b0ab9f8c`, `935c4f7ff`, `4ebfa1c30` and `59337f03b` close the
+bounded analysis-to-Director convergence work left open by Phase 4E. The
+separate `b76cb16d1` commit is the required Step-0 removal of Director-worker
+debug logging before structural work in that large owner.
+
+The signed Director worker and both development-inline callers now execute one
+canonical Director service. ProjectService owns exact analysis-run and
+dispatch claims, terminal completion/failure and bounded progress. The shared
+publication owner uses one evidence-bound QStash deduplication identity,
+records the provider message receipt under revision CAS and preserves provider
+acceptance when the local receipt cannot yet be written. The shared inline
+activation owner records `inline_ready` before execution and retries only a
+bounded revision conflict. Video Analysis resumes an exact
+`directing_queued` run by matching run ID and source asset, while TRIBE resumes
+pending Director publication without rerunning Phase-2 analysis. Retryable
+publication failures return 503 without terminalizing the admitted analysis
+run; stale ownership returns 409.
+
+The final focused closure passed 42/42 tests across publication, direct/inline
+wiring, dispatch lifecycle, deep-analysis lifecycle, canonical Director and
+reference-evidence ordering. The repository-wide 8-GB TypeScript check, full
+quiet ESLint and `git diff --check` passed before push. No live provider call,
+wallet mutation, render, project-content edit, paid-cohort rerun, model
+inference or external spend occurred.
+
+This is exact analysis-to-Director lifecycle convergence, not universal Queue
+5 completion. Video Analysis still publishes the upstream TRIBE message
+directly: it has provider retries but no ProjectService-prepared TRIBE dispatch,
+provider receipt or exact inbound dispatch claim. An initial provider outage
+can therefore still terminalize the run, and provider acceptance followed by a
+local ambiguity lacks a durable resume owner. Remaining batch projections,
+auto-edit rescue/recovery, storyboard finalization, Alyzitron and adjacent
+project writers also remain open. No deployed QStash/IAM proof is claimed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The exact order is: (1) add the run-bound Video-to-TRIBE publication and claim
+owner, then continue remaining Queue 5 writers serially; (2) return to the
+unfinished Queue 3-4 media chain, where only those two queues have the
+founder's current permission for parallel execution; (3) implement Queue 6
+serially; and (4) certify agency verticals serially unless the founder
+explicitly grants new parallelization permission.
