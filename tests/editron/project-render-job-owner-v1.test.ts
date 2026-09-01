@@ -43,6 +43,7 @@ import {
   completeJobFinalization,
   completeProjectRenderCompletionEffectsV1,
   completeProjectRenderJobFinalizationV1,
+  createProjectRenderDispatchIdentityV1,
   createProjectRenderJobAuthorizationV1,
   failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1,
@@ -57,7 +58,10 @@ import {
   getRenderJobByAdmissionOrProviderIdV1,
   materializeProjectRenderSourceCleanupHandoffV1,
   markJobStarted,
+  markProjectRenderDispatchAttemptingV1,
   markProjectRenderJobStartedV1,
+  quarantineProjectRenderDispatchV1,
+  recordProjectRenderJobBillingV1,
   releaseFailedProjectRenderJobFinalizationRetryClaimV1,
   releaseProjectRenderCompletionEffectsV1,
   releaseProjectRenderJobFinalizationClaimV1,
@@ -388,6 +392,116 @@ function containsLegacyMutationExclusion(value: unknown): boolean {
 describe("Project render-job owner V1", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("persists one stable billing and provider-attempt identity before dispatch", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const identity = createProjectRenderDispatchIdentityV1({
+      jobId: JOB_ID,
+      bindingHash: binding.bindingHash,
+    });
+    const wallet = { type: "user" as const, clerkUserId: OWNER_ID };
+
+    const reserved = await reserveProjectRenderJobV1({
+      jobId: JOB_ID,
+      ownerId: OWNER_ID,
+      requestedByUserId: REQUESTER_ID,
+      projectId: PROJECT_ID,
+      currentProjectRevision: REVISION,
+      region: "us-east-1",
+      expectedDurationMs: 5_000,
+      deliveryManifest: DELIVERY_MANIFEST,
+      binding,
+      billingWallet: wallet,
+      collection,
+    });
+
+    expect(reserved.dispatch).toEqual({
+      version: 1,
+      phase: "NOT_ATTEMPTED",
+      billingState: "PENDING",
+      attemptToken: identity.attemptToken,
+      creditIdempotencyKey: identity.creditIdempotencyKey,
+      billingWallet: wallet,
+    });
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(recordProjectRenderJobBillingV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      billingWallet: wallet,
+      creditTransactionId: "txn_render_1",
+      collection,
+    })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    expect(JSON.stringify(collection.updateOne.mock.calls[0]![0])).toContain(identity.creditIdempotencyKey);
+    expect(collection.updateOne.mock.calls[0]![1]).toMatchObject({
+      $set: {
+        "dispatch.creditTransactionId": "txn_render_1",
+        "dispatch.billingState": "RECORDED",
+      },
+    });
+
+    collection.updateOne.mockClear();
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(markProjectRenderDispatchAttemptingV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      attemptToken: identity.attemptToken,
+      now: new Date("2026-09-01T05:00:00.000Z"),
+      collection,
+    })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    expect(collection.updateOne.mock.calls[0]![0]).toEqual(expect.objectContaining({
+      $and: expect.arrayContaining([
+        expect.objectContaining({
+          "dispatch.phase": "NOT_ATTEMPTED",
+          "dispatch.billingState": "RECORDED",
+          "dispatch.creditTransactionId": { $exists: true },
+        }),
+      ]),
+    }));
+  });
+
+  it("fences the first provider identity to the region reserved by the admission", async () => {
+    const collection = makeCollection();
+    const binding = makeBinding();
+    const authorization = makeAuthorization(binding);
+    const identity = createProjectRenderDispatchIdentityV1({
+      jobId: JOB_ID,
+      bindingHash: binding.bindingHash,
+    });
+
+    await markProjectRenderJobStartedV1({
+      authorization,
+      currentProjectRevision: REVISION,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      region: "us-east-1",
+      deliveryManifest: DELIVERY_MANIFEST,
+      attemptToken: identity.attemptToken,
+      collection,
+    });
+    expect(JSON.stringify(collection.findOneAndUpdate.mock.calls[0]![0])).toContain(
+      '"region":"us-east-1"',
+    );
+
+    collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(quarantineProjectRenderDispatchV1({
+      authorization,
+      attemptToken: identity.attemptToken,
+      providerRenderId: "provider-render-1",
+      bucketName: "editron-render-output",
+      region: "us-east-1",
+      error: "provider response received but binding response was lost",
+      collection,
+    })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
+    expect(JSON.stringify(collection.updateOne.mock.calls.at(-1)![0])).toContain(
+      '"region":"us-east-1"',
+    );
+    expect(JSON.stringify(collection.updateOne.mock.calls.at(-1)![0])).toContain(
+      '"dispatch.billingState":"RECORDED"',
+    );
   });
 
   it("reconstructs server authorization only from an exact stored admission", async () => {
