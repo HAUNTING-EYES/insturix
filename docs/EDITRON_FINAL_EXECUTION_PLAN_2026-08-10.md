@@ -15864,3 +15864,63 @@ video/tribe/auto-edit route families; (2) return to the unfinished Queue 3-4
 media chain, where founder-authorized parallel work is permitted; (3) implement
 Queue 6 serially; and (4) certify the agency verticals serially unless the
 founder explicitly authorizes more parallelization.
+
+## 2026-09-01 vertical-convergence Phase 4D checkpoint
+
+Commits `051b3f1c6`, `117517ab8` and `cb3e88e9d` finish the bounded MG
+lifecycle follow-up from Phase 4C. MG children now carry direct correlation
+instead of relying on project-document UI mirrors, the runner and
+ProjectService payload no longer persist those mirrors, and the unused legacy
+taste/delivery project writers have been reduced to compatibility-only readers.
+This removes those shadow project mutation authorities; it does not certify the
+complete MG vertical or deployed delivery.
+
+Commits `859193f92`, `69e7df3ae`, `80ecfd3ea`, `4f8f29169`,
+`196f30ac6`, `e801bf81b`, `3e6eb2071`, `db88f934f`, `45ddfbd6b`
+and `5bb9d3d1c` close the bounded Assist charge/admission/failure saga across
+batch and single-asset intake. The separate `80ecfd3ea`, `196f30ac6` and
+`db88f934f` commits are required Step-0 dead-log cleanup before structural work
+in the large owners.
+
+One exact deduction identity is now durable before an Assist scan can proceed.
+Batch intake registers the completed deduction against the already-declared
+Assist lane; single-asset intake atomically establishes the lane and charge on
+an otherwise-unused new project. Competing transactions, malformed charges,
+pre-used projects and stale status changes fail closed. Cancellation, worker
+failure, QStash publication failure and inline-analysis failure all converge on
+the same org-aware exact settlement owner. It commits a recoverable pending
+refund before the external wallet call, consumes the transaction pointer only
+after confirmed refund, and supports bounded recovery of pending refunds and
+stale pre-charge scans. Assist inline readiness advances through the existing
+revisioned ProjectService completion receipt rather than a route-owned
+`ready_for_chat` write.
+
+Focused proof passed 31/31 for exact failure settlement, 23/23 for cancellation,
+12/12 for charge registration, 53/53 for batch charge/compose wiring, 17/17 for
+recovery, and the final single-asset admission/handler closure passed 22/22.
+Full 8-GB TypeScript, full repository quiet ESLint and `git diff --check` passed
+after the final code. No live provider call, wallet mutation, refund, render,
+project-content edit, paid cohort rerun, model inference or external spend was
+performed by this checkpoint.
+
+This is not universal Assist or Queue 5 convergence. The current source
+inventory still contains direct lifecycle/evidence project writes in the
+video-analysis and TRIBE workers, remaining batch projections, auto-edit rescue,
+storyboard finalization, Alyzitron and adjacent recovery paths. The remaining
+sites must be classified as canonical project facts, durable job state or
+disposable UI projection, then migrated to an exact owner or removed. Existing
+Assist settlement writes are the canonical money owner and are not counted as
+an accidental bypass merely because they directly execute their own CAS.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The exact order is: (1) continue the remaining universal Queue 5 writers
+serially, beginning with video-analysis/TRIBE lifecycle and evidence ownership,
+then batch/rescue/storyboard/Alyzitron classification; (2) return to the
+unfinished Queue 3-4 media chain, where only those two queues have the founder's
+current permission for parallel execution; (3) implement Queue 6 serially; and
+(4) certify the agency verticals serially unless the founder explicitly grants
+new parallelization permission.
