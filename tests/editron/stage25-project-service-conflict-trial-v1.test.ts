@@ -53,11 +53,15 @@ describe("Stage 2.5 real ProjectService conflict trial V1", () => {
 
     vi.setSystemTime(new Date("2026-08-25T00:00:01.000Z"));
     const userEdit = await projectService.captureMutationReceipts(() => (
-      projectService.updateOverlay(
+      projectService.updateOverlayAtRevisionV1(
         "user_stage25_conflict",
         "proj_stage25_conflict",
-        2,
-        { content: "preserve this user edit" },
+        {
+          expectedRevision: initial.revision,
+          actorKind: "USER",
+          overlayId: 2,
+          updates: { content: "preserve this user edit" },
+        },
       )
     ));
     expect(userEdit.receipts).toHaveLength(1);
@@ -108,11 +112,15 @@ describe("Stage 2.5 real ProjectService conflict trial V1", () => {
     );
 
     vi.setSystemTime(new Date("2026-08-25T00:00:01.000Z"));
-    await projectService.updateOverlay(
+    await projectService.updateOverlayAtRevisionV1(
       "user_stage25_conflict",
       "proj_stage25_conflict",
-      2,
-      { from: 0, durationInFrames: 20 },
+      {
+        expectedRevision: initial.revision,
+        actorKind: "USER",
+        overlayId: 2,
+        updates: { from: 0, durationInFrames: 20 },
+      },
     );
     const beforeBlockedCut = persistence.snapshot();
 
@@ -239,11 +247,15 @@ describe("Stage 2.5 real ProjectService conflict trial V1", () => {
       "proj_stage25_conflict",
     );
     vi.setSystemTime(new Date("2026-08-25T00:00:01.000Z"));
-    await projectService.updateOverlay(
+    await projectService.updateOverlayAtRevisionV1(
       "user_stage25_conflict",
       "proj_stage25_conflict",
-      2,
-      { content: "survives losing cut CAS" },
+      {
+        expectedRevision: initial.revision,
+        actorKind: "USER",
+        overlayId: 2,
+        updates: { content: "survives losing cut CAS" },
+      },
     );
     const beforeCut = persistence.snapshot();
     persistence.forceNextMatchedUpdateToLoseCas((current) => ({

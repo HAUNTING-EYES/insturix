@@ -24,7 +24,7 @@ type ProjectServiceConflictOwnerV1 = Pick<
   | 'loadProjectForMutation'
   | 'prepareProjectGeneratedCompositionV1'
   | 'releaseTimelineRangeCutLockV1'
-  | 'updateOverlay'
+  | 'updateOverlayAtRevisionV1'
 >;
 
 export interface Stage25ProjectServiceConflictProbeStoreV1 {
@@ -127,10 +127,10 @@ export async function executeStage25ProjectServiceConflictProductProofV1(input: 
           'lib/editron/services/project-service.ts#ProjectService',
         participatingTimelineWriters: [
           {
-            method: 'ProjectService.updateOverlay',
+            method: 'ProjectService.updateOverlayAtRevisionV1',
             operation: 'UPDATE_OVERLAY',
             rangeDeclaration: 'EXACT_OVERLAY_BEFORE_AFTER_UNION',
-            actorIdentity: 'UNKNOWN_LEGACY_CALLER',
+            actorIdentity: 'USER',
           },
           {
             method: 'ProjectService.cutTimelineRangeV1',
@@ -160,7 +160,6 @@ export async function executeStage25ProjectServiceConflictProductProofV1(input: 
       limitations: [
         'The range lock is cut-specific; this does not certify a generic lock honored by every writer.',
         'The bounded conflict trial includes UPDATE_OVERLAY and CUT_TIMELINE_RANGE, not every ProjectService writer.',
-        'UPDATE_OVERLAY still records UNKNOWN_LEGACY_CALLER rather than explicit user provenance.',
         'Downstream invalidation remains truthfully UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN.',
         realMongo
           ? 'The durable proof uses an isolated loopback single-node mongod, not Atlas, a replica set, or a multi-user deployed product.'
@@ -188,8 +187,11 @@ async function proveDisjointSafeRebase(
   await input.store.installProject(projectFixture(input.userId, projectId));
   const initial = await input.owner.loadProjectForMutation(input.userId, projectId);
   const userMutation = await input.owner.captureMutationReceipts(() => (
-    input.owner.updateOverlay(input.userId, projectId, 2, {
-      content: 'preserve this concurrent user edit',
+    input.owner.updateOverlayAtRevisionV1(input.userId, projectId, {
+      expectedRevision: initial.revision,
+      actorKind: 'USER',
+      overlayId: 2,
+      updates: { content: 'preserve this concurrent user edit' },
     })
   ));
   assertOneMutationReceipt(userMutation.receipts, projectId, 8);
@@ -247,9 +249,11 @@ async function proveOverlappingEditBlocks(
 ) {
   await input.store.installProject(projectFixture(input.userId, projectId, 35));
   const initial = await input.owner.loadProjectForMutation(input.userId, projectId);
-  await input.owner.updateOverlay(input.userId, projectId, 2, {
-    from: 0,
-    durationInFrames: 20,
+  await input.owner.updateOverlayAtRevisionV1(input.userId, projectId, {
+    expectedRevision: initial.revision,
+    actorKind: 'USER',
+    overlayId: 2,
+    updates: { from: 0, durationInFrames: 20 },
   });
   const before = requiredProject(await input.store.readProject(input.userId, projectId));
   const blocked = await captureBlockedAttempt(input.owner, () => (
@@ -388,8 +392,11 @@ async function proveInvalidInputsBlock(
 ) {
   await input.store.installProject(projectFixture(input.userId, projectId));
   const initial = await input.owner.loadProjectForMutation(input.userId, projectId);
-  await input.owner.updateOverlay(input.userId, projectId, 2, {
-    content: 'advance revision before stale command',
+  await input.owner.updateOverlayAtRevisionV1(input.userId, projectId, {
+    expectedRevision: initial.revision,
+    actorKind: 'USER',
+    overlayId: 2,
+    updates: { content: 'advance revision before stale command' },
   });
   const beforeStale = requiredProject(await input.store.readProject(input.userId, projectId));
   const staleRevision = await captureBlockedAttempt(input.owner, () => (
@@ -727,7 +734,7 @@ function assertExactOverlayReceipt(
   expectedRange: { startFrame: number; endFrame: number },
 ): void {
   if (receipt.rangeObservation !== 'EXACT'
-    || receipt.actorKind !== 'UNKNOWN_LEGACY_CALLER'
+    || receipt.actorKind !== 'USER'
     || receipt.timelineCoordinateTransform !== null
     || receipt.ripple !== null
     || hashCanonicalJsonV1(receipt.writeFrameRangesBefore)

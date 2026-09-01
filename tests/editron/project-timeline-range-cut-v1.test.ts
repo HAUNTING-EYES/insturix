@@ -317,20 +317,31 @@ describe("ProjectService timeline range cut V1", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-25T01:02:03.000Z"));
     try {
-      persistenceMocks.findOne.mockResolvedValueOnce(projectFixture());
+      const project = projectFixture();
+      persistenceMocks.findOne.mockResolvedValueOnce(project);
       persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
       const { projectService } = await import("@/lib/editron/services/project-service");
 
-      await projectService.updateOverlay("user_timeline_cut", "proj_timeline_cut", 1, {
-        from: 10,
-        durationInFrames: 100,
-      } as any);
+      await projectService.updateOverlayAtRevisionV1(
+        "user_timeline_cut",
+        "proj_timeline_cut",
+        {
+          expectedRevision: {
+            schemaVersion: 1,
+            value: project.projectRevision,
+            compatibilityUpdatedAt: project.updatedAt.toISOString(),
+          },
+          actorKind: "USER",
+          overlayId: 1,
+          updates: { from: 10, durationInFrames: 100 } as any,
+        },
+      );
 
       const update = persistenceMocks.updateOne.mock.calls[0]?.[1] as Record<string, any>;
       expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
         receiptId: expect.stringMatching(/^timeline-overlay_/),
         operation: "UPDATE_OVERLAY",
-        actorKind: "UNKNOWN_LEGACY_CALLER",
+        actorKind: "USER",
         beforeProjectRevision: { value: 7 },
         afterProjectRevision: { value: 8 },
         readFrameRangesBefore: [{ startFrame: 0, endFrame: 240 }],

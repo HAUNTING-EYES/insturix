@@ -1209,10 +1209,25 @@ describe("Editron project save payload compaction", () => {
           content: "added",
         } as any,
       });
-      await projectService.updateOverlay("user_1", "proj_1", 1, {
-        content: "after",
-      } as any);
-      await projectService.deleteOverlay("user_1", "proj_1", 1);
+      await projectService.updateOverlayAtRevisionV1("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 8,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "SYSTEM",
+        overlayId: 1,
+        updates: { content: "after" } as any,
+      });
+      await projectService.deleteOverlayAtRevisionV1("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 9,
+          compatibilityUpdatedAt: deletedAt,
+        },
+        actorKind: "SYSTEM",
+        overlayId: 1,
+      });
     });
 
     expect(captured.receipts.map((receipt) => receipt.revision.value)).toEqual([
@@ -2466,14 +2481,21 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it("rejects a lost direct overlay write without publishing a receipt", async () => {
+  it("rejects a lost revision-bound overlay write without publishing a receipt", async () => {
     const before = "2026-08-11T03:00:00.000Z";
     const after = "2026-08-11T03:00:01.000Z";
     persistenceMocks.findOne
       .mockResolvedValueOnce({
         projectId: "proj_1",
         userId: "user_1",
-        overlays: [{ id: 1, type: "text", content: "before" }],
+        fps: 30,
+        overlays: [{
+          id: 1,
+          type: "text",
+          content: "before",
+          from: 0,
+          durationInFrames: 30,
+        }],
         updatedAt: new Date(before),
         projectRevision: 7,
       })
@@ -2493,9 +2515,16 @@ describe("Editron project save payload compaction", () => {
 
     const captured = await projectService.captureMutationReceipts(async () => {
       await expect(
-        projectService.updateOverlay("user_1", "proj_1", 1, {
-          content: "lost",
-        } as any),
+        projectService.updateOverlayAtRevisionV1("user_1", "proj_1", {
+          expectedRevision: {
+            schemaVersion: 1,
+            value: 7,
+            compatibilityUpdatedAt: before,
+          },
+          actorKind: "SYSTEM",
+          overlayId: 1,
+          updates: { content: "lost" } as any,
+        }),
       ).rejects.toBeInstanceOf(ProjectMutationConflictError);
     });
 
@@ -2507,10 +2536,11 @@ describe("Editron project save payload compaction", () => {
     });
   });
 
-  it("rejects a missing direct overlay before it writes", async () => {
+  it("rejects a missing revision-bound overlay before it writes", async () => {
     persistenceMocks.findOne.mockResolvedValueOnce({
       projectId: "proj_1",
       userId: "user_1",
+      fps: 30,
       overlays: [],
       updatedAt: new Date("2026-08-11T04:00:00.000Z"),
       projectRevision: 7,
@@ -2520,9 +2550,16 @@ describe("Editron project save payload compaction", () => {
     );
 
     await expect(
-      projectService.updateOverlay("user_1", "proj_1", 404, {
-        content: "missing",
-      } as any),
+      projectService.updateOverlayAtRevisionV1("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T04:00:00.000Z",
+        },
+        actorKind: "SYSTEM",
+        overlayId: 404,
+        updates: { content: "missing" } as any,
+      }),
     ).rejects.toMatchObject({
       code: "PROJECT_MUTATION_WRITE_FAILED",
       message: expect.stringContaining("404"),
@@ -2530,16 +2567,23 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
-  it("rejects a direct overlay update outside the project owner without writing", async () => {
+  it("rejects a revision-bound overlay update outside the project owner without writing", async () => {
     persistenceMocks.findOne.mockResolvedValueOnce(null);
     const { ProjectNotFoundOrForbiddenError, projectService } = await import(
       "@/lib/editron/services/project-service",
     );
 
     await expect(
-      projectService.updateOverlay("attacker", "proj_1", 1, {
-        content: "blocked",
-      } as any),
+      projectService.updateOverlayAtRevisionV1("attacker", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T04:00:00.000Z",
+        },
+        actorKind: "SYSTEM",
+        overlayId: 1,
+        updates: { content: "blocked" } as any,
+      }),
     ).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
