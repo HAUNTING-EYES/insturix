@@ -17,7 +17,7 @@ import type {
 } from "@/lib/editron/services/render-delivery-manifest";
 
 // Define possible states for the rendering process
-export type State =
+type State =
   | { status: "init" } // Initial state
   | { status: "invoking" } // API call is being made
   | {
@@ -336,7 +336,6 @@ export const useRendering = (
       while (pending) {
         // Check if cancelled
         if (cancelledRef.current) {
-          console.log('[Render] Cancelled by user');
           clearRenderResumeClaim(projectId);
           setState({ status: "init" });
           pending = false;
@@ -362,9 +361,6 @@ export const useRendering = (
             break;
           }
           case "done": {
-            console.log(
-              `Render complete: url=${result.url}, size=${result.size}`
-            );
             clearRenderResumeClaim(projectId);
             setState({
               size: result.size,
