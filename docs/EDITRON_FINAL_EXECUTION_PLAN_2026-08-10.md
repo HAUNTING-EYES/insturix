@@ -14922,3 +14922,30 @@ Queues 3 and 4 remain `ACTIVE_PARTIAL`, Stage 2.5 remains `MODIFY` and Stage
 Bound failure/finalization is the current in-progress dependency, followed by
 the route/progress/history/finalization and invalidation-outbox consumer
 migrations under the same binding gates.
+
+## 2026-09-01 vertical-convergence Phase 3I checkpoint
+
+At commits `3d2d75f60`, `4cb6172c7` and `b5d432bab`, strict
+`PROJECT_SNAPSHOT` render jobs
+bind `requestedByUserId` separately from the persisted `ownerId`. The real
+cloud-render startup path reads one access-authorized ProjectService snapshot
+and binds the exact project revision, owner, snapshot binding and render
+contract before hydration, credit deduction, credential loading or provider
+dispatch. Client form and timing hints remain non-authoritative. A stale
+pre-dispatch check refunds without provider dispatch and atomically closes
+only the exact undispatched admission as `error`/`STALE` with no artifact
+cleanup required. Current-revision, forged-requester and provider-bound jobs
+are ineligible for that transition. If a render has already started but
+provider binding is uncertain, the route returns HTTP 202
+`recovery_required`.
+
+The focused targeted run passed 51/51 tests; full TypeScript and ESLint passed.
+Remaining legacy consumers are progress, active, history, signed
+webhook/finalizer/retry, chapter internals and recovery; these are not yet
+migrated to the strict binding. No provider/live-render proof exists, and no
+Stage 2.5 `GO` or convergence claim is made. Queue 5 remains `ACTIVE_PARTIAL`,
+Stage 2.5 remains `MODIFY` and Stage 3 remains blocked.
+
+The next bounded work is migration of those route and consumer paths under
+the same exact binding and recovery gates, followed by invalidation-outbox
+consumer integration.
