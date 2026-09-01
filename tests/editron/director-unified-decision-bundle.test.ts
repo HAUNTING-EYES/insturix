@@ -61,16 +61,21 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('throw bundleErr');
   });
 
-  it('persists unified bundle provenance for real-project debugging', () => {
+  it('records unified bundle provenance before dependent dispatch', () => {
     const source = directorSource();
+    const factIndex = source.indexOf("kind: 'UNIFIED_DECISION_BUNDLE'");
+    const autoBgmIndex = source.indexOf('Auto-BGM dispatch');
 
     expect(source).toContain('summarizeUnifiedDecisionBundle(unifiedDecisionBundle)');
     expect(source).toContain('summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain('authority: bundle.authority');
     expect(source).toContain('signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain("(result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary");
-    expect(source).toContain("await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary)");
-    expect(source).toContain("'intelligence.unifiedDecisionBundle'");
+    expect(source).toContain('await projectService.recordDirectorAuditFactV1(');
+    expect(source).toContain('payload: unifiedDecisionBundleSummary');
+    expect(factIndex).toBeGreaterThan(0);
+    expect(autoBgmIndex).toBeGreaterThan(factIndex);
+    expect(source).not.toContain('persistUnifiedDecisionBundleSummary');
   });
 
   it('persists final Phase-0 truth from the saved overlay set before completion events', () => {
@@ -192,10 +197,18 @@ describe('director unified decision bundle control flow', () => {
 
   it('applies post-bundle profile action policy before Director executes profile actions', () => {
     const source = directorSource();
+    const policyFactIndex = source.indexOf("kind: 'POST_BUNDLE_PROFILE_ACTION_POLICY'");
+    const actionProgressIndex = source.indexOf("'Starting Director Agent execution...'");
+    const finalSaveIndex = source.indexOf('await projectService.saveProjectWithReceipt');
 
     expect(source).toContain('shouldRunPostBundleProfileAction({');
     expect(source).toContain('Unified bundle: Skipping legacy profile action');
     expect(source).toContain('legacy profile action(s) skipped after EDL execution');
+    expect(source).toContain('payload: postBundleProfileActionPolicy');
+    expect(policyFactIndex).toBeGreaterThan(0);
+    expect(actionProgressIndex).toBeGreaterThan(policyFactIndex);
+    expect(finalSaveIndex).toBeGreaterThan(policyFactIndex);
+    expect(source).not.toContain('persistPostBundleProfileActionPolicy');
   });
 
   it('keeps Utility LIVE as shadow evidence during raw-footage creative brief runs', () => {

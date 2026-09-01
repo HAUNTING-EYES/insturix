@@ -35,6 +35,11 @@ import {
   type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
 import { advanceDirectorRevisionFromReceiptsV1 } from '@/lib/editron/agent/director-revision-chain-v1';
+import {
+  createDirectorAuditFactV1,
+  type DirectorAuditFactV1,
+  type PostBundleProfileActionPolicySummaryV1,
+} from '@/lib/editron/services/director-audit-fact-v1';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -238,61 +243,6 @@ function summarizeSignalAuditBucketCounts(
       .filter(([, bucket]) => bucket.count > 0)
       .map(([key, bucket]) => [key, bucket.count]),
   );
-}
-
-async function persistUnifiedDecisionBundleSummary(
-  projectId: string,
-  summary: ReturnType<typeof summarizeUnifiedDecisionBundle>,
-): Promise<void> {
-  try {
-    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-    await bundleDb.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          'intelligence.unifiedDecisionBundle': {
-            ...summary,
-            persistedAt: new Date().toISOString(),
-          },
-        },
-      },
-    );
-  } catch (err: unknown) {
-    console.warn('[Director] non-fatal unified decision bundle persistence:', err instanceof Error ? err.message : err);
-  }
-}
-
-type PostBundleProfileActionPolicySummary = {
-  version: 'post-bundle-profile-action-policy-v1';
-  unifiedDecisionBundleExecuted: true;
-  evaluatedAt: string;
-  allowedActionCount: number;
-  skippedActionCount: number;
-  allowedTools: string[];
-  skippedActions: Array<{
-    tool: string;
-    action: string;
-    reason: string;
-  }>;
-};
-
-async function persistPostBundleProfileActionPolicy(
-  projectId: string,
-  summary: PostBundleProfileActionPolicySummary,
-): Promise<void> {
-  try {
-    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-    await bundleDb.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          'intelligence.postBundleProfileActionPolicy': summary,
-        },
-      },
-    );
-  } catch (err: unknown) {
-    console.warn('[Director] non-fatal post-bundle profile action policy persistence:', err instanceof Error ? err.message : err);
-  }
 }
 
 async function buildFinalPhase0LiveTruthFacts(options: {
@@ -573,6 +523,30 @@ export async function executeDirectorPlan(
       await progressObserver?.(step, total, description);
       return persistedReceipt;
     };
+    const recordDirectorAuditFact = async (
+      fact: DirectorAuditFactV1,
+    ): Promise<ProjectMutationReceiptV1> => {
+      if (directorLeaseId === null) {
+        throw new ProjectMutationWriteError(
+          'Director audit facts require the active Director lease.',
+        );
+      }
+      const receipt = await projectService.recordDirectorAuditFactV1(
+        userId,
+        projectId,
+        {
+          expectedRevision: directorCurrentRevision,
+          directorLeaseId,
+          fact,
+        },
+      );
+      directorCurrentRevision = advanceDirectorRevisionFromReceiptsV1({
+        projectId,
+        currentRevision: directorCurrentRevision,
+        receipts: [receipt],
+      });
+      return receipt;
+    };
 
     const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
@@ -624,7 +598,7 @@ export async function executeDirectorPlan(
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
-    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
+    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummaryV1 | null = null;
 
     const edlSummary: {
       totalDecisions: number;
@@ -1912,7 +1886,10 @@ export async function executeDirectorPlan(
           // the execution result only adds observed decision-to-overlay trace evidence.
           const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle, unifiedExecutionResult);
           (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
-          await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+          await recordDirectorAuditFact(createDirectorAuditFactV1({
+            kind: 'UNIFIED_DECISION_BUNDLE',
+            payload: unifiedDecisionBundleSummary,
+          }));
           result.decisionAuthority = {
             version: 'decision-authority-v1',
             source: 'unified-decision-bundle',
@@ -2674,7 +2651,7 @@ export async function executeDirectorPlan(
 
     if (unifiedDecisionBundleExecuted) {
       const beforeCount = filteredActions.length;
-      const skippedPostBundleActions: PostBundleProfileActionPolicySummary['skippedActions'] = [];
+      const skippedPostBundleActions: PostBundleProfileActionPolicySummaryV1['skippedActions'] = [];
       const allowedPostBundleTools: string[] = [];
       filteredActions = filteredActions.filter(a => {
         const profileActionDecision = shouldRunPostBundleProfileAction({
@@ -2712,6 +2689,10 @@ export async function executeDirectorPlan(
       if (beforeCount !== filteredActions.length) {
         console.log(`[Director] Unified bundle: ${beforeCount - filteredActions.length} legacy profile action(s) skipped after EDL execution`);
       }
+      await recordDirectorAuditFact(createDirectorAuditFactV1({
+        kind: 'POST_BUNDLE_PROFILE_ACTION_POLICY',
+        payload: postBundleProfileActionPolicy,
+      }));
     }
 
     const totalSteps = filteredActions.length;
@@ -3022,9 +3003,6 @@ export async function executeDirectorPlan(
     directorCurrentRevision = finalReceipt.revision;
     directorLeaseId = null;
     result.terminalProjectReceipt = finalReceipt;
-    if (postBundleProfileActionPolicy) {
-      await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
-    }
 
     try {
       const phase0Proof = await buildFinalPhase0LiveTruthFacts({
