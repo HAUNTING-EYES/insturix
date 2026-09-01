@@ -623,6 +623,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
   error: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -665,6 +666,7 @@ export async function failProjectRenderJobFromProviderV1(input: {
         completedAt,
       },
     },
+    { session: input.session },
   );
   return failed.modifiedCount === 1
     ? currentProjectRenderJobMutationResult()
@@ -1276,6 +1278,7 @@ export async function claimFailedProjectRenderJobFinalizationRetryV1(input: {
   leaseMs?: number;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1294,6 +1297,7 @@ export async function claimFailedProjectRenderJobFinalizationRetryV1(input: {
   };
   const storedCandidate = await jobs.findOne(
     currentProjectRenderJobMutationFilter(validation.authorization, retryConditions),
+    { session: input.session },
   );
   const parsedCandidate = RenderJobSchema.safeParse(storedCandidate);
   if (!parsedCandidate.success) {
@@ -1352,7 +1356,7 @@ export async function claimFailedProjectRenderJobFinalizationRetryV1(input: {
         error: '',
       },
     },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session: input.session },
   );
   if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(claimed, validation.authorization);
@@ -1393,6 +1397,7 @@ export async function releaseFailedProjectRenderJobFinalizationRetryClaimV1(inpu
   error: unknown;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1427,6 +1432,7 @@ export async function releaseFailedProjectRenderJobFinalizationRetryClaimV1(inpu
         'finalization.leaseExpiresAt': '',
       },
     },
+    { session: input.session },
   );
   return released.modifiedCount === 1
     ? currentProjectRenderJobMutationResult()
@@ -1539,6 +1545,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
   leaseMs?: number;
   now?: Date;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1613,7 +1620,7 @@ export async function claimProjectRenderJobFinalizationV1(input: {
         error: '',
       },
     },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session: input.session },
   );
   if (!claimed) return nonCurrentProjectRenderJobResult('JOB_STATE_NOT_ACTIVE');
   const invalidReason = validateCurrentProjectRenderJob(claimed, validation.authorization);
@@ -1640,6 +1647,7 @@ export async function releaseProjectRenderJobFinalizationClaimV1(input: {
   currentProjectRevision: unknown;
   claimToken: string;
   collection?: Collection<RenderJob>;
+  session?: ClientSession;
 }): Promise<ProjectRenderJobMutationResultV1> {
   const validation = validateProjectRenderJobAuthorization(input);
   if ('result' in validation) return validation.result;
@@ -1662,6 +1670,7 @@ export async function releaseProjectRenderJobFinalizationClaimV1(input: {
         finalization: '',
       },
     },
+    { session: input.session },
   );
   return released.modifiedCount === 1
     ? currentProjectRenderJobMutationResult()

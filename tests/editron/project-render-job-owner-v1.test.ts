@@ -883,6 +883,7 @@ describe("Project render-job owner V1", () => {
       claimToken: "claim-1",
       now,
       collection,
+      session,
     });
     expect(claim).toMatchObject({
       ok: true,
@@ -892,6 +893,10 @@ describe("Project render-job owner V1", () => {
       binding,
     });
     const claimFilter = collection.findOneAndUpdate.mock.calls[0]![0];
+    expect(collection.findOneAndUpdate.mock.calls[0]![2]).toEqual({
+      returnDocument: "after",
+      session,
+    });
     expect(JSON.stringify(claimFilter)).toContain('"artifactState":"ACTIVE"');
     expect(JSON.stringify(claimFilter)).toContain(
       `"projectRenderSnapshotBinding.bindingHash":"${binding.bindingHash}"`,
@@ -915,6 +920,7 @@ describe("Project render-job owner V1", () => {
       currentProjectRevision: REVISION,
       claimToken: "claim-1",
       collection,
+      session,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
     const release = collection.updateOne.mock.calls.at(-1)!;
     expect(JSON.stringify(release[0])).toContain(binding.bindingHash);
@@ -922,6 +928,7 @@ describe("Project render-job owner V1", () => {
       $set: { status: "rendering", progress: 0.99 },
       $unset: { finalization: "" },
     });
+    expect(release[2]).toEqual({ session });
 
     collection.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
     await expect(failProjectRenderJobFinalizationV1({
@@ -956,6 +963,7 @@ describe("Project render-job owner V1", () => {
 
   it("binds signed provider failures and failed-finalization retries to the current admission", async () => {
     const collection = makeCollection();
+    const session = {} as ClientSession;
     const binding = makeBinding();
     const authorization = makeAuthorization(binding);
     const now = new Date("2026-08-31T00:05:00.000Z");
@@ -969,6 +977,7 @@ describe("Project render-job owner V1", () => {
       error: "provider callback failed",
       now,
       collection,
+      session,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
     const [failureFilter, failureUpdate] = collection.updateOne.mock.calls[0]!;
     expect(JSON.stringify(failureFilter)).toContain(binding.bindingHash);
@@ -994,6 +1003,7 @@ describe("Project render-job owner V1", () => {
       bucketName: "editron-render-output",
       completedAt: now,
     }));
+    expect(collection.updateOne.mock.calls[0]![2]).toEqual({ session });
 
     collection.updateOne.mockClear();
     collection.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
@@ -1076,6 +1086,7 @@ describe("Project render-job owner V1", () => {
       claimToken: "retry-claim",
       now,
       collection,
+      session,
     });
     expect(retry).toMatchObject({
       ok: true,
@@ -1087,10 +1098,15 @@ describe("Project render-job owner V1", () => {
       binding,
     });
     const candidateFilter = collection.findOne.mock.calls.at(-1)![0];
+    expect(collection.findOne.mock.calls.at(-1)![1]).toEqual({ session });
     expect(JSON.stringify(candidateFilter)).toContain(
       '"finalization.attempts":{"$lt":3}',
     );
     const retryFilter = collection.findOneAndUpdate.mock.calls[0]![0];
+    expect(collection.findOneAndUpdate.mock.calls[0]![2]).toEqual({
+      returnDocument: "after",
+      session,
+    });
     expect(JSON.stringify(retryFilter)).toContain(binding.bindingHash);
     expect(JSON.stringify(retryFilter)).toContain('"finalization.attempts":1');
     expect(JSON.stringify(retryFilter)).toContain('"providerRenderId":"provider-render-1"');
@@ -1103,6 +1119,7 @@ describe("Project render-job owner V1", () => {
       error: "queue publish failed",
       now,
       collection,
+      session,
     })).resolves.toMatchObject({ ok: true, status: "CURRENT" });
     const retryRelease = collection.updateOne.mock.calls.at(-1)!;
     expect(JSON.stringify(retryRelease[0])).toContain(binding.bindingHash);
@@ -1118,6 +1135,7 @@ describe("Project render-job owner V1", () => {
         "finalization.leaseExpiresAt": "",
       },
     });
+    expect(retryRelease[2]).toEqual({ session });
   });
 
   it("abandons only an exact stale admission before provider dispatch", async () => {

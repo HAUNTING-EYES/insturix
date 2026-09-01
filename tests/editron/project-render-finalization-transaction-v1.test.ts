@@ -6,9 +6,14 @@ const databaseMocks = vi.hoisted(() => ({
 }));
 
 const renderJobMocks = vi.hoisted(() => ({
+  claimFailedRetry: vi.fn(),
+  claimInitial: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
+  failFromProvider: vi.fn(),
   fenceStale: vi.fn(),
+  releaseFailedRetry: vi.fn(),
+  releaseInitial: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -37,9 +42,15 @@ vi.mock("@/lib/editron/services/render-job-service", async (importOriginal) => {
   >();
   return {
     ...actual,
+    claimFailedProjectRenderJobFinalizationRetryV1: renderJobMocks.claimFailedRetry,
+    claimProjectRenderJobFinalizationV1: renderJobMocks.claimInitial,
     completeProjectRenderJobFinalizationV1: renderJobMocks.complete,
+    failProjectRenderJobFromProviderV1: renderJobMocks.failFromProvider,
     failProjectRenderJobFinalizationV1: renderJobMocks.fail,
     fenceStaleProjectRenderJobFinalizationV1: renderJobMocks.fenceStale,
+    releaseFailedProjectRenderJobFinalizationRetryClaimV1:
+      renderJobMocks.releaseFailedRetry,
+    releaseProjectRenderJobFinalizationClaimV1: renderJobMocks.releaseInitial,
   };
 });
 
@@ -79,6 +90,19 @@ const FINALIZER_RESULT = {
   },
 };
 
+const FINALIZATION_CLAIM = {
+  ok: true as const,
+  status: "CURRENT" as const,
+  jobId: AUTHORIZATION.jobId,
+  providerRenderId: "provider-render-1",
+  claimToken: "claim-transaction",
+  sourceOutputUrl: "https://render.example.test/source.mp4",
+  sourceOutputSize: 200,
+  expectedDurationMs: 5_000,
+  authorization: AUTHORIZATION,
+  binding: { scope: "PROJECT_SNAPSHOT" },
+};
+
 type ProjectRevisionRow = {
   projectRevision: number;
   updatedAt: Date;
@@ -111,9 +135,14 @@ describe("project render finalization transaction owner v1", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     databaseMocks.getDatabase.mockResolvedValue({ collection: vi.fn() });
+    renderJobMocks.claimFailedRetry.mockResolvedValue(FINALIZATION_CLAIM);
+    renderJobMocks.claimInitial.mockResolvedValue(FINALIZATION_CLAIM);
     renderJobMocks.complete.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.fail.mockResolvedValue({ ok: true, status: "CURRENT" });
+    renderJobMocks.failFromProvider.mockResolvedValue({ ok: true, status: "CURRENT" });
     renderJobMocks.fenceStale.mockResolvedValue({ ok: true, status: "STALE" });
+    renderJobMocks.releaseFailedRetry.mockResolvedValue({ ok: true, status: "CURRENT" });
+    renderJobMocks.releaseInitial.mockResolvedValue({ ok: true, status: "CURRENT" });
   });
 
   it("serializes the exact project revision, final render publication, and fence release", async () => {
@@ -242,6 +271,116 @@ describe("project render finalization transaction owner v1", () => {
       session: fixture.session,
     }));
     expect(renderJobMocks.complete).not.toHaveBeenCalled();
+  });
+
+  it("serializes provider failure and initial finalization claim/release owners", async () => {
+    const fixture = createTransactionFixture();
+    const now = new Date("2026-09-01T00:03:00.000Z");
+
+    await expect(projectService.failProjectRenderJobFromProviderTransactionV1({
+      authorization: AUTHORIZATION,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      error: "provider failed",
+      now,
+    })).resolves.toEqual({ ok: true, status: "CURRENT" });
+    await expect(projectService.claimProjectRenderJobFinalizationTransactionV1({
+      authorization: AUTHORIZATION,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      sourceOutputUrl: FINALIZATION_CLAIM.sourceOutputUrl,
+      sourceOutputSize: FINALIZATION_CLAIM.sourceOutputSize,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      now,
+    })).resolves.toEqual(FINALIZATION_CLAIM);
+    await expect(projectService.releaseProjectRenderJobFinalizationClaimTransactionV1({
+      authorization: AUTHORIZATION,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      now,
+    })).resolves.toEqual({ ok: true, status: "CURRENT" });
+
+    expect(renderJobMocks.failFromProvider).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      now,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.claimInitial).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      now,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.releaseInitial).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      session: fixture.session,
+    }));
+  });
+
+  it("serializes failed-finalization retry claim and release owners", async () => {
+    const fixture = createTransactionFixture();
+    const now = new Date("2026-09-01T00:04:00.000Z");
+
+    await expect(projectService.claimFailedProjectRenderJobFinalizationRetryTransactionV1({
+      authorization: AUTHORIZATION,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      leaseMs: 60_000,
+      now,
+    })).resolves.toEqual(FINALIZATION_CLAIM);
+    await expect(
+      projectService.releaseFailedProjectRenderJobFinalizationRetryClaimTransactionV1({
+        authorization: AUTHORIZATION,
+        claimToken: FINALIZATION_CLAIM.claimToken,
+        error: "dispatch failed",
+        now,
+      }),
+    ).resolves.toEqual({ ok: true, status: "CURRENT" });
+
+    expect(renderJobMocks.claimFailedRetry).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      leaseMs: 60_000,
+      now,
+      session: fixture.session,
+    }));
+    expect(renderJobMocks.releaseFailedRetry).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: AUTHORIZATION,
+      currentProjectRevision: AUTHORIZATION.projectRevision,
+      claimToken: FINALIZATION_CLAIM.claimToken,
+      error: "dispatch failed",
+      now,
+      session: fixture.session,
+    }));
+  });
+
+  it("rejects a stale current-only provider mutation before its specialized owner", async () => {
+    const fixture = createTransactionFixture();
+    fixture.projects.findOneAndUpdate.mockResolvedValueOnce(null);
+    fixture.projects.findOne.mockResolvedValueOnce({
+      projectRevision: 8,
+      updatedAt: new Date("2026-09-01T00:05:00.000Z"),
+    });
+
+    await expect(projectService.failProjectRenderJobFromProviderTransactionV1({
+      authorization: AUTHORIZATION,
+      providerRenderId: "provider-render-1",
+      bucketName: "render-bucket",
+      error: "stale provider callback",
+    })).resolves.toEqual({
+      ok: false,
+      status: "NON_CURRENT",
+      code: "PROJECT_ARTIFACT_NOT_CURRENT",
+      reason: "PROJECT_REVISION_STALE",
+    });
+
+    expect(renderJobMocks.failFromProvider).not.toHaveBeenCalled();
+    expect(fixture.projects.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects malformed authorization before opening a database transaction", async () => {

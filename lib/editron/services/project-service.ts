@@ -6,6 +6,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes } from "node:crypto";
+import type { ClientSession } from "mongodb";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
@@ -13,10 +14,18 @@ import { hashEditronCanonicalJsonV1 } from "./canonical-json-v1";
 import {
   PROJECT_ARTIFACT_NOT_CURRENT,
   ProjectRenderJobAuthorizationSchema,
+  claimFailedProjectRenderJobFinalizationRetryV1,
+  claimProjectRenderJobFinalizationV1,
   completeProjectRenderJobFinalizationV1 as completeBoundProjectRenderJobFinalizationV1,
+  failProjectRenderJobFromProviderV1,
   failProjectRenderJobFinalizationV1 as failBoundProjectRenderJobFinalizationV1,
   fenceStaleProjectRenderJobFinalizationV1,
+  releaseFailedProjectRenderJobFinalizationRetryClaimV1,
+  releaseProjectRenderJobFinalizationClaimV1,
+  type ProjectRenderFinalizationClaimV1,
+  type ProjectRenderJobAuthorizationV1,
   type ProjectRenderJobMutationResultV1,
+  type ProjectRenderJobNotCurrentResultV1,
 } from "./render-job-service";
 import type {
   Keyframe,
@@ -1367,6 +1376,28 @@ type ProjectRenderFinalizationTransactionCommandV1 =
       now?: Date;
     };
 
+type ProjectRenderJobTransactionKindV1 =
+  | ProjectRenderFinalizationTransactionCommandV1["kind"]
+  | "provider-failure"
+  | "initial-finalization-claim"
+  | "initial-finalization-release"
+  | "failed-finalization-retry-claim"
+  | "failed-finalization-retry-release";
+
+interface ProjectRenderJobTransactionContextV1 {
+  authorization: ProjectRenderJobAuthorizationV1;
+  currentProjectRevision: ProjectRevisionV1;
+  session: ClientSession;
+  transactionAt: Date;
+}
+
+interface StaleProjectRenderJobTransactionContextV1 {
+  authorization: ProjectRenderJobAuthorizationV1;
+  observedProjectRevision: ProjectRevisionV1 | null;
+  session: ClientSession;
+  transactionAt: Date;
+}
+
 type ProjectRenderFinalizationTransactionResultV1 =
   | ProjectRenderJobMutationResultV1
   | {
@@ -1865,12 +1896,185 @@ export class ProjectService {
     });
   }
 
+  /** Reconcile one signed provider failure only while its project is current. */
+  async failProjectRenderJobFromProviderTransactionV1(input: {
+    authorization: unknown;
+    providerRenderId: string;
+    bucketName: string;
+    error: unknown;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization: input.authorization,
+        kind: "provider-failure",
+        now: input.now,
+      },
+      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+        failProjectRenderJobFromProviderV1({
+          authorization,
+          currentProjectRevision,
+          providerRenderId: input.providerRenderId,
+          bucketName: input.bucketName,
+          error: input.error,
+          now: transactionAt,
+          session,
+        }),
+    );
+  }
+
+  /** Lease provider output for strict finalization under one project fence. */
+  async claimProjectRenderJobFinalizationTransactionV1(input: {
+    authorization: unknown;
+    providerRenderId?: string;
+    bucketName?: string;
+    sourceOutputUrl: string;
+    sourceOutputSize: number;
+    claimToken?: string;
+    leaseMs?: number;
+    now?: Date;
+  }): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization: input.authorization,
+        kind: "initial-finalization-claim",
+        now: input.now,
+      },
+      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+        claimProjectRenderJobFinalizationV1({
+          authorization,
+          currentProjectRevision,
+          providerRenderId: input.providerRenderId,
+          bucketName: input.bucketName,
+          sourceOutputUrl: input.sourceOutputUrl,
+          sourceOutputSize: input.sourceOutputSize,
+          claimToken: input.claimToken,
+          leaseMs: input.leaseMs,
+          now: transactionAt,
+          session,
+        }),
+    );
+  }
+
+  /** Release only the current strict claim after initial queue dispatch fails. */
+  async releaseProjectRenderJobFinalizationClaimTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization: input.authorization,
+        kind: "initial-finalization-release",
+        now: input.now,
+      },
+      ({ authorization, currentProjectRevision, session }) =>
+        releaseProjectRenderJobFinalizationClaimV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
+          session,
+        }),
+    );
+  }
+
+  /** Re-lease preserved provider output without a second render purchase. */
+  async claimFailedProjectRenderJobFinalizationRetryTransactionV1(input: {
+    authorization: unknown;
+    claimToken?: string;
+    leaseMs?: number;
+    now?: Date;
+  }): Promise<ProjectRenderFinalizationClaimV1 | ProjectRenderJobNotCurrentResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization: input.authorization,
+        kind: "failed-finalization-retry-claim",
+        now: input.now,
+      },
+      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+        claimFailedProjectRenderJobFinalizationRetryV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
+          leaseMs: input.leaseMs,
+          now: transactionAt,
+          session,
+        }),
+    );
+  }
+
+  /** Restore only the current failed-retry claim after queue dispatch fails. */
+  async releaseFailedProjectRenderJobFinalizationRetryClaimTransactionV1(input: {
+    authorization: unknown;
+    claimToken: string;
+    error: unknown;
+    now?: Date;
+  }): Promise<ProjectRenderJobMutationResultV1> {
+    return this.runProjectRenderJobTransactionV1(
+      {
+        authorization: input.authorization,
+        kind: "failed-finalization-retry-release",
+        now: input.now,
+      },
+      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+        releaseFailedProjectRenderJobFinalizationRetryClaimV1({
+          authorization,
+          currentProjectRevision,
+          claimToken: input.claimToken,
+          error: input.error,
+          now: transactionAt,
+          session,
+        }),
+    );
+  }
+
   private async reconcileProjectRenderJobFinalizationTransactionV1(
     input: ProjectRenderFinalizationTransactionCommandV1,
   ): Promise<ProjectRenderFinalizationTransactionResultV1> {
-    const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(
-      input.authorization,
+    return this.runProjectRenderJobTransactionV1(
+      { authorization: input.authorization, kind: input.kind, now: input.now },
+      ({ authorization, currentProjectRevision, session, transactionAt }) =>
+        input.kind === "complete"
+          ? completeBoundProjectRenderJobFinalizationV1({
+              authorization,
+              currentProjectRevision,
+              claimToken: input.claimToken,
+              result: input.result,
+              now: transactionAt,
+              session,
+            })
+          : failBoundProjectRenderJobFinalizationV1({
+              authorization,
+              currentProjectRevision,
+              claimToken: input.claimToken,
+              error: input.error,
+              now: transactionAt,
+              session,
+            }),
+      ({ authorization, observedProjectRevision, session, transactionAt }) =>
+        fenceStaleProjectRenderJobFinalizationV1({
+          authorization,
+          observedProjectRevision,
+          claimToken: input.claimToken,
+          error: input.kind === "failure"
+            ? input.error
+            : "Project changed before final render publication.",
+          now: transactionAt,
+          session,
+        }),
     );
+  }
+
+  private async runProjectRenderJobTransactionV1<TCurrent, TStale = never>(
+    input: {
+      authorization: unknown;
+      kind: ProjectRenderJobTransactionKindV1;
+      now?: Date;
+    },
+    currentOwner: (context: ProjectRenderJobTransactionContextV1) => Promise<TCurrent>,
+    staleOwner?: (context: StaleProjectRenderJobTransactionContextV1) => Promise<TStale>,
+  ): Promise<TCurrent | TStale | ProjectRenderJobNotCurrentResultV1> {
+    const parsedAuthorization = ProjectRenderJobAuthorizationSchema.safeParse(input.authorization);
     if (!parsedAuthorization.success) {
       return {
         ok: false,
@@ -1880,8 +2084,16 @@ export class ProjectService {
       };
     }
 
+    const transactionAt = input.now ?? new Date();
+    if (!(transactionAt instanceof Date) || Number.isNaN(transactionAt.getTime())) {
+      return {
+        ok: false,
+        status: "NON_CURRENT",
+        code: PROJECT_ARTIFACT_NOT_CURRENT,
+        reason: "INPUT_INVALID",
+      };
+    }
     const authorization = parsedAuthorization.data;
-    const completedAt = input.now ?? new Date();
     const transactionToken = randomBytes(16).toString("hex");
     const { client, db } = await connectToDatabase();
     const session = client.startSession();
@@ -1901,7 +2113,7 @@ export class ProjectService {
                 transactionToken,
                 jobId: authorization.jobId,
                 kind: input.kind,
-                acquiredAt: completedAt,
+                acquiredAt: transactionAt,
               },
             },
           },
@@ -1926,36 +2138,29 @@ export class ProjectService {
           const observedProjectRevision = observedProject
             ? projectRevisionFor(observedProject)
             : null;
-          return fenceStaleProjectRenderJobFinalizationV1({
-            authorization,
-            observedProjectRevision,
-            claimToken: input.claimToken,
-            error: input.kind === "failure"
-              ? input.error
-              : "Project changed before final render publication.",
-            now: completedAt,
-            session,
-          });
+          if (staleOwner) {
+            return staleOwner({
+              authorization,
+              observedProjectRevision,
+              session,
+              transactionAt,
+            });
+          }
+          return {
+            ok: false as const,
+            status: "NON_CURRENT" as const,
+            code: PROJECT_ARTIFACT_NOT_CURRENT,
+            reason: "PROJECT_REVISION_STALE" as const,
+          };
         }
 
         const currentProjectRevision = projectRevisionFor(lockedProject);
-        const jobResult = input.kind === "complete"
-          ? await completeBoundProjectRenderJobFinalizationV1({
-              authorization,
-              currentProjectRevision,
-              claimToken: input.claimToken,
-              result: input.result,
-              now: completedAt,
-              session,
-            })
-          : await failBoundProjectRenderJobFinalizationV1({
-              authorization,
-              currentProjectRevision,
-              claimToken: input.claimToken,
-              error: input.error,
-              now: completedAt,
-              session,
-            });
+        const jobResult = await currentOwner({
+          authorization,
+          currentProjectRevision,
+          session,
+          transactionAt,
+        });
 
         const released = await projects.updateOne(
           {
@@ -1982,7 +2187,7 @@ export class ProjectService {
         writeConcern: { w: "majority" },
         readPreference: "primary",
       });
-      if (!result) {
+      if (result === undefined) {
         throw new ProjectMutationWriteError(
           "Render finalization transaction returned no result.",
         );
