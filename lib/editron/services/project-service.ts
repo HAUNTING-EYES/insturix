@@ -1073,6 +1073,26 @@ export interface ProjectAnalysisRunV1 {
   updatedAt: string;
   phase1EvidenceHash?: string;
   phase1EvidenceCommittedAt?: string;
+  deepAnalysisLease?: ProjectAnalysisDeepLeaseV1;
+  phase2EvidenceHash?: string;
+  phase2EvidenceCommittedAt?: string;
+  directorDispatch?: ProjectAnalysisDirectorDispatchV1;
+}
+
+export interface ProjectAnalysisDeepLeaseV1 {
+  schemaVersion: 1;
+  leaseId: string;
+  claimedAt: string;
+  expiresAt: string;
+}
+
+export interface ProjectAnalysisDirectorDispatchV1 {
+  schemaVersion: 1;
+  deduplicationId: string;
+  status: "pending" | "published";
+  preparedAt: string;
+  publishedAt?: string;
+  providerMessageId?: string;
 }
 
 export interface ProjectAnalysisQueueFactsV1 {
@@ -1173,6 +1193,52 @@ export interface ProjectAnalysisPhase1CommitCommandV1 {
   sourceAssetId: string;
   fromState: "transcribing" | "analyzing_visual_cuts" | "cleaning" | "computing_params";
   evidence: ProjectAnalysisPhase1EvidenceV1;
+}
+
+export interface ProjectAnalysisDeepClaimCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+}
+
+export type ProjectAnalysisDeepClaimResultV1 =
+  | {
+      disposition: "CLAIMED";
+      run: ProjectAnalysisRunV1;
+      lease: ProjectAnalysisDeepLeaseV1;
+      reclaimed: boolean;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | {
+      disposition: "DUPLICATE_ACTIVE" | "DIRECTOR_DISPATCH_PENDING" | "DIRECTOR_DISPATCH_PUBLISHED";
+      run: ProjectAnalysisRunV1;
+      currentRevision: ProjectRevisionV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | { disposition: "OWNERSHIP_LOST" };
+
+export interface ProjectAnalysisPhase2EvidenceV1 {
+  vjepaAnalysis?: unknown;
+  wav2vecAnalysis?: unknown;
+  musicAnalysis?: unknown;
+  momentWeightMap?: unknown;
+  segmentAnalysis?: unknown;
+}
+
+export interface ProjectAnalysisPhase2CommitCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  leaseId: string;
+  evidence: ProjectAnalysisPhase2EvidenceV1;
+}
+
+export interface ProjectAnalysisDirectorDispatchPublicationCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  runId: string;
+  sourceAssetId: string;
+  deduplicationId: string;
+  providerMessageId: string;
 }
 
 export interface ProjectPipelineDirectorDispatchPrepareCommandV1 {
@@ -5922,6 +5988,297 @@ export class ProjectService {
       },
       committedAt: committedAt.toISOString(),
     };
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Claims or reclaims the exact Phase-2 GPU analysis lease. */
+  async claimProjectAnalysisDeepRunV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDeepClaimCommandV1,
+  ): Promise<ProjectAnalysisDeepClaimResultV1> {
+    assertProjectAnalysisDeepClaimCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (currentRun.state === "directing_queued" && currentRun.directorDispatch) {
+      return {
+        disposition: currentRun.directorDispatch.status === "published"
+          ? "DIRECTOR_DISPATCH_PUBLISHED"
+          : "DIRECTOR_DISPATCH_PENDING",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (
+      (currentRun.state !== "analysis_complete" && currentRun.state !== "analyzing_deep")
+      || projectRecordValueV1(current, "autoEditStatus") !== currentRun.state
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+
+    const claimedAt = new Date();
+    const activeLease = currentRun.deepAnalysisLease;
+    if (
+      currentRun.state === "analyzing_deep"
+      && activeLease
+      && new Date(activeLease.expiresAt).getTime() > claimedAt.getTime()
+    ) {
+      return {
+        disposition: "DUPLICATE_ACTIVE",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const reclaimed = currentRun.state === "analyzing_deep";
+    const lease: ProjectAnalysisDeepLeaseV1 = {
+      schemaVersion: 1,
+      leaseId: `analysis_deep_lease_${nanoid(20)}`,
+      claimedAt: claimedAt.toISOString(),
+      expiresAt: new Date(claimedAt.getTime() + 15 * 60 * 1000).toISOString(),
+    };
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      state: "analyzing_deep",
+      updatedAt: claimedAt.toISOString(),
+      deepAnalysisLease: lease,
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: currentRun.state,
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": currentRun.state,
+        ...(activeLease ? { "autoEditAnalysisRunV1.deepAnalysisLease.leaseId": activeLease.leaseId } : {}),
+      },
+      {
+        $set: {
+          autoEditStatus: "analyzing_deep",
+          autoEditAnalysisRunV1: nextRun,
+          updatedAt: claimedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, claimedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "CLAIMED", run: structuredClone(nextRun), lease, reclaimed, receipt };
+  }
+
+  /** Atomically stores Phase-2 evidence and prepares one Director dispatch. */
+  async commitProjectAnalysisPhase2V1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisPhase2CommitCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisPhase2CommitCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    const evidenceMaterial = {
+      schemaVersion: 1,
+      projectId,
+      userId,
+      runId: input.runId,
+      sourceAssetId: input.sourceAssetId,
+      evidence: structuredClone(input.evidence),
+    };
+    const phase2EvidenceHash = hashEditronCanonicalJsonV1(evidenceMaterial);
+    if (
+      currentRun.state === "directing_queued"
+      && currentRun.phase2EvidenceHash === phase2EvidenceHash
+      && currentRun.directorDispatch
+      && projectRecordValueV1(current, "autoEditStatus") === "directing_queued"
+    ) {
+      return {
+        disposition: "ALREADY_ADVANCED",
+        run: structuredClone(currentRun),
+        currentRevision,
+      };
+    }
+    if (
+      currentRun.state !== "analyzing_deep"
+      || currentRun.deepAnalysisLease?.leaseId !== input.leaseId
+      || projectRecordValueV1(current, "autoEditStatus") !== "analyzing_deep"
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const committedAt = new Date();
+    const { deepAnalysisLease: _deepAnalysisLease, ...runWithoutLease } = currentRun;
+    const directorDispatch: ProjectAnalysisDirectorDispatchV1 = {
+      schemaVersion: 1,
+      deduplicationId: `editron_director_${hashEditronCanonicalJsonV1({
+        projectId,
+        runId: input.runId,
+        sourceAssetId: input.sourceAssetId,
+        phase2EvidenceHash,
+      }).slice(0, 48)}`,
+      status: "pending",
+      preparedAt: committedAt.toISOString(),
+    };
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...runWithoutLease,
+      state: "directing_queued",
+      updatedAt: committedAt.toISOString(),
+      phase2EvidenceHash,
+      phase2EvidenceCommittedAt: committedAt.toISOString(),
+      directorDispatch,
+    };
+    const evidence = input.evidence;
+    const perAssetSet = buildProjectAnalysisAssetSet(input.sourceAssetId, {
+      vjepaAnalysis: evidence.vjepaAnalysis,
+      wav2vecAnalysis: evidence.wav2vecAnalysis,
+      musicAnalysis: evidence.musicAnalysis,
+      momentWeightMap: evidence.momentWeightMap,
+      segmentAnalysis: evidence.segmentAnalysis,
+    }, committedAt);
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "analyzing_deep",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.sourceAssetId": input.sourceAssetId,
+        "autoEditAnalysisRunV1.state": "analyzing_deep",
+        "autoEditAnalysisRunV1.deepAnalysisLease.leaseId": input.leaseId,
+      },
+      {
+        $set: {
+          autoEditStatus: "directing_queued",
+          autoEditAnalysisRunV1: nextRun,
+          ...(evidence.vjepaAnalysis !== undefined ? { vjepaAnalysis: structuredClone(evidence.vjepaAnalysis) } : {}),
+          ...(evidence.wav2vecAnalysis !== undefined ? { wav2vecAnalysis: structuredClone(evidence.wav2vecAnalysis) } : {}),
+          ...(evidence.musicAnalysis !== undefined ? { musicAnalysis: structuredClone(evidence.musicAnalysis) } : {}),
+          ...(evidence.momentWeightMap !== undefined ? { momentWeightMap: structuredClone(evidence.momentWeightMap) } : {}),
+          ...(evidence.segmentAnalysis !== undefined ? { segmentAnalysis: structuredClone(evidence.segmentAnalysis) } : {}),
+          ...perAssetSet,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, committedAt);
+    this.publishMutationReceipt(receipt);
+    return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
+  }
+
+  /** Records the exact QStash publication that consumed a prepared dispatch. */
+  async recordProjectAnalysisDirectorDispatchPublishedV1(
+    userId: string,
+    projectId: string,
+    input: ProjectAnalysisDirectorDispatchPublicationCommandV1,
+  ): Promise<ProjectAnalysisRunAdvanceResultV1> {
+    assertProjectAnalysisDirectorDispatchPublicationCommandV1(input);
+    const db = await getDatabase();
+    const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+    if (!current) return { disposition: "PROJECT_NOT_FOUND" };
+    const currentRevision = projectRevisionFor(current);
+    const currentRun = readProjectAnalysisRunV1(projectRecordValueV1(current, "autoEditAnalysisRunV1"));
+    const dispatch = currentRun?.directorDispatch;
+    if (
+      currentRun
+      && currentRun.runId === input.runId
+      && currentRun.sourceAssetId === input.sourceAssetId
+      && currentRun.state === "directing_queued"
+      && dispatch?.status === "published"
+      && dispatch.deduplicationId === input.deduplicationId
+      && dispatch.providerMessageId === input.providerMessageId
+    ) {
+      return { disposition: "ALREADY_ADVANCED", run: structuredClone(currentRun), currentRevision };
+    }
+    if (
+      !currentRun
+      || currentRun.runId !== input.runId
+      || currentRun.sourceAssetId !== input.sourceAssetId
+      || currentRun.state !== "directing_queued"
+      || projectRecordValueV1(current, "autoEditStatus") !== "directing_queued"
+      || dispatch?.status !== "pending"
+      || dispatch.deduplicationId !== input.deduplicationId
+    ) {
+      return { disposition: "OWNERSHIP_LOST" };
+    }
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const committedAt = new Date();
+    const nextRun: ProjectAnalysisRunV1 = {
+      ...currentRun,
+      updatedAt: committedAt.toISOString(),
+      directorDispatch: {
+        ...dispatch,
+        status: "published",
+        publishedAt: committedAt.toISOString(),
+        providerMessageId: input.providerMessageId,
+      },
+    };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        autoEditStatus: "directing_queued",
+        "autoEditAnalysisRunV1.runId": input.runId,
+        "autoEditAnalysisRunV1.state": "directing_queued",
+        "autoEditAnalysisRunV1.directorDispatch.status": "pending",
+        "autoEditAnalysisRunV1.directorDispatch.deduplicationId": input.deduplicationId,
+      },
+      {
+        $set: { autoEditAnalysisRunV1: nextRun, updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId })) as Project | null;
+      return { disposition: latest ? "OWNERSHIP_LOST" : "PROJECT_NOT_FOUND" };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+    const receipt = projectMutationReceiptAfterV1(projectId, input.expectedRevision, committedAt);
     this.publishMutationReceipt(receipt);
     return { disposition: "ADVANCED", run: structuredClone(nextRun), receipt };
   }
@@ -11935,6 +12292,13 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceHash, 128))
     || (value.phase1EvidenceCommittedAt !== undefined
       && !isBoundedNonEmptyStringV1(value.phase1EvidenceCommittedAt, 100))
+    || (value.deepAnalysisLease !== undefined && !isProjectAnalysisDeepLeaseV1(value.deepAnalysisLease))
+    || (value.phase2EvidenceHash !== undefined
+      && !isBoundedNonEmptyStringV1(value.phase2EvidenceHash, 128))
+    || (value.phase2EvidenceCommittedAt !== undefined
+      && !isBoundedNonEmptyStringV1(value.phase2EvidenceCommittedAt, 100))
+    || (value.directorDispatch !== undefined
+      && !isProjectAnalysisDirectorDispatchV1(value.directorDispatch))
   ) {
     return null;
   }
@@ -11945,6 +12309,8 @@ function readProjectAnalysisRunV1(value: unknown): ProjectAnalysisRunV1 | null {
       || Number.isNaN(new Date(value.updatedAt as string).getTime())
       || (value.phase1EvidenceCommittedAt !== undefined
         && Number.isNaN(new Date(value.phase1EvidenceCommittedAt as string).getTime()))
+      || (value.phase2EvidenceCommittedAt !== undefined
+        && Number.isNaN(new Date(value.phase2EvidenceCommittedAt as string).getTime()))
     ) {
       return null;
     }
@@ -12120,6 +12486,102 @@ function bindProjectAnalysisNativeAudioEvidenceV1(
   return {
     ...material,
     evidenceId: `native_audio_${hashEditronCanonicalJsonV1(material)}`,
+  };
+}
+
+function isProjectAnalysisDeepLeaseV1(value: unknown): value is ProjectAnalysisDeepLeaseV1 {
+  return isPlainRecord(value)
+    && value.schemaVersion === 1
+    && isBoundedNonEmptyStringV1(value.leaseId, 200)
+    && isBoundedNonEmptyStringV1(value.claimedAt, 100)
+    && isBoundedNonEmptyStringV1(value.expiresAt, 100)
+    && !Number.isNaN(new Date(value.claimedAt).getTime())
+    && !Number.isNaN(new Date(value.expiresAt).getTime())
+    && new Date(value.expiresAt).getTime() > new Date(value.claimedAt).getTime();
+}
+
+function isProjectAnalysisDirectorDispatchV1(value: unknown): value is ProjectAnalysisDirectorDispatchV1 {
+  if (
+    !isPlainRecord(value)
+    || value.schemaVersion !== 1
+    || !isBoundedNonEmptyStringV1(value.deduplicationId, 200)
+    || (value.status !== "pending" && value.status !== "published")
+    || !isBoundedNonEmptyStringV1(value.preparedAt, 100)
+    || Number.isNaN(new Date(value.preparedAt).getTime())
+  ) return false;
+  if (value.status === "pending") {
+    return value.publishedAt === undefined && value.providerMessageId === undefined;
+  }
+  return isBoundedNonEmptyStringV1(value.publishedAt, 100)
+    && !Number.isNaN(new Date(value.publishedAt).getTime())
+    && isBoundedNonEmptyStringV1(value.providerMessageId, 500);
+}
+
+function assertProjectAnalysisDeepClaimCommandV1(input: ProjectAnalysisDeepClaimCommandV1): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+  ) throw new ProjectMutationWriteError("Deep-analysis claim requires one exact revision, run and source.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+const PROJECT_ANALYSIS_PHASE2_EVIDENCE_FIELDS_V1 = new Set([
+  "vjepaAnalysis",
+  "wav2vecAnalysis",
+  "musicAnalysis",
+  "momentWeightMap",
+  "segmentAnalysis",
+]);
+
+function assertProjectAnalysisPhase2CommitCommandV1(input: ProjectAnalysisPhase2CommitCommandV1): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.leaseId, 200)
+    || !isPlainRecord(input.evidence)
+    || Object.keys(input.evidence).some((key) => !PROJECT_ANALYSIS_PHASE2_EVIDENCE_FIELDS_V1.has(key))
+    || Object.values(input.evidence).some((value) => value === undefined)
+  ) throw new ProjectMutationWriteError("Phase-2 analysis commit requires one exact lease and bounded evidence.");
+  assertProjectRevision(input.expectedRevision);
+  try {
+    if (Buffer.byteLength(canonicalizeEditronJsonV1(input.evidence), "utf8") > 8_000_000) throw new Error();
+  } catch {
+    throw new ProjectMutationWriteError("Phase-2 analysis evidence must be canonical JSON below the project storage limit.");
+  }
+}
+
+function assertProjectAnalysisDirectorDispatchPublicationCommandV1(
+  input: ProjectAnalysisDirectorDispatchPublicationCommandV1,
+): void {
+  if (
+    !isPlainRecord(input)
+    || !input.expectedRevision
+    || !isBoundedNonEmptyStringV1(input.runId, 200)
+    || !isBoundedNonEmptyStringV1(input.sourceAssetId, 500)
+    || !isBoundedNonEmptyStringV1(input.deduplicationId, 200)
+    || !isBoundedNonEmptyStringV1(input.providerMessageId, 500)
+  ) throw new ProjectMutationWriteError("Director publication requires one exact run, source, revision and provider message.");
+  assertProjectRevision(input.expectedRevision);
+}
+
+function projectMutationReceiptAfterV1(
+  projectId: string,
+  expectedRevision: ProjectRevisionV1,
+  committedAt: Date,
+): ProjectMutationReceiptV1 {
+  return {
+    schemaVersion: 1,
+    projectId,
+    revision: {
+      schemaVersion: 1,
+      value: expectedRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    },
+    committedAt: committedAt.toISOString(),
   };
 }
 
