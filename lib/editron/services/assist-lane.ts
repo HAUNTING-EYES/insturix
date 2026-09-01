@@ -71,16 +71,20 @@ export type AssistScanChargeRegistrationResult =
   | { disposition: 'registered' | 'already-registered'; terminal: boolean }
   | { disposition: 'invalid' | 'not-assist' | 'conflict' };
 
-/**
- * Durably binds one completed deduction to the Assist scan that must either
- * consume it or refund it. The second CAS is deliberate: cancellation may win
- * between deduction and registration, in which case the new charge is attached
- * only as a terminal pending refund.
- */
-export async function registerAssistScanCharge(
-  db: { collection: (name: string) => any },
+export type AssistScanChargeAdmissionResult =
+  | { disposition: 'admitted' | 'already-admitted' }
+  | { disposition: 'invalid' | 'not-assist' | 'conflict' };
+
+type NormalizedAssistScanCharge = {
+  projectId: string;
+  userId: string;
+  creditTransactionId: string;
+  chargedCredits: number;
+};
+
+function normalizeAssistScanCharge(
   input: AssistScanChargeRegistrationInput,
-): Promise<AssistScanChargeRegistrationResult> {
+): NormalizedAssistScanCharge | null {
   const projectId = input.projectId.trim();
   const userId = input.userId.trim();
   const creditTransactionId = input.creditTransactionId.trim();
@@ -92,8 +96,83 @@ export async function registerAssistScanCharge(
     || !Number.isFinite(chargedCredits)
     || chargedCredits < 0
   ) {
-    return { disposition: 'invalid' };
+    return null;
   }
+  return { projectId, userId, creditTransactionId, chargedCredits };
+}
+
+/**
+ * Atomically turns one newly-created project into an Assist scan and binds its
+ * completed deduction. Single-asset intake calls this before writing a queue
+ * status, so no worker-visible Assist project can exist without its exact money
+ * identity and no pre-existing project can be repurposed by this command.
+ */
+export async function admitAssistScanCharge(
+  db: { collection: (name: string) => any },
+  input: AssistScanChargeRegistrationInput,
+): Promise<AssistScanChargeAdmissionResult> {
+  const normalized = normalizeAssistScanCharge(input);
+  if (!normalized) return { disposition: 'invalid' };
+  const { projectId, userId, creditTransactionId, chargedCredits } = normalized;
+  const projects = db.collection('projects');
+  const absent = (field: string) => ({ $or: [{ [field]: { $exists: false } }, { [field]: null }] });
+  const admitted = await projects.updateOne(
+    {
+      projectId,
+      userId,
+      $and: [
+        absent('editMode'),
+        absent('autoEditStatus'),
+        absent('assistCreditTransactionId'),
+        absent('assistChargedCredits'),
+      ],
+    },
+    {
+      $set: {
+        editMode: 'assist',
+        assistCreditTransactionId: creditTransactionId,
+        assistChargedCredits: chargedCredits,
+      },
+    },
+  );
+  if (admitted.modifiedCount === 1) return { disposition: 'admitted' };
+
+  const current = await projects.findOne(
+    { projectId, userId },
+    {
+      projection: {
+        editMode: 1,
+        autoEditStatus: 1,
+        assistCreditTransactionId: 1,
+        assistChargedCredits: 1,
+      },
+    },
+  );
+  if (!current) return { disposition: 'conflict' };
+  if (!isAssistProject(current)) return { disposition: 'not-assist' };
+  if (
+    current.autoEditStatus == null
+    && current.assistCreditTransactionId === creditTransactionId
+    && current.assistChargedCredits === chargedCredits
+  ) {
+    return { disposition: 'already-admitted' };
+  }
+  return { disposition: 'conflict' };
+}
+
+/**
+ * Durably binds one completed deduction to the Assist scan that must either
+ * consume it or refund it. The second CAS is deliberate: cancellation may win
+ * between deduction and registration, in which case the new charge is attached
+ * only as a terminal pending refund.
+ */
+export async function registerAssistScanCharge(
+  db: { collection: (name: string) => any },
+  input: AssistScanChargeRegistrationInput,
+): Promise<AssistScanChargeRegistrationResult> {
+  const normalized = normalizeAssistScanCharge(input);
+  if (!normalized) return { disposition: 'invalid' };
+  const { projectId, userId, creditTransactionId, chargedCredits } = normalized;
 
   const projects = db.collection('projects');
   const current = await projects.findOne(

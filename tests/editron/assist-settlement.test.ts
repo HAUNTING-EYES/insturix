@@ -12,7 +12,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundForWallet: mocks.refundForWallet } }));
 
-import { registerAssistScanCharge, settleAssistScanFailure } from '@/lib/editron/services/assist-lane';
+import {
+  admitAssistScanCharge,
+  registerAssistScanCharge,
+  settleAssistScanFailure,
+} from '@/lib/editron/services/assist-lane';
 
 const db = { collection: () => ({ findOne: mocks.findOne, updateOne: mocks.updateOne }) };
 const settlement = (overrides: Record<string, unknown> = {}) => settleAssistScanFailure(db as never, {
@@ -27,6 +31,66 @@ beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.updateOne.mockResolvedValue({ modifiedCount: 1, matchedCount: 1 });
   mocks.refundForWallet.mockResolvedValue({ success: true });
+});
+
+describe('admitAssistScanCharge', () => {
+  const admit = () => admitAssistScanCharge(db as never, {
+    projectId: 'p',
+    userId: 'u',
+    creditTransactionId: 'tx_1',
+    chargedCredits: 20,
+  });
+
+  it('atomically establishes the Assist lane and exact charge on a new project', async () => {
+    expect(await admit()).toEqual({ disposition: 'admitted' });
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'p',
+        userId: 'u',
+        $and: expect.arrayContaining([
+          { $or: [{ editMode: { $exists: false } }, { editMode: null }] },
+          { $or: [{ autoEditStatus: { $exists: false } }, { autoEditStatus: null }] },
+        ]),
+      }),
+      {
+        $set: {
+          editMode: 'assist',
+          assistCreditTransactionId: 'tx_1',
+          assistChargedCredits: 20,
+        },
+      },
+    );
+  });
+
+  it('accepts only an exact pre-status replay without writing twice', async () => {
+    mocks.updateOne.mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 });
+    mocks.findOne.mockResolvedValue({
+      projectId: 'p', userId: 'u', editMode: 'assist',
+      assistCreditTransactionId: 'tx_1', assistChargedCredits: 20,
+    });
+    expect(await admit()).toEqual({ disposition: 'already-admitted' });
+    expect(mocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an occupied status, competing charge, wrong lane, and malformed identity', async () => {
+    mocks.updateOne.mockResolvedValue({ modifiedCount: 0, matchedCount: 0 });
+    mocks.findOne
+      .mockResolvedValueOnce({
+        projectId: 'p', userId: 'u', editMode: 'assist', autoEditStatus: 'queued',
+        assistCreditTransactionId: 'tx_1', assistChargedCredits: 20,
+      })
+      .mockResolvedValueOnce({
+        projectId: 'p', userId: 'u', editMode: 'assist',
+        assistCreditTransactionId: 'tx_new', assistChargedCredits: 20,
+      })
+      .mockResolvedValueOnce({ projectId: 'p', userId: 'u', editMode: 'auto' });
+    expect(await admit()).toEqual({ disposition: 'conflict' });
+    expect(await admit()).toEqual({ disposition: 'conflict' });
+    expect(await admit()).toEqual({ disposition: 'not-assist' });
+    expect(await admitAssistScanCharge(db as never, {
+      projectId: 'p', userId: 'u', creditTransactionId: ' ', chargedCredits: -1,
+    })).toEqual({ disposition: 'invalid' });
+  });
 });
 
 describe('registerAssistScanCharge', () => {
