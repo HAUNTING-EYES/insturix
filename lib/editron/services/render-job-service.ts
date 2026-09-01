@@ -850,21 +850,6 @@ export async function failJob(
 }
 
 /**
- * Get active render for a project (for resume-on-refresh)
- */
-export async function getActiveRenderForProject(
-  projectId: string,
-  userId: string
-): Promise<RenderJob | null> {
-  const collection = await getCollection();
-  return collection.findOne({
-    projectId,
-    userId,
-    status: { $in: ['rendering', 'finalizing', 'queued', 'pending'] }
-  });
-}
-
-/**
  * Get all active renders for a user
  */
 export async function getActiveRendersForUser(

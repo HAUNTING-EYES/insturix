@@ -19,7 +19,7 @@ const ARTIFACT_ID = /^[A-Za-z0-9_.:-]{1,500}$/;
 const PROJECT_ID_MAX_LENGTH = 200;
 const OWNER_ID_MAX_LENGTH = 200;
 
-export const ProjectArtifactInvalidationDerivativeClassSchema = z.enum([
+const ProjectArtifactInvalidationDerivativeClassSchema = z.enum([
   "RENDERED_PREVIEW",
   "DELIVERY_PROOF",
 ]);
@@ -27,16 +27,16 @@ export type ProjectArtifactInvalidationDerivativeClassV1 = z.infer<
   typeof ProjectArtifactInvalidationDerivativeClassSchema
 >;
 
-export const ProjectArtifactProjectRevisionSchema = z.object({
+const ProjectArtifactProjectRevisionSchema = z.object({
   schemaVersion: z.literal(1),
   value: z.number().int().nonnegative(),
   compatibilityUpdatedAt: z.string().datetime(),
 }).strict();
-export type ProjectArtifactProjectRevisionV1 = z.infer<
+type ProjectArtifactProjectRevisionV1 = z.infer<
   typeof ProjectArtifactProjectRevisionSchema
 >;
 
-export const ProjectArtifactTargetSchema = z.object({
+const ProjectArtifactTargetSchema = z.object({
   overlayId: z.number().int().nonnegative(),
   expectedAssetId: z.string().min(1).max(500),
   exactFrameRange: z.object({
@@ -73,15 +73,15 @@ export const ProjectArtifactStateSchema = z.enum([
   "STALE",
   "HISTORY_ONLY",
 ]);
-export type ProjectArtifactStateV1 = z.infer<typeof ProjectArtifactStateSchema>;
+type ProjectArtifactStateV1 = z.infer<typeof ProjectArtifactStateSchema>;
 
 export const ProjectArtifactCleanupSchema = z.object({
   state: z.enum(["NOT_REQUIRED", "PENDING", "DONE"]),
   pendingArtifactIds: z.array(z.string().regex(ARTIFACT_ID)),
 }).strict();
-export type ProjectArtifactCleanupV1 = z.infer<typeof ProjectArtifactCleanupSchema>;
+type ProjectArtifactCleanupV1 = z.infer<typeof ProjectArtifactCleanupSchema>;
 
-export const ProjectArtifactInvalidationFenceSchema = z.object({
+const ProjectArtifactInvalidationFenceSchema = z.object({
   schemaVersion: z.literal(1),
   binding: ProjectArtifactBindingSchema,
   priorState: z.literal("ACTIVE"),
@@ -93,7 +93,7 @@ export type ProjectArtifactInvalidationFenceV1 = z.infer<
   typeof ProjectArtifactInvalidationFenceSchema
 >;
 
-export const ProjectArtifactInvalidationReceiptSchema = z.object({
+const ProjectArtifactInvalidationReceiptSchema = z.object({
   schemaVersion: z.literal(1),
   receiptId: z.string().regex(/^artifact-invalidation_[a-f0-9]{64}$/),
   admissionId: z.string().regex(/^pipeline-video-invalidation_[a-f0-9]{64}$/),
@@ -133,11 +133,11 @@ export const ProjectArtifactInvalidationLinkSchema = z.object({
   receiptHash: z.string().regex(HEX_SHA256),
   state: z.enum(["PENDING", "MATERIALIZED"]),
 }).strict();
-export type ProjectArtifactInvalidationLinkV1 = z.infer<
+type ProjectArtifactInvalidationLinkV1 = z.infer<
   typeof ProjectArtifactInvalidationLinkSchema
 >;
 
-export const ProjectArtifactInvalidationOutboxSchema = z.object({
+const ProjectArtifactInvalidationOutboxSchema = z.object({
   /** Mongo stores the deterministic outbox ID as _id for duplicate safety. */
   _id: z.string().optional(),
   schemaVersion: z.literal(1),
@@ -398,7 +398,7 @@ export function assertProjectArtifactInvalidationOutboxV1(
   }
 }
 
-export function assertProjectArtifactInvalidationFenceV1(
+function assertProjectArtifactInvalidationFenceV1(
   input: unknown,
   receipt: ProjectArtifactInvalidationReceiptV1,
 ): asserts input is ProjectArtifactInvalidationFenceV1 {
