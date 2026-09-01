@@ -3,14 +3,21 @@ import { getRenderProgress } from '@remotion/lambda/client';
 import { NextResponse } from 'next/server';
 
 import type { RenderJob } from '@/lib/editron/schemas/render-job';
-import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
+import {
+  beginProjectRenderFinalizationV1,
+  beginRenderFinalization,
+} from '@/lib/editron/services/render-finalization-dispatch';
+import { projectService } from '@/lib/editron/services/project-service';
 import {
   claimRenderCompletionEffects,
   completeRenderCompletionEffects,
   failJob,
+  getCurrentProjectRenderJobV1,
   getJob,
+  getProjectRenderJobAuthorizationByAdmissionV1,
   releaseRenderCompletionEffects,
   updateJobProgress,
+  type ProjectRenderJobAuthorizationV1,
 } from '@/lib/editron/services/render-job-service';
 import { addVideoToLink } from '@/lib/shared/project-links';
 
@@ -37,12 +44,49 @@ export async function GET(request: Request) {
       );
     }
 
-    const persistedJob = await getJob(renderId);
-    if (!persistedJob || persistedJob.userId !== userId) {
+    const locatedJob = await getJob(renderId);
+    if (!locatedJob) {
       return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
     }
+    let persistedJob = locatedJob;
+    let strictAuthorization: ProjectRenderJobAuthorizationV1 | undefined;
+    if (locatedJob.projectRenderSnapshotBinding) {
+      if (locatedJob.requestedByUserId !== userId) {
+        return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
+      }
+      if (
+        locatedJob.providerRenderId !== renderId
+        || locatedJob.bucketName !== bucketName
+        || locatedJob.region !== region
+      ) {
+        return projectRenderNotCurrentResponse();
+      }
+      const authorization = await getProjectRenderJobAuthorizationByAdmissionV1({
+        jobId: locatedJob._id,
+        expectedBindingHash: locatedJob.projectRenderSnapshotBinding.bindingHash,
+      });
+      if (!authorization.ok) return projectRenderNotCurrentResponse();
+      const current = await readCurrentProjectRenderJob(authorization.authorization);
+      if (!current) return projectRenderNotCurrentResponse();
+      persistedJob = current;
+      strictAuthorization = authorization.authorization;
+    } else {
+      if (locatedJob.artifactBinding || locatedJob.userId !== userId) {
+        return locatedJob.userId !== userId
+          ? NextResponse.json(
+              { type: 'error', message: 'Render job not found' },
+              { status: 404 },
+            )
+          : projectRenderNotCurrentResponse();
+      }
+    }
     if (persistedJob.status === 'done') {
-      return completedRenderResponse(persistedJob, renderId, bucketName);
+      return completedRenderResponse(
+        persistedJob,
+        renderId,
+        bucketName,
+        strictAuthorization,
+      );
     }
     if (persistedJob.status === 'error') {
       return NextResponse.json(
@@ -60,24 +104,52 @@ export async function GET(request: Request) {
     if (!functionName) throw new Error('REMOTION_LAMBDA_FUNCTION_NAME is not defined');
 
     if (bucketName === 'chapter-render' || renderId.startsWith('chr_')) {
-      return chapterRenderProgress({ persistedJob, renderId, bucketName });
+      return chapterRenderProgress({
+        persistedJob,
+        renderId,
+        bucketName,
+        strictAuthorization,
+      });
     }
 
     const progress = await getRenderProgress({ renderId, bucketName, functionName, region });
     if (progress.done) {
       if (!progress.outputFile) throw new Error('Completed Remotion render has no output URL');
-      await beginRenderFinalization({
-        renderId,
+      const finalizationInput = {
         providerRenderId: persistedJob.providerRenderId ?? renderId,
         bucketName,
         sourceOutputUrl: progress.outputFile,
         sourceOutputSize: progress.outputSizeInBytes || 0,
-      });
+      };
+      if (strictAuthorization) {
+        const result = await beginProjectRenderFinalizationV1({
+          authorization: strictAuthorization,
+          ...finalizationInput,
+        });
+        if ('ok' in result && !result.ok) {
+          const current = await readCurrentProjectRenderJob(strictAuthorization);
+          return current?.status === 'finalizing'
+            ? finalizingResponse(current, renderId, bucketName, progress.chunks || 0)
+            : projectRenderNotCurrentResponse();
+        }
+      } else {
+        await beginRenderFinalization({ renderId, ...finalizationInput });
+      }
       return finalizingResponse(persistedJob, renderId, bucketName, progress.chunks || 0);
     }
     if (progress.fatalErrorEncountered) {
       const errorMessage = progress.errors?.[0]?.message || 'Render failed with unknown error';
-      await failJob(renderId, errorMessage);
+      if (strictAuthorization) {
+        const failed = await projectService.failProjectRenderJobFromProviderTransactionV1({
+          authorization: strictAuthorization,
+          providerRenderId: renderId,
+          bucketName,
+          error: errorMessage,
+        });
+        if (!failed.ok) return projectRenderNotCurrentResponse();
+      } else {
+        await failJob(renderId, errorMessage);
+      }
       await transitionRenderFailure(persistedJob, errorMessage);
       console.error('Render fatal error:', JSON.stringify(progress.errors, null, 2));
       return NextResponse.json(
@@ -86,10 +158,18 @@ export async function GET(request: Request) {
       );
     }
 
-    try {
-      await updateJobProgress(renderId, progress.overallProgress);
-    } catch (dbError) {
-      console.error('Failed to update job progress in DB:', dbError);
+    if (strictAuthorization) {
+      const updated = await projectService.updateProjectRenderJobProgressTransactionV1({
+        authorization: strictAuthorization,
+        progress: progress.overallProgress,
+      });
+      if (!updated.ok) return projectRenderNotCurrentResponse();
+    } else {
+      try {
+        await updateJobProgress(renderId, progress.overallProgress);
+      } catch (dbError) {
+        console.error('Failed to update job progress in DB:', dbError);
+      }
     }
     return NextResponse.json({
       type: 'success',
@@ -121,6 +201,7 @@ async function chapterRenderProgress(input: {
   persistedJob: RenderJob;
   renderId: string;
   bucketName: string;
+  strictAuthorization?: ProjectRenderJobAuthorizationV1;
 }) {
   const { getChapterRenderProgress } = await import('@/lib/editron/services/chapter-renderer');
   const progress = await getChapterRenderProgress(input.renderId);
@@ -134,7 +215,17 @@ async function chapterRenderProgress(input: {
   const failedChapter = progress.chapters.find((chapter) => chapter.status === 'failed');
   if (progress.status === 'failed' || failedChapter) {
     const message = progress.error || failedChapter?.error || 'Chapter render failed';
-    await failJob(input.renderId, message);
+    if (input.strictAuthorization) {
+      const failed = await projectService.failProjectRenderJobFromProviderTransactionV1({
+        authorization: input.strictAuthorization,
+        providerRenderId: input.renderId,
+        bucketName: input.bucketName,
+        error: message,
+      });
+      if (!failed.ok) return projectRenderNotCurrentResponse();
+    } else {
+      await failJob(input.renderId, message);
+    }
     await transitionRenderFailure(input.persistedJob, message);
     return NextResponse.json(
       { type: 'error', message, chapters: progress.chapters },
@@ -142,13 +233,31 @@ async function chapterRenderProgress(input: {
     );
   }
   if (progress.status === 'completed' && progress.outputUrl) {
-    await beginRenderFinalization({
-      renderId: input.renderId,
+    const finalizationInput = {
       providerRenderId: input.persistedJob.providerRenderId ?? input.renderId,
       bucketName: input.bucketName,
       sourceOutputUrl: progress.outputUrl,
       sourceOutputSize: 0,
-    });
+    };
+    if (input.strictAuthorization) {
+      const result = await beginProjectRenderFinalizationV1({
+        authorization: input.strictAuthorization,
+        ...finalizationInput,
+      });
+      if ('ok' in result && !result.ok) {
+        const current = await readCurrentProjectRenderJob(input.strictAuthorization);
+        return current?.status === 'finalizing'
+          ? finalizingResponse(
+              current,
+              input.renderId,
+              input.bucketName,
+              progress.chapters.length,
+            )
+          : projectRenderNotCurrentResponse();
+      }
+    } else {
+      await beginRenderFinalization({ renderId: input.renderId, ...finalizationInput });
+    }
     return finalizingResponse(
       input.persistedJob,
       input.renderId,
@@ -157,10 +266,18 @@ async function chapterRenderProgress(input: {
     );
   }
 
-  try {
-    await updateJobProgress(input.renderId, progress.overallProgress);
-  } catch (dbError) {
-    console.error('Failed to update chapter render progress in DB:', dbError);
+  if (input.strictAuthorization) {
+    const updated = await projectService.updateProjectRenderJobProgressTransactionV1({
+      authorization: input.strictAuthorization,
+      progress: progress.overallProgress,
+    });
+    if (!updated.ok) return projectRenderNotCurrentResponse();
+  } else {
+    try {
+      await updateJobProgress(input.renderId, progress.overallProgress);
+    } catch (dbError) {
+      console.error('Failed to update chapter render progress in DB:', dbError);
+    }
   }
   return NextResponse.json({
     type: 'success',
@@ -180,7 +297,12 @@ async function chapterRenderProgress(input: {
   });
 }
 
-async function completedRenderResponse(job: RenderJob, renderId: string, bucketName: string) {
+async function completedRenderResponse(
+  job: RenderJob,
+  renderId: string,
+  bucketName: string,
+  strictAuthorization?: ProjectRenderJobAuthorizationV1,
+) {
   if (
     !job.outputUrl
     || job.finalization?.state !== 'done'
@@ -196,7 +318,10 @@ async function completedRenderResponse(job: RenderJob, renderId: string, bucketN
       { status: 409 },
     );
   }
-  await runVerifiedCompletionEffects(renderId);
+  await runVerifiedCompletionEffects(renderId, strictAuthorization);
+  if (strictAuthorization && !await readCurrentProjectRenderJob(strictAuthorization)) {
+    return projectRenderNotCurrentResponse();
+  }
   return NextResponse.json({
     type: 'success',
     data: {
@@ -239,9 +364,16 @@ function finalizingResponse(
   });
 }
 
-async function runVerifiedCompletionEffects(renderId: string): Promise<void> {
-  const claim = await claimRenderCompletionEffects({ renderId });
-  if (!claim) return;
+async function runVerifiedCompletionEffects(
+  renderId: string,
+  strictAuthorization?: ProjectRenderJobAuthorizationV1,
+): Promise<void> {
+  const claim = strictAuthorization
+    ? await projectService.claimProjectRenderCompletionEffectsTransactionV1({
+        authorization: strictAuthorization,
+      })
+    : await claimRenderCompletionEffects({ renderId });
+  if (!claim || !('jobId' in claim)) return;
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const { emitBrandEvent } = await import('@/lib/shared/brand-events');
@@ -273,18 +405,59 @@ async function runVerifiedCompletionEffects(renderId: string): Promise<void> {
         ...(projectName ? { projectName } : {}),
       },
     });
-    const completed = await completeRenderCompletionEffects({
-      jobId: claim.jobId,
-      claimToken: claim.claimToken,
-    });
-    if (!completed) throw new Error('Completion-effects lease changed before commit.');
+    if (strictAuthorization) {
+      const completed = await projectService.completeProjectRenderCompletionEffectsTransactionV1({
+        authorization: strictAuthorization,
+        claimToken: claim.claimToken,
+      });
+      if (!completed.ok) throw new Error('Completion-effects lease changed before commit.');
+    } else {
+      const completed = await completeRenderCompletionEffects({
+        jobId: claim.jobId,
+        claimToken: claim.claimToken,
+      });
+      if (!completed) throw new Error('Completion-effects lease changed before commit.');
+    }
   } catch (error) {
-    await releaseRenderCompletionEffects({
-      jobId: claim.jobId,
-      claimToken: claim.claimToken,
-    }).catch(() => false);
+    if (strictAuthorization) {
+      await projectService.releaseProjectRenderCompletionEffectsTransactionV1({
+        authorization: strictAuthorization,
+        claimToken: claim.claimToken,
+      }).catch(() => ({ ok: false }));
+    } else {
+      await releaseRenderCompletionEffects({
+        jobId: claim.jobId,
+        claimToken: claim.claimToken,
+      }).catch(() => false);
+    }
     console.warn(`[RenderProgress] Verified completion effects failed: ${errorMessage(error)}`);
   }
+}
+
+async function readCurrentProjectRenderJob(
+  authorization: ProjectRenderJobAuthorizationV1,
+): Promise<RenderJob | null> {
+  const snapshot = await projectService.loadProjectForRenderSnapshot(
+    authorization.requestedByUserId,
+    authorization.projectId,
+  );
+  if (!snapshot || snapshot.ownerId !== authorization.ownerId) return null;
+  const current = await getCurrentProjectRenderJobV1({
+    authorization,
+    currentProjectRevision: snapshot.revision,
+  });
+  return current.ok ? current.job : null;
+}
+
+function projectRenderNotCurrentResponse() {
+  return NextResponse.json(
+    {
+      type: 'error',
+      code: 'PROJECT_ARTIFACT_NOT_CURRENT',
+      message: 'The render no longer belongs to the current project revision.',
+    },
+    { status: 409 },
+  );
 }
 
 async function transitionRenderFailure(job: RenderJob, message: string): Promise<void> {

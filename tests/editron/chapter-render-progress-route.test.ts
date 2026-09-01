@@ -4,11 +4,14 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   getRenderProgress: vi.fn(),
   getChapterRenderProgress: vi.fn(),
+  getCurrentProjectRenderJobV1: vi.fn(),
   getJob: vi.fn(),
+  getProjectRenderJobAuthorizationByAdmissionV1: vi.fn(),
   setAWSCredentials: vi.fn(async () => {}),
   updateJobProgress: vi.fn(async () => {}),
   failJob: vi.fn(async () => {}),
   beginRenderFinalization: vi.fn(async () => ({ state: "enqueued" })),
+  beginProjectRenderFinalizationV1: vi.fn(async () => ({ state: "enqueued" })),
   claimRenderCompletionEffects: vi.fn(),
   completeRenderCompletionEffects: vi.fn(async () => true),
   releaseRenderCompletionEffects: vi.fn(async () => true),
@@ -16,6 +19,12 @@ const mocks = vi.hoisted(() => ({
   emitBrandEvent: vi.fn(async () => "event_1"),
   transitionProjectStatus: vi.fn(async () => {}),
   findProject: vi.fn(),
+  loadProjectForRenderSnapshot: vi.fn(),
+  updateProjectRenderJobProgressTransactionV1: vi.fn(),
+  failProjectRenderJobFromProviderTransactionV1: vi.fn(),
+  claimProjectRenderCompletionEffectsTransactionV1: vi.fn(),
+  completeProjectRenderCompletionEffectsTransactionV1: vi.fn(),
+  releaseProjectRenderCompletionEffectsTransactionV1: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -37,7 +46,10 @@ vi.mock("@/lib/editron/utils/aws-credentials", () => ({
 vi.mock("@/lib/editron/services/render-job-service", () => ({
   updateJobProgress: mocks.updateJobProgress,
   failJob: mocks.failJob,
+  getCurrentProjectRenderJobV1: mocks.getCurrentProjectRenderJobV1,
   getJob: mocks.getJob,
+  getProjectRenderJobAuthorizationByAdmissionV1:
+    mocks.getProjectRenderJobAuthorizationByAdmissionV1,
   claimRenderCompletionEffects: mocks.claimRenderCompletionEffects,
   completeRenderCompletionEffects: mocks.completeRenderCompletionEffects,
   releaseRenderCompletionEffects: mocks.releaseRenderCompletionEffects,
@@ -45,6 +57,23 @@ vi.mock("@/lib/editron/services/render-job-service", () => ({
 
 vi.mock("@/lib/editron/services/render-finalization-dispatch", () => ({
   beginRenderFinalization: mocks.beginRenderFinalization,
+  beginProjectRenderFinalizationV1: mocks.beginProjectRenderFinalizationV1,
+}));
+
+vi.mock("@/lib/editron/services/project-service", () => ({
+  projectService: {
+    loadProjectForRenderSnapshot: mocks.loadProjectForRenderSnapshot,
+    updateProjectRenderJobProgressTransactionV1:
+      mocks.updateProjectRenderJobProgressTransactionV1,
+    failProjectRenderJobFromProviderTransactionV1:
+      mocks.failProjectRenderJobFromProviderTransactionV1,
+    claimProjectRenderCompletionEffectsTransactionV1:
+      mocks.claimProjectRenderCompletionEffectsTransactionV1,
+    completeProjectRenderCompletionEffectsTransactionV1:
+      mocks.completeProjectRenderCompletionEffectsTransactionV1,
+    releaseProjectRenderCompletionEffectsTransactionV1:
+      mocks.releaseProjectRenderCompletionEffectsTransactionV1,
+  },
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -105,6 +134,42 @@ const DELIVERY_MANIFEST = {
   },
 };
 
+const STRICT_REVISION = {
+  schemaVersion: 1 as const,
+  value: 7,
+  compatibilityUpdatedAt: "2026-09-01T00:00:00.000Z",
+};
+
+const STRICT_AUTHORIZATION = {
+  schemaVersion: 1 as const,
+  jobId: "strict_admission",
+  ownerId: "owner_1",
+  requestedByUserId: "user_1",
+  projectId: "project_1",
+  projectRevision: STRICT_REVISION,
+  bindingHash: "a".repeat(64),
+};
+
+function strictJob(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: STRICT_AUTHORIZATION.jobId,
+    providerRenderId: "strict_provider",
+    bucketName: "strict-bucket",
+    region: "us-east-1",
+    userId: STRICT_AUTHORIZATION.ownerId,
+    requestedByUserId: STRICT_AUTHORIZATION.requestedByUserId,
+    projectId: STRICT_AUTHORIZATION.projectId,
+    status: "rendering",
+    artifactState: "ACTIVE",
+    projectRenderSnapshotBinding: {
+      scope: "PROJECT_SNAPSHOT",
+      bindingHash: STRICT_AUTHORIZATION.bindingHash,
+    },
+    deliveryManifest: DELIVERY_MANIFEST,
+    ...overrides,
+  };
+}
+
 function chapterProgressRequest(renderId: string) {
   return new Request(
     `http://localhost/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=chapter-render&region=us-east-1`,
@@ -122,7 +187,120 @@ describe("Editron chapter render progress route", () => {
       status: "rendering",
       deliveryManifest: DELIVERY_MANIFEST,
     });
+    mocks.loadProjectForRenderSnapshot.mockResolvedValue({
+      project: {},
+      ownerId: STRICT_AUTHORIZATION.ownerId,
+      revision: STRICT_REVISION,
+    });
+    mocks.updateProjectRenderJobProgressTransactionV1.mockResolvedValue({
+      ok: true,
+      status: "CURRENT",
+    });
+    mocks.failProjectRenderJobFromProviderTransactionV1.mockResolvedValue({
+      ok: true,
+      status: "CURRENT",
+    });
+    mocks.completeProjectRenderCompletionEffectsTransactionV1.mockResolvedValue({
+      ok: true,
+      status: "CURRENT",
+    });
+    mocks.releaseProjectRenderCompletionEffectsTransactionV1.mockResolvedValue({
+      ok: true,
+      status: "CURRENT",
+    });
     process.env.REMOTION_LAMBDA_FUNCTION_NAME = "remotion-render";
+  });
+
+  it("rejects a forged strict provider tuple before loading AWS credentials", async () => {
+    mocks.getJob.mockResolvedValueOnce(strictJob());
+
+    const response = await GET(new Request(
+      "http://localhost/api/services/editron/cloudrun/progress"
+      + "?renderId=strict_provider&bucketName=forged-bucket&region=us-east-1",
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe("PROJECT_ARTIFACT_NOT_CURRENT");
+    expect(mocks.getProjectRenderJobAuthorizationByAdmissionV1).not.toHaveBeenCalled();
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+  });
+
+  it("polls a current strict render and persists progress through ProjectService", async () => {
+    const job = strictJob();
+    mocks.getJob.mockResolvedValueOnce(job);
+    mocks.getProjectRenderJobAuthorizationByAdmissionV1.mockResolvedValueOnce({
+      ok: true,
+      status: "BOUND",
+      job,
+      authorization: STRICT_AUTHORIZATION,
+    });
+    mocks.getCurrentProjectRenderJobV1.mockResolvedValueOnce({
+      ok: true,
+      status: "CURRENT",
+      job,
+    });
+    mocks.getRenderProgress.mockResolvedValueOnce({
+      done: false,
+      overallProgress: 0.42,
+      framesRendered: 42,
+      lambdasInvoked: 2,
+    });
+
+    const response = await GET(new Request(
+      "http://localhost/api/services/editron/cloudrun/progress"
+      + "?renderId=strict_provider&bucketName=strict-bucket&region=us-east-1",
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.progress).toBe(0.42);
+    expect(mocks.loadProjectForRenderSnapshot).toHaveBeenCalledWith("user_1", "project_1");
+    expect(mocks.updateProjectRenderJobProgressTransactionV1).toHaveBeenCalledWith({
+      authorization: STRICT_AUTHORIZATION,
+      progress: 0.42,
+    });
+    expect(mocks.updateJobProgress).not.toHaveBeenCalled();
+  });
+
+  it("uses strict finalization for a completed bound provider render", async () => {
+    const job = strictJob();
+    mocks.getJob.mockResolvedValueOnce(job);
+    mocks.getProjectRenderJobAuthorizationByAdmissionV1.mockResolvedValueOnce({
+      ok: true,
+      status: "BOUND",
+      job,
+      authorization: STRICT_AUTHORIZATION,
+    });
+    mocks.getCurrentProjectRenderJobV1.mockResolvedValueOnce({
+      ok: true,
+      status: "CURRENT",
+      job,
+    });
+    mocks.getRenderProgress.mockResolvedValueOnce({
+      done: true,
+      outputFile: "https://video.example/strict-raw.mp4",
+      outputSizeInBytes: 84_000,
+      chunks: 3,
+    });
+
+    const response = await GET(new Request(
+      "http://localhost/api/services/editron/cloudrun/progress"
+      + "?renderId=strict_provider&bucketName=strict-bucket&region=us-east-1",
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({ done: false, finalizing: true });
+    expect(mocks.beginProjectRenderFinalizationV1).toHaveBeenCalledWith({
+      authorization: STRICT_AUTHORIZATION,
+      providerRenderId: "strict_provider",
+      bucketName: "strict-bucket",
+      sourceOutputUrl: "https://video.example/strict-raw.mp4",
+      sourceOutputSize: 84_000,
+    });
+    expect(mocks.beginRenderFinalization).not.toHaveBeenCalled();
   });
 
   it("requires the persisted render owner before invoking AWS", async () => {
