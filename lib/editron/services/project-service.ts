@@ -451,6 +451,12 @@ export interface ProjectDirectOverlayMutationResultV1 {
   timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1;
 }
 
+export interface ProjectOverlayAddCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  actorKind: ProjectTimelineChangeActorKindV1;
+  overlay: Overlay;
+}
+
 export interface ProjectVideoSpeedRampCommandV1 {
   expectedRevision: ProjectRevisionV1;
   actorKind: ProjectTimelineChangeActorKindV1;
@@ -8708,6 +8714,141 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
     };
     this.publishMutationReceipt(receipt);
+  }
+
+  /**
+   * Add one overlay only at the caller's exact project snapshot. Unlike the
+   * legacy compatibility method above, this owner never converts a stale
+   * editing decision into a fresh write by loading the latest revision on the
+   * caller's behalf.
+   */
+  async addOverlayAtRevisionV1(
+    userId: string,
+    projectId: string,
+    input: ProjectOverlayAddCommandV1,
+  ): Promise<ProjectDirectOverlayMutationResultV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertProjectTimelineChangeActorKindV1(input.actorKind);
+    const overlayFrameRange = overlayTimelineFrameRangeV1(input.overlay);
+    if (!overlayFrameRange) {
+      throw new ProjectMutationWriteError(
+        "Overlay addition requires an exact positive project-frame range.",
+      );
+    }
+    if (!Number.isSafeInteger(input.overlay.id) || input.overlay.id < 0) {
+      throw new ProjectMutationWriteError(
+        "Overlay addition requires a non-negative integer identity.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(input.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    if (!isProjectTimelineFpsV1(project.fps)) {
+      throw new ProjectMutationWriteError(
+        "Overlay addition requires a supported project frame rate.",
+      );
+    }
+    if (project.overlays?.some((overlay) => overlay.id === input.overlay.id)) {
+      throw new ProjectMutationWriteError(
+        `Overlay ${input.overlay.id} already exists in project ${projectId}.`,
+      );
+    }
+    if (hasActiveDirectorMutationLeaseV1(project)) {
+      throw new ProjectMutationConflictError(
+        currentRevision,
+        "The project is locked by an active Director mutation. Reload before adding the overlay.",
+      );
+    }
+    const blockingLocks = activeTimelineRangeCutLocksV1(
+      readTimelineRangeCutLocksV1(project),
+      new Date(),
+    ).filter((lock) => frameRangesOverlapHalfOpenV1(
+      lock.frameRange,
+      overlayFrameRange,
+    ));
+    if (blockingLocks.length > 0) {
+      throw new ProjectTimelineRangeCutLockConflictError(
+        currentRevision,
+        [...new Set(blockingLocks.map((lock) => lock.lockId))].sort(),
+        "An active timeline range lock overlaps the overlay addition.",
+      );
+    }
+
+    const overlayWithReceipt = ensureAtomicOverlayReceipt(input.overlay, {
+      source: "project-service-add-overlay-at-revision-v1",
+      intent: `persist-${input.overlay.type}`,
+      reason: "overlay persisted through a caller-bound ProjectService command",
+    });
+    const committedAt = new Date();
+    const afterRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: currentRevision.value + 1,
+      compatibilityUpdatedAt: committedAt.toISOString(),
+    };
+    const timelineChangeReceipt = createDirectOverlayTimelineChangeReceiptV1({
+      receiptId: `timeline-overlay-add_${nanoid(18)}`,
+      projectId,
+      operation: "ADD_OVERLAY",
+      actorKind: input.actorKind,
+      fps: project.fps,
+      beforeProjectRevision: currentRevision,
+      afterProjectRevision: afterRevision,
+      committedAt: committedAt.toISOString(),
+      beforeOverlay: null,
+      afterOverlay: overlayWithReceipt,
+    });
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": { $ne: input.overlay.id },
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $push: {
+          overlays: overlayWithReceipt,
+          timelineRangeChangeReceipts: {
+            $each: [timelineChangeReceipt],
+            $slice: -200,
+          },
+        } as any,
+        $set: { updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      const latestRevision = projectRevisionFor(latest);
+      if (sameProjectRevisionV1(input.expectedRevision, latestRevision)
+        && latest.overlays?.some((overlay) => overlay.id === input.overlay.id)) {
+        throw new ProjectMutationWriteError(
+          `Overlay ${input.overlay.id} already exists in project ${projectId}.`,
+        );
+      }
+      throw new ProjectMutationConflictError(latestRevision);
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const mutationReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: afterRevision,
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(mutationReceipt);
+    return { mutationReceipt, timelineChangeReceipt };
   }
 
   /**

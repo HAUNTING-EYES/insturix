@@ -1267,6 +1267,147 @@ describe("Editron project save payload compaction", () => {
     });
   });
 
+  it("adds an overlay only at the caller-bound project revision", async () => {
+    const updatedAt = "2026-08-11T02:10:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const result = await projectService.addOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "AGENT",
+        overlay: {
+          id: 2,
+          type: "text",
+          from: 30,
+          row: 1,
+          durationInFrames: 60,
+          content: "bound",
+        } as any,
+      },
+    );
+
+    expect(result.mutationReceipt.revision.value).toBe(8);
+    expect(result.timelineChangeReceipt).toMatchObject({
+      operation: "ADD_OVERLAY",
+      actorKind: "AGENT",
+      rangeObservation: "EXACT",
+      writeFrameRangesBefore: [{ startFrame: 30, endFrame: 90 }],
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        userId: "user_1",
+        "overlays.id": { $ne: 2 },
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      }),
+      expect.objectContaining({ $inc: { projectRevision: 1 } }),
+    );
+  });
+
+  it("rejects a stale caller-bound overlay addition before writing", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [],
+      updatedAt: new Date("2026-08-11T02:11:00.000Z"),
+      projectRevision: 8,
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.addOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T02:10:00.000Z",
+        },
+        actorKind: "AGENT",
+        overlay: {
+          id: 2,
+          type: "text",
+          from: 30,
+          row: 1,
+          durationInFrames: 60,
+        } as any,
+      },
+    )).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects a caller-bound overlay addition that overlaps an active range lock", async () => {
+    const updatedAt = "2026-08-11T02:12:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      fps: 30,
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+      timelineRangeCutLocks: [{
+        schemaVersion: 1,
+        lockId: "timeline-cut-lock_abcdefghijklmnopqr",
+        actorKind: "USER",
+        frameRange: { startFrame: 40, endFrame: 80 },
+        acquiredAt: "2026-08-11T02:12:01.000Z",
+        expiresAt: "2099-08-11T02:13:01.000Z",
+      }],
+    });
+    const { ProjectTimelineRangeCutLockConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.addOverlayAtRevisionV1(
+      "user_1",
+      "proj_1",
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        actorKind: "AGENT",
+        overlay: {
+          id: 2,
+          type: "text",
+          from: 30,
+          row: 1,
+          durationInFrames: 60,
+        } as any,
+      },
+    )).rejects.toMatchObject({
+      code: "PROJECT_TIMELINE_RANGE_LOCKED",
+      blockingLockIds: ["timeline-cut-lock_abcdefghijklmnopqr"],
+    } satisfies Partial<InstanceType<typeof ProjectTimelineRangeCutLockConflictError>>);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it("attaches a stable overlay once through the writer and emits one receipt", async () => {
     const updatedAt = "2026-08-11T06:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
