@@ -16693,3 +16693,64 @@ ESLint; (3) return to unfinished Queues 3 and 4, which alone may be worked in
 parallel under the founder's current authorization; (4) implement Queue 6
 serially; and (5) certify agency verticals serially unless the founder
 explicitly authorizes additional parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4S checkpoint
+
+Commits `5b1a151cb` and `fe38c17ae` close the first whole-state manual-save and
+autosave safety slice plus the two live creation/import callers that previously
+omitted the writer revision. Both commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+ProjectService no longer exposes the no-receipt `saveProject` wrapper. Manual
+save now requires an options object and autosave statically requires the
+caller's exact ProjectService revision; the common owner also rejects a missing
+revision at runtime before database access. It no longer silently substitutes
+30 FPS or 1920x1080. A whole-state proposal must provide a bounded overlay
+array, supported aspect ratio, valid positive dimensions and an exact supported
+project FPS/duration derived from the payload or durable project. It rejects
+duplicate/malformed overlay identities, non-positive or out-of-project ranges,
+an active Director lease not owned by the caller, and any active timeline range
+lock. The final owner-and-revision Mongo compare-and-set increments the project
+revision and appends one exact `REPLACE_EDITOR_STATE` timeline-range receipt.
+
+The from-asset intake and script-import routes now read an exact ProjectService
+revision after choosing/creating their target project and pass that tuple to the
+whole-state writer. This is required for reused script-import projects as well
+as new projects: a concurrent mutation between target selection and save now
+loses the final CAS instead of being overwritten. Route tests bind the same
+opaque revision tuple into the writer call.
+
+Focused verification passed 94/94 ProjectService, save-payload, chat-mechanical,
+generated-composition and proxy/master tests plus 16/16 from-asset and
+script-import route tests. Targeted quiet ESLint, repeated full 8-GB TypeScript
+checks and `git diff --check` passed before push. Full-repository quiet ESLint
+and the aggregate Queue 5 owner suite remain required and are not claimed here.
+No provider call, render, storage spend, wallet mutation, project-content edit,
+paid-cohort rerun or model inference occurred.
+
+This is not whole-state or universal Queue 5 closure. Server-origin whole-state
+callers still derive actor kind from transport authority rather than supplying
+explicit user/agent/system provenance. Media-bearing whole-state replacement
+still needs operation-specific source, rights, predecessor and durable
+derivative-invalidation enforcement or migration to narrower owners. Checkpoint
+capture/restore remains a separate owner family: capture must stop accepting an
+observed post-write revision in place of a writer-issued receipt, and restore
+must receive the applicable lease/range/evidence/invalidation enforcement.
+Remaining specialized ProjectService writers also require classification. The
+public manual-save revision type remains temporarily runtime-mandatory but
+type-optional until the remaining negative fixtures/callers are migrated; this
+must be made statically mandatory before aggregate Queue 5 closure.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live proof,
+successor receipt or `GO` is claimed.
+
+The binding order remains: (1) finish whole-state actor/source/rights and
+invalidation classification; (2) close checkpoint capture/restore; (3) finish
+remaining specialized ProjectService writers serially; (4) run the aggregate
+mutation-owner suite and full repository quiet ESLint; (5) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (6) implement Queue 6 serially; and (7) certify agency
+verticals serially unless the founder explicitly authorizes additional
+parallel execution.
