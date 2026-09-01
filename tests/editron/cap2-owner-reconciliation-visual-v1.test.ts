@@ -121,9 +121,9 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
     const transitionStart = tools.indexOf('const addTransitionTool = tool(');
     const transitionEnd = tools.indexOf('// ─── AI Pipeline Scene Tools', transitionStart);
     const transitionBody = tools.slice(transitionStart, transitionEnd);
-    expect(transitionBody).toContain('projectService.deleteOverlay');
-    expect(transitionBody).toContain('projectService.updateOverlay');
-    expect(transitionBody).toContain('projectService.addOverlay');
+    expect(transitionBody).toContain('deleteOverlayAtLoadedProjectRevisionV1');
+    expect(transitionBody).toContain('updateOverlayAtLoadedProjectRevisionV1');
+    expect(transitionBody).toContain('addOverlayAtLoadedProjectRevisionV1');
     expect(transitionBody).toContain('const maxOverlap =');
     expect(transitionBody).not.toContain('atomicTransitionForm: transitionForm');
   });

@@ -158,7 +158,8 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     expect(candidate('project.save').parityStatus).toBe('SHARED_PERSISTENCE_DIVERGENT_EXECUTION');
     expect(readSource('components/editron/editor/version-7.0.0/hooks/use-overlays.tsx'))
       .toContain('setOverlays((prevOverlays)');
-    expect(readSource('lib/editron/agent/tools.ts')).toContain('projectService.updateOverlay');
+    expect(readSource('lib/editron/agent/tools.ts'))
+      .toContain('projectService.updateOverlayAtRevisionV1');
   });
 
   it('distinguishes a writer-issued R_after fix from the remaining before-snapshot race', () => {
@@ -176,7 +177,10 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
   it('keeps the generic bridge duration-only while recognizing the repaired chat cut writer', () => {
     const projectService = readSource('lib/editron/services/project-service.ts');
     const updateStart = projectService.indexOf('async updateProject(');
-    const updateEnd = projectService.indexOf('async deleteOverlay(', updateStart);
+    const updateEnd = projectService.indexOf(
+      'async deleteOverlayAtRevisionV1(',
+      updateStart,
+    );
     const updateProjectBody = projectService.slice(updateStart, updateEnd);
     expect(updateProjectBody).toContain('reconcileProjectDurationFromOverlaysV1');
     expect(updateProjectBody).toContain('assertedDurationInFrames');
