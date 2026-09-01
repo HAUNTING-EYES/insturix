@@ -15021,3 +15021,57 @@ and chapter consumers. Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain
 `ACTIVE_PARTIAL`; Stage 2.5 remains `MODIFY`; Stage 3 remains
 `BLOCKED_NOT_AUTHORIZED`. No live-provider, agency-class, certification,
 successor-receipt or `GO` claim is made.
+
+## 2026-09-01 vertical-convergence Phase 3L checkpoint
+
+Step 0 commit `488afc037` removes the sole verified dead render-authorization
+export. Commits `55fc2c150` and `cfe1512b3` then close the previously recorded
+ProjectService-revision/render-job publication race for the signed finalizer
+success and terminal-failure callbacks.
+
+ProjectService is the transaction owner. It parses the server-only whole-
+project authorization, starts one Mongo session and acquires an exact
+owner/project/revision write fence on the Project document. In the same
+transaction and session, the existing render-job owner either completes/fails
+the exact bound claim or marks the stale claim for cleanup. The temporary
+project fence is removed before commit; a missing exact fence release aborts
+the transaction. Snapshot read concern, majority write concern and primary
+read preference are explicit. This same-document transactional write prevents
+a concurrent ProjectService mutation from being ordered between revision
+validation and final artifact publication.
+
+The signed success worker retains a read-only preflight to avoid unnecessary
+media work, but that read is no longer publication authority. After media
+finalization it calls the ProjectService transaction owner. `STALE`, replaced
+or inactive claims are never published; malformed or otherwise unproved
+strict states return retryable HTTP 500. The signed failure worker uses the
+same transaction owner and no longer performs a separate revision read plus
+render-job write. Genuine unbound legacy messages retain their existing
+explicit path; snapshot-bound or target-bound rows cannot fall back to it.
+
+The focused transaction/render-owner suites passed 19/19 tests. After route
+migration, the combined finalizer/transaction/render-owner run passed 39/39
+tests. The repository TypeScript check passed using the project compiler with
+an 8 GB Node heap after the default 4 GB process exhausted memory without
+emitting a TypeScript diagnostic. `npx eslint . --quiet` and
+`git diff --check` passed. No live provider call, historical cohort rerun,
+model inference, project content mutation or external spend occurred.
+
+This closes only the finalizer callback race identified in Phase 3K. It does
+not establish render-chain convergence. Provider webhook/startup-failure,
+failed-finalization retry and other strict service consumers must still be
+audited and migrated to an equivalent transaction boundary where they combine
+live ProjectService revision with render-job mutation. The current stale row
+still contains only a generic `artifactCleanup: PENDING` marker; it has no
+immutable provider/source cleanup descriptor and no production cleanup
+consumer. The target-range `ProjectArtifactInvalidationOutboxV1` cannot be
+fabricated for a whole-project `PROJECT_SNAPSHOT` render because its required
+overlay/range fingerprint has different semantics.
+
+The next dependency order is therefore: transact the remaining strict
+provider/retry mutation paths; add a truthful whole-project source-artifact
+cleanup descriptor and durable idempotent consumer; then migrate progress,
+active, history and chapter consumers under the same binding gates. Queue 5
+remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`; Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No certification,
+agency-class completion, convergence, successor receipt or `GO` is claimed.
