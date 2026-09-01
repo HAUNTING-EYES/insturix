@@ -85,11 +85,8 @@ export const createCheckpoint = async (
       });
 
       if (!checkpoint) {
-        console.log(`[CHECKPOINT] Skipped "${description}" - no changes detected`);
         return null;
       }
-
-      console.log(`[CHECKPOINT] ✅ Created "${description}" (${type})`);
       
       // Convert to frontend format
       return {
@@ -127,11 +124,8 @@ export const createCheckpoint = async (
     const data = await response.json();
     
     if (!data.created) {
-      console.log(`[CHECKPOINT] Skipped "${description}" - no changes detected`);
       return null;
     }
-
-    console.log(`[CHECKPOINT] ✅ Created "${description}" (${type})`);
     
     // Convert to frontend format
     const checkpoint: Checkpoint = {
@@ -199,16 +193,6 @@ export const getCheckpoints = async (sessionId: string): Promise<Checkpoint[]> =
     console.error('Error getting checkpoints:', error);
     return [];
   }
-};
-
-/**
- * Get a specific checkpoint by ID
- */
-export const getCheckpoint = async (checkpointId: string): Promise<Checkpoint | null> => {
-  // This would require a new API endpoint, for now we'll use getCheckpoints
-  // and filter on the client side
-  console.warn('getCheckpoint: Not implemented, use getCheckpoints instead');
-  return null;
 };
 
 /**
@@ -289,14 +273,6 @@ export const restoreCheckpoint = async (
     console.error('Error restoring checkpoint:', error);
     return null;
   }
-};
-
-/**
- * Clear all checkpoints for a session
- * Note: This is now handled server-side via TTL and pruning
- */
-export const clearCheckpoints = (sessionId: string): void => {
-  console.warn('clearCheckpoints: Client-side clearing not needed with cloud storage');
 };
 
 /**
