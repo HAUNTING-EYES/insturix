@@ -51,6 +51,7 @@ import {
   startChapterRender,
 } from "@/lib/editron/services/chapter-renderer";
 import { hashEditronCanonicalJsonV1 } from "@/lib/editron/services/canonical-json-v1";
+import { createChapterChildDispatchV1 } from "@/lib/editron/services/chapter-render-dispatch-v1";
 import { createProjectRenderSnapshotBindingV1 } from "@/lib/editron/services/project-render-snapshot-binding-v1";
 import { createProjectRenderJobAuthorizationV1 } from "@/lib/editron/services/render-job-service";
 import {
@@ -71,7 +72,12 @@ const STRICT_CHAPTER_BOUNDARIES = [
   { startFrame: 30, endFrame: 90 },
 ] as const;
 
-function makeStrictChapterFixture(routeMode: "chapter" | "standard" = "chapter") {
+function makeStrictChapterFixture(
+  routeMode: "chapter" | "standard" = "chapter",
+  scope: { requestedByUserId?: string; ownerId?: string } = {},
+) {
+  const requestedByUserId = scope.requestedByUserId ?? STRICT_CHAPTER_USER_ID;
+  const ownerId = scope.ownerId ?? STRICT_CHAPTER_USER_ID;
   const projectRevision = {
     schemaVersion: 1 as const,
     value: 7,
@@ -84,7 +90,7 @@ function makeStrictChapterFixture(routeMode: "chapter" | "standard" = "chapter")
   const binding = createProjectRenderSnapshotBindingV1({
     artifactKind: "RENDERED_PREVIEW",
     artifactId: STRICT_CHAPTER_JOB_ID,
-    ownerId: STRICT_CHAPTER_USER_ID,
+    ownerId,
     projectId: STRICT_CHAPTER_PROJECT_ID,
     projectRevision,
     sequenceId: "main",
@@ -108,8 +114,8 @@ function makeStrictChapterFixture(routeMode: "chapter" | "standard" = "chapter")
   });
   const authorization = createProjectRenderJobAuthorizationV1({
     jobId: STRICT_CHAPTER_JOB_ID,
-    requestedByUserId: STRICT_CHAPTER_USER_ID,
-    ownerId: STRICT_CHAPTER_USER_ID,
+    requestedByUserId,
+    ownerId,
     projectId: STRICT_CHAPTER_PROJECT_ID,
     projectRevision,
     binding,
@@ -140,6 +146,52 @@ function makeStrictChapterFixture(routeMode: "chapter" | "standard" = "chapter")
 }
 
 type StrictChapterFixture = ReturnType<typeof makeStrictChapterFixture>;
+
+function makeStrictProgressJob(fixture: StrictChapterFixture) {
+  const jobId = fixture.authorization.jobId;
+  const projectId = fixture.authorization.projectId;
+  const requestedByUserId = fixture.authorization.requestedByUserId;
+  const ownerId = fixture.authorization.ownerId;
+  const attemptStartedAt = new Date("2026-08-29T00:00:01.000Z");
+  const providerAcceptedAt = new Date("2026-08-29T00:00:02.000Z");
+  const providerBoundAt = new Date("2026-08-29T00:00:03.000Z");
+  return {
+    _id: jobId,
+    projectId,
+    userId: requestedByUserId,
+    ownerId,
+    status: "rendering",
+    totalFrames: STRICT_CHAPTER_TOTAL_FRAMES,
+    fps: STRICT_CHAPTER_FPS,
+    width: STRICT_CHAPTER_WIDTH,
+    height: STRICT_CHAPTER_HEIGHT,
+    region: STRICT_CHAPTER_REGION,
+    projectRenderSnapshotBinding: fixture.binding,
+    chapterLayoutManifest: fixture.manifest,
+    chapters: fixture.manifest.chapters.map((chapter) => ({
+      ...chapter,
+      parentAdmissionId: jobId,
+      region: STRICT_CHAPTER_REGION,
+      status: "rendering",
+      renderId: `provider_${chapter.index}`,
+      bucketName: `render-bucket-${chapter.index}`,
+      dispatch: {
+        ...createChapterChildDispatchV1({
+          parentAdmissionId: jobId,
+          childIndex: chapter.index,
+          bindingHash: fixture.binding.bindingHash,
+        }),
+        phase: "BOUND" as const,
+        attemptStartedAt,
+        providerAcceptedAt,
+        providerBoundAt,
+        providerRenderId: `provider_${chapter.index}`,
+        providerBucketName: `render-bucket-${chapter.index}`,
+        providerRegion: STRICT_CHAPTER_REGION,
+      },
+    })),
+  };
+}
 
 function invokeStrictChapterStart(
   fixture: StrictChapterFixture,
@@ -542,6 +594,120 @@ describe("chapter renderer progress", () => {
       }),
     );
   });
+
+  it("rejects strict progress before provider polling when the immutable layout hash is tampered", async () => {
+    const fixture = makeStrictChapterFixture();
+    const job = makeStrictProgressJob(fixture);
+    job.chapterLayoutManifest = {
+      ...fixture.manifest,
+      layoutManifestHash: "d".repeat(64),
+    };
+    mocks.findOne.mockResolvedValue(job);
+
+    await expect(getChapterRenderProgress(STRICT_CHAPTER_JOB_ID, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    })).rejects.toThrow("CHAPTER_LAYOUT_HASH_MISMATCH");
+
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("rejects strict progress before provider polling when a child region drifts from the manifest", async () => {
+    const fixture = makeStrictChapterFixture();
+    const job = makeStrictProgressJob(fixture);
+    job.chapters[0] = {
+      ...job.chapters[0],
+      region: "eu-west-1",
+    };
+    mocks.findOne.mockResolvedValue(job);
+
+    await expect(getChapterRenderProgress(STRICT_CHAPTER_JOB_ID, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_LAYOUT_CHAPTER_MISMATCH");
+
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("rejects strict progress when the caller's parent count disagrees with the persisted manifest", async () => {
+    const fixture = makeStrictChapterFixture();
+    mocks.findOne.mockResolvedValue(makeStrictProgressJob(fixture));
+
+    await expect(getChapterRenderProgress(STRICT_CHAPTER_JOB_ID, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount + 1,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_LAYOUT_MANIFEST_IDENTITY_MISMATCH");
+
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("binds strict progress to the requester separately from an organization owner", async () => {
+    const fixture = makeStrictChapterFixture("chapter", {
+      requestedByUserId: "requester_1",
+      ownerId: "org_owner_1",
+    });
+    const job = makeStrictProgressJob(fixture);
+    mocks.findOne.mockResolvedValue(job);
+    mocks.getRenderProgress.mockResolvedValue({
+      overallProgress: 0.5,
+      done: false,
+      fatalErrorEncountered: false,
+    });
+
+    const validProgress = await getChapterRenderProgress(fixture.authorization.jobId, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    });
+
+    expect(validProgress?.status).toBe("rendering");
+    expect(mocks.getRenderProgress).toHaveBeenCalledTimes(fixture.manifest.chapterCount);
+
+    mocks.getRenderProgress.mockClear();
+    mocks.setAWSCredentials.mockClear();
+    job.userId = "requester_attacker";
+    await expect(getChapterRenderProgress(fixture.authorization.jobId, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_BINDING_SCOPE_MISMATCH");
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+
+    mocks.getRenderProgress.mockClear();
+    mocks.setAWSCredentials.mockClear();
+    job.userId = fixture.authorization.requestedByUserId;
+    job.ownerId = "org_owner_attacker";
+    await expect(getChapterRenderProgress(fixture.authorization.jobId, {
+      authorization: fixture.authorization,
+      selectedRegion: STRICT_CHAPTER_REGION,
+      chapterCount: fixture.manifest.chapterCount,
+      chapterLayoutManifestHash: fixture.manifest.layoutManifestHash,
+      parentState: "RUNNING",
+    })).rejects.toThrow("CHAPTER_RENDER_PROGRESS_BINDING_SCOPE_MISMATCH");
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+  });
+
   it("marks missing render buckets as failed instead of polling forever", async () => {
     mocks.findOne.mockResolvedValue({
       _id: "chr_missing_bucket",

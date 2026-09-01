@@ -37,6 +37,7 @@ import {
   ProjectRenderJobAuthorizationSchema,
   type ProjectRenderJobAuthorizationV1,
 } from './render-job-service';
+import type { RenderJobChapterOrchestrationStateV1 } from '@/lib/editron/schemas/render-job';
 import {
   assertProjectRenderSnapshotBindingV1,
   type ProjectRenderSnapshotBindingV1,
@@ -365,6 +366,23 @@ export type ChapterRenderStartResultV1 = {
   chapterLayoutManifestHash: string;
 };
 
+/**
+ * Strict progress callers carry the parent identity into this owner. The
+ * renderer validates its own persisted chapter snapshot before it can poll a
+ * child provider or enqueue concat; legacy callers intentionally omit this
+ * contract and retain their compatibility behavior.
+ */
+export type ChapterRenderProgressOptionsV1 = {
+  authorization: ProjectRenderJobAuthorizationV1;
+  selectedRegion: string;
+  chapterCount: number;
+  chapterLayoutManifestHash: string;
+  parentState: Extract<
+    RenderJobChapterOrchestrationStateV1,
+    'RUNNING' | 'CONCATENATING'
+  >;
+};
+
 type LegacyChapterRenderStartResultV1 = {
   jobId: string;
   chapters: number;
@@ -383,6 +401,108 @@ function assertChapterRegion(region: string): string {
 
 function isStrictChapterRenderJob(job: Partial<ChapterRenderJob>): boolean {
   return job.projectRenderSnapshotBinding !== undefined;
+}
+
+function assertStrictChapterRenderJobForProgress(
+  job: unknown,
+  input: ChapterRenderProgressOptionsV1,
+): asserts job is ChapterRenderJob {
+  const record = asRecord(job);
+  const binding = record?.projectRenderSnapshotBinding;
+  const manifestValue = record?.chapterLayoutManifest;
+  if (!record || !binding || !manifestValue) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_LAYOUT_MANIFEST_MISSING');
+  }
+  try {
+    assertProjectRenderSnapshotBindingV1(binding);
+  } catch {
+    throw new Error('CHAPTER_RENDER_PROGRESS_BINDING_INVALID');
+  }
+  if (
+    record._id !== input.authorization.jobId
+    || record.projectId !== input.authorization.projectId
+    || record.userId !== input.authorization.requestedByUserId
+    || record.ownerId !== input.authorization.ownerId
+    || record.region !== input.selectedRegion
+    || binding.artifactId !== input.authorization.jobId
+    || binding.ownerId !== input.authorization.ownerId
+    || binding.projectId !== input.authorization.projectId
+    || binding.bindingHash !== input.authorization.bindingHash
+    || !sameProjectArtifactRevisionV1(
+      binding.projectRevision,
+      input.authorization.projectRevision,
+    )
+  ) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_BINDING_SCOPE_MISMATCH');
+  }
+
+  let manifest: ChapterLayoutManifestV1;
+  try {
+    manifest = parseChapterLayoutManifestV1(manifestValue);
+    if (
+      typeof record.totalFrames !== 'number'
+      || typeof record.fps !== 'number'
+      || !Number.isSafeInteger(record.totalFrames)
+    ) {
+      throw new Error('CHAPTER_RENDER_PROGRESS_LAYOUT_FIELDS_INVALID');
+    }
+    assertChapterLayoutManifestForStart({
+      manifest,
+      jobId: input.authorization.jobId,
+      projectId: input.authorization.projectId,
+      binding,
+      totalFrames: record.totalFrames,
+      fps: record.fps,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith('CHAPTER_RENDER_PROGRESS_')) {
+      throw error;
+    }
+    throw new Error(
+      error instanceof Error ? error.message : 'CHAPTER_RENDER_PROGRESS_LAYOUT_MANIFEST_INVALID',
+    );
+  }
+  if (
+    manifest.chapterCount !== input.chapterCount
+    || manifest.layoutManifestHash !== input.chapterLayoutManifestHash
+  ) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_LAYOUT_MANIFEST_IDENTITY_MISMATCH');
+  }
+  if (!Array.isArray(record.chapters) || record.chapters.length !== manifest.chapterCount) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_CHAPTER_COUNT_MISMATCH');
+  }
+  for (const [index, expected] of manifest.chapters.entries()) {
+    const chapter = asRecord(record.chapters[index]);
+    if (
+      !chapter
+      || chapter.index !== expected.index
+      || chapter.startFrame !== expected.startFrame
+      || chapter.endFrame !== expected.endFrame
+      || chapter.durationFrames !== expected.durationFrames
+      || chapter.parentAdmissionId !== input.authorization.jobId
+      || chapter.region !== input.selectedRegion
+    ) {
+      throw new Error('CHAPTER_RENDER_PROGRESS_LAYOUT_CHAPTER_MISMATCH');
+    }
+    try {
+      assertChapterChildDispatchV1(chapter.dispatch);
+    } catch {
+      throw new Error('CHAPTER_RENDER_PROGRESS_DISPATCH_LEDGER_INVALID');
+    }
+    if (
+      chapter.dispatch.parentAdmissionId !== input.authorization.jobId
+      || chapter.dispatch.childIndex !== expected.index
+      || chapter.dispatch.bindingHash !== input.authorization.bindingHash
+    ) {
+      throw new Error('CHAPTER_RENDER_PROGRESS_DISPATCH_LEDGER_SCOPE_MISMATCH');
+    }
+  }
+  if (
+    input.parentState !== 'RUNNING'
+    && input.parentState !== 'CONCATENATING'
+  ) {
+    throw new Error('CHAPTER_RENDER_PROGRESS_PARENT_STATE_INVALID');
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1169,7 +1289,10 @@ export async function startChapterRender(
  * Get chapter render job progress.
  * Returns per-chapter progress + overall aggregated progress.
  */
-export async function getChapterRenderProgress(jobId: string): Promise<{
+export async function getChapterRenderProgress(
+  jobId: string,
+  options?: ChapterRenderProgressOptionsV1,
+): Promise<{
   status: string;
   overallProgress: number;
   chapters: Array<{
@@ -1181,11 +1304,15 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     error?: string;
   }>;
   outputUrl?: string;
+  outputSize?: number;
   error?: string;
 } | null> {
   const db = await getDatabase();
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
   if (!job) return null;
+  if (options) {
+    assertStrictChapterRenderJobForProgress(job, options);
+  }
 
   let totalProgress = 0;
   let computedStatus = job.status;
@@ -1401,7 +1528,9 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
 
   // Advance the chapter queue: finished chapters have freed slots, so start the next pending one(s).
   // This is what carries the bounded-concurrency render past the first chapter.
-  await startPendingChapters(jobId);
+  if (!options || options.parentState === 'RUNNING') {
+    await startPendingChapters(jobId);
+  }
 
   const overallProgress = job.chapters.length > 0
     ? totalProgress / job.chapters.length
@@ -1573,6 +1702,10 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     overallProgress,
     chapters: chapterStatuses,
     outputUrl: completedOutputUrl,
+    outputSize: readChapterOutputSize(
+      job.concatResult?.sizeBytes
+        ?? (chapterStatuses.length === 1 ? chapterStatuses[0]?.outputSize : undefined),
+    ),
     error: completedError,
   };
 }
