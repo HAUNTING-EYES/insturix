@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   getRenderProgress: vi.fn(),
   getChapterRenderProgress: vi.fn(),
   getCurrentProjectRenderJobV1: vi.fn(),
-  getJob: vi.fn(),
+  getRenderJobByAdmissionOrProviderIdV1: vi.fn(),
   getProjectRenderJobAuthorizationByAdmissionV1: vi.fn(),
   setAWSCredentials: vi.fn(async () => {}),
   updateJobProgress: vi.fn(async () => {}),
@@ -47,7 +47,8 @@ vi.mock("@/lib/editron/services/render-job-service", () => ({
   updateJobProgress: mocks.updateJobProgress,
   failJob: mocks.failJob,
   getCurrentProjectRenderJobV1: mocks.getCurrentProjectRenderJobV1,
-  getJob: mocks.getJob,
+  getRenderJobByAdmissionOrProviderIdV1:
+    mocks.getRenderJobByAdmissionOrProviderIdV1,
   getProjectRenderJobAuthorizationByAdmissionV1:
     mocks.getProjectRenderJobAuthorizationByAdmissionV1,
   claimRenderCompletionEffects: mocks.claimRenderCompletionEffects,
@@ -180,7 +181,7 @@ describe("Editron chapter render progress route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.mockResolvedValue({ userId: "user_1" });
-    mocks.getJob.mockResolvedValue({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValue({
       _id: "render_job",
       userId: "user_1",
       projectId: "project_1",
@@ -212,7 +213,7 @@ describe("Editron chapter render progress route", () => {
   });
 
   it("rejects a forged strict provider tuple before loading AWS credentials", async () => {
-    mocks.getJob.mockResolvedValueOnce(strictJob());
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce(strictJob());
 
     const response = await GET(new Request(
       "http://localhost/api/services/editron/cloudrun/progress"
@@ -227,9 +228,25 @@ describe("Editron chapter render progress route", () => {
     expect(mocks.getRenderProgress).not.toHaveBeenCalled();
   });
 
+  it("fails closed when a provider ID does not identify exactly one admission", async () => {
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce(null);
+
+    const response = await GET(new Request(
+      "http://localhost/api/services/editron/cloudrun/progress"
+      + "?renderId=colliding_provider&bucketName=render-bucket&region=us-east-1",
+    ));
+
+    expect(response.status).toBe(404);
+    expect(mocks.getRenderJobByAdmissionOrProviderIdV1).toHaveBeenCalledWith({
+      renderId: "colliding_provider",
+    });
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+  });
+
   it("polls a current strict render and persists progress through ProjectService", async () => {
     const job = strictJob();
-    mocks.getJob.mockResolvedValueOnce(job);
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce(job);
     mocks.getProjectRenderJobAuthorizationByAdmissionV1.mockResolvedValueOnce({
       ok: true,
       status: "BOUND",
@@ -269,7 +286,7 @@ describe("Editron chapter render progress route", () => {
 
   it("uses strict finalization for a completed bound provider render", async () => {
     const job = strictJob();
-    mocks.getJob.mockResolvedValueOnce(job);
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce(job);
     mocks.getProjectRenderJobAuthorizationByAdmissionV1.mockResolvedValueOnce({
       ok: true,
       status: "BOUND",
@@ -312,11 +329,14 @@ describe("Editron chapter render progress route", () => {
     const unauthorized = await GET(chapterProgressRequest("chr_private"));
 
     expect(unauthorized.status).toBe(401);
-    expect(mocks.getJob).not.toHaveBeenCalled();
+    expect(mocks.getRenderJobByAdmissionOrProviderIdV1).not.toHaveBeenCalled();
     expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
 
     mocks.auth.mockResolvedValue({ userId: "user_1" });
-    mocks.getJob.mockResolvedValue({ userId: "user_2", projectId: "project_1" });
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValue({
+      userId: "user_2",
+      projectId: "project_1",
+    });
     const foreign = await GET(chapterProgressRequest("chr_private"));
 
     expect(foreign.status).toBe(404);
@@ -344,7 +364,7 @@ describe("Editron chapter render progress route", () => {
   });
 
   it("queues chapter completion without exposing the concat output", async () => {
-    mocks.getJob.mockResolvedValueOnce({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
       _id: "chr_done",
       providerRenderId: "chr_done",
       userId: "user_1",
@@ -385,7 +405,7 @@ describe("Editron chapter render progress route", () => {
   });
 
   it("keeps an active finalizer in progress without polling providers", async () => {
-    mocks.getJob.mockResolvedValueOnce({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
       _id: "chr_finalizing",
       userId: "user_1",
       projectId: "project_1",
@@ -409,7 +429,7 @@ describe("Editron chapter render progress route", () => {
       completedAt: "2026-07-26T00:05:00.000Z",
       primaryArtifact: { ...DELIVERY_MANIFEST.primaryArtifact, status: "ready", url: finalUrl },
     };
-    mocks.getJob.mockResolvedValueOnce({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
       _id: "chr_done",
       providerRenderId: "chr_provider",
       userId: "user_1",
@@ -452,7 +472,7 @@ describe("Editron chapter render progress route", () => {
   });
 
   it("fails loud instead of returning a legacy raw done artifact", async () => {
-    mocks.getJob.mockResolvedValueOnce({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
       _id: "chr_legacy",
       userId: "user_1",
       projectId: "project_1",
@@ -469,7 +489,7 @@ describe("Editron chapter render progress route", () => {
   });
 
   it("queues standard Lambda completion without exposing its raw output", async () => {
-    mocks.getJob.mockResolvedValueOnce({
+    mocks.getRenderJobByAdmissionOrProviderIdV1.mockResolvedValueOnce({
       _id: "rnd_admission",
       providerRenderId: "rnd_provider",
       userId: "user_1",

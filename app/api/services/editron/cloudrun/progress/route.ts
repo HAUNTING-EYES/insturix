@@ -13,8 +13,8 @@ import {
   completeRenderCompletionEffects,
   failJob,
   getCurrentProjectRenderJobV1,
-  getJob,
   getProjectRenderJobAuthorizationByAdmissionV1,
+  getRenderJobByAdmissionOrProviderIdV1,
   releaseRenderCompletionEffects,
   updateJobProgress,
   type ProjectRenderJobAuthorizationV1,
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const locatedJob = await getJob(renderId);
+    const locatedJob = await getRenderJobByAdmissionOrProviderIdV1({ renderId });
     if (!locatedJob) {
       return NextResponse.json({ type: 'error', message: 'Render job not found' }, { status: 404 });
     }
