@@ -16125,3 +16125,58 @@ unfinished Queue 3-4 media chain, where those two queues alone may be worked in
 parallel under the founder's current authorization; (3) implement Queue 6
 serially; and (4) certify the agency verticals serially unless the founder gives
 new parallelization approval.
+
+## 2026-09-01 vertical-convergence Phase 4I checkpoint
+
+Commits `b68d8c19b`, `eab07e69e` and `045ca935b` close the bounded Assist
+revision and ready-finalization work left open by Phase 4H. A dependency-free
+project-revision primitive now gives the Assist money owner and ProjectService
+the same exact legacy-revision predicate. Charge admission, registration,
+terminal settlement, post-wallet finalization, explicit uncharged cancellation
+and stale uncharged recovery all advance `projectRevision` under compare-and-set
+instead of changing money/status fields outside the project mutation clock.
+
+The Assist batch ready transition no longer saves a timeline and then performs a
+separate raw `ready_for_chat` project update. It loads the current ProjectService
+revision, proves the exact Assist lane and registered charge, and commits the
+chronological timeline, analysis hydration, degraded-source facts, stale-field
+clears and ready status in one receipt-bearing project write. A concurrent
+`scan_failed` cancellation cannot be overwritten; the route re-reads and enters
+the canonical settlement path instead. Generic metadata clears added to the
+existing save boundary reject protected, duplicate and malformed field names
+before database work.
+
+Focused closure passed 103/103 Assist lifecycle tests before the finalizer slice,
+then 79/79 ProjectService payload and batch-route tests after it. The complete
+8-GB TypeScript check, full repository quiet ESLint and `git diff --check`
+passed before `045ca935b` was pushed. No live provider call, wallet mutation,
+render, project-content edit, paid cohort rerun, model inference or external
+spend occurred.
+
+This is exact Assist money/status and ready-finalization ownership, not universal
+Queue 5 or cross-aggregate convergence. A fresh source inventory still finds
+eight direct project writes in the batch route. They are grouped as:
+
+1. coverage resume and dispatch rollback;
+2. no-usable-media, analysis-deadline, insufficient-credit, script-grounding and
+   exhausted-orchestration terminal transitions;
+3. pre-Director auto-lane refund accounting and adjacent failure recovery.
+
+Those project transitions must move behind a revisioned lifecycle owner. Where
+one user action changes both the project and upload-batch aggregates, the
+implementation must use an explicit transaction or durable claim/compensation
+contract; replacing only the project write would not close the split-brain race.
+Raw single-asset QStash intake publication, storyboard finalization, Alyzitron
+and the final repository-wide mutation-owner inventory remain open after the
+batch groups.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 writers serially;
+(2) return to unfinished Queues 3 and 4, which alone may run in parallel under
+the founder's current authorization; (3) implement Queue 6 serially; and (4)
+certify the agency verticals serially unless the founder explicitly authorizes
+additional parallel execution.
