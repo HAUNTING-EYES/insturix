@@ -16070,3 +16070,58 @@ beginning with batch/rescue/recovery, storyboard and Alyzitron classification;
 have the founder's current permission for parallel execution; (3) implement
 Queue 6 serially; and (4) certify agency verticals serially unless the founder
 explicitly grants new parallelization permission.
+
+## 2026-09-01 vertical-convergence Phase 4H checkpoint
+
+Commits `27dd95df7`, `f4e55a0ad`, `8f8394d7d`, `37db68b17`,
+`9e1557a81`, `5c63c477c`, `daeecd69b` and `98623705a` close the next
+bounded Queue 5 lifecycle slice. The `f4e55a0ad` and `37db68b17` commits are
+the required Step-0 cleanup commits for the large single-asset and batch route
+owners before their structural changes.
+
+The single-asset provider-free path now advances one admitted analysis run
+through Phase 1 and the canonical Director lifecycle. Its automatic QStash
+publication failure uses the shared run failure owner instead of directly
+projecting a terminal status. The Assist rescue path now records its recovery
+transitions with revision receipts rather than bypassing ProjectService.
+
+The batch path now creates and initializes a project through ProjectService,
+commits final composition and `analysis_complete` under the exact expected
+revision, records a durable Director intent, prepares one dispatch identity and
+passes that identity through both QStash and inline Director execution. A
+signed QStash failure callback must prove the exact durable dispatch token (or
+an explicitly supported legacy message identity) before it can project a
+delivery failure. The post-publication raw project message-ID write was removed,
+eliminating a race in which a newer project revision could be overwritten by
+telemetry arriving after publication.
+
+Focused closure passed 24/24 single-asset route tests and 36/36 combined batch
+route and Director-delivery-failure tests. The repository-wide 8-GB TypeScript
+check passed after the token-bound callback change; focused ESLint checks passed
+after the later route changes. No live provider call, wallet spend, render,
+project-content edit, paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 convergence. The remaining batch route writes
+are deliberately classified into three unfinished ownership groups:
+
+1. coverage/resume and terminal batch-analysis transitions;
+2. Assist charge, settlement, cancellation and ready-to-finalize transitions;
+3. refund and failure-recovery transitions.
+
+The shared Assist settlement and cancellation owner must become
+project-revision-aware before the Assist batch finalizer is migrated; otherwise
+money/status CAS can succeed without invalidating a stale project writer. Raw
+single-asset QStash intake publication, storyboard finalization, Alyzitron and
+the final repository-wide mutation-owner inventory also remain open.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) finish the three batch lifecycle ownership
+groups and remaining universal Queue 5 writers serially; (2) return to the
+unfinished Queue 3-4 media chain, where those two queues alone may be worked in
+parallel under the founder's current authorization; (3) implement Queue 6
+serially; and (4) certify the agency verticals serially unless the founder gives
+new parallelization approval.
