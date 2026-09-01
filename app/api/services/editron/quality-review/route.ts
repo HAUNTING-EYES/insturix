@@ -8,7 +8,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runQualityReview } from '@/lib/editron/services/quality-review-service';
-import { projectService } from '@/lib/editron/services/project-service';
+import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+} from '@/lib/editron/services/project-service';
 import { emitBrandEvent } from '@/lib/shared/brand-events';
 
 export const runtime = 'nodejs';
@@ -22,8 +27,8 @@ export async function POST(req: NextRequest) {
     const { projectId } = await req.json();
     if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
 
-    const project = await projectService.loadProject(userId, projectId);
-    if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const project = snapshot.project;
 
     const overlaysForReview: Parameters<typeof runQualityReview>[0] = project.overlays.map((overlay) => ({
       ...overlay,
@@ -31,6 +36,24 @@ export async function POST(req: NextRequest) {
     }));
 
     const report = runQualityReview(overlaysForReview, project.fps || 30, project.durationInFrames);
+    const reviewedAt = new Date();
+    const persistedReview = buildPersistedQualityReview(report, reviewedAt);
+    const receipt = await projectService.saveProjectWithReceipt(
+      userId,
+      projectId,
+      project,
+      {
+        expectedRevision: snapshot.revision,
+        projectUpdates: {
+          qualityScore: report.overallScore,
+          qualityReview: {
+            ...persistedReview,
+            source: 'manual-quality-review',
+            reviewedProjectRevision: snapshot.revision,
+          },
+        },
+      },
+    );
 
     emitBrandEvent({
       userId,
@@ -42,21 +65,29 @@ export async function POST(req: NextRequest) {
         score: report.overallScore,
         issueCount: report.issues?.length ?? 0,
         autoFixableCount: report.autoFixable?.length ?? 0,
+        projectRevision: receipt.revision.value,
       },
     }).catch((err) => console.error('[quality-review] Brand event failed:', err));
-
-    // Write score back to the project document (quality review is metadata, not a stage change)
-    await projectService.updateProjectMetadata(projectId, {
-      qualityScore: report.overallScore,
-    });
 
     return NextResponse.json({
       success: true,
       ...report,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof ProjectMutationConflictError) {
+      return NextResponse.json({
+        error: 'Project changed during quality review. Reload and review the current edit.',
+        code: error.code,
+        currentRevision: error.currentRevision,
+      }, { status: 409 });
+    }
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
     console.error('[quality-review]', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Quality review failed',
+    }, { status: 500 });
   }
 }
 
