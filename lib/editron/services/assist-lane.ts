@@ -151,7 +151,6 @@ export async function settleAssistScanFailure(
       },
     );
     if (transition.modifiedCount !== 1) {
-      console.log(`[DirectorMode] Assist failure lost its exact terminal transition (project ${projectId}).`);
       return 'transition-lost';
     }
   }
@@ -210,7 +209,6 @@ export async function settleAssistScanFailure(
       console.error('[DirectorMode][REFUND-RECORD-STALE][MONEY] wallet refund succeeded but exact project finalization was lost:', { projectId });
       return 'refund-pending';
     }
-    console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${projectId}).`);
     return 'refunded';
   } catch (refundErr: unknown) {
     console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging for support:', refundErr instanceof Error ? refundErr.message : refundErr);
