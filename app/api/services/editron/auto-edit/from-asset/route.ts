@@ -26,7 +26,12 @@ import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMidd
 import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
-import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
+import {
+  admitAssistScanCharge,
+  isAssistIntakeEnabled,
+  parseEditMode,
+  settleAssistScanFailure,
+} from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 import {
   isInternalQStashDispatchConfigured,
@@ -66,6 +71,9 @@ export async function POST(request: NextRequest) {
   let autoEditAnalysisStarted = false;
   let autoEditCreditTransactionId: string | undefined;
   let autoEditChargedCredits: number | undefined;
+  let assistRun: { projectId: string; userId: string; creditTransactionId: string } | null = null;
+  let assistSettlementDb: Parameters<typeof settleAssistScanFailure>[0] | null = null;
+  let assistReadyCommitted = false;
 
   try {
     const { userId, orgId } = await auth();
@@ -289,26 +297,37 @@ export async function POST(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
-    // Persist the lane BEFORE any worker dispatch — the video-analysis worker
-    // consults project.editMode at its director-invocation site and must never
-    // race an unset flag.
+    assistSettlementDb = db;
+
+    // Establish lane + paid-run identity in one CAS BEFORE any status or worker
+    // dispatch. A stale/pre-used project cannot be silently repurposed.
     if (requestedEditMode === 'assist') {
-      await db.collection('projects').updateOne(
-        { projectId },
-        {
-          $set: {
-            editMode: 'assist',
-            // Persisted so the worker (and any future cancel flow) can refund by
-            // transaction if the scan fails — from-asset deducted at intake.
-            assistCreditTransactionId: autoEditCreditTransactionId ?? null,
-            assistChargedCredits: autoEditChargedCredits ?? null,
-          },
-        },
-      );
+      if (!autoEditCreditTransactionId || autoEditChargedCredits === undefined) {
+        throw new Error('Assist scan deduction identity is missing after charge.');
+      }
+      const admission = await admitAssistScanCharge(db, {
+        projectId,
+        userId,
+        creditTransactionId: autoEditCreditTransactionId,
+        chargedCredits: autoEditChargedCredits,
+      });
+      if (admission.disposition !== 'admitted' && admission.disposition !== 'already-admitted') {
+        throw new Error(`Assist scan admission was rejected: ${admission.disposition}`);
+      }
+      assistRun = { projectId, userId, creditTransactionId: autoEditCreditTransactionId };
     }
 
-    await db.collection('projects').updateOne(
-      { projectId },
+    const queued = await db.collection('projects').updateOne(
+      requestedEditMode === 'assist'
+        ? {
+            projectId,
+            userId,
+            editMode: 'assist',
+            assistCreditTransactionId: autoEditCreditTransactionId,
+            assistChargedCredits: autoEditChargedCredits,
+            $or: [{ autoEditStatus: { $exists: false } }, { autoEditStatus: null }],
+          }
+        : { projectId, userId },
       {
         $set: {
           autoEditMode: 'asset',
@@ -324,6 +343,9 @@ export async function POST(request: NextRequest) {
         },
       },
     );
+    if (queued.modifiedCount !== 1) {
+      throw new Error('Auto-edit queue admission lost its current project state.');
+    }
 
     // Dispatch to video-analysis worker via QStash
     const baseUrl = process.env.VERCEL_URL
@@ -370,12 +392,19 @@ export async function POST(request: NextRequest) {
         const errBody = await qstashRes.text().catch(() => 'no body');
         const errMsg = `QStash dispatch failed: HTTP ${qstashRes.status} — ${errBody}`;
         console.error(`[auto-edit/from-asset] ${errMsg}`);
-        // Mark project as failed so dashboard shows error instead of infinite polling
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: errMsg } },
-        );
-        if (autoEditCreditCheck) {
+        if (assistRun) {
+          await settleAssistScanFailure(db, {
+            ...assistRun,
+            reason: errMsg,
+          });
+        } else {
+          // Auto retains its legacy pre-worker failure/refund behavior.
+          await db.collection('projects').updateOne(
+            { projectId, userId },
+            { $set: { autoEditStatus: 'failed', autoEditError: errMsg } },
+          );
+        }
+        if (!assistRun && autoEditCreditCheck) {
           await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis dispatch failed before worker queueing');
         }
         return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
@@ -388,21 +417,42 @@ export async function POST(request: NextRequest) {
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
       autoEditAnalysisStarted = true;
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
-      if (ssb) {
-        await db.collection('projects').updateOne(
-          // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
-          { projectId, ...(requestedEditMode === 'assist' ? { autoEditStatus: { $ne: 'scan_failed' } } : {}) },
-          { $set: { syntheticStoryboard: ssb, autoEditStatus: requestedEditMode === 'assist' ? ASSIST_STATUS_READY : 'editing' } },
-        );
-      }
       if (requestedEditMode === 'assist') {
         // Director Mode: the single clip already IS the timeline (saved at create).
-        // Scans persisted above — hand the pen to the user, never run the Director.
-        await db.collection('projects').updateOne(
-          { projectId, autoEditStatus: { $ne: 'scan_failed' } },
-          { $set: { autoEditStatus: ASSIST_STATUS_READY } },
+        // Commit scan output only for this paid run, then let ProjectService issue
+        // the revisioned ready-for-chat receipt. Cancellation/stale work loses.
+        const analyzed = await db.collection('projects').updateOne(
+          {
+            projectId,
+            userId,
+            editMode: 'assist',
+            autoEditStatus: 'queued',
+            assistCreditTransactionId: autoEditCreditTransactionId,
+            assistChargedCredits: autoEditChargedCredits,
+          },
+          {
+            $set: {
+              ...(ssb && { syntheticStoryboard: ssb }),
+              autoEditStatus: 'analysis_complete',
+              updatedAt: new Date(),
+            },
+          },
         );
+        if (analyzed.modifiedCount !== 1) {
+          throw new Error('Assist inline analysis lost its paid run or current status.');
+        }
+        const completion = await projectService.claimDirectorRunV1(userId, projectId);
+        if (completion.disposition !== 'ASSIST_PROJECT') {
+          throw new Error(`Assist completion was rejected: ${completion.disposition}`);
+        }
+        assistReadyCommitted = true;
       } else {
+        if (ssb) {
+          await db.collection('projects').updateOne(
+            { projectId, userId },
+            { $set: { syntheticStoryboard: ssb, autoEditStatus: 'editing' } },
+          );
+        }
         const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
         await executeDirectorPlan(projectId, userId, 'A-01');
         await db.collection('projects').updateOne(
@@ -423,10 +473,17 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: unknown) {
-    if (autoEditCreditCheck && !autoEditAnalysisStarted) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (assistRun && !assistReadyCommitted) {
+      try {
+        const db = assistSettlementDb ?? await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        await settleAssistScanFailure(db, { ...assistRun, reason: msg });
+      } catch (settlementError: unknown) {
+        console.error('[auto-edit/from-asset] Assist failure settlement could not be started:', settlementError);
+      }
+    } else if (autoEditCreditCheck && !autoEditAnalysisStarted) {
       await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis failed before analysis start');
     }
-    const msg = error instanceof Error ? error.message : String(error);
     console.error(`[auto-edit/from-asset] Failed: ${msg}`);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }

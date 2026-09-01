@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
   deduct: vi.fn(),
   createProject: vi.fn(),
   saveProject: vi.fn(),
+  claimDirectorRunV1: vi.fn(),
   updateOne: vi.fn(),
+  admitAssistScanCharge: vi.fn(),
+  settleAssistScanFailure: vi.fn(),
+  refund: vi.fn(),
   isR2Available: vi.fn(() => false),
   getR2PresignedReadUrl: vi.fn(),
   analyzeVideo: vi.fn(async () => null),
@@ -30,7 +34,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/editron/services/project-service', () => ({
-  projectService: { createProject: mocks.createProject, saveProject: mocks.saveProject },
+  projectService: {
+    createProject: mocks.createProject,
+    saveProject: mocks.saveProject,
+    claimDirectorRunV1: mocks.claimDirectorRunV1,
+  },
+}));
+vi.mock('@/lib/editron/services/assist-lane', async () => ({
+  ...(await vi.importActual('@/lib/editron/services/assist-lane')),
+  admitAssistScanCharge: mocks.admitAssistScanCharge,
+  settleAssistScanFailure: mocks.settleAssistScanFailure,
 }));
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
   assetResolver: { getAsset: mocks.getAsset, resolveAssetUrl: mocks.resolveAssetUrl },
@@ -58,6 +71,7 @@ const request = (body: Record<string, unknown>) => new Request('http://localhost
 }) as never;
 
 const oldEnv = { ...process.env };
+const oldFetch = globalThis.fetch;
 
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
@@ -68,15 +82,26 @@ beforeEach(() => {
   mocks.getAsset.mockResolvedValue({ assetId: 'a1', filename: 'clip.mp4', type: 'video', duration: 30 });
   mocks.resolveAssetUrl.mockResolvedValue('https://cdn.test/a1');
   mocks.isR2Available.mockReturnValue(false);
-  mocks.checkCredits.mockResolvedValue({ allowed: true, deduct: mocks.deduct, errorResponse: null });
+  mocks.checkCredits.mockResolvedValue({
+    allowed: true,
+    deduct: mocks.deduct,
+    refund: mocks.refund,
+    errorResponse: null,
+  });
   mocks.deduct.mockResolvedValue({ transactionId: 'tx_asset_1' });
   mocks.createProject.mockResolvedValue({ projectId: 'proj_asset_1' });
   mocks.saveProject.mockResolvedValue(undefined);
   mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+  mocks.admitAssistScanCharge.mockResolvedValue({ disposition: 'admitted' });
+  mocks.settleAssistScanFailure.mockResolvedValue('refunded');
+  mocks.claimDirectorRunV1.mockResolvedValue({ disposition: 'ASSIST_PROJECT' });
   mocks.getCreditCost.mockReturnValue(12);
 });
 
-afterEach(() => { process.env = oldEnv; });
+afterEach(() => {
+  process.env = oldEnv;
+  globalThis.fetch = oldFetch;
+});
 
 describe('from-asset assist intake handler', () => {
   it('403s an assist intake when the Director Mode flag is off (server-side enforcement)', async () => {
@@ -134,17 +159,61 @@ describe('from-asset assist intake handler', () => {
     const res = await POST(request({ assetId: 'a1', editMode: 'assist' }));
     expect(res.status).toBe(200);
 
-    // editMode + refund handle persisted (a cancel/failure can refund by transaction).
-    const editModeWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.editMode === 'assist');
-    expect(editModeWrite).toBeTruthy();
-    expect((editModeWrite?.[1] as { $set: Record<string, unknown> }).$set).toMatchObject({
-      assistCreditTransactionId: 'tx_asset_1', assistChargedCredits: 12,
+    expect(mocks.admitAssistScanCharge).toHaveBeenCalledWith(expect.anything(), {
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      creditTransactionId: 'tx_asset_1',
+      chargedCredits: 12,
     });
 
-    // Reached ready_for_chat, Director never ran.
-    const readyWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'ready_for_chat');
-    expect(readyWrite).toBeTruthy();
+    const analyzedWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'analysis_complete');
+    expect(analyzedWrite?.[0]).toMatchObject({
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      editMode: 'assist',
+      autoEditStatus: 'queued',
+      assistCreditTransactionId: 'tx_asset_1',
+      assistChargedCredits: 12,
+    });
+    expect(mocks.claimDirectorRunV1).toHaveBeenCalledWith('user_1', 'proj_asset_1');
     expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
+  });
+
+  it('settles the exact Assist deduction when inline analysis fails after starting', async () => {
+    process.env.DIRECTOR_MODE_ENABLED = 'true';
+    mocks.analyzeVideo.mockRejectedValueOnce(new Error('decoder failed'));
+
+    const res = await POST(request({ assetId: 'a1', editMode: 'assist' }));
+
+    expect(res.status).toBe(500);
+    expect(mocks.settleAssistScanFailure).toHaveBeenCalledWith(expect.anything(), {
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      creditTransactionId: 'tx_asset_1',
+      reason: 'decoder failed',
+    });
+    expect(mocks.refund).not.toHaveBeenCalled();
+    expect(mocks.claimDirectorRunV1).not.toHaveBeenCalled();
+  });
+
+  it('settles the exact Assist deduction when QStash rejects the publish', async () => {
+    process.env.DIRECTOR_MODE_ENABLED = 'true';
+    process.env.QSTASH_TOKEN = 'qstash-token';
+    process.env.QSTASH_CURRENT_SIGNING_KEY = 'current-key';
+    process.env.QSTASH_NEXT_SIGNING_KEY = 'next-key';
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('queue unavailable', { status: 503 }));
+
+    const res = await POST(request({ assetId: 'a1', editMode: 'assist' }));
+
+    expect(res.status).toBe(502);
+    expect(mocks.settleAssistScanFailure).toHaveBeenCalledWith(expect.anything(), {
+      projectId: 'proj_asset_1',
+      userId: 'user_1',
+      creditTransactionId: 'tx_asset_1',
+      reason: 'QStash dispatch failed: HTTP 503 — queue unavailable',
+    });
+    expect(mocks.refund).not.toHaveBeenCalled();
+    expect(mocks.analyzeVideo).not.toHaveBeenCalled();
   });
 
   it('AUTO is unchanged: no editMode → the Director runs, no ready_for_chat write', async () => {
@@ -152,7 +221,6 @@ describe('from-asset assist intake handler', () => {
     const res = await POST(request({ assetId: 'a1' }));
     expect(res.status).toBe(200);
     expect(mocks.executeDirectorPlan).toHaveBeenCalledOnce();
-    const readyWrite = mocks.updateOne.mock.calls.find(([, u]) => (u as { $set?: Record<string, unknown> })?.$set?.autoEditStatus === 'ready_for_chat');
-    expect(readyWrite).toBeFalsy();
+    expect(mocks.claimDirectorRunV1).not.toHaveBeenCalled();
   });
 });
