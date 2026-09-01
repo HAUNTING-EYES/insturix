@@ -91,7 +91,7 @@ interface VideoAnalysisPayload {
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[VideoAnalysisWorker] Started');
-  let trackedProjectId: string | undefined;
+  let trackedScan: Pick<VideoAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
   let directorDispatched = false;
 
   try {
@@ -103,7 +103,7 @@ async function handler(request: NextRequest) {
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
       editorialPreferences,
     } = payload;
-    trackedProjectId = projectId;
+    trackedScan = { projectId, userId, creditTransactionId: payload.creditTransactionId };
 
     let effectiveDurationSec = durationSec;
 
@@ -999,6 +999,8 @@ async function handler(request: NextRequest) {
       motionGraphics, pacingFeel,
       musicPreference: normalizedMusicPreference,
       editorialPreferences: normalizedEditorialPreferences,
+      creditTransactionId: payload.creditTransactionId,
+      chargedCredits: payload.chargedCredits,
     };
 
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
@@ -1374,17 +1376,22 @@ async function handler(request: NextRequest) {
 
     // Mark project as failed Ã¢â‚¬â€ but only if TRIBE/Director hasn't already been dispatched
     // (if dispatched, the downstream worker owns the final status)
-    if (trackedProjectId && !directorDispatched) {
+    if (trackedScan && !directorDispatched) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
         // Assist lane: atomic scan_failed + refund-where-deducted (handles QStash
         // redelivery + cancel races). Returns 'not-assist' for auto → fall through.
-        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: trackedScan.projectId,
+          userId: trackedScan.userId,
+          reason: msg,
+          creditTransactionId: trackedScan.creditTransactionId,
+        });
         if (settlement === 'not-assist') {
           await db.collection('projects').updateOne(
-            { projectId: trackedProjectId },
+            { projectId: trackedScan.projectId, userId: trackedScan.userId },
             { $set: { autoEditStatus: 'failed', autoEditError: msg } },
           );
         }

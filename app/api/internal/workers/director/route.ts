@@ -47,6 +47,9 @@ interface DirectorWorkerPayload {
   pacingFeel?: string;
   musicPreference?: string;
   editorialPreferences?: EditorialPreferences;
+  /** Exact assist-scan deduction identity propagated from intake. */
+  creditTransactionId?: string;
+  chargedCredits?: number;
   /** Required only for the ProjectService-issued pipeline-video handoff. */
   pipelineDirectorDispatchToken?: string;
 }
@@ -75,7 +78,7 @@ async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[DirectorWorker] Started');
   let trackedDirectorRun: { projectId: string; userId: string; runToken: string } | undefined;
-  let trackedAssistProject: { projectId: string; userId: string } | undefined;
+  let trackedAssistProject: { projectId: string; userId: string; creditTransactionId?: string } | undefined;
 
   try {
     const payload: DirectorWorkerPayload = await request.json();
@@ -117,7 +120,7 @@ async function handler(request: NextRequest) {
       ) {
         throw new Error(`ProjectService returned an uncommitted assist Director claim for ${projectId}.`);
       }
-      trackedAssistProject = { projectId, userId };
+      trackedAssistProject = { projectId, userId, creditTransactionId: payload.creditTransactionId };
       console.log(
         `[DirectorMode] Assist scan complete at project revision ${runClaim.receipt.revision.value}`
         + ` — director skipped (project ${projectId}).`,
@@ -310,7 +313,12 @@ async function handler(request: NextRequest) {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
-        await settleAssistScanFailure(db, trackedAssistProject.projectId, `Director: ${msg}`);
+        await settleAssistScanFailure(db, {
+          projectId: trackedAssistProject.projectId,
+          userId: trackedAssistProject.userId,
+          reason: `Director: ${msg}`,
+          creditTransactionId: trackedAssistProject.creditTransactionId,
+        });
       } catch (err: unknown) { console.warn('[DirectorWorker] Assist failure settlement failed:', err instanceof Error ? err.message : err); }
     }
 

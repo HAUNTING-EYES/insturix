@@ -45,7 +45,9 @@ describe('video-analysis worker zero-edit wiring', () => {
 
   it('settles assist scan failures through the shared money-safe helper', () => {
     expect(source).toContain("const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane')");
-    expect(source).toContain('const settlement = await settleAssistScanFailure(db, trackedProjectId, msg)');
+    expect(source).toContain('const settlement = await settleAssistScanFailure(db, {');
+    expect(source).toContain('creditTransactionId: trackedScan.creditTransactionId');
+    expect(tribeSource).toContain('creditTransactionId: trackedScan.creditTransactionId');
   });
 
   it('commits the inline Assist ready state through the ProjectService claim receipt', () => {

@@ -137,7 +137,12 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
 
   it('3. FAIL: a stage failure settles scan_failed + refunds exactly once (money moved once)', async () => {
     const { db, projects } = makeDb([{ projectId: 'p3', editMode: 'assist', autoEditStatus: 'analyzing_deep', assistCreditTransactionId: 'tx3', assistChargedCredits: 15, userId: 'user_1' }]);
-    const outcome = await settleAssistScanFailure(db as never, 'p3', 'gpu exploded');
+    const outcome = await settleAssistScanFailure(db as never, {
+      projectId: 'p3',
+      userId: 'user_1',
+      reason: 'gpu exploded',
+      creditTransactionId: 'tx3',
+    });
     expect(outcome).toBe('refunded');
     expect(projects[0].autoEditStatus).toBe('scan_failed');
     expect(refundForWallet).toHaveBeenCalledOnce();
@@ -147,8 +152,9 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
 
   it('4. REDELIVERY: QStash re-delivers the same failure — the second attempt refunds NOTHING', async () => {
     const { db } = makeDb([{ projectId: 'p4', editMode: 'assist', autoEditStatus: 'directing_queued', assistCreditTransactionId: 'tx4', assistChargedCredits: 15, userId: 'user_1' }]);
-    expect(await settleAssistScanFailure(db as never, 'p4', 'fail')).toBe('refunded');
-    expect(await settleAssistScanFailure(db as never, 'p4', 'fail-redelivered')).toBe('transition-lost');
+    const run = { projectId: 'p4', userId: 'user_1', creditTransactionId: 'tx4' };
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'fail' })).toBe('refunded');
+    expect(await settleAssistScanFailure(db as never, { ...run, reason: 'fail-redelivered' })).toBe('unverifiable-run');
     expect(refundForWallet).toHaveBeenCalledOnce(); // exactly one refund across both deliveries
   });
 

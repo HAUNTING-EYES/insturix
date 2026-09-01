@@ -60,55 +60,111 @@ export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boo
   return parseAssistFlag(env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED);
 }
 
+export interface AssistScanFailureSettlementInput {
+  projectId: string;
+  userId: string;
+  reason: string;
+  /** The exact durable deduction identity carried by this worker chain. */
+  creditTransactionId?: string;
+}
+
+export type AssistScanFailureSettlementDisposition =
+  | 'refunded'
+  | 'transition-lost'
+  | 'refund-pending'
+  | 'unverifiable-run'
+  | 'not-assist';
+
 /**
  * Settle a failed assist scan: atomic terminal transition + refund-where-deducted.
  * ONE implementation for all three workers (video-analysis, tribe-analysis,
  * director) — battle-lane finding: stage-2/3 failures previously kept the charge.
  *
  * Money rules enforced here:
- * - Refund fires ONLY when THIS call performs the scanning→scan_failed transition
- *   (QStash redelivery / cancel races refund exactly once).
+ * - A worker may fail/refund only the exact deduction identity it received at
+ *   intake. A stale or legacy message without that identity fails closed.
+ * - `assistRefundPending` is committed before the external wallet call, so a
+ *   crash between project terminalization and refund is recoverable.
  * - The transaction is consumed ($unset) ONLY on a confirmed successful refund —
  *   refundCredits reports failure by return value, not only by throwing.
- * - Every non-refunded outcome that should have refunded flags assistRefundPending.
+ * - A redelivery may resume the same pending refund; CreditsService makes the
+ *   external refund idempotent on the original transaction.
  *
  * `db` is passed in and CreditsService is imported lazily so this module stays
  * import-safe for env-less consumers.
  */
 export async function settleAssistScanFailure(
   db: { collection: (name: string) => any },
-  projectId: string,
-  reason: string,
-): Promise<'refunded' | 'transition-lost' | 'refund-pending' | 'not-assist'> {
-  const laneDoc = await db.collection('projects').findOne(
-    { projectId },
-    { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1, orgId: 1, visibility: 1 } },
-  );
-  if (!isAssistProject(laneDoc)) return 'not-assist';
+  input: AssistScanFailureSettlementInput,
+): Promise<AssistScanFailureSettlementDisposition> {
+  const projectId = input.projectId.trim();
+  const userId = input.userId.trim();
+  const reason = input.reason.trim();
+  const expectedTransactionId = input.creditTransactionId?.trim();
+  if (!projectId || !userId || !reason) return 'unverifiable-run';
 
-  const transition = await db.collection('projects').updateOne(
-    { projectId, autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] } },
-    { $set: { autoEditStatus: ASSIST_STATUS_SCAN_FAILED, autoEditError: reason } },
+  const laneDoc = await db.collection('projects').findOne(
+    { projectId, userId },
+    {
+      projection: {
+        editMode: 1,
+        autoEditStatus: 1,
+        assistCreditTransactionId: 1,
+        assistChargedCredits: 1,
+        assistRefundPending: 1,
+        assistRefundedAt: 1,
+        userId: 1,
+        orgId: 1,
+        visibility: 1,
+      },
+    },
   );
-  if (transition.modifiedCount !== 1) {
-    console.log(`[DirectorMode] Assist failure after a terminal status — settlement already owned elsewhere (project ${projectId}).`);
-    return 'transition-lost';
-  }
+  if (!laneDoc) return 'transition-lost';
+  if (!isAssistProject(laneDoc)) return 'not-assist';
 
   const txId = typeof laneDoc?.assistCreditTransactionId === 'string' ? laneDoc.assistCreditTransactionId : null;
   const charged = typeof laneDoc?.assistChargedCredits === 'number' ? laneDoc.assistChargedCredits : null;
-  const flagForSupport = async () => {
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { assistRefundPending: true } },
-    ).catch(() => {});
-  };
-
-  if (!txId || charged === null) {
-    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan failed but no persisted transaction/charge — refund did NOT run:', { projectId, txId, charged });
-    await flagForSupport();
+  if (!expectedTransactionId || txId !== expectedTransactionId) {
+    console.warn('[DirectorMode] Assist failure ignored because its deduction identity is absent or stale:', {
+      projectId,
+      hasExpectedTransactionId: Boolean(expectedTransactionId),
+    });
+    return 'unverifiable-run';
+  }
+  if (charged === null || !Number.isFinite(charged) || charged < 0) {
+    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan has an invalid persisted charge:', {
+      projectId,
+      charged,
+    });
     return 'refund-pending';
   }
+
+  const alreadyPending = laneDoc.autoEditStatus === ASSIST_STATUS_SCAN_FAILED
+    && laneDoc.assistRefundPending === true;
+  if (!alreadyPending) {
+    const transition = await db.collection('projects').updateOne(
+      {
+        projectId,
+        userId,
+        editMode: 'assist',
+        assistCreditTransactionId: txId,
+        assistChargedCredits: charged,
+        autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] },
+      },
+      {
+        $set: {
+          autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+          autoEditError: reason,
+          assistRefundPending: true,
+        },
+      },
+    );
+    if (transition.modifiedCount !== 1) {
+      console.log(`[DirectorMode] Assist failure lost its exact terminal transition (project ${projectId}).`);
+      return 'transition-lost';
+    }
+  }
+
   try {
     const { CreditsService } = await import('@/lib/services/creditsService');
     const { resolveBillingOwner } = await import('./project-ownership');
@@ -117,7 +173,7 @@ export async function settleAssistScanFailure(
     // persisted ownership, so an org-billed Director Mode scan refunds the org — never the actor's
     // personal wallet. Flag off / personal project => the member's wallet, exactly as before.
     const wallet = resolveBillingOwner(
-      String(laneDoc?.userId ?? ''),
+      userId,
       { projectId, orgId: laneDoc?.orgId, visibility: laneDoc?.visibility },
       isOrgWalletBillingEnabled(),
     );
@@ -129,19 +185,36 @@ export async function settleAssistScanFailure(
     );
     if (result && result.success === false) {
       console.error('[DirectorMode][REFUND-FAILED][MONEY] refundCredits returned failure — flagging for support:', { projectId, error: (result as { error?: unknown }).error });
-      await flagForSupport();
       return 'refund-pending';
     }
     // Consume the transaction ONLY after a confirmed refund.
-    await db.collection('projects').updateOne(
-      { projectId },
-      { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-    ).catch(() => {});
+    const finalized = await db.collection('projects').updateOne(
+      {
+        projectId,
+        userId,
+        editMode: 'assist',
+        autoEditStatus: ASSIST_STATUS_SCAN_FAILED,
+        assistRefundPending: true,
+        assistCreditTransactionId: txId,
+        assistChargedCredits: charged,
+      },
+      {
+        $set: { assistRefundedAt: new Date() },
+        $unset: {
+          assistCreditTransactionId: '',
+          assistChargedCredits: '',
+          assistRefundPending: '',
+        },
+      },
+    );
+    if (finalized.modifiedCount !== 1) {
+      console.error('[DirectorMode][REFUND-RECORD-STALE][MONEY] wallet refund succeeded but exact project finalization was lost:', { projectId });
+      return 'refund-pending';
+    }
     console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${projectId}).`);
     return 'refunded';
   } catch (refundErr: unknown) {
     console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging for support:', refundErr instanceof Error ? refundErr.message : refundErr);
-    await flagForSupport();
     return 'refund-pending';
   }
 }

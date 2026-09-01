@@ -52,14 +52,14 @@ interface TribeAnalysisPayload {
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[TribeWorker] Started');
-  let trackedProjectId: string | undefined;
+  let trackedScan: Pick<TribeAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
   let directorDispatched = false;
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
     const { projectId, userId, assetId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
     const sourceAssetId = typeof assetId === 'string' && assetId.trim().length > 0 ? assetId.trim() : null;
-    trackedProjectId = projectId;
+    trackedScan = { projectId, userId, creditTransactionId: payload.creditTransactionId };
 
     if (!projectId || !userId || !videoUrl) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
@@ -629,17 +629,22 @@ async function handler(request: NextRequest) {
 
     // Mark project as failed — but only if Director hasn't already been dispatched
     // (if dispatched, the Director worker owns the final status)
-    if (trackedProjectId && !directorDispatched) {
+    if (trackedScan && !directorDispatched) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
         const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
         // Assist lane: a TRIBE-stage failure must refund (from-asset deducted at
         // intake) and surface scan_failed — not silently keep the charge as 'failed'.
-        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        const settlement = await settleAssistScanFailure(db, {
+          projectId: trackedScan.projectId,
+          userId: trackedScan.userId,
+          reason: msg,
+          creditTransactionId: trackedScan.creditTransactionId,
+        });
         if (settlement === 'not-assist') {
           await db.collection('projects').updateOne(
-            { projectId: trackedProjectId },
+            { projectId: trackedScan.projectId, userId: trackedScan.userId },
             { $set: { autoEditStatus: 'failed', autoEditError: msg } },
           );
         }
