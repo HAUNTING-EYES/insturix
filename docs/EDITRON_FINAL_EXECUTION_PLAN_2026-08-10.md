@@ -16243,3 +16243,73 @@ inventory serially; (2) return to unfinished Queues 3 and 4, which alone may be
 worked in parallel under the founder's current authorization; (3) implement
 Queue 6 serially; and (4) certify the agency verticals serially unless the
 founder explicitly authorizes further parallel execution.
+
+## 2026-09-02 vertical-convergence Phase 4K checkpoint
+
+Commits `98d59396c`, `c53eae0de`, `8ff1432d0`, `74453fc57`, `fe8b47837`,
+`bb36b7d2a` and `45dec2561` close the bounded single-asset intake,
+storyboard-finalization and Alyzitron project-publication writers left open by
+Phase 4J. All listed commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+The single-asset analysis route no longer treats raw QStash acceptance as the
+project lifecycle receipt. ProjectService issues the exact intake-dispatch
+identity, records provider publication or explicit inline readiness under the
+run/source/revision predicate, and the worker rejects a supplied dispatch that
+does not match the project-owned run. Provider acceptance followed by a lost
+local receipt is reported as reconciliation pending; it is not refunded or
+relabelled as provider failure.
+
+Storyboard finalization no longer performs two direct project updates around an
+unfenced editor save. Timeline state, project name/stage, storyboard identity,
+music policy/coverage and edit-direction failure state now commit through one
+expected-revision `saveProjectWithReceipt` call. The storyboard document link
+remains a separate storyboard-owned projection. The preceding Step-0 cleanup
+removed debug-only logging without changing BGM or music-off behavior.
+
+Alyzitron admission now binds a linked analysis before charging to the
+authenticated owner, exact project revision, task predecessor, whole-source
+range, source hash, media kind, storage backend and verified source-access
+basis. Completion may publish the bounded score/findings only to that revision
+through ProjectService. A changed project or substituted source is blocked;
+legacy tasks without a binding and infrastructure failures are recorded as
+`UNVERIFIABLE`, not pass/fail. Provider completion and project projection have
+separate durable states. A completed QStash retry performs provider-free
+reconciliation, and deterministic task/source/revision identity recognizes a
+project record already committed before an interrupted task-receipt write.
+
+Focused proof passed 31/31 single-asset dispatch/worker tests, 16/16 storyboard
+ownership plus BGM/music-off canaries, and 29/29 Alyzitron owner, media-source,
+brand/intent and provider-cost tests. Targeted quiet ESLint, `git diff --check`
+and the 8-GB TypeScript check passed for the corresponding phases. No live
+provider call, paid cohort rerun, model inference, render, wallet mutation or
+external spend occurred. Full-repository quiet ESLint remains required at the
+next aggregate closure gate and is not claimed by this checkpoint.
+
+This is not universal Queue 5 convergence. A fresh exact source inventory now
+finds two remaining raw project writers outside ProjectService:
+
+1. stale non-Assist auto-edit recovery;
+2. the explicit one-time audio migration route.
+
+The recovery writer must terminalize only an exact current run/Director owner;
+legacy states without a durable owner must remain unmodified and be reported as
+unverifiable. The migration route must be explicitly authorized, owner-scoped,
+revision-fenced and idempotent; it may not remain an unauthenticated raw update.
+The broader inventory also finds legacy unfenced metadata-helper callers in
+UploaderX project linkage/status refresh, Clickatron commit, Editron quality
+review and pipeline-video status refresh. Different Mongo/Mongoose spellings,
+re-exports, tests and mocks still require the final broad classification before
+Queue 5 can close.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor receipt or
+`GO` is claimed.
+
+The binding order remains: (1) close recovery, migration, legacy metadata
+callers and the broad Queue 5 inventory serially; (2) return to unfinished
+Queues 3 and 4, which alone may be worked in parallel under the founder's
+current authorization; (3) implement Queue 6 serially; and (4) certify the
+agency verticals serially unless the founder explicitly authorizes further
+parallel execution.
