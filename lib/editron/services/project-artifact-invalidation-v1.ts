@@ -19,7 +19,7 @@ const ARTIFACT_ID = /^[A-Za-z0-9_.:-]{1,500}$/;
 const PROJECT_ID_MAX_LENGTH = 200;
 const OWNER_ID_MAX_LENGTH = 200;
 
-const ProjectArtifactInvalidationDerivativeClassSchema = z.enum([
+export const ProjectArtifactInvalidationDerivativeClassSchema = z.enum([
   "RENDERED_PREVIEW",
   "DELIVERY_PROOF",
 ]);
@@ -27,16 +27,16 @@ export type ProjectArtifactInvalidationDerivativeClassV1 = z.infer<
   typeof ProjectArtifactInvalidationDerivativeClassSchema
 >;
 
-const ProjectArtifactProjectRevisionSchema = z.object({
+export const ProjectArtifactProjectRevisionSchema = z.object({
   schemaVersion: z.literal(1),
   value: z.number().int().nonnegative(),
   compatibilityUpdatedAt: z.string().datetime(),
 }).strict();
-type ProjectArtifactProjectRevisionV1 = z.infer<
+export type ProjectArtifactProjectRevisionV1 = z.infer<
   typeof ProjectArtifactProjectRevisionSchema
 >;
 
-const ProjectArtifactTargetSchema = z.object({
+export const ProjectArtifactTargetSchema = z.object({
   overlayId: z.number().int().nonnegative(),
   expectedAssetId: z.string().min(1).max(500),
   exactFrameRange: z.object({
@@ -409,8 +409,8 @@ function assertProjectArtifactInvalidationFenceV1(
   if (
     binding.ownerId !== receipt.ownerId
     || binding.projectId !== receipt.projectId
-    || !sameRevisionV1(binding.projectRevision, receipt.beforeRevision)
-    || !sameTargetV1(binding.target, receipt.target)
+    || !sameProjectArtifactRevisionV1(binding.projectRevision, receipt.beforeRevision)
+    || !sameProjectArtifactTargetV1(binding.target, receipt.target)
     || !receipt.affectedDerivativeClasses.includes(binding.artifactKind)
   ) {
     throw new Error("PROJECT_ARTIFACT_INVALIDATION_FENCE_SCOPE_MISMATCH");
@@ -506,8 +506,8 @@ export function projectArtifactBindingMatchesInvalidationV1(
   }
   return binding.ownerId === receipt.ownerId
     && binding.projectId === receipt.projectId
-    && sameRevisionV1(binding.projectRevision, receipt.beforeRevision)
-    && sameTargetV1(binding.target, receipt.target)
+    && sameProjectArtifactRevisionV1(binding.projectRevision, receipt.beforeRevision)
+    && sameProjectArtifactTargetV1(binding.target, receipt.target)
     && receipt.affectedDerivativeClasses.includes(binding.artifactKind);
 }
 
@@ -534,8 +534,8 @@ export function projectArtifactBindingMatchesCurrentV1(
     && binding.artifactId === expected.artifactId
     && binding.ownerId === expected.ownerId
     && binding.projectId === expected.projectId
-    && sameRevisionV1(binding.projectRevision, expected.projectRevision)
-    && sameTargetV1(binding.target, expected.target);
+    && sameProjectArtifactRevisionV1(binding.projectRevision, expected.projectRevision)
+    && sameProjectArtifactTargetV1(binding.target, expected.target);
 }
 
 /**
@@ -601,7 +601,7 @@ export async function replaceProjectArtifactInvalidationOutboxV1(input: {
   return "CAS_LOST";
 }
 
-function sameRevisionV1(
+export function sameProjectArtifactRevisionV1(
   left: ProjectArtifactProjectRevisionV1,
   right: ProjectArtifactProjectRevisionV1,
 ): boolean {
@@ -610,7 +610,7 @@ function sameRevisionV1(
     && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
 }
 
-function sameTargetV1(
+export function sameProjectArtifactTargetV1(
   left: ProjectArtifactTargetV1,
   right: ProjectArtifactTargetV1,
 ): boolean {

@@ -14,6 +14,11 @@ import {
   assertProjectArtifactBindingV1,
   type ProjectArtifactBindingV1,
 } from '@/lib/editron/services/project-artifact-invalidation-v1';
+import {
+  ProjectRenderSnapshotBindingSchema,
+  assertProjectRenderSnapshotBindingV1,
+  type ProjectRenderSnapshotBindingV1,
+} from '@/lib/editron/services/project-render-snapshot-binding-v1';
 
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
@@ -103,6 +108,8 @@ export const RenderJobSchema = z.object({
   deliveryManifest: RenderDeliveryManifestSchema.optional(),
   /** New jobs may opt into the exact current-artifact contract. */
   artifactBinding: ProjectArtifactBindingSchema.optional(),
+  /** Whole-project render jobs may opt into the immutable project snapshot contract. */
+  projectRenderSnapshotBinding: ProjectRenderSnapshotBindingSchema.optional(),
   artifactState: ProjectArtifactStateSchema.optional(),
   artifactCleanup: ProjectArtifactCleanupSchema.optional(),
   artifactInvalidation: ProjectArtifactInvalidationLinkSchema.optional(),
@@ -115,6 +122,15 @@ export const RenderJobSchema = z.object({
   region: z.string().default('us-east-1'),
   // TTL index field - MongoDB will auto-delete after this date
   expiresAt: z.date(),
+}).superRefine((job, context) => {
+  if (job.artifactBinding !== undefined && job.projectRenderSnapshotBinding !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['projectRenderSnapshotBinding'],
+      message: 'A render job cannot carry both artifact binding scopes.',
+      params: { code: 'RENDER_JOB_BINDING_SCOPES_AMBIGUOUS' },
+    });
+  }
 });
 
 export type RenderJob = z.infer<typeof RenderJobSchema>;
@@ -129,6 +145,7 @@ export function createPendingRenderJob(
   region: string,
   expectedDurationMs: number,
   artifactBinding?: ProjectArtifactBindingV1,
+  projectRenderSnapshotBinding?: ProjectRenderSnapshotBindingV1,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
@@ -139,6 +156,15 @@ export function createPendingRenderJob(
         assertProjectArtifactBindingV1(artifactBinding);
         return structuredClone(artifactBinding);
       })();
+  const validatedProjectRenderSnapshotBinding = projectRenderSnapshotBinding === undefined
+    ? undefined
+    : (() => {
+        assertProjectRenderSnapshotBindingV1(projectRenderSnapshotBinding);
+        return structuredClone(projectRenderSnapshotBinding);
+      })();
+  if (validatedArtifactBinding !== undefined && validatedProjectRenderSnapshotBinding !== undefined) {
+    throw new Error('RENDER_JOB_BINDING_SCOPES_AMBIGUOUS');
+  }
 
   return {
     _id: jobId,
@@ -155,6 +181,11 @@ export function createPendingRenderJob(
           artifactBinding: structuredClone(validatedArtifactBinding),
           artifactState: 'ACTIVE' as const,
         }
-      : {}),
+      : validatedProjectRenderSnapshotBinding
+        ? {
+            projectRenderSnapshotBinding: structuredClone(validatedProjectRenderSnapshotBinding),
+            artifactState: 'ACTIVE' as const,
+          }
+        : {}),
   };
 }
