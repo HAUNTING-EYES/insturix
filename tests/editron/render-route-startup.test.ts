@@ -1718,7 +1718,9 @@ describe('Editron render startup boundary', () => {
       startedAt: new Date('2026-07-28T00:00:00.000Z'),
     }]);
 
-    const response = await GET_ACTIVE_RENDERS();
+    const response = await GET_ACTIVE_RENDERS(new Request(
+      'http://localhost/api/services/editron/render/active',
+    ));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
