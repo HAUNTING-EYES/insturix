@@ -126,4 +126,21 @@ describe('video-analysis worker zero-edit wiring', () => {
     expect(source).toContain('if (trackedScan && !directorDispatched && !ownershipLost)');
     expect(source).toContain('{ status: ownershipLost ? 409 : 500 }');
   });
+
+  it('binds TRIBE claim, Phase-2 evidence and Director publication to the admitted run', () => {
+    expect(tribeSource).toContain('analysisRunId: string');
+    expect(tribeSource).toContain('claimProjectAnalysisDeepRunV1');
+    expect(tribeSource).toContain('commitProjectAnalysisPhase2V1');
+    expect(tribeSource).toContain('recordProjectAnalysisDirectorDispatchPublishedV1');
+    expect(tribeSource).toContain("'Upstash-Deduplication-Id': input.dispatch.deduplicationId");
+    expect(tribeSource).toContain('if (trackedScan && !directorDispatched && !ownershipLost)');
+    expect(tribeSource).not.toContain('tribeLockAt');
+    for (const rawStatus of [
+      "autoEditStatus: 'analyzing_deep'",
+      "autoEditStatus: 'analysis_complete'",
+      "autoEditStatus: 'directing_queued'",
+    ]) {
+      expect(tribeSource).not.toContain(rawStatus);
+    }
+  });
 });

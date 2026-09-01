@@ -26,12 +26,13 @@ import {
   withInternalQStashWorkerAuth,
 } from '@/lib/editron/security/internal-worker-auth';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
-import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
+import { encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { ProjectAnalysisDirectorDispatchV1 } from '@/lib/editron/services/project-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
@@ -40,7 +41,8 @@ interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
   orgId?: string;
-  assetId?: string;
+  assetId: string;
+  analysisRunId: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
@@ -49,20 +51,50 @@ interface TribeAnalysisPayload {
   chargedCredits?: number;
 }
 
+class TribeAnalysisOwnershipLostError extends Error {
+  readonly code = 'TRIBE_ANALYSIS_OWNERSHIP_LOST';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'TribeAnalysisOwnershipLostError';
+  }
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
-  let trackedScan: Pick<TribeAnalysisPayload, 'projectId' | 'userId' | 'creditTransactionId'> | undefined;
+  let trackedScan: Pick<
+    TribeAnalysisPayload,
+    'projectId' | 'userId' | 'assetId' | 'analysisRunId' | 'creditTransactionId'
+  > | undefined;
   let directorDispatched = false;
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
-    const { projectId, userId, assetId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
-    const sourceAssetId = typeof assetId === 'string' && assetId.trim().length > 0 ? assetId.trim() : null;
-    trackedScan = { projectId, userId, creditTransactionId: payload.creditTransactionId };
+    const {
+      projectId, userId, assetId, analysisRunId, videoUrl,
+      segmentInputs, visualSegmentInputs, directorPayload,
+    } = payload;
+    const sourceAssetId = typeof assetId === 'string' ? assetId.trim() : '';
 
-    if (!projectId || !userId || !videoUrl) {
+    if (
+      !projectId
+      || !userId
+      || !sourceAssetId
+      || !analysisRunId
+      || !videoUrl
+      || directorPayload.projectId !== projectId
+      || directorPayload.userId !== userId
+      || directorPayload.analysisRunId !== analysisRunId
+    ) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
+    trackedScan = {
+      projectId,
+      userId,
+      assetId: sourceAssetId,
+      analysisRunId,
+      creditTransactionId: payload.creditTransactionId,
+    };
 
     if (!isInternalWorkerInlineFallbackAllowed() && !isInternalQStashDispatchConfigured()) {
       console.error('[TribeWorker] Dependent worker dispatch is not configured outside development.');
@@ -80,35 +112,54 @@ async function handler(request: NextRequest) {
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
-
-    // ─── Idempotency guard ─────────────────────────────────────────
-    // QStash can redeliver this message (the worker runs ~8min, longer than QStash's effective
-    // response wait even with Upstash-Timeout), spawning a SECOND concurrent tribe worker that
-    // fights this one over the Modal GPU → V-JEPA/Wav2Vec abort (confirmed on real runs). Atomically
-    // CLAIM the project so a duplicate delivery bails instead of double-running. Stale claims (>15min,
-    // a crashed worker) are reclaimable; 15min > this route's maxDuration (800s) so a still-running
-    // worker keeps the lock.
-    const TRIBE_LOCK_STALE_MS = 15 * 60 * 1000;
-    const claim = await db.collection('projects').updateOne(
-      {
-        projectId,
-        $or: [
-          { tribeLockAt: { $exists: false } },
-          { tribeLockAt: null },
-          { tribeLockAt: { $lt: new Date(Date.now() - TRIBE_LOCK_STALE_MS) } },
-        ],
-      },
-      { $set: { tribeLockAt: new Date() } },
-    );
-    if (claim.matchedCount === 0) {
+    const { projectService } = await import('@/lib/editron/services/project-service');
+    const claimSnapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const claim = await projectService.claimProjectAnalysisDeepRunV1(userId, projectId, {
+      expectedRevision: claimSnapshot.revision,
+      runId: analysisRunId,
+      sourceAssetId,
+    });
+    if (claim.disposition === 'DUPLICATE_ACTIVE') {
       return NextResponse.json({ success: true, skipped: 'duplicate-delivery', stage: 'tribe-analysis' });
     }
+    if (claim.disposition === 'DIRECTOR_DISPATCH_PUBLISHED') {
+      return NextResponse.json({ success: true, skipped: 'director-already-dispatched', stage: 'tribe-analysis' });
+    }
+    if (claim.disposition === 'DIRECTOR_DISPATCH_PENDING') {
+      if (!isInternalQStashDispatchConfigured()) {
+        throw new TribeAnalysisOwnershipLostError(
+          'A prepared Director dispatch cannot resume without the configured production queue.',
+        );
+      }
+      await publishPreparedDirectorDispatch({
+        payload,
+        sourceAssetId,
+        directorPayload,
+        dispatch: claim.run.directorDispatch!,
+        onProviderAccepted: () => { directorDispatched = true; },
+      });
+      return NextResponse.json({ success: true, totalMs: Date.now() - startMs, stage: 'tribe-analysis' });
+    }
+    if (claim.disposition !== 'CLAIMED') {
+      throw new TribeAnalysisOwnershipLostError(
+        `TRIBE deep-analysis claim lost current run ownership (${claim.disposition}).`,
+      );
+    }
+    const deepAnalysisLeaseId = claim.lease.leaseId;
 
     const precomputedProjectDoc = await db.collection('projects').findOne(
-      { projectId },
+      {
+        projectId,
+        userId,
+        'autoEditAnalysisRunV1.runId': analysisRunId,
+        'autoEditAnalysisRunV1.deepAnalysisLease.leaseId': deepAnalysisLeaseId,
+      },
       { projection: { vjepaAnalysis: 1 } },
     );
-    const precomputedVjepaAnalysis = precomputedProjectDoc?.vjepaAnalysis;
+    if (!precomputedProjectDoc) {
+      throw new TribeAnalysisOwnershipLostError('TRIBE lease disappeared before GPU analysis began.');
+    }
+    const precomputedVjepaAnalysis = precomputedProjectDoc.vjepaAnalysis;
 
     // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
     // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
@@ -118,14 +169,10 @@ async function handler(request: NextRequest) {
       ? precomputedVjepaAnalysis
       : null;
     let wav2vecAnalysis: any = null;
+    let musicAnalysis: any = null;
 
     if (segmentInputs?.length > 0) {
       try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'analyzing_deep' } },
-        );
-
         const vjepaSegmentInputs = Array.isArray(visualSegmentInputs) && visualSegmentInputs.length > 0
           ? visualSegmentInputs
           : segmentInputs;
@@ -265,7 +312,6 @@ async function handler(request: NextRequest) {
             });
 
         // Handle Music Analysis result
-        let musicAnalysis: any = null;
         if (musicResult.status === 'fulfilled' && musicResult.value) {
           musicAnalysis = musicResult.value;
         } else {
@@ -303,31 +349,6 @@ async function handler(request: NextRequest) {
                 errorClass: settledErrorClass(musicResult),
               },
             });
-
-        // Store music analysis on project for Director to read
-        if (musicAnalysis) {
-          try {
-            const musicUpdatedAt = new Date();
-            await db.collection('projects').updateOne(
-              { projectId },
-              {
-                $set: {
-                  musicAnalysis,
-                  ...(sourceAssetId ? buildProjectAnalysisAssetSet(sourceAssetId, { musicAnalysis }, musicUpdatedAt) : {}),
-                },
-              },
-            );
-
-            if (sourceAssetId) {
-              try {
-                await persistProjectAssetAnalysis(db, projectId, sourceAssetId, { musicAnalysis }, musicUpdatedAt);
-              } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.warn(`[TribeWorker] Music per-asset analysis document write failed (non-fatal): ${msg}`);
-              }
-            }
-          } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[TribeWorker] TRIBE Phase 2 analysis failed (non-fatal): ${msg}`);
@@ -340,12 +361,19 @@ async function handler(request: NextRequest) {
     // Otherwise falls back to Phase 0 flat weights.
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
-      { projectId },
+      {
+        projectId,
+        userId,
+        'autoEditAnalysisRunV1.runId': analysisRunId,
+        'autoEditAnalysisRunV1.deepAnalysisLease.leaseId': deepAnalysisLeaseId,
+      },
       { projection: { rawFootageAnalysis: 1, rawFootageAnalysisByAsset: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
-    const keyedRawFootageAnalysis = sourceAssetId
-      ? projectDoc?.rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)]
-      : null;
+    if (!projectDoc) {
+      throw new TribeAnalysisOwnershipLostError('TRIBE lease disappeared before Phase-2 evidence was built.');
+    }
+    const keyedRawFootageAnalysis = projectDoc
+      .rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)];
     const rawFootageAnalysis = keyedRawFootageAnalysis ?? projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;
 
@@ -396,88 +424,55 @@ async function handler(request: NextRequest) {
     }
 
     // ─── Step 4b: Store Phase 2 results on project doc ────────────
-    const phase2UpdatedAt = new Date();
-    const phase2PerAssetSet = sourceAssetId
-      ? buildProjectAnalysisAssetSet(sourceAssetId, {
-        vjepaAnalysis,
-        wav2vecAnalysis,
-        momentWeightMap,
-        segmentAnalysis,
-      }, phase2UpdatedAt)
-      : {};
-    if (!sourceAssetId) {
-      console.warn(`[TribeWorker] Missing assetId for per-asset analysis storage on ${projectId}; writing compatibility project fields only.`);
-    }
-
-    await db.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: {
-          autoEditStatus: 'analysis_complete',
-          ...(vjepaAnalysis && { vjepaAnalysis }),
-          ...(wav2vecAnalysis && { wav2vecAnalysis }),
-          ...(momentWeightMap && { momentWeightMap }),
-          ...(segmentAnalysis && { segmentAnalysis }),
-          ...phase2PerAssetSet,
-          updatedAt: phase2UpdatedAt,
-        },
+    const phase2Snapshot = await projectService.loadProjectForMutation(userId, projectId);
+    const phase2Commit = await projectService.commitProjectAnalysisPhase2V1(userId, projectId, {
+      expectedRevision: phase2Snapshot.revision,
+      runId: analysisRunId,
+      sourceAssetId,
+      leaseId: deepAnalysisLeaseId,
+      evidence: {
+        ...(vjepaAnalysis ? { vjepaAnalysis } : {}),
+        ...(wav2vecAnalysis ? { wav2vecAnalysis } : {}),
+        ...(musicAnalysis ? { musicAnalysis } : {}),
+        ...(momentWeightMap ? { momentWeightMap } : {}),
+        ...(segmentAnalysis ? { segmentAnalysis } : {}),
       },
+    });
+    if (phase2Commit.disposition !== 'ADVANCED' && phase2Commit.disposition !== 'ALREADY_ADVANCED') {
+      throw new TribeAnalysisOwnershipLostError(
+        `TRIBE Phase-2 commit lost current run ownership (${phase2Commit.disposition}).`,
+      );
+    }
+    const preparedDispatch = phase2Commit.run.directorDispatch;
+    if (!preparedDispatch) {
+      throw new Error('TRIBE Phase-2 commit did not prepare its Director dispatch.');
+    }
+    const phase2UpdatedAt = new Date(
+      phase2Commit.run.phase2EvidenceCommittedAt ?? phase2Commit.run.updatedAt,
     );
 
-    if (sourceAssetId) {
-      try {
-        await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
-          vjepaAnalysis,
-          wav2vecAnalysis,
-          momentWeightMap,
-          segmentAnalysis,
-        }, phase2UpdatedAt);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
-      }
+    try {
+      await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
+        vjepaAnalysis,
+        wav2vecAnalysis,
+        musicAnalysis,
+        momentWeightMap,
+        segmentAnalysis,
+      }, phase2UpdatedAt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
     }
 
     // ─── Step 5: Dispatch Director to separate worker ─────────────
     if (isInternalQStashDispatchConfigured()) {
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'directing_queued' } },
-      );
-
-      const qstashBaseUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-      const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
-
-      const dispatchRes = await fetch(qstashUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-          'Content-Type': 'application/json',
-          'Upstash-Retries': '0',
-          'Upstash-Delay': '3s',
-        },
-        body: JSON.stringify(directorPayload),
+      await publishPreparedDirectorDispatch({
+        payload,
+        sourceAssetId,
+        directorPayload,
+        dispatch: preparedDispatch,
+        onProviderAccepted: () => { directorDispatched = true; },
       });
-
-      const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
-      await recordTribeCostEvent(payload, {
-        stage: 'director_qstash',
-        status: directorDispatchStatus,
-        provider: 'upstash-qstash',
-        operation: 'queue_message',
-        units: { queueMessages: 1, requestCount: 1 },
-        metadata: { httpStatus: dispatchRes.status },
-      });
-
-      if (!dispatchRes.ok) {
-        const errBody = await dispatchRes.text().catch(() => 'no body');
-        throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
-      }
-
-      directorDispatched = true;
       const totalMs = Date.now() - startMs;
       return NextResponse.json({ success: true, totalMs, stage: 'tribe-analysis' });
     }
@@ -585,11 +580,12 @@ async function handler(request: NextRequest) {
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
+    const ownershipLost = error instanceof TribeAnalysisOwnershipLostError;
     console.error(`[TribeWorker] Failed: ${msg}`);
 
     // Mark project as failed — but only if Director hasn't already been dispatched
     // (if dispatched, the Director worker owns the final status)
-    if (trackedScan && !directorDispatched) {
+    if (trackedScan && !directorDispatched && !ownershipLost) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -603,15 +599,93 @@ async function handler(request: NextRequest) {
           creditTransactionId: trackedScan.creditTransactionId,
         });
         if (settlement === 'not-assist') {
-          await db.collection('projects').updateOne(
-            { projectId: trackedScan.projectId, userId: trackedScan.userId },
-            { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          const { projectService } = await import('@/lib/editron/services/project-service');
+          const snapshot = await projectService.loadProjectForMutation(
+            trackedScan.userId,
+            trackedScan.projectId,
           );
+          const failed = await projectService.failProjectAnalysisRunV1(
+            trackedScan.userId,
+            trackedScan.projectId,
+            {
+              expectedRevision: snapshot.revision,
+              runId: trackedScan.analysisRunId,
+              sourceAssetId: trackedScan.assetId,
+              errorMessage: msg,
+            },
+          );
+          if (failed.disposition !== 'RECORDED' && failed.disposition !== 'ALREADY_RECORDED') {
+            throw new Error(`TRIBE failure lost current run ownership (${failed.disposition}).`);
+          }
         }
       } catch (e) { console.warn(`[TribeWorker] Status update failed:`, e instanceof Error ? e.message : e); }
     }
 
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: msg },
+      { status: ownershipLost ? 409 : 500 },
+    );
+  }
+}
+
+async function publishPreparedDirectorDispatch(input: {
+  payload: TribeAnalysisPayload;
+  sourceAssetId: string;
+  directorPayload: Record<string, unknown>;
+  dispatch: ProjectAnalysisDirectorDispatchV1;
+  onProviderAccepted(): void;
+}): Promise<void> {
+  const qstashBaseUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+  const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
+  const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
+  const dispatchRes = await fetch(qstashUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
+      'Content-Type': 'application/json',
+      'Upstash-Retries': '0',
+      'Upstash-Delay': '3s',
+      'Upstash-Deduplication-Id': input.dispatch.deduplicationId,
+    },
+    body: JSON.stringify(input.directorPayload),
+  });
+  if (dispatchRes.ok) input.onProviderAccepted();
+  await recordTribeCostEvent(input.payload, {
+    stage: 'director_qstash',
+    status: dispatchRes.ok ? 'success' : 'failed',
+    provider: 'upstash-qstash',
+    operation: 'queue_message',
+    units: { queueMessages: 1, requestCount: 1 },
+    metadata: { httpStatus: dispatchRes.status, deduplicationId: input.dispatch.deduplicationId },
+  });
+  if (!dispatchRes.ok) {
+    const errBody = await dispatchRes.text().catch(() => 'no body');
+    throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+  }
+  const dispatchData = await dispatchRes.json() as { messageId?: unknown };
+  if (typeof dispatchData.messageId !== 'string' || dispatchData.messageId.length === 0) {
+    throw new Error('Director QStash dispatch succeeded without a provider message receipt.');
+  }
+
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  const snapshot = await projectService.loadProjectForMutation(input.payload.userId, input.payload.projectId);
+  const recorded = await projectService.recordProjectAnalysisDirectorDispatchPublishedV1(
+    input.payload.userId,
+    input.payload.projectId,
+    {
+      expectedRevision: snapshot.revision,
+      runId: input.payload.analysisRunId,
+      sourceAssetId: input.sourceAssetId,
+      deduplicationId: input.dispatch.deduplicationId,
+      providerMessageId: dispatchData.messageId,
+    },
+  );
+  if (recorded.disposition !== 'ADVANCED' && recorded.disposition !== 'ALREADY_ADVANCED') {
+    throw new TribeAnalysisOwnershipLostError(
+      `Director publication receipt lost current run ownership (${recorded.disposition}).`,
+    );
   }
 }
 
@@ -634,7 +708,7 @@ async function recordTribeCostEvent(
     : undefined);
 
   await recordProviderCostEvent({
-    idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${event.stage}:${event.status}`,
+    idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${payload.analysisRunId}:${event.stage}:${event.status}`,
     status: event.status,
     userId: payload.userId,
     orgId,
