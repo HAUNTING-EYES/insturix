@@ -1469,6 +1469,55 @@ export interface ProjectDirectorDeliveryFailureResultV1 {
   receipt?: ProjectMutationReceiptV1;
 }
 
+export type ProjectBatchAutoEditLifecycleEventV1 =
+  | {
+      kind: "COVERAGE_RESUME_STARTED";
+      sourceAssetIds: readonly string[];
+      previousScriptCoverage: Record<string, unknown> | null;
+    }
+  | {
+      kind: "COVERAGE_RESUME_DISPATCH_FAILED";
+      errorMessage: string;
+      scriptCoverage: Record<string, unknown> | null;
+    }
+  | {
+      kind:
+        | "NO_USABLE_VISUAL_ASSETS"
+        | "ANALYSIS_DEADLINE_EXHAUSTED"
+        | "INSUFFICIENT_CREDITS"
+        | "ORCHESTRATION_FAILED";
+      errorMessage: string;
+    }
+  | {
+      kind: "SCRIPT_GROUNDING_NEEDS_INPUT" | "SCRIPT_GROUNDING_FAILED";
+      errorMessage: string;
+      scriptCoverage: Record<string, unknown>;
+    }
+  | {
+      kind: "PRE_DIRECTOR_REFUND_RECORDED";
+      creditTransactionId: string;
+      chargedCredits: number;
+      reason: string;
+    };
+
+export interface ProjectBatchAutoEditLifecycleCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  uploadBatchId: string;
+  event: ProjectBatchAutoEditLifecycleEventV1;
+}
+
+export type ProjectBatchAutoEditLifecycleResultV1 =
+  | {
+      disposition: "RECORDED";
+      beforeRevision: ProjectRevisionV1;
+      receipt: ProjectMutationReceiptV1;
+    }
+  | { disposition: "PROJECT_NOT_FOUND" }
+  | {
+      disposition: "NOT_ELIGIBLE" | "PROJECT_STATE_CHANGED";
+      currentRevision: ProjectRevisionV1;
+    };
+
 /**
  * Director's deterministic, pre-render proof facts. They are persisted only
  * against the writer receipt for the edit they describe.
@@ -7689,6 +7738,98 @@ export class ProjectService {
   }
 
   /**
+   * Owns project-side lifecycle facts for the multi-upload auto-edit route.
+   * Upload-batch state is a separate aggregate and is deliberately not changed
+   * here; callers must pair it with an exact claim/compensation contract.
+   */
+  async recordBatchAutoEditLifecycleV1(
+    userId: string,
+    projectId: string,
+    input: ProjectBatchAutoEditLifecycleCommandV1,
+  ): Promise<ProjectBatchAutoEditLifecycleResultV1> {
+    assertProjectBatchAutoEditLifecycleCommandV1(input);
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) return { disposition: "PROJECT_NOT_FOUND" };
+
+    const currentRevision = projectRevisionFor(project);
+    if (
+      currentRevision.value !== input.expectedRevision.value
+      || currentRevision.compatibilityUpdatedAt !== input.expectedRevision.compatibilityUpdatedAt
+    ) {
+      return { disposition: "PROJECT_STATE_CHANGED", currentRevision };
+    }
+    if (
+      isAssistProjectRecordV1(project)
+      || projectOptionalNonEmptyStringFieldV1(project, "sourceUploadBatchId") !== input.uploadBatchId
+    ) {
+      return { disposition: "NOT_ELIGIBLE", currentRevision };
+    }
+
+    const currentStatus = projectOptionalNonEmptyStringFieldV1(project, "autoEditStatus");
+    const eligibleStatuses = batchAutoEditLifecycleEligibleStatusesV1(input.event.kind);
+    if (!currentStatus || !eligibleStatuses.has(currentStatus)) {
+      return { disposition: "NOT_ELIGIBLE", currentRevision };
+    }
+
+    const committedAt = new Date();
+    const transition = batchAutoEditLifecycleUpdateV1(
+      input.uploadBatchId,
+      currentStatus,
+      input.event,
+      committedAt,
+    );
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        sourceUploadBatchId: input.uploadBatchId,
+        autoEditStatus: currentStatus,
+        editMode: { $ne: "assist" },
+      },
+      {
+        $set: transition.set,
+        ...(Object.keys(transition.unset).length > 0 ? { $unset: transition.unset } : {}),
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) return { disposition: "PROJECT_NOT_FOUND" };
+      return {
+        disposition: "PROJECT_STATE_CHANGED",
+        currentRevision: projectRevisionFor(latest),
+      };
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return {
+      disposition: "RECORDED",
+      beforeRevision: input.expectedRevision,
+      receipt,
+    };
+  }
+
+  /**
    * Persists Director's deterministic pre-render proof facts only if the
    * project is still at the final edit receipt. A newer mutation makes the
    * proof facts unrecordable rather than attaching them to the wrong state.
@@ -13380,6 +13521,179 @@ function assertGenericProjectUpdateFields(
     throw new ProjectMutationWriteError(
       "Proxy source bindings and relink state must use their ProjectService command boundaries.",
     );
+  }
+}
+
+function assertProjectBatchAutoEditLifecycleCommandV1(
+  input: ProjectBatchAutoEditLifecycleCommandV1,
+): void {
+  assertProjectRevision(input.expectedRevision);
+  if (!isBoundedNonEmptyStringV1(input.uploadBatchId, 256)) {
+    throw new ProjectMutationWriteError("Batch auto-edit lifecycle requires an upload-batch identity.");
+  }
+  if (input.event.kind === "COVERAGE_RESUME_STARTED") {
+    if (
+      input.event.sourceAssetIds.length === 0
+      || input.event.sourceAssetIds.length > 10_000
+      || new Set(input.event.sourceAssetIds).size !== input.event.sourceAssetIds.length
+      || input.event.sourceAssetIds.some((assetId) => !isBoundedNonEmptyStringV1(assetId, 256))
+      || (input.event.previousScriptCoverage !== null
+        && (!input.event.previousScriptCoverage
+          || typeof input.event.previousScriptCoverage !== "object"
+          || Array.isArray(input.event.previousScriptCoverage)))
+    ) {
+      throw new ProjectMutationWriteError("Coverage resume facts are malformed.");
+    }
+    return;
+  }
+  if (
+    input.event.kind === "COVERAGE_RESUME_DISPATCH_FAILED"
+    || input.event.kind === "SCRIPT_GROUNDING_NEEDS_INPUT"
+    || input.event.kind === "SCRIPT_GROUNDING_FAILED"
+  ) {
+    if (
+      !isBoundedNonEmptyStringV1(input.event.errorMessage, 4_000)
+      || (input.event.scriptCoverage !== null
+        && (!input.event.scriptCoverage
+          || typeof input.event.scriptCoverage !== "object"
+          || Array.isArray(input.event.scriptCoverage)))
+    ) {
+      throw new ProjectMutationWriteError("Script-coverage lifecycle facts are malformed.");
+    }
+    return;
+  }
+  if (input.event.kind === "PRE_DIRECTOR_REFUND_RECORDED") {
+    if (
+      !isBoundedNonEmptyStringV1(input.event.creditTransactionId, 256)
+      || !Number.isFinite(input.event.chargedCredits)
+      || input.event.chargedCredits < 0
+      || !isBoundedNonEmptyStringV1(input.event.reason, 4_000)
+    ) {
+      throw new ProjectMutationWriteError("Auto-edit refund facts are malformed.");
+    }
+    return;
+  }
+  if (!isBoundedNonEmptyStringV1(input.event.errorMessage, 4_000)) {
+    throw new ProjectMutationWriteError("Batch auto-edit failure requires a bounded error.");
+  }
+}
+
+function batchAutoEditLifecycleEligibleStatusesV1(
+  kind: ProjectBatchAutoEditLifecycleEventV1["kind"],
+): ReadonlySet<string> {
+  switch (kind) {
+    case "COVERAGE_RESUME_STARTED":
+      return new Set(["needs_input"]);
+    case "COVERAGE_RESUME_DISPATCH_FAILED":
+      return new Set(["analyzing"]);
+    case "PRE_DIRECTOR_REFUND_RECORDED":
+      return new Set(["analysis_complete", "directing_queued"]);
+    case "ORCHESTRATION_FAILED":
+      return new Set(["analyzing", "analysis_complete", "directing_queued"]);
+    default:
+      return new Set(["analyzing"]);
+  }
+}
+
+function batchAutoEditLifecycleUpdateV1(
+  uploadBatchId: string,
+  previousStatus: string,
+  event: ProjectBatchAutoEditLifecycleEventV1,
+  committedAt: Date,
+): {
+  set: Record<string, unknown>;
+  unset: Record<string, "">;
+} {
+  const audit = {
+    schemaVersion: 1,
+    uploadBatchId,
+    event: event.kind,
+    previousStatus,
+    committedAt: committedAt.toISOString(),
+  };
+  switch (event.kind) {
+    case "COVERAGE_RESUME_STARTED":
+      return {
+        set: {
+          autoEditStatus: "analyzing",
+          autoEditStageDesc: "Analyzing additional footage",
+          sourceAssetIds: [...event.sourceAssetIds],
+          "storylinePlan.previousScriptCoverage": structuredClone(event.previousScriptCoverage),
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {
+          autoEditError: "",
+          autoEditFailedAt: "",
+          "storylinePlan.scriptCoverage": "",
+        },
+      };
+    case "COVERAGE_RESUME_DISPATCH_FAILED":
+      return {
+        set: {
+          autoEditStatus: "needs_input",
+          autoEditError: event.errorMessage,
+          autoEditStageDesc: "More footage needed",
+          "storylinePlan.scriptCoverage": structuredClone(event.scriptCoverage),
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {},
+      };
+    case "SCRIPT_GROUNDING_NEEDS_INPUT":
+    case "SCRIPT_GROUNDING_FAILED": {
+      const needsInput = event.kind === "SCRIPT_GROUNDING_NEEDS_INPUT";
+      return {
+        set: {
+          autoEditStatus: needsInput ? "needs_input" : "failed",
+          autoEditError: event.errorMessage,
+          autoEditStageDesc: needsInput ? "More footage needed" : "Script grounding failed",
+          ...(needsInput ? {} : { autoEditFailedAt: committedAt }),
+          "storylinePlan.scriptCoverage": structuredClone(event.scriptCoverage),
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {},
+      };
+    }
+    case "PRE_DIRECTOR_REFUND_RECORDED":
+      return {
+        set: {
+          autoEditRefunded: true,
+          autoEditRefundedAt: committedAt,
+          autoEditRefundReceipt: {
+            schemaVersion: 1,
+            uploadBatchId,
+            creditTransactionId: event.creditTransactionId,
+            chargedCredits: event.chargedCredits,
+            reason: event.reason,
+            committedAt: committedAt.toISOString(),
+          },
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {},
+      };
+    default: {
+      const stage = event.kind === "NO_USABLE_VISUAL_ASSETS"
+        ? "No usable media"
+        : event.kind === "ANALYSIS_DEADLINE_EXHAUSTED"
+          ? "Analysis failed"
+          : event.kind === "INSUFFICIENT_CREDITS"
+            ? "Insufficient credits"
+            : "Auto-edit failed";
+      return {
+        set: {
+          autoEditStatus: "failed",
+          autoEditError: event.errorMessage,
+          autoEditFailedAt: committedAt,
+          autoEditStageDesc: stage,
+          "intelligence.batchAutoEditLifecycle": audit,
+          updatedAt: committedAt,
+        },
+        unset: {},
+      };
+    }
   }
 }
 
