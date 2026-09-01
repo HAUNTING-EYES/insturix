@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   checkCredits: vi.fn(),
   deduct: vi.fn(),
   createProject: vi.fn(),
+  getProjectRevision: vi.fn(),
   saveProjectWithReceipt: vi.fn(),
   admitProjectAnalysisRunV1: vi.fn(),
   loadProjectForMutation: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
+    getProjectRevision: mocks.getProjectRevision,
     saveProjectWithReceipt: mocks.saveProjectWithReceipt,
     admitProjectAnalysisRunV1: mocks.admitProjectAnalysisRunV1,
     loadProjectForMutation: mocks.loadProjectForMutation,
@@ -124,6 +126,11 @@ beforeEach(() => {
   });
   mocks.deduct.mockResolvedValue({ transactionId: 'tx_asset_1' });
   mocks.createProject.mockResolvedValue({ projectId: 'proj_asset_1' });
+  mocks.getProjectRevision.mockResolvedValue({
+    schemaVersion: 1,
+    value: 0,
+    compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z',
+  });
   mocks.saveProjectWithReceipt.mockResolvedValue({
     schemaVersion: 1,
     projectId: 'proj_asset_1',
@@ -231,6 +238,19 @@ describe('from-asset assist intake handler', () => {
     process.env.DIRECTOR_MODE_ENABLED = 'true';
     const res = await POST(request({ assetId: 'a1', editMode: 'assist' }));
     expect(res.status).toBe(200);
+
+    expect(mocks.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_asset_1',
+      expect.objectContaining({ durationInFrames: 900 }),
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 0,
+          compatibilityUpdatedAt: '2026-09-01T00:00:00.000Z',
+        },
+      },
+    );
 
     expect(mocks.admitAssistScanCharge).toHaveBeenCalledWith(expect.anything(), {
       projectId: 'proj_asset_1',

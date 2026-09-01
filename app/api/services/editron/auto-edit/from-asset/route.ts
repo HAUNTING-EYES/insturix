@@ -237,6 +237,10 @@ export async function POST(request: NextRequest) {
     const projectName = title || `Auto-Edit: ${asset.filename}`;
     const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? null });
     const projectId = project.projectId;
+    const initialProjectRevision = await projectService.getProjectRevision(
+      userId,
+      projectId,
+    );
 
     // 5. Add the video as a single overlay spanning the full duration
     // Use CDN Worker URL for overlay src (never expires, has CORS).
@@ -282,7 +286,9 @@ export async function POST(request: NextRequest) {
       playerDimensions: { width: w, height: h },
       fps,
       durationInFrames,
-    } as Parameters<typeof projectService.saveProjectWithReceipt>[2]);
+    } as Parameters<typeof projectService.saveProjectWithReceipt>[2], {
+      expectedRevision: initialProjectRevision,
+    });
 
     // 5b. Pre-warm Modal GPU containers (fire-and-forget).
     // V-JEPA + Wav2Vec run at worker Step 3.5, ~150s after QStash dispatch.
