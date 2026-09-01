@@ -4,6 +4,7 @@ export interface DirectorDeliveryFailure {
   projectId: string;
   userId: string;
   sourceMessageId: string;
+  pipelineDirectorDispatchToken: string;
   status: number;
   retried: number;
   maxRetries: number;
@@ -58,8 +59,11 @@ export function parseDirectorDeliveryFailure(raw: unknown): DirectorDeliveryFail
   const projectId = boundedString(source.projectId, 160);
   const userId = boundedString(source.userId, 160);
   const sourceMessageId = boundedString(envelope.sourceMessageId, 200);
-  if (!projectId || !userId || !sourceMessageId) {
-    throw new Error('Director failure callback is missing projectId, userId, or sourceMessageId');
+  const pipelineDirectorDispatchToken = boundedString(source.pipelineDirectorDispatchToken, 200);
+  if (!projectId || !userId || !sourceMessageId || !pipelineDirectorDispatchToken) {
+    throw new Error(
+      'Director failure callback is missing projectId, userId, sourceMessageId, or pipelineDirectorDispatchToken',
+    );
   }
 
   const status = boundedInteger(envelope.status);
@@ -74,6 +78,7 @@ export function parseDirectorDeliveryFailure(raw: unknown): DirectorDeliveryFail
     projectId,
     userId,
     sourceMessageId,
+    pipelineDirectorDispatchToken,
     status,
     retried: boundedInteger(envelope.retried),
     maxRetries: boundedInteger(envelope.maxRetries),
@@ -89,6 +94,7 @@ export function buildDirectorDeliveryFailureAudit(
   return {
     source: 'qstash-failure-callback',
     sourceMessageId: failure.sourceMessageId,
+    pipelineDirectorDispatchToken: failure.pipelineDirectorDispatchToken,
     status: failure.status,
     retried: failure.retried,
     maxRetries: failure.maxRetries,

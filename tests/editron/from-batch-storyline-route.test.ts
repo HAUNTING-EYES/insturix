@@ -1713,6 +1713,7 @@ describe('from-batch storyline route handoff', () => {
       sourceBody: Buffer.from(JSON.stringify({
         projectId: 'proj_batch_1',
         userId: 'user_1',
+        pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       })).toString('base64'),
       body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
     });
@@ -1721,6 +1722,7 @@ describe('from-batch storyline route handoff', () => {
       projectId: 'proj_batch_1',
       userId: 'user_1',
       sourceMessageId: 'msg_director_1',
+      pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       status: 504,
       retried: 0,
       maxRetries: 0,
@@ -1733,6 +1735,7 @@ describe('from-batch storyline route handoff', () => {
     )).toEqual(expect.objectContaining({
       source: 'qstash-failure-callback',
       sourceMessageId: 'msg_director_1',
+      pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
       status: 504,
       failedAt: new Date('2026-07-13T00:00:00.000Z'),
     }));
@@ -1772,6 +1775,7 @@ describe('from-batch storyline route handoff', () => {
         sourceBody: Buffer.from(JSON.stringify({
           projectId: 'proj_batch_1',
           userId: 'user_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
         })).toString('base64'),
         body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
       }),
@@ -1789,10 +1793,12 @@ describe('from-batch storyline route handoff', () => {
       'proj_batch_1',
       expect.objectContaining({
         sourceMessageId: 'msg_director_1',
+        pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
         errorMessage: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
         audit: expect.objectContaining({
           source: 'qstash-failure-callback',
           sourceMessageId: 'msg_director_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
           error: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
         }),
       }),
@@ -1823,6 +1829,7 @@ describe('from-batch storyline route handoff', () => {
         sourceBody: Buffer.from(JSON.stringify({
           projectId: 'proj_batch_1',
           userId: 'user_1',
+          pipelineDirectorDispatchToken: 'pipeline_director_dispatch_batch_1',
         })).toString('base64'),
       }),
     }) as never);

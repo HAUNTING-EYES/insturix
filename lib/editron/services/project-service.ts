@@ -1460,6 +1460,7 @@ export interface ProjectDirectorRunTerminalResultV1 {
  */
 export interface ProjectDirectorDeliveryFailureCommandV1 {
   sourceMessageId: string;
+  pipelineDirectorDispatchToken: string;
   errorMessage: string;
   audit: Record<string, unknown>;
 }
@@ -7600,6 +7601,7 @@ export class ProjectService {
     const noOpDisposition = directorDeliveryFailureNoopDispositionV1(
       project,
       input.sourceMessageId,
+      input.pipelineDirectorDispatchToken,
     );
     if (noOpDisposition) {
       return {
@@ -7612,6 +7614,9 @@ export class ProjectService {
       project,
       "directorMessageId",
     );
+    const pipelineDirectorDispatch = readProjectPipelineDirectorDispatchV1(
+      projectRecordValueV1(project, "pipelineDirectorDispatch"),
+    );
     const committedAt = new Date();
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -7623,6 +7628,15 @@ export class ProjectService {
         },
         ...(directorMessageId
           ? { directorMessageId: input.sourceMessageId }
+          : {}),
+        ...(pipelineDirectorDispatch
+          ? {
+              "pipelineDirectorDispatch.schemaVersion": 1,
+              "pipelineDirectorDispatch.batchId": pipelineDirectorDispatch.batchId,
+              "pipelineDirectorDispatch.profileId": pipelineDirectorDispatch.profileId,
+              "pipelineDirectorDispatch.dispatchToken": input.pipelineDirectorDispatchToken,
+              "pipelineDirectorDispatch.preparedAt": pipelineDirectorDispatch.preparedAt,
+            }
           : {}),
       },
       {
@@ -7653,6 +7667,7 @@ export class ProjectService {
         disposition: directorDeliveryFailureNoopDispositionV1(
           latest,
           input.sourceMessageId,
+          input.pipelineDirectorDispatchToken,
         ) ?? "PROJECT_STATE_CHANGED",
         sourceUploadBatchId: null,
       };
@@ -12171,10 +12186,12 @@ function assertProjectDirectorDeliveryFailureCommandV1(
 ): void {
   if (
     !isBoundedNonEmptyStringV1(input.sourceMessageId, 200)
+    || !isProjectPipelineDirectorDispatchTokenV1(input.pipelineDirectorDispatchToken)
     || !isBoundedNonEmptyStringV1(input.errorMessage, 500)
     || !isPlainRecord(input.audit)
     || input.audit.source !== "qstash-failure-callback"
     || input.audit.sourceMessageId !== input.sourceMessageId
+    || input.audit.pipelineDirectorDispatchToken !== input.pipelineDirectorDispatchToken
     || input.audit.error !== input.errorMessage
     || !isValidDateValueV1(input.audit.failedAt)
   ) {
@@ -12416,6 +12433,7 @@ function isActiveDirectorRunV1(project: Project, runToken: string): boolean {
 function directorDeliveryFailureNoopDispositionV1(
   project: Project,
   sourceMessageId: string,
+  pipelineDirectorDispatchToken: string,
 ): Exclude<ProjectDirectorDeliveryFailureDispositionV1, "RECORDED" | "PROJECT_NOT_FOUND"> | null {
   const directorMessageId = projectRecordValueV1(project, "directorMessageId");
   if (
@@ -12429,6 +12447,25 @@ function directorDeliveryFailureNoopDispositionV1(
     && directorMessageId !== sourceMessageId
   ) {
     return "STALE_SOURCE_MESSAGE";
+  }
+  const rawPipelineDirectorDispatch = projectRecordValueV1(
+    project,
+    "pipelineDirectorDispatch",
+  );
+  const pipelineDirectorDispatch = readProjectPipelineDirectorDispatchV1(
+    rawPipelineDirectorDispatch,
+  );
+  if (rawPipelineDirectorDispatch !== undefined && !pipelineDirectorDispatch) {
+    return "PROJECT_STATE_CHANGED";
+  }
+  if (
+    pipelineDirectorDispatch
+    && pipelineDirectorDispatch.dispatchToken !== pipelineDirectorDispatchToken
+  ) {
+    return "STALE_SOURCE_MESSAGE";
+  }
+  if (!pipelineDirectorDispatch && typeof directorMessageId !== "string") {
+    return "PROJECT_STATE_CHANGED";
   }
   return isDirectorDeliveryFailureActiveStatusV1(
     projectRecordValueV1(project, "autoEditStatus"),

@@ -51,6 +51,13 @@ function projectFixture(
     visibility: "private" as const,
     autoEditStatus: "directing",
     directorMessageId: "message_7",
+    pipelineDirectorDispatch: {
+      schemaVersion: 1,
+      batchId: "batch_7",
+      profileId: "A-01",
+      dispatchToken: "pipeline_director_dispatch_12345678901234567890",
+      preparedAt: "2026-08-25T00:30:00.000Z",
+    },
     sourceUploadBatchId: "batch_7",
     ...overrides,
   };
@@ -59,10 +66,12 @@ function projectFixture(
 function failureInput() {
   return {
     sourceMessageId: "message_7",
+    pipelineDirectorDispatchToken: "pipeline_director_dispatch_12345678901234567890",
     errorMessage: "Director delivery failed with HTTP 504: timeout",
     audit: {
       source: "qstash-failure-callback",
       sourceMessageId: "message_7",
+      pipelineDirectorDispatchToken: "pipeline_director_dispatch_12345678901234567890",
       error: "Director delivery failed with HTTP 504: timeout",
       failedAt: new Date("2026-08-25T01:02:03.000Z"),
     },
@@ -110,6 +119,11 @@ describe("ProjectService Director delivery failure V1", () => {
           updatedAt: new Date("2026-08-25T00:00:00.000Z"),
           autoEditStatus: { $in: ["directing_queued", "directing", "analysis_complete"] },
           directorMessageId: "message_7",
+          "pipelineDirectorDispatch.schemaVersion": 1,
+          "pipelineDirectorDispatch.batchId": "batch_7",
+          "pipelineDirectorDispatch.profileId": "A-01",
+          "pipelineDirectorDispatch.dispatchToken": "pipeline_director_dispatch_12345678901234567890",
+          "pipelineDirectorDispatch.preparedAt": "2026-08-25T00:30:00.000Z",
         },
         {
           $set: {
@@ -130,7 +144,13 @@ describe("ProjectService Director delivery failure V1", () => {
 
   it("does not write or issue a receipt for a stale callback", async () => {
     persistenceMocks.findOne.mockResolvedValueOnce(projectFixture(7, undefined, {
-      directorMessageId: "message_8",
+      pipelineDirectorDispatch: {
+        schemaVersion: 1,
+        batchId: "batch_8",
+        profileId: "A-01",
+        dispatchToken: "pipeline_director_dispatch_ABCDEFGHIJ1234567890",
+        preparedAt: "2026-08-25T00:30:00.000Z",
+      },
     }));
     const { projectService } = await import("@/lib/editron/services/project-service");
 
@@ -144,6 +164,29 @@ describe("ProjectService Director delivery failure V1", () => {
 
     expect(captured.value).toEqual({
       disposition: "STALE_SOURCE_MESSAGE",
+      sourceUploadBatchId: null,
+    });
+    expect(captured.receipts).toEqual([]);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unbound callback when neither dispatch token nor legacy message identity is durable", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce(projectFixture(7, undefined, {
+      directorMessageId: undefined,
+      pipelineDirectorDispatch: undefined,
+    }));
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.recordDirectorDeliveryFailureV1(
+        "user_director_failure",
+        "proj_director_failure",
+        failureInput(),
+      )
+    ));
+
+    expect(captured.value).toEqual({
+      disposition: "PROJECT_STATE_CHANGED",
       sourceUploadBatchId: null,
     });
     expect(captured.receipts).toEqual([]);

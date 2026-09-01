@@ -21,6 +21,7 @@ async function handler(request: NextRequest) {
       failure.projectId,
       {
         sourceMessageId: failure.sourceMessageId,
+        pipelineDirectorDispatchToken: failure.pipelineDirectorDispatchToken,
         errorMessage: failure.errorMessage,
         audit,
       },
