@@ -17286,3 +17286,72 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5B timeline-cut admission checkpoint
+
+Commit `de9f5dcd7` closes operation-specific media/audio/predecessor admission
+and durable project-snapshot invalidation for the destructive
+`CUT_TIMELINE_RANGE` ProjectService writer. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+The cut owner now constructs the authoritative post-cut overlay set first,
+including deterministic split children, and selects only surviving overlays
+whose exact project-frame range intersects the affected ripple tail. It then
+materializes the canonical source-version, rights, playable-audio where
+applicable, and predecessor receipt against the applied base revision. Only
+after that receipt exists does it durably enqueue the exact before/after
+project-snapshot invalidation; only after both admissions succeed does it
+attempt the project compare-and-set. Their authenticated links are persisted
+on the same timeline mutation receipt.
+
+The focused negative proof deliberately makes media/audio admission fail and
+confirms that no invalidation row, project mutation or published mutation
+receipt follows. The split-media fixture also confirms that prerequisite
+identity follows the actual surviving child rather than incorrectly retaining
+the removed parent identity. Stateful conflict proofs use a truthful non-media
+shape fixture so their zero-entry prerequisite receipt exercises real
+non-applicability without pretending to prove media decoding.
+
+The five-suite gate passed 33/33 tests. Targeted quiet ESLint, full 8-GB
+TypeScript and `git diff --check` passed before the push. No provider call,
+render, storage spend, wallet mutation, customer project edit, historical paid
+cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The standalone media-bearing cut
+integration fixture stubs the already-tested Mongo prerequisite owner; a
+source-qualified live-database cut proof remains part of aggregate Queue 5
+closure. Specialized retime, duration correction/reconciliation, auto-edit,
+caption, audio, colour, generated-composition, delivery and metadata/lease
+writers still require operation-by-operation prerequisite and invalidation
+classification.
+
+The remaining Queue 5 order is now:
+
+1. Continue durable invalidation and applicable source, rights, audio,
+   predecessor, revision, range and lock classification across the remaining
+   specialized ProjectService writers. Metadata-only, analysis-only and
+   lease-only owners must explicitly record non-applicability rather than
+   fabricate media evidence.
+2. Add bounded retention/recovery for unreferenced whole-state/direct/cut
+   prerequisite receipts and an authoritative legacy checkpoint
+   migration/recapture rule; never synthesize evidence for historical state.
+3. Add the source-qualified live-database cut proof, run the aggregate Queue 5
+   mutation-owner suite and full-repository quiet ESLint before considering
+   Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
