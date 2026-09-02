@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const persistenceMocks = vi.hoisted(() => ({
   projectFindOne: vi.fn(),
   mediaFindOne: vi.fn(),
+  outboxFindOne: vi.fn(),
+  outboxInsertOne: vi.fn(),
   projectUpdateOne: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
+  resolveSourceBinding: vi.fn(),
+  classifySourceRate: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -15,10 +20,34 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
             findOne: persistenceMocks.projectFindOne,
             updateOne: persistenceMocks.projectUpdateOne,
           }
-        : { findOne: persistenceMocks.mediaFindOne }
+        : name === "media_assets"
+          ? { findOne: persistenceMocks.mediaFindOne }
+          : {
+              findOne: persistenceMocks.outboxFindOne,
+              insertOne: persistenceMocks.outboxInsertOne,
+            }
     )),
   })),
   connectToDatabase: vi.fn(),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.wholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
+}));
+
+vi.mock("@/lib/editron/services/video-source-time-transform-v1", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/editron/services/video-source-time-transform-v1")>(),
+  resolveVerifiedVideoSourceTimeBindingV1: persistenceMocks.resolveSourceBinding,
+  classifyVerifiedVideoSourceRateCompatibilityV1: persistenceMocks.classifySourceRate,
 }));
 
 vi.mock("@/lib/editron/services/asset-resolver", () => ({
@@ -144,7 +173,30 @@ describe("ProjectService beat-sync owner V1", () => {
   beforeEach(() => {
     persistenceMocks.projectFindOne.mockReset();
     persistenceMocks.mediaFindOne.mockReset();
+    persistenceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
+    persistenceMocks.outboxInsertOne.mockReset().mockResolvedValue({ acknowledged: true });
     persistenceMocks.projectUpdateOne.mockReset();
+    persistenceMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+      async (input: any) => ({
+        ...input,
+        mediaEntries: input.overlays
+          .filter((overlay: any) => ["video", "image", "sound", "mg-sequence"]
+            .includes(overlay.type))
+          .map((overlay: any) => ({ overlayId: overlay.id })),
+        candidateMediaSetSha256: "a".repeat(64),
+        candidateMediaContentSha256: "b".repeat(64),
+        receiptSha256: "c".repeat(64),
+      }),
+    );
+    persistenceMocks.resolveSourceBinding.mockReset().mockImplementation(
+      (asset: { assetId?: string; duration?: number }) => ({
+        assetId: asset.assetId,
+        totalSourceFrameCount: String(Math.round((asset.duration ?? 0) * 30)),
+      }),
+    );
+    persistenceMocks.classifySourceRate.mockReset().mockReturnValue({
+      disposition: "COMPATIBLE_SAME_RATE_CFR",
+    });
     installMediaAssets();
   });
 
@@ -188,6 +240,7 @@ describe("ProjectService beat-sync owner V1", () => {
         audioOverlayId: 3,
         audioAssetId: "music-a",
         changes: [{ originalFrame: 60, alignedFrame: 63, shiftFrames: 3 }],
+        sourceDurationFramesByAssetId: { "video-a": 90, "video-b": 90 },
       });
       expect(update.$push.timelineRangeChangeReceipts.$each[0]).toMatchObject({
         receiptId: expect.stringMatching(/^timeline-beat-sync_/),
@@ -195,10 +248,68 @@ describe("ProjectService beat-sync owner V1", () => {
         actorKind: "AGENT",
         beforeProjectRevision: { value: 4 },
         afterProjectRevision: { value: 5 },
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          mediaEntryCount: 3,
+        },
       });
+      expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "ALIGN_CUTS_TO_BEATS",
+          overlays: expect.arrayContaining([
+            expect.objectContaining({ id: 1, type: "video" }),
+            expect.objectContaining({ id: 2, type: "video" }),
+            expect.objectContaining({ id: 3, type: "sound" }),
+          ]),
+        }),
+        expect.anything(),
+        "media_assets",
+      );
+      expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0]!);
+      expect(persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.projectUpdateOne.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("safe-stops before mutation when exact source timing is unavailable", async () => {
+    persistenceMocks.projectFindOne.mockResolvedValueOnce(projectFixture());
+    persistenceMocks.resolveSourceBinding.mockReturnValueOnce(null);
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.alignCutsToBeatsAtRevisionV1(
+      USER_ID,
+      PROJECT_ID,
+      command(),
+    )).resolves.toMatchObject({
+      disposition: "SAFE_STOP",
+      reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+      currentRevision: { value: 4 },
+    });
+    expect(persistenceMocks.wholeStateMediaPrerequisite).not.toHaveBeenCalled();
+    expect(persistenceMocks.outboxInsertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.projectUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it("blocks beat alignment before invalidation and CAS when media admission fails", async () => {
+    persistenceMocks.projectFindOne.mockResolvedValueOnce(projectFixture());
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.alignCutsToBeatsAtRevisionV1(
+      USER_ID,
+      PROJECT_ID,
+      command(),
+    )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING");
+    expect(persistenceMocks.outboxInsertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.projectUpdateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a stale revision before reading assets or writing", async () => {

@@ -615,6 +615,18 @@ export type ProjectBeatSyncResultV1 =
       resolution: ProjectBeatSyncResolutionSummaryV1;
       mutationReceipt: null;
       timelineChangeReceipt: null;
+    }
+  | {
+      disposition: "SAFE_STOP";
+      reason:
+        | "SOURCE_ASSET_NOT_FOUND"
+        | "SOURCE_TIME_EVIDENCE_INCOMPLETE"
+        | "SOURCE_PROJECT_RATE_MISMATCH"
+        | "SOURCE_EVENT_REBIND_UNSUPPORTED"
+        | "SOURCE_FRAME_COUNT_UNREPRESENTABLE";
+      currentRevision: ProjectRevisionV1;
+      mutationReceipt: null;
+      timelineChangeReceipt: null;
     };
 
 export interface ProjectAutoEditAssemblyCutV1 {
@@ -8467,6 +8479,7 @@ export class ProjectService {
       | "AUTO_EDIT_ASSEMBLY"
       | "REPLACE_CAPTION_FAMILY"
       | "REPLACE_BACKGROUND_MUSIC"
+      | "ALIGN_CUTS_TO_BEATS"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -12483,13 +12496,69 @@ export class ProjectService {
     const sourceDurationFramesByAssetId: Record<string, number> = {};
     for (const assetId of visualAssetIds) {
       const asset = await mediaAssets.findOne({ assetId, userId });
-      const durationSeconds = asset?.duration;
-      if (typeof durationSeconds === "number" && Number.isFinite(durationSeconds)
-        && durationSeconds > 0) {
-        sourceDurationFramesByAssetId[assetId] = Math.round(
-          durationSeconds * project.fps,
+      if (!asset || asset.type !== "video") {
+        return {
+          disposition: "SAFE_STOP",
+          reason: "SOURCE_ASSET_NOT_FOUND",
+          currentRevision,
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
+      }
+      const sourceBinding = resolveVerifiedVideoSourceTimeBindingV1(
+        asset as Parameters<typeof resolveVerifiedVideoSourceTimeBindingV1>[0],
+      );
+      if (!sourceBinding) {
+        return {
+          disposition: "SAFE_STOP",
+          reason: "SOURCE_TIME_EVIDENCE_INCOMPLETE",
+          currentRevision,
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
+      }
+      if (sourceBinding.assetId !== assetId) {
+        throw new ProjectMutationWriteError(
+          "Beat-sync source-time evidence does not match the candidate video asset.",
         );
       }
+      const rateCompatibility = classifyVerifiedVideoSourceRateCompatibilityV1(
+        sourceBinding,
+        project.fps,
+      );
+      if (rateCompatibility.disposition === "UNSUPPORTED") {
+        return {
+          disposition: "SAFE_STOP",
+          reason: rateCompatibility.reason === "VFR_INDEX_REQUIRED"
+            ? "SOURCE_EVENT_REBIND_UNSUPPORTED"
+            : "SOURCE_PROJECT_RATE_MISMATCH",
+          currentRevision,
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
+      }
+      let totalSourceFrameCount: number;
+      try {
+        totalSourceFrameCount = Number(BigInt(sourceBinding.totalSourceFrameCount));
+      } catch {
+        return {
+          disposition: "SAFE_STOP",
+          reason: "SOURCE_FRAME_COUNT_UNREPRESENTABLE",
+          currentRevision,
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
+      }
+      if (!Number.isSafeInteger(totalSourceFrameCount) || totalSourceFrameCount <= 0) {
+        return {
+          disposition: "SAFE_STOP",
+          reason: "SOURCE_FRAME_COUNT_UNREPRESENTABLE",
+          currentRevision,
+          mutationReceipt: null,
+          timelineChangeReceipt: null,
+        };
+      }
+      sourceDurationFramesByAssetId[assetId] = totalSourceFrameCount;
     }
 
     const resolution = resolveBeatSyncMutationV1({
@@ -12586,6 +12655,27 @@ export class ProjectService {
     const affectedAfter = persistedOverlays.filter((overlay) => (
       affectedIdentityKeys.has(`id:${String(overlay.id)}`)
     ));
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "ALIGN_CUTS_TO_BEATS",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: [audioOverlay, ...affectedAfter],
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "ALIGN_CUTS_TO_BEATS",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const beatSyncReceipt = {
       version: "project-beat-sync-v1",
       evidenceSource: input.evidenceSource,
@@ -12615,6 +12705,9 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlays: affectedBefore,
       afterOverlays: affectedAfter,
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       changedPaths: ["overlays", "latestBeatSync", "timelineRangeChangeReceipts"],
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(

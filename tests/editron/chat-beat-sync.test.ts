@@ -91,11 +91,28 @@ function project() {
   };
 }
 
-function dependencies(options: { firstVideoDuration?: number; commitConflict?: boolean } = {}) {
+function dependencies(options: {
+  firstVideoDuration?: number;
+  commitConflict?: boolean;
+  commitSafeStop?: boolean;
+} = {}) {
   type CommitInput = Parameters<ChatBeatSyncDependencies['commit']>[0];
   const commit = vi.fn(async (_input: CommitInput) => {
     if (options.commitConflict) {
       throw Object.assign(new Error('project changed'), { code: 'PROJECT_REVISION_CONFLICT' });
+    }
+    if (options.commitSafeStop) {
+      return {
+        disposition: 'SAFE_STOP' as const,
+        reason: 'SOURCE_TIME_EVIDENCE_INCOMPLETE' as const,
+        currentRevision: {
+          schemaVersion: 1 as const,
+          value: 0,
+          compatibilityUpdatedAt: UPDATED_AT.toISOString(),
+        },
+        mutationReceipt: null,
+        timelineChangeReceipt: null,
+      };
     }
     return {
       disposition: 'APPLIED' as const,
@@ -197,6 +214,23 @@ describe('executeChatBeatSync', () => {
     expect(result).toMatchObject({
       status: 'error',
       error: { code: 'BEAT_SYNC_PROJECT_CONFLICT' },
+    });
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an authoritative source-time safe stop without claiming success', async () => {
+    const { deps, commit } = dependencies({ commitSafeStop: true });
+
+    const result = await executeChatBeatSync({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: { beatFilter: 'downbeats', strengthThreshold: 0.6 },
+    }, deps);
+
+    expect(result).toMatchObject({
+      status: 'no-op',
+      nextAction: 'stop',
+      data: { reason: 'source-time-evidence-incomplete' },
     });
     expect(commit).toHaveBeenCalledTimes(1);
   });

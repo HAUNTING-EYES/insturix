@@ -196,6 +196,12 @@ export async function executeChatBeatSync(
       error instanceof Error ? error.message : 'Beat alignment could not be committed.',
     );
   }
+  if (committed.disposition === 'SAFE_STOP') {
+    return noOp(beatSyncSafeStopMessage(committed.reason), {
+      reason: committed.reason.toLowerCase().replaceAll('_', '-'),
+      evidenceSource,
+    });
+  }
   if (committed.disposition === 'UNCHANGED') {
     return noOp('No current cut boundary had a safe beat alignment at commit time.', {
       reason: committed.reason.toLowerCase().replaceAll('_', '-'),
@@ -229,6 +235,23 @@ export async function executeChatBeatSync(
       affectedFrameRanges,
     },
   };
+}
+
+function beatSyncSafeStopMessage(
+  reason: Extract<ProjectBeatSyncResultV1, { disposition: 'SAFE_STOP' }>['reason'],
+): string {
+  switch (reason) {
+    case 'SOURCE_ASSET_NOT_FOUND':
+      return 'Beat alignment was safely blocked because a current video source is unavailable.';
+    case 'SOURCE_TIME_EVIDENCE_INCOMPLETE':
+      return 'Beat alignment was safely blocked until exact source timing is available.';
+    case 'SOURCE_EVENT_REBIND_UNSUPPORTED':
+      return 'Beat alignment was safely blocked until timestamp-addressed VFR source handling is available.';
+    case 'SOURCE_PROJECT_RATE_MISMATCH':
+      return 'Beat alignment was safely blocked because the source and project rates cannot yet be conformed exactly.';
+    case 'SOURCE_FRAME_COUNT_UNREPRESENTABLE':
+      return 'Beat alignment was safely blocked because the verified source frame count is invalid.';
+  }
 }
 
 function scoreMusicEvidence(overlay: Record<string, any>): number {
