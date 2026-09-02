@@ -17892,3 +17892,87 @@ The next work is the unfinished Queue 3-4 media chain. Work inside Queues 3 and
 Queue 6 and agency vertical certification remain serial unless the founder
 explicitly authorizes further parallel execution. Human-only review remains
 deferred to the end of the authorized technical queue.
+
+## 2026-09-02 session transition and founder intake-directive checkpoint
+
+Session transition: the predecessor Codex session exhausted its usage budget
+immediately after pushing `f43b389af` (proxy/master new-write cutover closure)
+with a clean worktree and no interrupted patch. Execution continues from the
+ZCode agent under the same binding rules: serial Queue 3-4 order, no
+subagents, bounded five-file phases, Step-0 before large-file edits, full
+type/lint/test gates before any completion claim, and append-only plan truth.
+The interrupted next slice remains exactly the Phase 5J named order: complete
+analysis-native-audio evidence by routing the video-analysis worker's audio
+producer through the existing exact source-version owner and making
+ProjectService reject legacy run-hash-only evidence, preceded by the required
+Step-0 dead-code/debug audit of that worker.
+
+The founder reviewed the intake/reference audit on 2026-09-02 and issued the
+directives below. They are recorded as roadmap inputs, not implementation
+claims, and none creates a second creative-form owner or authorizes parallel
+execution.
+
+1. **Chat-first intake convergence.** The separate single-video `from-asset`
+   product surface is deprecated in the vibe-editing destination: intake
+   becomes content dropped into the project thread (script, video, images,
+   audio, references, trends, intent) with the timeline/stage beside it, per
+   the locked VIBE system design (`VIBE_SYSTEM_DESIGN_REFERENCE_2026-08-29.md`
+   and the 2026-08-27/29 design chat). Engine intake contracts are preserved;
+   only the surface converges. The single-video script path (currently
+   cache-key-only) and the `imageAssetIds` billing-only forwarding defect
+   (accepted at intake, charged as reference-guided, never forwarded to the
+   analysis worker) are corrected or retired inside this convergence rather
+   than fixed twice.
+
+2. **Reference execution upgrade.** Reference analysis already measures far
+   more than it consumes: fingerprints, adaptive plans and SaaS structure
+   analysis are stored while only three coarse EditDNA dials reach the
+   ProjectBrief. Directive: bind time-bounded `ReferenceBlueprint`
+   (lines 987-1010) to real execution consumers — measured cut rhythm, caption
+   cadence, typography, graphics behavior — and add the audio dimension:
+   measured visual-to-audio landing, SFX usage patterns and music
+   synchronization from reference analysis, not only `musicStyle` metadata.
+
+3. **Reference-by-name research capability.** Verbal creator references
+   ("make it like X") must resolve through a bounded reference-research tool
+   that surveys lawful public examples and measures them into
+   ReferenceBlueprint parameters. The two hardcoded style strings in
+   `unified-edit-intelligence.ts` are transitional only. Parameters are
+   measured, assets are never copied, and any reference media acquisition
+   follows the existing canonicalization and rights contracts.
+
+4. **Trend engine consolidation (island-connection audit 2026-09-02).** Five
+   independent trend implementations exist. `lib/calos/trends` is the only
+   shared provider layer (CALOS + ThinkForge discovery); the editron
+   `lib/trends` ranked store is write-only with zero runtime readers of
+   `getTopTrends`; music discovery keeps a private snapshot collection.
+   Directive: consolidate on the CALOS provider composite as the single fetch
+   layer, retire or wire the orphaned editron store, and expose one trend
+   queue to editron intake and the vibe chat ("three mouths, one queue" per
+   VIBE §14).
+
+5. **Audio as a first-class first-cut input.** Uploaded audio must be able to
+   shape the initial storyline/composition (music-led assembly, voiceover and
+   script alignment) rather than entering only through post-hoc role
+   assignment.
+
+6. **Informed assist/planning surfaces.** The deterministic zero-model
+   starter chips are retained as the no-cost floor, but the assist briefing
+   must gain evidence-grounded, LLM-informed proposal cards (ranked candidate
+   edits with measured support) so planning surfaces are informed rather than
+   purely mechanical.
+
+7. **Auto-lane mechanical ranking disposition.** Content-type detection stays
+   as metadata/brief context (its playbook mapping was already removed,
+   D-016). The genre-dial Thompson-sampling bandits and threshold calibration
+   are auto-edit-coupled learning whose fate in the LLM-driven destination is
+   decided at the already-reserved auto-edit checkpoint: retired with the
+   Director's deterministic creative authority or re-homed as telemetry. No
+   new bandit work is authorized.
+
+These directives do not change the current order. Items enter the Queue 6 /
+agentic-convergence and agency-class backlog (item 4 as an infrastructure
+consolidation slice schedulable within Queue 3-4/6 boundaries). Stage 2.5
+remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`; Queues 3 and 4
+remain `ACTIVE_PARTIAL`. No certification, successor receipt or `GO` is
+claimed by this checkpoint.
