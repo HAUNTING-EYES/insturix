@@ -35,6 +35,10 @@ import {
   assertCap2CurrentTruthSourcesMatchV14,
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v14';
+import {
+  assertCap2CurrentTruthSourcesMatchV15,
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v15';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -84,7 +88,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('preserves historical bindings while V14 owns current source verification', () => {
+  it('preserves historical bindings while V15 owns current source verification', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
@@ -130,7 +134,16 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       normalizedSourceSnapshotHash:
         CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V13.sourceBinding.normalizedSourceSnapshotHash,
     });
-    expect(() => assertCap2CurrentTruthSourcesMatchV14()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV14()).toThrow(
+      'CAP-2 v14 live Queue 5 source snapshot drift.',
+    );
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V15.priorAuditBinding).toEqual({
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.artifactType,
+      manifestHash: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.manifestHash,
+      normalizedSourceSnapshotHash:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V14.sourceBinding.normalizedSourceSnapshotHash,
+    });
+    expect(() => assertCap2CurrentTruthSourcesMatchV15()).not.toThrow();
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -176,7 +189,7 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       .toContain('projectService.updateOverlayAtRevisionV1');
   });
 
-  it('distinguishes a writer-issued R_after fix from the remaining before-snapshot race', () => {
+  it('preserves the frozen checkpoint row while recognizing authoritative capture', () => {
     const undo = candidate('chat.checkpoint.undo');
     expect(undo.revisionSafety.status).toBe('PROJECT_CAS');
     expect(undo.recovery.undo).toBe('PARTIAL');
@@ -184,11 +197,12 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     const runtime = readSource('lib/editron/agent/chat-ai-edit-transaction-runtime.ts');
     const checkpoints = readSource('lib/editron/services/checkpoint-service.ts');
     expect(runtime).toContain('captureRestorableProjectState(input.project)');
-    expect(checkpoints).toContain('await projectService.getProjectRevision(input.userId, input.projectId)');
+    expect(checkpoints).toContain('const snapshot = await projectService.loadProjectForMutation(');
+    expect(checkpoints).toContain('Checkpoint state does not match its authoritative project snapshot.');
     expect(checkpoints).toContain('requires a writer-issued rollback receipt');
   });
 
-  it('keeps the generic bridge duration-only while recognizing the repaired chat cut writer', () => {
+  it('disables the generic bridge while recognizing the repaired chat writers', () => {
     const projectService = readSource('lib/editron/services/project-service.ts');
     const updateStart = projectService.indexOf('async updateProject(');
     const updateEnd = projectService.indexOf(
@@ -196,12 +210,15 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       updateStart,
     );
     const updateProjectBody = projectService.slice(updateStart, updateEnd);
-    expect(updateProjectBody).toContain('reconcileProjectDurationFromOverlaysV1');
-    expect(updateProjectBody).toContain('assertedDurationInFrames');
+    expect(updateProjectBody).toContain('Generic project updates are disabled');
+    expect(updateProjectBody).not.toContain('reconcileProjectDurationFromOverlaysV1');
     expect(updateProjectBody).not.toContain('getDatabase');
     expect(updateProjectBody).not.toContain('updateOne');
 
     const tools = readSource('lib/editron/agent/tools.ts');
+    expect(tools).toContain('projectService.reconcileProjectDurationFromOverlaysV1(userId, projectId, {');
+    expect(tools).toContain('actorKind: "AGENT"');
+    expect(tools).not.toContain('projectService.updateProject(');
     const cutStart = tools.indexOf('const cutSection = tool(');
     const cutEnd = tools.indexOf('// --- Auto-Edit from Script ---', cutStart);
     const cutSource = tools.slice(cutStart, cutEnd);
