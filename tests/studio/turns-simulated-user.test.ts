@@ -24,8 +24,6 @@ vi.mock("@clerk/nextjs/server", () => ({ auth: async () => sim.auth }));
 
 /* engines are mocked — this test proves the SPINE, not ThinkForge */
 vi.mock("@/lib/studio/orchestrator/write", () => ({ runWriteTurn: vi.fn() }));
-vi.mock("@/lib/studio/orchestrator/edit", () => ({ runEditTurn: vi.fn() }));
-vi.mock("@/lib/studio/orchestrator/auto-edit", () => ({ runAutoEditTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/distribute", () => ({ runDistributeTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/design", () => ({ runDesignTurn: vi.fn() }));
 vi.mock("@/lib/studio/orchestrator/analyze", () => ({ runAnalyzeTurn: vi.fn() }));
