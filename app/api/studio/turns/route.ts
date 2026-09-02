@@ -7,6 +7,7 @@ import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
 import { appendTurnEvent, claimOperation, connectSpine, drainOutbox, enqueueOutbox, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
+import { authorizeBrandScope, BrandScopeAuthorizationError } from "@/lib/shared/brand-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,6 +62,20 @@ export async function POST(req: Request) {
   let spineProjectId: string | null = null;
   let spineOperationId: string | null = null;
   try {
+    /* §19: every route checks organization, brand and Project access — a
+     * request-scoped brandId is verified against the caller's accepted Brand
+     * Vault records BEFORE it is stamped onto a Project. No cross-brand
+     * fallback: deny outright. */
+    if (request.brandId) {
+      try {
+        await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: request.brandId });
+      } catch (error) {
+        if (error instanceof BrandScopeAuthorizationError) {
+          return NextResponse.json({ error: "brand_access_denied", brandId: request.brandId }, { status: 403 });
+        }
+        throw error;
+      }
+    }
     await connectSpine();
     const project = await getOrCreateProject({
       projectId: spineProjectIdOrNull(request.deliverableId),

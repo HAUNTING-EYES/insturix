@@ -106,6 +106,21 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
   });
 
+  it("a brand the caller has no accepted vault record for is denied (403, no fallback)", async () => {
+    const res = await POST(
+      postTurn({
+        deliverableId: "del_live",
+        threadId: "th_live",
+        text: "make a launch reel",
+        mode: "direct",
+        operationId: crypto.randomUUID(),
+        brandId: "br_not_granted_to_sim_user",
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("brand_access_denied");
+  });
+
   it("an edit-family turn declines honestly (Editron WIP): gap card, persisted, replayable", async () => {
     const opId = crypto.randomUUID();
     const res = await POST(

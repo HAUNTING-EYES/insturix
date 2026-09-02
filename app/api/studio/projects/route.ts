@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { connectSpine, getOrCreateProject, ProjectModel } from "@/lib/studio/persist/db";
 import { computeProjectStatus, listNeedsYouProjects } from "@/lib/studio/persist/status";
+import { authorizeBrandScope, BrandScopeAuthorizationError } from "@/lib/shared/brand-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +69,18 @@ export async function POST(req: Request) {
   }
 
   try {
+    /* §19: brand-scoped create — a brandId the caller has no accepted Brand
+     * Vault record for is denied outright, never silently stamped. */
+    if (parsed.data.brandId) {
+      try {
+        await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: parsed.data.brandId });
+      } catch (error) {
+        if (error instanceof BrandScopeAuthorizationError) {
+          return NextResponse.json({ error: "brand_access_denied", brandId: parsed.data.brandId }, { status: 403 });
+        }
+        throw error;
+      }
+    }
     await connectSpine();
     const project = await getOrCreateProject({
       projectId: null,
