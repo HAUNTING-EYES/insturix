@@ -8,6 +8,7 @@ const infrastructureMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  loadWholeStateMediaPrerequisite: vi.fn(),
   outboxFindOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
@@ -53,6 +54,8 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 vi.mock('@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1', () => ({
   materializeProjectWholeStateMediaPrerequisiteInMongoV1:
     infrastructureMocks.wholeStateMediaPrerequisite,
+  loadProjectWholeStateMediaPrerequisiteByLinkV1:
+    infrastructureMocks.loadWholeStateMediaPrerequisite,
   projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
     status: 'MATERIALIZED',
     collection: 'editron_project_whole_state_media_prerequisites_v1',
@@ -97,6 +100,15 @@ import {
   type ProjectMutationReceiptV1,
   type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
+
+const WHOLE_STATE_MEDIA_PREREQUISITE_LINK = Object.freeze({
+  status: 'MATERIALIZED' as const,
+  collection: 'editron_project_whole_state_media_prerequisites_v1' as const,
+  receiptSha256: 'd'.repeat(64),
+  candidateMediaSetSha256: 'c'.repeat(64),
+  candidateMediaContentSha256: 'e'.repeat(64),
+  mediaEntryCount: 0,
+});
 
 class MemoryCheckpointStore {
   readonly checkpoints = new Map<string, Checkpoint>();
@@ -350,6 +362,17 @@ function writerReceipt(projectId = 'proj_1'): ProjectMutationReceiptV1 {
 }
 
 beforeEach(() => {
+  infrastructureMocks.loadWholeStateMediaPrerequisite.mockReset().mockImplementation(
+    async (link: typeof WHOLE_STATE_MEDIA_PREREQUISITE_LINK) => ({
+      operation: 'CAPTURE_CHECKPOINT_STATE',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      projectOwnerId: 'user_1',
+      orgId: null,
+      candidateMediaContentSha256: link.candidateMediaContentSha256,
+      mediaEntries: Array.from({ length: link.mediaEntryCount }),
+    }),
+  );
   infrastructureMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
     async (input: any) => ({
       schemaVersion: 1,
@@ -372,6 +395,7 @@ afterEach(() => {
   infrastructureMocks.findOne.mockReset();
   infrastructureMocks.getDatabase.mockReset();
   infrastructureMocks.insertOne.mockReset();
+  infrastructureMocks.loadWholeStateMediaPrerequisite.mockReset();
   infrastructureMocks.outboxFindOne.mockReset();
   infrastructureMocks.findOneAndUpdate.mockReset();
   infrastructureMocks.updateOne.mockReset();
@@ -1287,6 +1311,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_direct_restore',
       actorKind: 'SYSTEM',
       expectedRevision,
+      capturedWholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       setFields: { overlays: structuredClone(ORIGINAL_PROJECT.overlays), fps: 30 },
       unsetFields: ['metadata'],
     });
@@ -1301,6 +1326,7 @@ describe('chat AI edit transaction runtime', () => {
       downstreamInvalidation: {
         status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
       },
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
     });
     expect(infrastructureMocks.insertOne.mock.invocationCallOrder[0])
       .toBeLessThan(infrastructureMocks.findOneAndUpdate.mock.invocationCallOrder[0]!);
@@ -1338,6 +1364,7 @@ describe('chat AI edit transaction runtime', () => {
         }],
       })
       .mockResolvedValueOnce(baseProject);
+    infrastructureMocks.findOne.mockResolvedValueOnce(baseProject);
     infrastructureMocks.getDatabase.mockResolvedValue({
       collection: (name: string) => {
         if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
@@ -1351,6 +1378,7 @@ describe('chat AI edit transaction runtime', () => {
         checkpointId: 'ckpt_restore_barriers',
         actorKind: 'SYSTEM',
         expectedRevision,
+        capturedWholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
         setFields,
         unsetFields: [],
       },
@@ -1367,7 +1395,22 @@ describe('chat AI edit transaction runtime', () => {
       overlays: structuredClone(ORIGINAL_PROJECT.overlays),
       fps: 0,
     })).rejects.toMatchObject({ code: 'PROJECT_MUTATION_WRITE_FAILED' });
+    infrastructureMocks.loadWholeStateMediaPrerequisite.mockResolvedValueOnce({
+      operation: 'CAPTURE_CHECKPOINT_STATE',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      projectOwnerId: 'user_1',
+      orgId: null,
+      candidateMediaContentSha256: 'f'.repeat(64),
+      mediaEntries: [],
+    });
+    await expect(restore({ overlays: structuredClone(ORIGINAL_PROJECT.overlays) }))
+      .rejects.toMatchObject({
+        code: 'PROJECT_MUTATION_WRITE_FAILED',
+        message: expect.stringContaining('no longer matches'),
+      });
     expect(infrastructureMocks.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(infrastructureMocks.insertOne).not.toHaveBeenCalled();
   });
 
   it('rejects a stale browser-selected restore with zero project or checkpoint mutation', async () => {
@@ -1379,6 +1422,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_stale_browser', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'stale browser', type: 'before-llm', createdAt: new Date(),
     };
     const projectAfterBrowserMutation = { ...structuredClone(ORIGINAL_PROJECT), projectRevision: 8 };
@@ -1411,6 +1455,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_stale_worker', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'stale worker', type: 'before-llm', createdAt: new Date(),
     });
     vi.spyOn(projectService, 'restoreCheckpointState').mockRejectedValue(new ProjectMutationConflictError({
@@ -1440,6 +1485,7 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: 'ckpt_retry', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
       overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
       stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      wholeStateMediaPrerequisite: WHOLE_STATE_MEDIA_PREREQUISITE_LINK,
       timestamp: new Date(), description: 'retry', type: 'before-llm', createdAt: new Date(),
     };
     const service = new CheckpointService();
@@ -1539,6 +1585,40 @@ describe('chat AI edit transaction runtime', () => {
       expectedStateHash: 'corrupt-state-hash',
     });
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy full-state checkpoint without sealed media prerequisites', async () => {
+    const service = new CheckpointService();
+    const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const restore = vi.spyOn(projectService, 'restoreCheckpointState');
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_legacy_media',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState,
+      stateHash: projectStateFingerprint(projectState),
+      stateHashVersion: 2,
+      timestamp: new Date(),
+      description: 'Legacy full-state checkpoint',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    await expect(service.restoreProjectCheckpoint('ckpt_legacy_media', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+      actorKind: 'USER',
+    })).resolves.toMatchObject({
+      restored: false,
+      reason: 'legacy-checkpoint-missing-media-prerequisite',
+    });
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it('keeps the authenticated restore route project-scoped and verification-gated', async () => {

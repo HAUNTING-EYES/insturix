@@ -204,6 +204,7 @@ import {
   type ProjectRenderSnapshotInvalidationOutboxCollectionV1,
 } from "./project-render-snapshot-invalidation-v1";
 import {
+  loadProjectWholeStateMediaPrerequisiteByLinkV1,
   materializeProjectWholeStateMediaPrerequisiteInMongoV1,
   projectWholeStateMediaPrerequisiteLinkV1,
   type ProjectWholeStateMediaPrerequisiteLinkV1,
@@ -1171,6 +1172,7 @@ export interface ProjectCheckpointRestoreInputV1 {
   checkpointId: string;
   actorKind: ProjectTimelineMutationActorKindV1;
   expectedRevision: ProjectRevisionV1;
+  capturedWholeStateMediaPrerequisite: ProjectWholeStateMediaPrerequisiteLinkV1;
   setFields: Record<string, unknown>;
   unsetFields: string[];
 }
@@ -8532,6 +8534,61 @@ export class ProjectService {
       );
     }
 
+    let capturedWholeStateMediaPrerequisite;
+    try {
+      capturedWholeStateMediaPrerequisite =
+        await loadProjectWholeStateMediaPrerequisiteByLinkV1(
+          input.capturedWholeStateMediaPrerequisite,
+          db,
+        );
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore media prerequisite could not be authenticated: "
+          + (error instanceof Error ? error.message : "UNKNOWN"),
+      );
+    }
+    const currentOrgId = currentProject.orgId ?? null;
+    if (
+      capturedWholeStateMediaPrerequisite.operation !== "CAPTURE_CHECKPOINT_STATE"
+      || capturedWholeStateMediaPrerequisite.projectId !== projectId
+      || capturedWholeStateMediaPrerequisite.userId !== userId
+      || capturedWholeStateMediaPrerequisite.projectOwnerId !== currentProject.userId
+      || capturedWholeStateMediaPrerequisite.orgId !== currentOrgId
+    ) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore media prerequisite does not belong to this project scope.",
+      );
+    }
+    let wholeStateMediaPrerequisite;
+    try {
+      wholeStateMediaPrerequisite =
+        await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+          operation: "RESTORE_CHECKPOINT_STATE",
+          tenantId: currentOrgId ?? currentProject.userId,
+          userId,
+          projectOwnerId: currentProject.userId,
+          orgId: currentOrgId,
+          projectId,
+          projectRevision: currentRevision,
+          overlays: prospectiveOverlays,
+        }, db, COLLECTIONS.MEDIA_ASSETS);
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore media prerequisite could not be freshly authorized: "
+          + (error instanceof Error ? error.message : "UNKNOWN"),
+      );
+    }
+    if (
+      wholeStateMediaPrerequisite.candidateMediaContentSha256
+        !== capturedWholeStateMediaPrerequisite.candidateMediaContentSha256
+      || wholeStateMediaPrerequisite.mediaEntries.length
+        !== capturedWholeStateMediaPrerequisite.mediaEntries.length
+    ) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint restore media content no longer matches the captured prerequisite basis.",
+      );
+    }
+
     const committedAt = new Date();
     const afterRevision = projectMutationReceiptAfterV1(
       projectId,
@@ -8560,6 +8617,8 @@ export class ProjectService {
       beforeOverlays: currentProject.overlays ?? [],
       afterOverlays: prospectiveOverlays,
       projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       changedPaths: [
         ...Object.keys(input.setFields),
         ...input.unsetFields,

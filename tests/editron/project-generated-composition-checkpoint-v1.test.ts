@@ -20,6 +20,8 @@ const persistence = vi.hoisted(() => ({
   findOneAndUpdate: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  loadWholeStateMediaPrerequisite: vi.fn(),
+  materializeWholeStateMediaPrerequisite: vi.fn(),
   outboxFindOne: vi.fn(),
 }));
 
@@ -37,6 +39,13 @@ vi.mock("@/lib/editron/services/asset-resolver", () => ({
     stripUrlsForLLM: vi.fn((overlays) => overlays),
   },
 }));
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  loadProjectWholeStateMediaPrerequisiteByLinkV1:
+    persistence.loadWholeStateMediaPrerequisite,
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistence.materializeWholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: () => MEDIA_PREREQUISITE_LINK,
+}));
 vi.mock("@/lib/services/orgMemberService", () => ({
   orgMemberService: { isMember: vi.fn() },
 }));
@@ -50,6 +59,14 @@ const REVISION: ProjectRevisionV1 = {
   value: 4,
   compatibilityUpdatedAt: "2026-08-15T10:00:00.000Z",
 };
+const MEDIA_PREREQUISITE_LINK = Object.freeze({
+  status: "MATERIALIZED" as const,
+  collection: "editron_project_whole_state_media_prerequisites_v1" as const,
+  receiptSha256: "d".repeat(64),
+  candidateMediaSetSha256: "c".repeat(64),
+  candidateMediaContentSha256: "e".repeat(64),
+  mediaEntryCount: 0,
+});
 
 describe("generated composition checkpoint participation", () => {
   beforeEach(() => {
@@ -57,6 +74,19 @@ describe("generated composition checkpoint participation", () => {
     persistence.findOneAndUpdate.mockReset();
     persistence.getDatabase.mockReset();
     persistence.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistence.loadWholeStateMediaPrerequisite.mockReset().mockResolvedValue({
+      operation: "CAPTURE_CHECKPOINT_STATE",
+      projectId: "project-1",
+      userId: "user-1",
+      projectOwnerId: "user-1",
+      orgId: null,
+      candidateMediaContentSha256: MEDIA_PREREQUISITE_LINK.candidateMediaContentSha256,
+      mediaEntries: [],
+    });
+    persistence.materializeWholeStateMediaPrerequisite.mockReset().mockResolvedValue({
+      candidateMediaContentSha256: MEDIA_PREREQUISITE_LINK.candidateMediaContentSha256,
+      mediaEntries: [],
+    });
     persistence.outboxFindOne.mockReset().mockResolvedValue(null);
     persistence.getDatabase.mockResolvedValue({
       collection: vi.fn((name: string) => name
@@ -110,6 +140,7 @@ describe("generated composition checkpoint participation", () => {
         checkpointId: "checkpoint-generated-composition",
         actorKind: "SYSTEM",
         expectedRevision: REVISION,
+        capturedWholeStateMediaPrerequisite: MEDIA_PREREQUISITE_LINK,
         setFields: { generatedCompositions: [] },
         unsetFields: [],
       },
@@ -182,6 +213,7 @@ describe("generated composition checkpoint participation", () => {
         checkpointId: "checkpoint-partial-composition",
         actorKind: "SYSTEM",
         expectedRevision: REVISION,
+        capturedWholeStateMediaPrerequisite: MEDIA_PREREQUISITE_LINK,
         setFields: { "generatedCompositions.0": {} },
         unsetFields: [],
       },
@@ -193,6 +225,7 @@ describe("generated composition checkpoint participation", () => {
         checkpointId: "checkpoint-invalid-composition",
         actorKind: "SYSTEM",
         expectedRevision: REVISION,
+        capturedWholeStateMediaPrerequisite: MEDIA_PREREQUISITE_LINK,
         setFields: { generatedCompositions: [{}] },
         unsetFields: [],
       },

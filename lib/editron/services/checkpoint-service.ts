@@ -511,6 +511,14 @@ export class CheckpointService {
         reason: 'checkpoint-state-hash-mismatch',
       };
     }
+    if (!checkpoint.wholeStateMediaPrerequisite) {
+      return {
+        restored: false,
+        checkpointId,
+        expectedStateHash,
+        reason: 'legacy-checkpoint-missing-media-prerequisite',
+      };
+    }
     const setFields: Record<string, unknown> = {};
     const unsetFields: string[] = [];
 
@@ -531,6 +539,7 @@ export class CheckpointService {
           checkpointId,
           actorKind: options.actorKind,
           expectedRevision: options.expectedRevision,
+          capturedWholeStateMediaPrerequisite: checkpoint.wholeStateMediaPrerequisite,
           setFields,
           unsetFields,
         },
