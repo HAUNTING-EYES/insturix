@@ -17084,3 +17084,76 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4Y media-prerequisite checkpoint
+
+Commits `eca0edb1a`, `e7ad6241f`, `2b3b5eda3`, `6a075f084`,
+`6477a8729`, `091fe240b`, `23ce071ad`, `075a22af8`, `653e27aae`
+and `1873963ca` close the operation-specific media-prerequisite slice for
+whole-state save/autosave, checkpoint capture and checkpoint restore. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+One shared owner now inventories every video, image, sound and generated
+motion-graphics overlay and fails closed unless its asset, qualified source
+version or generated source identity, current source rights, audio evidence
+where applicable, and original/generated/derived predecessor are valid for
+the exact project scope. A sealed content-addressed receipt is written to its
+dedicated Atlas collection before the whole-state project writer runs. The
+project timeline receipt stores only the authenticated compact link. Numeric
+and string overlay identities are supported, while canonical collisions such
+as `1` and `"1"` are rejected.
+
+Checkpoint capture reloads the authoritative ProjectService snapshot, seals
+that exact snapshot's media prerequisites and stores the compact link on the
+checkpoint. Restore does not trust the embedded link. It loads and revalidates
+the sealed Atlas receipt, verifies capture operation/project/user/owner/org
+scope, freshly re-authorizes the candidate restore against the current source
+and rights state, and requires its stable media-content basis and entry count
+to equal the captured basis before invalidation admission or project CAS. The
+stable basis deliberately excludes time-varying rights receipt/timestamp
+details while retaining the rights disposition; the full fresh receipt still
+binds those current details. A legacy full-state checkpoint without the sealed
+media prerequisite is explicitly non-restorable rather than silently trusted.
+
+The combined whole-state/checkpoint regression gate passed 122/122 tests.
+Targeted quiet ESLint, repeated full 8-GB TypeScript and `git diff --check`
+passed before the corresponding pushes. No provider call, render, storage
+spend, wallet mutation, customer project edit, paid-cohort rerun or model
+inference occurred.
+
+This is not universal Queue 5 closure. The receipt write precedes a later
+project/checkpoint CAS or insert, so a losing writer can leave an unreferenced
+content-addressed receipt; bounded retention and recovery classification are
+still required. Existing legacy checkpoints remain safely blocked until an
+authoritative migration/recapture rule can prove their exact media basis.
+Direct and specialized ProjectService writers still require explicit
+operation-by-operation prerequisite/invalidation classification.
+
+The remaining Queue 5 order is now:
+
+1. Classify and enforce durable invalidation plus applicable source, rights,
+   audio, predecessor, revision, range and lock prerequisites for every
+   remaining direct and specialized ProjectService writer. Metadata-only and
+   lease-only owners must explicitly record non-applicability.
+2. Add bounded retention/recovery for unreferenced whole-state prerequisite
+   receipts and an authoritative legacy checkpoint migration/recapture rule;
+   never synthesize evidence for historical state.
+3. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
