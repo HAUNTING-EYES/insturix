@@ -23,6 +23,7 @@ export function StudioHome() {
   const REAL = studioRealTurnsEnabled;
   const [brand, setBrand] = useState<string>(MOCK_BRANDS[0].id);
   const [prompt, setPrompt] = useState("");
+  const [creating, setCreating] = useState(false);
   const [realDeliverables, setRealDeliverables] = useState<StudioDeliverable[] | null>(null);
   const [attention, setAttention] = useState<{ id: string; title: string; detail: string; severity: string; href: string | null }[]>([]);
   const [inFlight, setInFlight] = useState<{ engine: string; label: string; stage: string; href: string | null }[]>([]);
@@ -50,6 +51,32 @@ export function StudioHome() {
 
   const go = (id: string) => router.push(`/studio/d/${id}`);
 
+  /* plan §7: the Home composer creates the persisted Project BEFORE work
+   * begins — real mode never lands on a mock id. The prompt rides along as
+   * ?q= and the session sends it as the first turn (Slice 2b). */
+  const startProject = () => {
+    if (!REAL) {
+      go(MOCK_DELIVERABLE.id);
+      return;
+    }
+    if (!prompt.trim() || creating) {
+      go("live");
+      return;
+    }
+    setCreating(true);
+    fetch("/api/studio/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: prompt.trim().slice(0, 120) }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { projectId: string }) => router.push(`/studio/d/${d.projectId}?q=${encodeURIComponent(prompt.trim())}`))
+      .catch(() => {
+        setCreating(false);
+        go("live");
+      });
+  };
+
   return (
     <div className="stu">
       <header className="stu-top">
@@ -69,7 +96,7 @@ export function StudioHome() {
             className="stu-bigprompt"
             onSubmit={(e) => {
               e.preventDefault();
-              go(MOCK_DELIVERABLE.id);
+              startProject();
             }}
           >
             <input
