@@ -10,6 +10,11 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import {
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1,
+  projectWholeStateMediaPrerequisiteLinkV1,
+  type ProjectWholeStateMediaPrerequisiteLinkV1,
+} from './project-whole-state-media-prerequisite-runtime-v1';
+import {
   ProjectMutationConflictError,
   ProjectNotFoundOrForbiddenError,
   projectService,
@@ -87,6 +92,7 @@ export interface Checkpoint {
   stateHash?: string;
   stateHashVersion?: 2;
   capturedProjectRevision?: ProjectRevisionV1;
+  wholeStateMediaPrerequisite?: ProjectWholeStateMediaPrerequisiteLinkV1;
   rollbackReceipts?: CheckpointRollbackReceiptV1[];
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
@@ -244,6 +250,20 @@ export class CheckpointService {
 
     const checkpointId = input.checkpointId ?? `ckpt_${nanoid(12)}`;
     const now = new Date();
+    const wholeStateMediaPrerequisite = await materializeProjectWholeStateMediaPrerequisiteInMongoV1(
+      {
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: snapshot.project.orgId ?? snapshot.project.userId,
+        userId: input.userId,
+        projectOwnerId: snapshot.project.userId,
+        orgId: snapshot.project.orgId ?? null,
+        projectId: input.projectId,
+        projectRevision: snapshot.revision,
+        overlays: (cleanState.fields.overlays ?? []) as Overlay[],
+      },
+      db,
+      COLLECTIONS.MEDIA_ASSETS,
+    );
     const checkpoint: Checkpoint = {
       _id: checkpointId,
       checkpointId,
@@ -255,6 +275,8 @@ export class CheckpointService {
       stateHash,
       stateHashVersion: CURRENT_STATE_HASH_VERSION,
       capturedProjectRevision: snapshot.revision,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: now,

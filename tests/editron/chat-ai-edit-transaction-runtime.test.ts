@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const infrastructureMocks = vi.hoisted(() => ({
   auth: vi.fn(async () => ({ userId: 'user_1' })),
@@ -11,6 +11,7 @@ const infrastructureMocks = vi.hoisted(() => ({
   outboxFindOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
 }));
 
 function emulateMongoRoundTrip<T>(value: T): T {
@@ -47,6 +48,19 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
     stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
     resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
   },
+}));
+
+vi.mock('@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1', () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    infrastructureMocks.wholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: 'MATERIALIZED',
+    collection: 'editron_project_whole_state_media_prerequisites_v1',
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 import { POST as restoreCheckpointRoute } from '@/app/api/services/editron/checkpoints/restore/route';
@@ -334,6 +348,23 @@ function writerReceipt(projectId = 'proj_1'): ProjectMutationReceiptV1 {
     committedAt: '2026-08-09T00:00:07.000Z',
   };
 }
+
+beforeEach(() => {
+  infrastructureMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+    async (input: any) => ({
+      schemaVersion: 1,
+      kind: 'EDITRON_PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_V1',
+      ...input,
+      mediaEntries: input.overlays
+        .filter((overlay: any) => ['video', 'image', 'sound', 'mg-sequence'].includes(overlay.type))
+        .map((overlay: any) => ({ overlayId: overlay.id })),
+      candidateMediaSetSha256: 'c'.repeat(64),
+      candidateMediaContentSha256: 'e'.repeat(64),
+      issuedAt: '2026-09-02T06:00:00.000Z',
+      receiptSha256: 'd'.repeat(64),
+    }),
+  );
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -1012,6 +1043,30 @@ describe('chat AI edit transaction runtime', () => {
       'overlays', 'fps', 'durationInFrames', 'playerDimensions', 'metadata', 'sourceAssetIds',
     ]));
     expect(insertedCheckpoint?.stateHashVersion).toBe(2);
+    expect(insertedCheckpoint?.wholeStateMediaPrerequisite).toEqual({
+      status: 'MATERIALIZED',
+      collection: 'editron_project_whole_state_media_prerequisites_v1',
+      receiptSha256: 'd'.repeat(64),
+      candidateMediaSetSha256: 'c'.repeat(64),
+      candidateMediaContentSha256: 'e'.repeat(64),
+      mediaEntryCount: 0,
+    });
+    expect(infrastructureMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'CAPTURE_CHECKPOINT_STATE',
+        tenantId: 'user_1',
+        userId: 'user_1',
+        projectOwnerId: 'user_1',
+        orgId: null,
+        projectId: 'proj_1',
+        projectRevision: expectedRevision,
+        overlays: expect.arrayContaining([
+          expect.objectContaining({ id: 1, type: 'text' }),
+        ]),
+      }),
+      expect.anything(),
+      COLLECTIONS.MEDIA_ASSETS,
+    );
     vi.spyOn(service, 'getCheckpoint').mockResolvedValue(insertedCheckpoint ?? null);
 
     const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', {
