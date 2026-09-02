@@ -10,6 +10,10 @@ export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_KIND_V1 =
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const identifier = z.string().trim().min(1).max(500);
+const overlayIdentifier = z.union([
+  z.number().int().nonnegative(),
+  identifier,
+]);
 const revision = z.object({
   schemaVersion: z.literal(1),
   value: z.number().int().nonnegative(),
@@ -29,7 +33,7 @@ const predecessor = z.object({
   }
 });
 const entry = z.object({
-  overlayId: z.number().int().nonnegative(),
+  overlayId: overlayIdentifier,
   overlayType: z.enum(['video', 'image', 'sound', 'mg-sequence']),
   assetId: identifier,
   overlayFingerprintSha256: sha256,
@@ -86,8 +90,11 @@ export type ProjectWholeStateMediaPrerequisiteMaterialV1 = z.infer<typeof materi
 export function createProjectWholeStateMediaPrerequisiteReceiptV1(
   input: Omit<ProjectWholeStateMediaPrerequisiteMaterialV1, 'schemaVersion' | 'kind' | 'candidateMediaSetSha256'>,
 ): ProjectWholeStateMediaPrerequisiteReceiptV1 {
-  const mediaEntries = [...input.mediaEntries].sort((left, right) => left.overlayId - right.overlayId);
-  if (new Set(mediaEntries.map(({ overlayId }) => overlayId)).size !== mediaEntries.length) {
+  const mediaEntries = [...input.mediaEntries].sort((left, right) => (
+    overlayIdentity(left.overlayId).localeCompare(overlayIdentity(right.overlayId))
+  ));
+  if (new Set(mediaEntries.map(({ overlayId }) => overlayIdentity(overlayId))).size
+    !== mediaEntries.length) {
     throw new Error('PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_OVERLAY_ID_DUPLICATE');
   }
   const material = materialSchema.parse({
@@ -113,7 +120,12 @@ export function assertProjectWholeStateMediaPrerequisiteReceiptV1(
     throw new Error('PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_HASH_MISMATCH');
   }
   if (receipt.mediaEntries.some((value, index) => (
-    index > 0 && receipt.mediaEntries[index - 1]!.overlayId >= value.overlayId
+    index > 0 && overlayIdentity(receipt.mediaEntries[index - 1]!.overlayId)
+      >= overlayIdentity(value.overlayId)
   ))) throw new Error('PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_ORDER_INVALID');
   return deepFreezeEditronJsonV1(receipt);
+}
+
+function overlayIdentity(value: string | number): string {
+  return String(value);
 }

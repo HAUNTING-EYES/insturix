@@ -91,6 +91,26 @@ describe('project whole-state media prerequisite V1', () => {
     });
   });
 
+  it('supports stable string overlay identities and rejects cross-type duplicates', async () => {
+    const assets = [{
+      assetId: 'video_1', userId: 'user_1', type: 'video', source: 'user-upload',
+      sourceVersionV1: source('video_1', 'video'),
+    }];
+    const stringIdentity = video({ id: 'server-video' }) as unknown as Overlay;
+    const receipt = await issueProjectWholeStateMediaPrerequisiteV1({
+      ...SCOPE,
+      overlays: [stringIdentity],
+    }, ports(assets));
+    expect(receipt.mediaEntries[0]?.overlayId).toBe('server-video');
+
+    await expect(issueProjectWholeStateMediaPrerequisiteV1({
+      ...SCOPE,
+      overlays: [video({ id: 1 }), video({ id: '1' }) as unknown as Overlay],
+    }, ports(assets))).rejects.toThrow(
+      'PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_OVERLAY_ID_DUPLICATE',
+    );
+  });
+
   it('rejects missing or cross-owner source assets', async () => {
     await expect(issueProjectWholeStateMediaPrerequisiteV1({
       ...SCOPE,
