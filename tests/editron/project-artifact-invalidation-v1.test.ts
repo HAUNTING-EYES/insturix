@@ -5,6 +5,7 @@ import {
   RenderJobSchema,
   type RenderJob,
 } from "@/lib/editron/schemas/render-job";
+import { createProjectRenderSnapshotBindingV1 } from "@/lib/editron/services/project-render-snapshot-binding-v1";
 import {
   fenceRenderJobsForProjectArtifactInvalidationV1,
   getCurrentRenderJobV1,
@@ -184,6 +185,38 @@ function makeBoundRenderJob(
         }
       : {}),
   });
+}
+
+function makeSnapshotRenderJob(
+  artifactId: string,
+  target: ProjectArtifactTargetV1,
+): RenderJob {
+  const binding = createProjectRenderSnapshotBindingV1({
+    artifactKind: "RENDERED_PREVIEW",
+    artifactId,
+    ownerId: OWNER_ID,
+    projectId: PROJECT_ID,
+    projectRevision: BEFORE_REVISION,
+    sequenceId: "main",
+    compositionId: "MainComposition",
+    renderContract: { delivery: "review" },
+    durationInFrames: 240,
+    fps: 30,
+    width: 1920,
+    height: 1080,
+    projectRenderSource: { overlays: [{ id: target.overlayId }] },
+    containedVideoTargets: [target],
+  });
+  return createPendingRenderJob(
+    artifactId,
+    OWNER_ID,
+    PROJECT_ID,
+    "us-east-1",
+    8_000,
+    undefined,
+    binding,
+    OWNER_ID,
+  );
 }
 
 class MemoryOutboxCollection implements ProjectArtifactInvalidationOutboxCollectionV1 {
@@ -371,6 +404,45 @@ describe("Project artifact invalidation V1", () => {
     expect(result.fencedArtifactIds).toEqual(["scanned-delivery"]);
     expect(result.unresolvedArtifactIds).toEqual(["blocked-preview"]);
     expect(result.resolvedDerivativeClasses).toEqual(["DELIVERY_PROOF"]);
+  });
+
+  it("fences a whole-project snapshot only when its sealed target index contains the replacement", async () => {
+    const receipt = makeReceipt();
+    const matching = makeSnapshotRenderJob("snapshot-matching", TARGET);
+    const unrelated = makeSnapshotRenderJob("snapshot-unrelated", {
+      ...TARGET,
+      overlayId: 99,
+      expectedAssetId: "asset-unrelated",
+      targetFingerprint: "b".repeat(64),
+    });
+    const collection = new MemoryRenderCollection([matching, unrelated]);
+
+    const result = await fenceRenderJobsForProjectArtifactInvalidationV1({
+      receipt,
+      collection: collection as never,
+    });
+
+    expect(result.fencedArtifactIds).toEqual(["snapshot-matching"]);
+    expect(result.unresolvedArtifactIds).toEqual([]);
+    expect(result.resolvedDerivativeClasses).toEqual([
+      "RENDERED_PREVIEW",
+      "DELIVERY_PROOF",
+    ]);
+    expect(result.fences[0]).toMatchObject({
+      binding: {
+        artifactId: "snapshot-matching",
+        target: TARGET,
+      },
+    });
+    expect(collection.documents[0]).toMatchObject({
+      artifactState: "STALE",
+      artifactInvalidation: {
+        receiptId: receipt.receiptId,
+        receiptHash: receipt.receiptHash,
+      },
+    });
+    expect(collection.documents[1]).toMatchObject({ artifactState: "ACTIVE" });
+    expect(collection.documents[1]?.artifactInvalidation).toBeUndefined();
   });
 
   it("fails closed for forged receipts, wrong revisions, and wrong target evidence", () => {

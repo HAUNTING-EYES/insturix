@@ -26,6 +26,7 @@ import {
 import {
   assertProjectArtifactBindingV1,
   assertProjectArtifactInvalidationReceiptV1,
+  createProjectArtifactBindingV1,
   ProjectArtifactProjectRevisionSchema,
   projectArtifactBindingMatchesCurrentV1,
   projectArtifactBindingMatchesInvalidationV1,
@@ -38,6 +39,7 @@ import {
 } from './project-artifact-invalidation-v1';
 import {
   assertProjectRenderSnapshotBindingV1,
+  projectRenderSnapshotBindingMatchesInvalidationV1,
   type ProjectRenderSnapshotBindingV1,
 } from './project-render-snapshot-binding-v1';
 import {
@@ -2262,10 +2264,11 @@ export interface FencedRenderJobsForProjectArtifactInvalidationV1 {
 }
 
 /**
- * Fence only render jobs that carry the exact pre-change binding. Unbound
- * legacy rows are not eligible for this bound fence; existing generic
- * consumers remain unchanged until their bound route migration. ProjectService
- * owns the receipt decision; this service owns the render-job state transition.
+ * Fence only render jobs that carry the exact pre-change target. This covers
+ * both target-scoped artifacts and whole-project snapshots whose sealed target
+ * index contains the target. Unbound legacy rows are not eligible for this
+ * bound fence. ProjectService owns the receipt decision; this service owns the
+ * render-job state transition.
  */
 export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
   receipt: ProjectArtifactInvalidationReceiptV1;
@@ -2280,7 +2283,10 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
     userId: input.receipt.ownerId,
     projectId: input.receipt.projectId,
     artifactState: 'ACTIVE',
-    artifactBinding: { $exists: true },
+    $or: [
+      { artifactBinding: { $exists: true } },
+      { projectRenderSnapshotBinding: { $exists: true } },
+    ],
   }).toArray();
   const fences: ProjectArtifactInvalidationFenceV1[] = [];
   const unresolvedArtifactIds: string[] = [];
@@ -2288,19 +2294,79 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
   let unresolvedUnknownDerivativeClass = false;
 
   for (const candidate of candidates) {
-    if (!candidate.artifactBinding) {
+    if (candidate.artifactBinding && candidate.projectRenderSnapshotBinding) {
       unresolvedArtifactIds.push(candidate._id);
       unresolvedUnknownDerivativeClass = true;
       continue;
     }
-    try {
-      assertProjectArtifactBindingV1(candidate.artifactBinding);
-    } catch {
+    let binding: ProjectArtifactBindingV1;
+    let mutationFilter: Filter<RenderJob>;
+    let replayMatchesSourceBinding: (latest: RenderJob | null) => boolean;
+    if (candidate.artifactBinding) {
+      try {
+        assertProjectArtifactBindingV1(candidate.artifactBinding);
+      } catch {
+        unresolvedArtifactIds.push(candidate._id);
+        unresolvedUnknownDerivativeClass = true;
+        continue;
+      }
+      if (!projectArtifactBindingMatchesInvalidationV1(candidate.artifactBinding, input.receipt)) {
+        continue;
+      }
+      binding = structuredClone(candidate.artifactBinding);
+      mutationFilter = withLegacyRenderJobMutationExclusion({
+        _id: candidate._id,
+        userId: input.receipt.ownerId,
+        projectId: input.receipt.projectId,
+        artifactState: 'ACTIVE',
+        'artifactBinding.bindingHash': candidate.artifactBinding.bindingHash,
+      });
+      replayMatchesSourceBinding = (latest) => (
+        latest?.artifactBinding?.bindingHash === candidate.artifactBinding?.bindingHash
+      );
+    } else if (candidate.projectRenderSnapshotBinding) {
+      try {
+        assertProjectRenderSnapshotBindingV1(candidate.projectRenderSnapshotBinding);
+      } catch {
+        unresolvedArtifactIds.push(candidate._id);
+        unresolvedUnknownDerivativeClass = true;
+        continue;
+      }
+      if (!projectRenderSnapshotBindingMatchesInvalidationV1(
+        candidate.projectRenderSnapshotBinding,
+        {
+          ownerId: input.receipt.ownerId,
+          projectId: input.receipt.projectId,
+          beforeRevision: input.receipt.beforeRevision,
+          target: input.receipt.target,
+        },
+      )) {
+        continue;
+      }
+      binding = createProjectArtifactBindingV1({
+        artifactKind: candidate.projectRenderSnapshotBinding.artifactKind,
+        artifactId: candidate._id,
+        ownerId: input.receipt.ownerId,
+        projectId: input.receipt.projectId,
+        projectRevision: input.receipt.beforeRevision,
+        target: input.receipt.target,
+      });
+      mutationFilter = {
+        _id: candidate._id,
+        userId: input.receipt.ownerId,
+        projectId: input.receipt.projectId,
+        artifactState: 'ACTIVE',
+        artifactBinding: { $exists: false },
+        'projectRenderSnapshotBinding.bindingHash':
+          candidate.projectRenderSnapshotBinding.bindingHash,
+      };
+      replayMatchesSourceBinding = (latest) => (
+        latest?.projectRenderSnapshotBinding?.bindingHash
+          === candidate.projectRenderSnapshotBinding?.bindingHash
+      );
+    } else {
       unresolvedArtifactIds.push(candidate._id);
       unresolvedUnknownDerivativeClass = true;
-      continue;
-    }
-    if (!projectArtifactBindingMatchesInvalidationV1(candidate.artifactBinding, input.receipt)) {
       continue;
     }
     const nextState = candidate.status === 'done' || candidate.status === 'error'
@@ -2308,20 +2374,14 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
       : 'STALE' as const;
     const fence: ProjectArtifactInvalidationFenceV1 = {
       schemaVersion: 1,
-      binding: structuredClone(candidate.artifactBinding),
+      binding,
       priorState: 'ACTIVE',
       nextState,
       cleanup: 'PENDING',
       fencedAt: now.toISOString(),
     };
     const result = await jobs.updateOne(
-      withLegacyRenderJobMutationExclusion({
-        _id: candidate._id,
-        userId: input.receipt.ownerId,
-        projectId: input.receipt.projectId,
-        artifactState: 'ACTIVE',
-        'artifactBinding.bindingHash': candidate.artifactBinding.bindingHash,
-      }),
+      mutationFilter,
       {
         $set: {
           artifactState: nextState,
@@ -2345,8 +2405,8 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
     }
     const latest = await jobs.findOne({ _id: candidate._id });
     if (
-      latest?.artifactBinding
-      && latest.artifactBinding.bindingHash === candidate.artifactBinding.bindingHash
+      latest
+      && replayMatchesSourceBinding(latest)
       && latest.artifactInvalidation?.receiptId === input.receipt.receiptId
       && latest.artifactInvalidation.receiptHash === input.receipt.receiptHash
       && latest.artifactState !== 'ACTIVE'
@@ -2354,7 +2414,7 @@ export async function fenceRenderJobsForProjectArtifactInvalidationV1(input: {
       fences.push(fence);
     } else {
       unresolvedArtifactIds.push(candidate._id);
-      unresolvedDerivativeClasses.add(candidate.artifactBinding.artifactKind);
+      unresolvedDerivativeClasses.add(binding.artifactKind);
     }
   }
 
