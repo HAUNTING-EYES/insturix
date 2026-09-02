@@ -347,3 +347,8 @@
 /* connection rows in the needs-you queue: reconnect = blocked publishing */
 .stu-needsrow.danger { border-color: rgba(212,106,92,.5); }
 .stu-needsrow.danger .stu-needssub { color: var(--red); }
+
+/* ── brands place (§7) ── */
+.stu-brandcard { display: flex; flex-direction: column; gap: 8px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 7px; background: var(--raised); }
+.stu-brandrow { display: flex; align-items: center; gap: 12px; }
+.stu-brandconn { display: flex; flex-wrap: wrap; gap: 7px; }

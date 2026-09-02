@@ -196,6 +196,13 @@ export function StudioRail() {
       {item("calendar", "/studio/calendar", "Calendar", RAIL_ICONS.calendar)}
       {item("library", "/studio/library", "Library", RAIL_ICONS.library)}
       <div className="stu-railgap" />
+      <a href="/account/connections" className="stu-rbtn" title="Account — org, billing, connections, storage">
+        <svg viewBox="0 0 24 24" aria-hidden>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+        </svg>
+        <span className="stu-rl">Account</span>
+      </a>
       <button
         className="stu-rbtn"
         onClick={() => setPopOpen((v) => !v)}
@@ -339,6 +346,62 @@ export function CalendarPlace() {
         </section>
       ))}
       {buckets.size === 0 && !error && <p className="stu-placeempty">nothing yet — start something from Home</p>}
+    </PlaceFrame>
+  );
+}
+
+/* ── Brands place (plan §7) ── */
+
+type BrandsPayload = {
+  brands: Array<{ brandId: string; name: string; acceptedAt: string | null; updatedAt: string; connections: Array<{ platform: string; displayName: string | null }> }>;
+};
+
+export function BrandsPlace() {
+  const REAL = studioRealTurnsEnabled;
+  const [data, setData] = useState<BrandsPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!REAL) return;
+    fetch("/api/studio/brands")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: BrandsPayload) => setData(d))
+      .catch((e: Error) => setError(e.message));
+  }, [REAL]);
+
+  const brands = REAL ? (data?.brands ?? []) : MOCK_BRANDS.map((b) => ({ brandId: b.id, name: b.name, acceptedAt: null, updatedAt: new Date().toISOString(), connections: [] }));
+
+  return (
+    <PlaceFrame
+      crumb="Brands"
+      title="Brands"
+      sub="accepted Brand Vault profiles and their connected accounts — brand truth lives in the vault, changes are made there"
+    >
+      {error && <p className="stu-placeerror">couldn&apos;t load brands ({error}) — showing nothing rather than faking it</p>}
+      {!error && !REAL && <p className="stu-placemock">demo data — real brands appear when STUDIO_REAL_TURNS is on</p>}
+      {brands.map((b) => (
+        <section key={b.brandId} className="stu-daygroup">
+          <div className="stu-brandcard">
+            <div className="stu-brandrow">
+              <span className="stu-daytitle">{b.name}</span>
+              <span className="stu-daysub">{b.acceptedAt ? `vault accepted ${dayBucket(b.acceptedAt)}` : "accepted profile"}</span>
+            </div>
+            <div className="stu-brandconn">
+              {b.connections.length === 0 ? (
+                <span className="stu-needssub">no connected accounts assigned yet</span>
+              ) : (
+                b.connections.map((c) => (
+                  <span key={`${b.brandId}_${c.platform}`} className="stu-chip">
+                    {c.platform}
+                    {c.displayName ? ` · ${c.displayName}` : ""}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+      ))}
+      {brands.length === 0 && !error && <p className="stu-placeempty">no brands yet — accept a scan from the Brand Vault to create one</p>}
     </PlaceFrame>
   );
 }
