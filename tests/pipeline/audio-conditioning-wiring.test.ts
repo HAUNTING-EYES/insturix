@@ -11,13 +11,14 @@ const mocks = vi.hoisted(() => {
     refundCredits: vi.fn(),
     createProject: vi.fn(),
     findProjectBySessionId: vi.fn(),
-    saveProject: vi.fn(),
+    saveProjectWithReceipt: vi.fn(),
     loadProject: vi.fn(),
     loadProjectForMutation: vi.fn(),
     updateOverlay: vi.fn(),
     addOverlay: vi.fn(),
     deleteOverlay: vi.fn(),
     commitPipelineAudioDeliveryV1: vi.fn(),
+    alignCutsToBeatsAtRevisionV1: vi.fn(),
     recordPipelineDirectorIntentV1: vi.fn(),
     getDatabase: vi.fn(),
     dbFindOne: vi.fn(),
@@ -58,13 +59,14 @@ vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
     createProject: mocks.createProject,
     findProjectBySessionId: mocks.findProjectBySessionId,
-    saveProject: mocks.saveProject,
+    saveProjectWithReceipt: mocks.saveProjectWithReceipt,
     loadProject: mocks.loadProject,
     loadProjectForMutation: mocks.loadProjectForMutation,
     updateOverlay: mocks.updateOverlay,
     addOverlay: mocks.addOverlay,
     deleteOverlay: mocks.deleteOverlay,
     commitPipelineAudioDeliveryV1: mocks.commitPipelineAudioDeliveryV1,
+    alignCutsToBeatsAtRevisionV1: mocks.alignCutsToBeatsAtRevisionV1,
     recordPipelineDirectorIntentV1: mocks.recordPipelineDirectorIntentV1,
   },
 }));
@@ -544,7 +546,16 @@ describe('storyboard finalize audio conditioning', () => {
     mocks.refundCredits.mockResolvedValue({ success: true });
     mocks.createProject.mockResolvedValue({ projectId: 'proj_audio' });
     mocks.findProjectBySessionId.mockResolvedValue(null);
-    mocks.saveProject.mockResolvedValue(undefined);
+    mocks.saveProjectWithReceipt.mockResolvedValue({
+      disposition: 'APPLIED',
+      mutationReceipt: {
+        revision: {
+          schemaVersion: 1,
+          value: 2,
+          compatibilityUpdatedAt: '2026-08-25T00:00:00.500Z',
+        },
+      },
+    });
     mocks.loadProjectForMutation.mockResolvedValue({
       project: makeFinalizeTimelineSnapshot(),
       revision: {
@@ -558,6 +569,16 @@ describe('storyboard finalize audio conditioning', () => {
       _projectId: unknown,
       input: Record<string, unknown>,
     ) => makeAudioWorkerDeliveryResult(input));
+    mocks.alignCutsToBeatsAtRevisionV1.mockResolvedValue({
+      disposition: 'APPLIED',
+      mutationReceipt: {
+        revision: {
+          schemaVersion: 1,
+          value: 9,
+          compatibilityUpdatedAt: '2026-08-25T00:00:02.000Z',
+        },
+      },
+    });
     mocks.recordPipelineDirectorIntentV1.mockResolvedValue({
       disposition: 'RECORDED',
       receipt: {
@@ -653,12 +674,8 @@ describe('storyboard finalize audio conditioning', () => {
         version: 'music-coverage-plan-v1',
         mode: 'full',
       }),
-      beatFrames: [
-        { frame: 0, isDownbeat: true },
-        { frame: 15, isDownbeat: false },
-        { frame: 30, isDownbeat: false },
-      ],
     });
+    expect(delivery).not.toHaveProperty('beatFrames');
     expect(delivery.overlays).toHaveLength(1);
     expect(delivery.overlays[0]).toMatchObject({
       from: 0,
@@ -693,8 +710,18 @@ describe('storyboard finalize audio conditioning', () => {
         },
       },
     });
-    expect(mocks.saveProject.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.loadProjectForMutation.mock.invocationCallOrder[0],
+    expect(mocks.alignCutsToBeatsAtRevisionV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_audio',
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 8 }),
+        actorKind: 'SYSTEM',
+        audioOverlayId: delivery.overlays[0].id,
+        evidenceSource: 'persisted-beat-grid',
+      }),
+    );
+    expect(mocks.saveProjectWithReceipt.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.commitPipelineAudioDeliveryV1.mock.invocationCallOrder[0],
     );
     expect(mocks.dbUpdateOne.mock.calls.some(
       ([collectionName, , mutation]) => (
@@ -816,11 +843,10 @@ describe('storyboard finalize audio conditioning', () => {
     expect(mocks.deductCredits.mock.calls.some(
       ([, , action]) => action === 'bgm_generation',
     )).toBe(false);
-    expect(mocks.dbUpdateOne.mock.calls.some(
-      ([collectionName, , mutation]) => (
-        collectionName === 'projects'
-        && mutation?.$set?.musicCoveragePlan?.mode === 'none'
-        && mutation?.$set?.musicCoveragePlan?.reasonCodes?.includes('no-licensed-sections')
+    expect(mocks.saveProjectWithReceipt.mock.calls.some(
+      ([, , , options]) => (
+        options?.projectUpdates?.musicCoveragePlan?.mode === 'none'
+        && options.projectUpdates.musicCoveragePlan.reasonCodes?.includes('no-licensed-sections')
       ),
     )).toBe(true);
   });
@@ -867,10 +893,9 @@ describe('storyboard finalize audio conditioning', () => {
         return pushed.some((overlay: any) => overlay?.row === 3);
       },
     )).toBe(false);
-    expect(mocks.dbUpdateOne.mock.calls.some(
-      ([collectionName, , mutation]) => (
-        collectionName === 'projects'
-        && mutation?.$set?.musicGenerationPolicy?.reason === expectedReason
+    expect(mocks.saveProjectWithReceipt.mock.calls.some(
+      ([, , , options]) => (
+        options?.projectUpdates?.musicGenerationPolicy?.reason === expectedReason
       ),
     )).toBe(true);
   });
@@ -908,6 +933,16 @@ describe('audio worker conditioning', () => {
       _projectId: unknown,
       input: Record<string, unknown>,
     ) => makeAudioWorkerDeliveryResult(input));
+    mocks.alignCutsToBeatsAtRevisionV1.mockResolvedValue({
+      disposition: 'APPLIED',
+      mutationReceipt: {
+        revision: {
+          schemaVersion: 1,
+          value: 9,
+          compatibilityUpdatedAt: '2026-08-25T00:00:02.000Z',
+        },
+      },
+    });
   });
 
   it('keeps project mutation behind ProjectService', () => {
@@ -974,12 +1009,8 @@ describe('audio worker conditioning', () => {
         compatibilityUpdatedAt: '2026-08-25T00:00:00.000Z',
       },
       planningTimelineBindingHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-      beatFrames: [
-        { frame: 0, isDownbeat: true },
-        { frame: 15, isDownbeat: false },
-        { frame: 30, isDownbeat: false },
-      ],
     });
+    expect(delivery).not.toHaveProperty('beatFrames');
     expect(delivery.overlays).toHaveLength(1);
     expect(delivery.overlays[0]).toMatchObject({
       from: 0,
@@ -1007,6 +1038,16 @@ describe('audio worker conditioning', () => {
         },
       },
     });
+    expect(mocks.alignCutsToBeatsAtRevisionV1).toHaveBeenCalledWith(
+      'user_1',
+      'proj_worker',
+      expect.objectContaining({
+        expectedRevision: expect.objectContaining({ value: 8 }),
+        actorKind: 'SYSTEM',
+        audioOverlayId: delivery.overlays[0].id,
+        evidenceSource: 'persisted-beat-grid',
+      }),
+    );
     expect(mocks.alignCutsToBeats).not.toHaveBeenCalled();
     expectNoRawProjectWrite();
     const assetMutation = mocks.dbUpdateOne.mock.calls.find(
