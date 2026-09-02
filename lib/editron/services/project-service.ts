@@ -8465,6 +8465,8 @@ export class ProjectService {
       | "DELETE_OVERLAY"
       | "CUT_TIMELINE_RANGE"
       | "AUTO_EDIT_ASSEMBLY"
+      | "REPLACE_CAPTION_FAMILY"
+      | "REPLACE_BACKGROUND_MUSIC"
       | "APPLY_VIDEO_SPEED_RAMP"
       | "RETIME_VIDEO_SOURCE_RANGE"
       | "CORRECT_VIDEO_ANALYSIS_DURATION"
@@ -12038,12 +12040,36 @@ export class ProjectService {
       );
     }
 
+    const afterCaptions = persistedOverlays.filter(
+      (overlay) => overlay.type === "caption",
+    );
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "REPLACE_CAPTION_FAMILY",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: afterCaptions,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
       value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "REPLACE_CAPTION_FAMILY",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createCaptionFamilyTimelineChangeReceiptV1({
       receiptId: `timeline-caption-family_${nanoid(18)}`,
       projectId,
@@ -12053,7 +12079,10 @@ export class ProjectService {
       afterProjectRevision: afterRevision,
       committedAt: committedAt.toISOString(),
       beforeCaptions,
-      afterCaptions: persistedOverlays.filter((overlay) => overlay.type === "caption"),
+      afterCaptions,
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     });
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       {
@@ -12240,12 +12269,33 @@ export class ProjectService {
       );
     }
 
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "REPLACE_BACKGROUND_MUSIC",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: currentRevision,
+        overlays: afterBgm,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
     const committedAt = new Date();
     const afterRevision: ProjectRevisionV1 = {
       schemaVersion: 1,
       value: currentRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "REPLACE_BACKGROUND_MUSIC",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
       receiptId: `timeline-background-music_${nanoid(18)}`,
       projectId,
@@ -12257,6 +12307,9 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlays: beforeBgm,
       afterOverlays: afterBgm,
+      projectRenderSnapshotInvalidation,
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
       changedPaths: [
         "overlays",
         ...Object.keys(preparedEvidence.setFields),
@@ -17185,6 +17238,8 @@ function createCaptionFamilyTimelineChangeReceiptV1(input: {
   committedAt: string;
   beforeCaptions: readonly Overlay[];
   afterCaptions: readonly Overlay[];
+  projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
+  wholeStateMediaPrerequisite: ProjectWholeStateMediaPrerequisiteLinkV1;
 }): ProjectTimelineRangeChangeReceiptV1 {
   return createOverlayFamilyTimelineChangeReceiptV1({
     ...input,

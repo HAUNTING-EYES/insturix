@@ -3,18 +3,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
+  insertOne: vi.fn(),
   updateOne: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "media_assets" },
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
       findOne: persistenceMocks.findOne,
+      insertOne: persistenceMocks.insertOne,
       updateOne: persistenceMocks.updateOne,
     })),
   })),
   connectToDatabase: vi.fn(),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.wholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 vi.mock("@/lib/editron/services/asset-resolver", () => ({
@@ -117,7 +133,17 @@ function expectedRevision() {
 describe("ProjectService caption-family owner V1", () => {
   beforeEach(() => {
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+      async (input: any) => ({
+        ...input,
+        mediaEntries: [],
+        candidateMediaSetSha256: "a".repeat(64),
+        candidateMediaContentSha256: "b".repeat(64),
+        receiptSha256: "c".repeat(64),
+      }),
+    );
   });
 
   it("atomically replaces captions while persisting the exact stored non-caption objects", async () => {
@@ -161,10 +187,46 @@ describe("ProjectService caption-family owner V1", () => {
         overlayTemporalChange: null,
         timelineCoordinateTransform: null,
         ripple: null,
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          mediaEntryCount: 0,
+        },
       });
+      expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "REPLACE_CAPTION_FAMILY",
+          overlays: [expect.objectContaining({ id: 3 })],
+        }),
+        expect.anything(),
+        "media_assets",
+      );
+      expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+      expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("blocks caption replacement before invalidation and CAS when admission fails", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_UNAVAILABLE"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.replaceCaptionFamilyAtRevisionV1(USER_ID, PROJECT_ID, {
+      expectedRevision: expectedRevision(),
+      actorKind: "AGENT",
+      candidateOverlays: [videoOverlay(), captionOverlay(3)] as any,
+    })).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_UNAVAILABLE");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a stale caller revision before any write", async () => {

@@ -2,18 +2,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
+  insertOne: vi.fn(),
   updateOne: vi.fn(),
+  wholeStateMediaPrerequisite: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "media_assets" },
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
       findOne: persistenceMocks.findOne,
+      insertOne: persistenceMocks.insertOne,
       updateOne: persistenceMocks.updateOne,
     })),
   })),
   connectToDatabase: vi.fn(),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    persistenceMocks.wholeStateMediaPrerequisite,
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 vi.mock("@/lib/editron/services/asset-resolver", () => ({
@@ -165,7 +181,17 @@ function command(candidateOverlays: any[], receipt = assignmentReceipt()) {
 describe("ProjectService background-music owner V1", () => {
   beforeEach(() => {
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.wholeStateMediaPrerequisite.mockReset().mockImplementation(
+      async (input: any) => ({
+        ...input,
+        mediaEntries: input.overlays.map((overlay: any) => ({ overlayId: overlay.id })),
+        candidateMediaSetSha256: "a".repeat(64),
+        candidateMediaContentSha256: "b".repeat(64),
+        receiptSha256: "c".repeat(64),
+      }),
+    );
   });
 
   it("commits one rights-bound BGM family while preserving stored video state", async () => {
@@ -203,10 +229,46 @@ describe("ProjectService background-music owner V1", () => {
         affectedOverlayRefs: ["overlay:2", "overlay:3"],
         timelineCoordinateTransform: null,
         ripple: null,
+        downstreamInvalidation: {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          mediaEntryCount: 1,
+        },
       });
+      expect(persistenceMocks.wholeStateMediaPrerequisite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "REPLACE_BACKGROUND_MUSIC",
+          overlays: [expect.objectContaining({ id: 3, assetId: "bgm_new" })],
+        }),
+        expect.anything(),
+        "media_assets",
+      );
+      expect(persistenceMocks.wholeStateMediaPrerequisite.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.insertOne.mock.invocationCallOrder[0]!);
+      expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+        .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("blocks BGM replacement before invalidation and CAS when media admission fails", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    persistenceMocks.wholeStateMediaPrerequisite.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await expect(projectService.replaceBackgroundMusicAtRevisionV1(
+      USER_ID,
+      PROJECT_ID,
+      command([videoOverlay(), bgmOverlay(3, "bgm_new")]) as any,
+    )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING");
+    expect(persistenceMocks.insertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects a stale revision before any write", async () => {
