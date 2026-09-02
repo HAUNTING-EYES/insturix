@@ -17421,3 +17421,71 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5D duration-owner checkpoint
+
+Commit `5dc4b28a6` closes the current Queue 5 admission slice for
+`CORRECT_VIDEO_ANALYSIS_DURATION` and `RECONCILE_PROJECT_DURATION`. The commit
+is pushed on `infrastructure-improvs-+Editron`.
+
+Video-analysis duration correction no longer converts caller-supplied
+milliseconds into project frames. The worker observation remains audit input,
+but ProjectService now loads the current asset, resolves its verified
+source-time binding, requires exact supported source/project rate compatibility
+and derives the correction from `totalSourceFrameCount`. Missing source timing,
+VFR, mixed/fractional timing or an unrepresentable frame count returns an
+explicit non-eligible result; no approximate conversion runs. The correction
+receipt binds the exact source-time-binding hash, derivation mode and corrected
+frame count.
+
+That media-bearing correction also rejects active Director and overlapping
+timeline locks, materializes current source/right/audio/predecessor evidence
+for the corrected clip, durably enqueues project-snapshot invalidation and only
+then attempts CAS. Historical schema-v1 correction receipts remain readable
+only when all new exact-duration fields are absent; partial hybrid receipts are
+invalid, while every new write contains the complete exact evidence set.
+
+Project-duration reconciliation remains a derived metadata correction: it
+computes the boundary only from exact current overlay ranges and writes no
+overlay/source state. It therefore stores a sealed zero-entry media
+non-applicability receipt, while still rejecting overlapping timeline locks,
+durably invalidating render/delivery snapshots and using exact revision CAS.
+
+The adjacent seven-suite regression gate passed 113/113 tests. Targeted quiet
+ESLint, full 8-GB TypeScript and `git diff --check` passed before the push. No
+provider call, render, storage spend, wallet mutation, customer project edit,
+historical paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The focused correction/reconciliation
+suites mock the external source, prerequisite and outbox stores. Live
+source-qualified Atlas proof remains part of aggregate closure. VFR/rational
+mixed-rate consumption remains Queue 3–4 work rather than an approximate
+duration fallback. Auto-edit, caption, BGM/beat, generated-composition,
+delivery and metadata/analysis/lease writers still require operation-specific
+classification and enforcement.
+
+The remaining Queue 5 order is now:
+
+1. Continue with auto-edit assembly, then the remaining family,
+   generated-composition, delivery and metadata/analysis/lease writers.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   authoritative legacy checkpoint migration/recapture; never synthesize
+   historical evidence.
+3. Add source-qualified live-database cut/retime/duration proofs, run the
+   aggregate Queue 5 mutation-owner suite and full-repository quiet ESLint.
+4. Preserve the external live lane as unresolved until deployed indexes/cron,
+   R2 exact PUT/GET/DELETE, live provider deletion and genuine unbound-row
+   reconstruction or retirement are proved.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
