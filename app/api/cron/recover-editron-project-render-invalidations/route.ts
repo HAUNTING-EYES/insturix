@@ -31,7 +31,9 @@ export async function handleProjectRenderSnapshotInvalidationRecoveryCronV1(
 
   try {
     const recovery = await runner({ limit: 5 });
-    const errors = recovery.invalidation.errors + recovery.cleanup.errors;
+    const errors = recovery.invalidation.errors
+      + recovery.cleanup.errors
+      + recovery.prerequisiteRetention.errors;
     const recoveryRequired = recovery.invalidation.awaitingCommit > 0
       || recovery.invalidation.pending > 0
       || recovery.cleanup.handoffCreated > 0

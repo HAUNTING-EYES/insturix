@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/editron/db/mongodb", () => ({ connectToDatabase: vi.fn() }));
+vi.mock("@/lib/editron/db/mongodb", () => ({
+  connectToDatabase: vi.fn(),
+  getDatabase: vi.fn(),
+}));
 
 import {
   createProjectRenderSnapshotCleanupRecoveryMongoStoreV1,
@@ -103,16 +106,30 @@ describe("project render snapshot cleanup recovery V1", () => {
         results: [],
       };
     });
+    const runPrerequisiteRetention = vi.fn(async () => {
+      order.push("retention");
+      return {
+        scanned: 1,
+        pinned: 1,
+        quarantined: 0,
+        recovered: 0,
+        errors: 0,
+        results: [],
+      };
+    });
     const cycle = await runProjectRenderSnapshotRecoveryCycleV1({
       limit: 5,
       now: NOW,
       runInvalidation,
       runCleanup,
+      runPrerequisiteRetention,
     });
-    expect(order).toEqual(["invalidation", "cleanup"]);
+    expect(order).toEqual(["invalidation", "cleanup", "retention"]);
     expect(cycle.invalidation.materialized).toBe(1);
     expect(cycle.cleanup.handoffCreated).toBe(1);
+    expect(cycle.prerequisiteRetention.pinned).toBe(1);
     expect(runInvalidation).toHaveBeenCalledWith({ limit: 5, now: NOW });
     expect(runCleanup).toHaveBeenCalledWith({ limit: 5, now: NOW });
+    expect(runPrerequisiteRetention).toHaveBeenCalledWith({ limit: 5, now: NOW });
   });
 });

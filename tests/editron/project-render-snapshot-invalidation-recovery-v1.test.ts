@@ -152,6 +152,14 @@ describe("project render snapshot invalidation recovery V1", () => {
         errors: 0,
         results: [],
       },
+      prerequisiteRetention: {
+        scanned: 1,
+        pinned: 1,
+        quarantined: 0,
+        recovered: 0,
+        errors: 0,
+        results: [],
+      },
     }));
     const request = (token?: string) => new Request("https://editron.example.test/api/cron/recover", {
       headers: token ? { authorization: token } : undefined,
@@ -166,6 +174,24 @@ describe("project render snapshot invalidation recovery V1", () => {
       recoveryRequired: true,
     });
     expect(runner).toHaveBeenCalledWith({ limit: 5 });
+
+    const retentionFailureRunner = vi.fn(async () => ({
+      ...(await runner()),
+      prerequisiteRetention: {
+        scanned: 1,
+        pinned: 0,
+        quarantined: 0,
+        recovered: 0,
+        errors: 1,
+        results: [],
+      },
+    }));
+    const failureResponse = await handleProjectRenderSnapshotInvalidationRecoveryCronV1(
+      request("Bearer snapshot-secret"),
+      retentionFailureRunner,
+    );
+    expect(failureResponse.status).toBe(503);
+    await expect(failureResponse.json()).resolves.toMatchObject({ success: false });
     await expect(handleProjectRenderSnapshotInvalidationRecoveryCronV1(
       request("Bearer wrong"),
       runner,

@@ -19,6 +19,10 @@ import {
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
   type ProjectRenderSourceCleanupOutboxV1,
 } from "./project-render-source-cleanup-v1";
+import {
+  sweepProjectWholeStateMediaPrerequisiteRetentionV1,
+  type ProjectWholeStateMediaPrerequisiteRetentionResultV1,
+} from "./project-whole-state-media-prerequisite-retention-v1";
 import { PROJECT_RENDER_JOBS_COLLECTION_V1 } from "./render-job-service";
 
 export const MAX_PROJECT_RENDER_SNAPSHOT_CLEANUP_RECOVERY_BATCH_V1 = 10;
@@ -49,6 +53,7 @@ export interface ProjectRenderSnapshotCleanupRecoveryResultV1 {
 export interface ProjectRenderSnapshotRecoveryCycleResultV1 {
   invalidation: ProjectRenderSnapshotInvalidationRecoveryResultV1;
   cleanup: ProjectRenderSnapshotCleanupRecoveryResultV1;
+  prerequisiteRetention: ProjectWholeStateMediaPrerequisiteRetentionResultV1;
 }
 
 function recoveryLimitV1(limit: number | undefined): number {
@@ -255,6 +260,7 @@ export async function runProjectRenderSnapshotRecoveryCycleV1(input: {
   now?: Date;
   runInvalidation?: typeof sweepProjectRenderSnapshotInvalidationRecoveryV1;
   runCleanup?: typeof runProjectRenderSnapshotCleanupRecoveryV1;
+  runPrerequisiteRetention?: typeof sweepProjectWholeStateMediaPrerequisiteRetentionV1;
 } = {}): Promise<ProjectRenderSnapshotRecoveryCycleResultV1> {
   const limit = recoveryLimitV1(input.limit);
   const now = input.now ?? new Date();
@@ -267,5 +273,7 @@ export async function runProjectRenderSnapshotRecoveryCycleV1(input: {
     limit,
     now,
   });
-  return { invalidation, cleanup };
+  const prerequisiteRetention = await (input.runPrerequisiteRetention
+    ?? sweepProjectWholeStateMediaPrerequisiteRetentionV1)({ limit, now });
+  return { invalidation, cleanup, prerequisiteRetention };
 }
