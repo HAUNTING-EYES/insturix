@@ -1,0 +1,2 @@
+export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 =
+  "editron_project_whole_state_media_prerequisites_v1" as const;

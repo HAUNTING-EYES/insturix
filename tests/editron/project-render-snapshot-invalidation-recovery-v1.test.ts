@@ -212,5 +212,9 @@ describe("project render snapshot invalidation recovery V1", () => {
     const mongo = readFileSync(resolve(REPO_ROOT, "lib/editron/db/mongodb.ts"), "utf8");
     expect(mongo).toContain("project_render_snapshot_invalidation_recovery_v1");
     expect(mongo).toContain("project_render_snapshot_cleanup_recovery_v1");
+    expect(mongo).toContain("project_whole_state_media_prerequisite_retention_due_v1");
+    expect(mongo).toContain("project_whole_state_media_prerequisite_legacy_created_v1");
+    expect(mongo).toContain("project_whole_state_media_prerequisite_retention_ttl_v1");
+    expect(mongo).toContain("expireAfterSeconds: 0");
   });
 });

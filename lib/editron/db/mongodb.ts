@@ -21,6 +21,8 @@ import { CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1 }
   from '@/lib/editron/services/render-chapter-retention';
 import { PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1 }
   from '@/lib/editron/services/project-render-snapshot-invalidation-v1';
+import { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 }
+  from '@/lib/editron/services/project-whole-state-media-prerequisite-persistence-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -87,6 +89,8 @@ export const COLLECTIONS = {
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   PROJECT_RENDER_JOBS: 'editron_render_jobs',
+  PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES:
+    PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1,
   CHAPTER_RENDER_CHAPTERS: CHAPTER_RENDER_DISPATCH_CHAPTERS_COLLECTION_V1,
   CHAPTER_RENDER_RETENTION_RECEIPTS: CHAPTER_RENDER_RETENTION_RECEIPTS_COLLECTION_V1,
   PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX: PROJECT_RENDER_SOURCE_CLEANUP_OUTBOX_COLLECTION_V1,
@@ -261,6 +265,22 @@ export async function initializeIndexes(): Promise<void> {
     {
       key: { status: 1, updatedAt: 1, createdAt: 1, _id: 1 },
       name: 'project_render_snapshot_invalidation_recovery_v1',
+    },
+  ]);
+
+  await db.collection(COLLECTIONS.PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES).createIndexes([
+    {
+      key: { 'retention.nextCheckAt': 1, createdAt: 1, _id: 1 },
+      name: 'project_whole_state_media_prerequisite_retention_due_v1',
+    },
+    {
+      key: { createdAt: 1, _id: 1 },
+      name: 'project_whole_state_media_prerequisite_legacy_created_v1',
+    },
+    {
+      key: { 'retention.expiresAt': 1 },
+      name: 'project_whole_state_media_prerequisite_retention_ttl_v1',
+      expireAfterSeconds: 0,
     },
   ]);
 

@@ -5,8 +5,11 @@ import {
   assertProjectWholeStateMediaPrerequisiteReceiptV1,
   type ProjectWholeStateMediaPrerequisiteReceiptV1,
 } from "./project-whole-state-media-prerequisite-contract-v1";
-export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 =
-  "editron_project_whole_state_media_prerequisites_v1" as const;
+import { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 } from
+  "./project-whole-state-media-prerequisite-persistence-v1";
+
+export { PROJECT_WHOLE_STATE_MEDIA_PREREQUISITES_COLLECTION_V1 } from
+  "./project-whole-state-media-prerequisite-persistence-v1";
 
 export const PROJECT_WHOLE_STATE_MEDIA_PREREQUISITE_INITIAL_GRACE_MS_V1 =
   24 * 60 * 60 * 1_000;
