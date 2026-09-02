@@ -68,3 +68,75 @@ against the older phase list after context compaction.
 - Design track DV-1..3 + MatrAIx loops: T2/T4/T5/T8 PASS; T3 fix staged
   (copy), T10 fix built (consent card + live vault, two-column modal);
   verification reruns in flight (t3-v4, t10-v2).
+
+---
+
+## 2026-09-03 (later) — VERBATIM-PLAN AUDIT (supersedes the reconstruction audit above)
+
+Founder pasted the verbatim Codex plan; it now IS `docs/VIBE_OS_MIGRATION_PLAN_CODEX.md`.
+Every studio commit re-audited against the real phase list (§17) and rules.
+The commit→phase mapping changes: what I called "Phase 2/3/4" maps to plan
+Phases 1/2/3/6 as below.
+
+### Phase-by-phase status
+
+| Plan phase | Status | Evidence / gaps |
+|---|---|---|
+| 0 Baseline & authority freeze | PARTIAL | Branch reconcile done (merge 11ff17c2d, zero overlap; 3-agent recon). Wiring checklist is a partial capability ledger; no formal available/partial/deferred/internal/retired ledger doc. |
+| 1 Project & conversation spine | DONE (exit met on reload; multi-device untested) | `e0ecf5398`, `f2bfdd913` + spine libs. Projects/events/seq, project-before-first-turn, hardcoded `del_live`/`th_live` replaced, reload+reconnect replay, TF import. |
+| 2 Operations, context & status | PARTIAL | `48e71639c` (status + Needs-you), `192de0e93` (outbox = streaming resume). MISSING: decision-request records (§9), receipt records with types (§9), Project context loader (§4), artifact/content-item registry, job tray. Status calc covers priority 1/2/4/9 of §6 only — no Publishing/Scheduled/Partially-published/Published derivation, no three-axis (phase/attention/activity) model. |
+| 3 Four-place shell | PARTIAL | `a78973e84`, `d0623d0c7`, `797d44980`, `de8f08c7b`. Home/Project/Calendar/Library + rail live; real mode has no mock records. MISSING: **Brands place** and **Account shell** (§7). |
+| 4 Brand Vault & Vibe Write | NOT STARTED | `acceptedBrandRevision` field reserved on project schema only. |
+| 5 Clickatron & Storyboard | NOT STARTED | Pre-plan design orchestrator + Canvas embed exist (pre-existing, noted). |
+| 6 CalOS & Calendar | DONE EARLY, OUT OF ORDER | `604c4056e`, `6f0b9d93a`, `d9efaa4c5` (read-side: delivery queue, connection health, ScheduleView). Phases 4–5 prerequisites were skipped; work itself is read-only aggregation and complies with §12 (no Studio-owned guesses in real mode; mock demo grid is flag-off demo only). |
+| 7–10 | NOT STARTED | — |
+
+### Violations found (code/process level)
+
+1. **§17 dead-code rule VIOLATED** — "Files over 300 lines require a separate
+   dead-code cleanup commit before structural work. This applies immediately
+   to the current Studio session/thread components." `session.tsx` (~1,100
+   lines) received structural edits (spine wiring, workspace banner) with NO
+   prior cleanup commit. → Remediation queued.
+2. **§3 confirm events not persisted** — plan: conversation stores "Cost
+   approval requested" / "Editorial approval requested" events and reload
+   reconstructs the conversation EXACTLY. Code treats `turn.confirm_required`
+   as transient; on reload a pending confirm resurfaces only as a Needs-you
+   status label, not as a conversation card. → GAP.
+3. **§10 import marker missing** — "Mark imported events as coming from
+   ThinkForge." `tf-import.ts` writes actor user/agent events with no
+   imported-from marker. → GAP.
+4. **§19 brand-access not enforced** — "Every route checks organization,
+   brand and Project access." Studio routes check org (+project ownership)
+   but accept `brandId` from the request without verifying brand scope. → GAP.
+5. **§20 browser E2E gate not run** — plan requires browser E2E per slice;
+   AGENTS.md Rule 14 says the same. Slices shipped with tsc/eslint/unit/
+   simulated-user only. → GAP (process).
+6. **§17 phase order** — Phase 6 read-side work shipped while Phases 4–5 are
+   unstarted (founder approved the work when proposed, but it bypassed the
+   phase gates). Logged, no code change.
+
+### Clean alignments (verified against verbatim text)
+
+- §1 deferrals: edit gate `de8f08c7b` implements exactly "will not expose or
+  route to" Editron; no Musitron/Avatar routing exists in real mode; Home
+  real-mode suggestions fixed this session (`ac4502900`).
+- §3 persistence rule: server saves before/with streaming (persist-before-send);
+  retries reuse one operation ID (idempotency 409s); dropped-stream resume via
+  refetch-from-cursor; outbox parks mid-turn failures.
+- §7 Home composer: creates Project + conversation before work begins, never
+  a mock project, in real mode.
+- §12: real calendar/schedule read from CalOS's own queue/decisions.
+
+### Remediation queue (ordered, next session starts here)
+
+1. Dead-code cleanup commit for `session.tsx` + `thread.tsx` (§17, blocking
+   further structural work on them).
+2. Persist decision/confirm events + replay them as cards (§3/§9).
+3. Imported-from-TF marker on imported events (§10).
+4. Brand-scope check on studio routes (§19).
+5. Status model: three axes + Publishing/Scheduled/Partially/Published
+   derivation from occurrence/receipt records (§6) — depends on Phase 6
+   write-side work.
+6. Browser E2E per slice (§20 / Rule 14).
+7. Brands place + Account shell to finish Phase 3 (§7).
