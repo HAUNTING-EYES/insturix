@@ -63,15 +63,31 @@ describe("replayEventsToItems — the reload path (plan §3: same conversation, 
     ]);
   });
 
-  it("skips transient events (received / confirm / gap / interrupted) and unknown kinds", () => {
+  it("skips transient events (received / confirm / interrupted) and unknown kinds", () => {
     const items = replayEventsToItems([
       ev(1, "turn.received", { type: "turn.received", turnId: "t1", deliverableId: "p" }),
       ev(2, "turn.confirm_required", { type: "turn.confirm_required", turnId: "t1", kind: "spend", quote: null, publishTargets: [] }),
-      ev(3, "turn.capability_gap", { type: "turn.capability_gap", turnId: "t1", reason: "r" }),
-      ev(4, "turn.interrupted", { type: "turn.interrupted", turnId: "t1", reason: "user_cancel" }),
-      ev(5, "mystery_future_kind", { anything: true }),
+      ev(3, "turn.interrupted", { type: "turn.interrupted", turnId: "t1", reason: "user_cancel" }),
+      ev(4, "mystery_future_kind", { anything: true }),
     ]);
     expect(items).toEqual([]);
+  });
+
+  it("persists a capability gap as the turn's answer (edit-gate: reload keeps the decline)", () => {
+    const items = replayEventsToItems([
+      ev(1, "user", { kind: "user", id: "u1", text: "cut this into a reel", attachments: [], mentions: [], createdAt: "2026-01-01T00:00:00Z" }),
+      ev(2, "turn.received", { type: "turn.received", turnId: "t1", deliverableId: "p" }),
+      ev(3, "turn.capability_gap", {
+        type: "turn.capability_gap",
+        turnId: "t1",
+        reason: "Editing in the studio chat is coming soon.",
+        alternative: { description: "The classic editor still works.", proposedSteps: [] },
+      }),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["user", "prose"]);
+    const prose = items[1];
+    if (prose.kind !== "prose") throw new Error("expected prose");
+    expect(prose.text).toBe("Editing in the studio chat is coming soon. The classic editor still works.");
   });
 
   it("replays ideas", () => {

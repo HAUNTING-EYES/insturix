@@ -105,6 +105,36 @@ describe.skipIf(!canRun)("simulated user — one full turn, then reload, then a 
     sim.auth = { userId: "user_sim_2", orgId: "org_OTHER", has: async () => false };
     const res = await GET(new Request(`http://local/api/studio/threads/${projectId}/events`), { params: Promise.resolve({ threadId: projectId }) });
     expect(res.status).toBe(403);
+    sim.auth = { userId: "user_sim_1", orgId: "org_sim_1", has: async () => false };
+  });
+
+  it("an edit-family turn declines honestly (Editron WIP): gap card, persisted, replayable", async () => {
+    const opId = crypto.randomUUID();
+    const res = await POST(
+      postTurn({
+        deliverableId: projectId,
+        threadId: `th_${projectId}`,
+        text: "cut this into a 30s reel",
+        mode: "direct",
+        operationId: opId,
+        attachments: [{ ref: "proj_edit_target", role: "reel" }],
+      }),
+    );
+    expect(res.status).toBe(200);
+    const events = parseSse(await res.text()) as { type: string; reason?: string }[];
+    expect(events.map((e) => e.type)).toEqual(["turn.received", "turn.capability_gap"]); // no turn.done — the gap IS the terminal
+    expect(events[1]?.reason).toMatch(/coming soon/i);
+
+    /* the decline survives reload: read back the log and replay it */
+    const read = await GET(new Request(`http://local/api/studio/threads/${projectId}/events`), { params: Promise.resolve({ threadId: projectId }) });
+    expect(read.status).toBe(200);
+    const body = (await read.json()) as { events: { kind: string; payload: { type?: string } }[] };
+    const kinds = body.events.map((e) => (e.kind === "user" ? "user" : e.payload.type));
+    expect(kinds).toContain("turn.capability_gap");
+    const { replayEventsToItems } = await import("@/lib/studio/persist/replay");
+    const items = replayEventsToItems(body.events as unknown as Parameters<typeof replayEventsToItems>[0]);
+    const decline = items.find((i) => i.kind === "prose" && i.id.endsWith("_gap"));
+    expect(decline).toBeTruthy();
   });
 
   it("real turns stay gated when the flag is off (503)", async () => {

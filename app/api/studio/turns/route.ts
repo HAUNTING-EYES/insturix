@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { StudioTurnRequestSchema } from "@/lib/studio/contracts/turn";
+import { StudioTurnRequestSchema, type StudioTurnEvent } from "@/lib/studio/contracts/turn";
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
-import { runEditTurn } from "@/lib/studio/orchestrator/edit";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
 import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 import { runAnalyzeTurn } from "@/lib/studio/orchestrator/analyze";
-import { runAutoEditTurn } from "@/lib/studio/orchestrator/auto-edit";
 import { appendTurnEvent, claimOperation, connectSpine, getOrCreateProject, markOperation, spineProjectIdOrNull } from "@/lib/studio/persist/db";
 import { ensureThreadBootstrapped } from "@/lib/studio/persist/tf-import";
 
@@ -116,7 +114,8 @@ export async function POST(req: Request) {
     }
   }
   /* capability dispatch, in priority order:
-   * 1. reel attachment → EDIT (the deliverable's reel is the target)
+   * 1. reel attachment or composer media → EDIT family → honest decline
+   *    (Editron rebuild is WIP — never drive a half-finished engine)
    * 2. schedule/publish keywords → DISTRIBUTE (cadence + gates)
    * 3. default → WRITE */
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
@@ -143,18 +142,24 @@ export async function POST(req: Request) {
       };
       let opFinal = false; // set when the operation reaches a non-running end state below
       try {
-        const events = editProjectId
-          ? runEditTurn(
-              { userId, orgId: orgId ?? null, projectId: editProjectId, forwardHeaders, origin: new URL(req.url).origin },
-              request.text,
-              req.signal,
-            )
-          : mediaAttachment
-            ? runAutoEditTurn(
-                { userId, orgId: orgId ?? null, assetId: mediaAttachment.ref, assetLabel: mediaAttachment.ref.slice(0, 24), brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin },
-                request.text,
-                req.signal,
-              )
+        /* Editron is being rebuilt (WIP): edit-family turns decline honestly
+         * instead of driving a half-finished engine. The gap card names the
+         * alternative; the turn still completes (operation → done). */
+        const editingComingSoon = async function* (): AsyncGenerator<StudioTurnEvent> {
+          const turnId = `t_${crypto.randomUUID()}`;
+          yield { type: "turn.received", turnId, deliverableId: "del_live" };
+          yield {
+            type: "turn.capability_gap",
+            turnId,
+            reason: "Editing in the studio chat is coming soon — the new editor behind it is still being rebuilt, so I won't pretend to cut this yet.",
+            alternative: {
+              description: "Meanwhile the classic editor still works (Dashboard → Editron) — your script and footage stay connected, and nothing is lost.",
+              proposedSteps: [],
+            },
+          };
+        };
+        const events = editProjectId || mediaAttachment
+          ? editingComingSoon()
           : wantsDistribute
             ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal, request.confirmAccepted)
             : wantsDesign

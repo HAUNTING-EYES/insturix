@@ -110,6 +110,16 @@ export function replayEventsToItems(events: PersistedSpineEvent[]): StudioThread
           createdAt: ts(ev),
         });
         break;
+      case "turn.capability_gap":
+        /* mirror of the live applyEvent: the decline persists as the turn's
+         * answer, so a reload keeps the honest record */
+        items.push({
+          kind: "prose",
+          id: `${turn.turnId}_gap`,
+          text: `${turn.reason}${turn.alternative ? ` ${turn.alternative.description}` : ""}`,
+          createdAt: ts(ev),
+        });
+        break;
       case "turn.done":
         items.push({ kind: "prose", id: `${turn.turnId}_done`, text: turn.summary, createdAt: ts(ev) });
         items.push({
@@ -120,7 +130,7 @@ export function replayEventsToItems(events: PersistedSpineEvent[]): StudioThread
         });
         break;
       default:
-        break; // turn.received / confirm_required / capability_gap / interrupted: transient
+        break; // turn.received / confirm_required / interrupted: transient
     }
   }
   return items;

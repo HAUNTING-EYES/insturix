@@ -250,6 +250,19 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           },
         ]);
         break;
+      case "turn.capability_gap":
+        /* the decline is the turn's answer — it stays in the thread, not just
+         * the transient card, so a reload keeps the honest record */
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "prose",
+            id: `${ev.turnId}_gap`,
+            text: `${ev.reason}${ev.alternative ? ` ${ev.alternative.description}` : ""}`,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        break;
       case "turn.done":
         setItems((prev) => [
           ...prev,
