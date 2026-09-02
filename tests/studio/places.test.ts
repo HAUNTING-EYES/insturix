@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayBucket, deliverableState, publishStatusChip } from "@/lib/studio/client/place-helpers";
+import { dayBucket, deliverableState, publishStatusChip, weekGrid } from "@/lib/studio/client/place-helpers";
 import type { StudioDeliverable } from "@/lib/studio/contracts/objects";
 
 function isoDaysAgo(days: number): string {
@@ -75,5 +75,29 @@ describe("publishStatusChip — CalOS delivery states", () => {
     expect(publishStatusChip("published")).toEqual({ state: "done", label: "published" });
     expect(publishStatusChip("failed").state).toBe("error");
     expect(publishStatusChip("superseded").label).toBe("replaced");
+  });
+});
+
+describe("weekGrid — stage ScheduleView layout", () => {
+  const now = new Date("2026-09-03T12:00:00Z");
+  const row = (dayOffset: number, hour: number, platform = "instagram") => ({
+    id: `r_${dayOffset}_${hour}`,
+    platform,
+    status: "pending",
+    publishAt: new Date(Date.UTC(2026, 8, 3 + dayOffset, hour, 0)).toISOString(),
+  });
+
+  it("lays rows into the day cells starting today, outside-window rows dropped", () => {
+    const grid = weekGrid([row(0, 9), row(0, 17, "youtube"), row(2, 11), row(30, 9)], 7, now);
+    expect(grid).toHaveLength(7);
+    expect(grid[0].posts.map((p) => p.row.platform)).toEqual(["instagram", "youtube"]);
+    expect(grid[2].posts).toHaveLength(1);
+    expect(grid.reduce((n, g) => n + g.posts.length, 0)).toBe(3); // the +30d row is out of window
+  });
+
+  it("keeps day boundaries honest (UTC day keys, time labels per row)", () => {
+    const grid = weekGrid([row(0, 23, "linkedin")], 2, now);
+    expect(grid[0].posts[0]?.time).toMatch(/11:00|23:00/);
+    expect(grid[1].posts).toHaveLength(0);
   });
 });

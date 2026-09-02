@@ -8,6 +8,8 @@
 
 import type { StudioArtifact, StudioStageFocus } from "@/lib/studio/contracts/objects";
 import { studioRealTurnsEnabled } from "@/lib/studio/client/turnClient";
+import { weekGrid } from "@/lib/studio/client/place-helpers";
+import { useEffect, useState } from "react";
 import { ReelEmbed } from "./reel-embed";
 import { AUTO_EDIT_STAGES } from "@/components/editron/project/auto-edit/auto-edit-stages";
 import { StageIframe } from "./stage-iframe";
@@ -255,6 +257,65 @@ function CanvasView({ artifact }: { artifact: StudioArtifact }) {
 }
 
 function ScheduleView() {
+  /* real mode: the week ahead from the delivery queue itself — never invented
+   * dates next to real work. Mock mode keeps the scripted demo grid. */
+  const [rows, setRows] = useState<Array<{ id: string; platform: string; status: string; publishAt: string }> | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!studioRealTurnsEnabled) return;
+    fetch("/api/studio/calendar")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { scheduled?: Array<{ id: string; platform: string; status: string; publishAt: string }> }) => setRows(d.scheduled ?? []))
+      .catch(() => setFailed(true));
+  }, []);
+
+  if (studioRealTurnsEnabled) {
+    if (failed) {
+      return (
+        <div className="stu-chips">
+          <span className="stu-chip">couldn&apos;t load the schedule — nothing is faked here, retry by refocusing</span>
+        </div>
+      );
+    }
+    if (!rows) {
+      return (
+        <div className="stu-chips">
+          <span className="stu-chip">loading the week…</span>
+        </div>
+      );
+    }
+    const grid = weekGrid(rows);
+    const total = grid.reduce((n, g) => n + g.posts.length, 0);
+    return (
+      <>
+        <div className="stu-chips">
+          <span className="stu-chip">next 7 days · {total} scheduled</span>
+          <span className="stu-chip">confirm before publish · nothing posts itself</span>
+        </div>
+        <div className="stu-calgrid">
+          {grid.map((g) => (
+            <div className="stu-calday" key={g.key}>
+              <div className="d">
+                {g.dayLabel} <span style={{ color: "var(--dim)" }}>{g.dateLabel}</span>
+              </div>
+              {g.posts.map(({ row, time }) => (
+                <div key={row.id} className={`stu-calpost ${row.platform === "instagram" ? "ig" : ""}`}>
+                  {row.platform} {time}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        {total === 0 && (
+          <div className="stu-chips">
+            <span className="stu-chip">nothing scheduled this week — approved work lands here</span>
+          </div>
+        )}
+      </>
+    );
+  }
+
   const days = ["Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon"];
   const posts: Record<string, { label: string; ig?: boolean }[]> = {
     Tue: [{ label: "ig 09:00 reel", ig: true }, { label: "yt 12:00 reel" }],

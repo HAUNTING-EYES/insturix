@@ -39,6 +39,35 @@ export function publishStatusChip(status: string): ProjectStatusPayload {
   }
 }
 
+export type ScheduledRow = { id: string; platform: string; status: string; publishAt: string };
+
+/** Lay the delivery queue onto a day grid starting today (stage ScheduleView).
+ *  Pure: no fetches, no clock reads beyond the day boundary math. */
+export function weekGrid(rows: ScheduledRow[], days = 7, now = new Date()): Array<{ key: string; dayLabel: string; dateLabel: string; posts: Array<{ row: ScheduledRow; time: string }> }> {
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const grid: Array<{ key: string; dayLabel: string; dateLabel: string; posts: Array<{ row: ScheduledRow; time: string }> }> = [];
+  for (let i = 0; i < days; i += 1) {
+    const d = new Date(startOfToday.getTime() + i * 86_400_000);
+    grid.push({
+      key: d.toISOString().slice(0, 10),
+      dayLabel: d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+      dateLabel: d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      posts: [],
+    });
+  }
+  const byKey = new Map(grid.map((g) => [g.key, g]));
+  for (const row of rows) {
+    const key = new Date(row.publishAt).toISOString().slice(0, 10);
+    const cell = byKey.get(key);
+    if (!cell) continue; // outside the window — the calendar place covers the long view
+    cell.posts.push({
+      row,
+      time: new Date(row.publishAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }),
+    });
+  }
+  return grid;
+}
+
 /** Map a deliverable's artifact statuses onto the row chip: running beats
  *  error beats queued; empty means planning; otherwise done. */
 export function deliverableState(d: StudioDeliverable): ProjectStatusPayload {
