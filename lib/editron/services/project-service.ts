@@ -1632,13 +1632,6 @@ export interface ProjectDirectorDecisionLogCommandV1 {
  * Director's shorter-lived writer lease. It is issued, consumed and cleared
  * only by ProjectService; it is not a second job or project authority.
  */
-export type ProjectDirectorRunClaimDispositionV1 =
-  | "CLAIMED"
-  | "ASSIST_PROJECT"
-  | "DISPATCH_PENDING"
-  | "PROJECT_NOT_FOUND"
-  | "NOT_ELIGIBLE";
-
 export type ProjectDirectorRunClaimResultV1 =
   | {
       disposition: "CLAIMED";
