@@ -19,6 +19,8 @@ const persistence = vi.hoisted(() => ({
   findOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   getDatabase: vi.fn(),
+  insertOne: vi.fn(),
+  outboxFindOne: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -54,11 +56,19 @@ describe("generated composition checkpoint participation", () => {
     persistence.findOne.mockReset();
     persistence.findOneAndUpdate.mockReset();
     persistence.getDatabase.mockReset();
+    persistence.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistence.outboxFindOne.mockReset().mockResolvedValue(null);
     persistence.getDatabase.mockResolvedValue({
-      collection: vi.fn(() => ({
-        findOne: persistence.findOne,
-        findOneAndUpdate: persistence.findOneAndUpdate,
-      })),
+      collection: vi.fn((name: string) => name
+        === "editron_project_render_snapshot_invalidation_outbox_v1"
+        ? {
+            findOne: persistence.outboxFindOne,
+            insertOne: persistence.insertOne,
+          }
+        : {
+            findOne: persistence.findOne,
+            findOneAndUpdate: persistence.findOneAndUpdate,
+          }),
     });
   });
 
@@ -110,6 +120,24 @@ describe("generated composition checkpoint participation", () => {
       $set: { generatedCompositions: [] },
       $inc: { projectRevision: 1 },
     });
+    const insertedOutbox = persistence.insertOne.mock.calls[0]?.[0];
+    expect(insertedOutbox).toMatchObject({
+      status: "AWAITING_PROJECT_COMMIT",
+      receipt: {
+        operation: "RESTORE_CHECKPOINT_STATE",
+        beforeRevision: { value: 4 },
+        afterRevision: { value: 5 },
+      },
+    });
+    expect(result.timelineChangeReceipt.downstreamInvalidation).toMatchObject({
+      status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+      projectRenderSnapshotInvalidation: {
+        invalidationId: insertedOutbox.receipt.receiptId,
+        receiptHash: insertedOutbox.receipt.receiptHash,
+      },
+    });
+    expect(persistence.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistence.findOneAndUpdate.mock.invocationCallOrder[0]!);
   });
 
   it("fails closed for older checkpoints that never captured composition state", async () => {

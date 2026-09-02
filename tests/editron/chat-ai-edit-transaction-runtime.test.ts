@@ -8,6 +8,7 @@ const infrastructureMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  outboxFindOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
 }));
@@ -340,6 +341,7 @@ afterEach(() => {
   infrastructureMocks.findOne.mockReset();
   infrastructureMocks.getDatabase.mockReset();
   infrastructureMocks.insertOne.mockReset();
+  infrastructureMocks.outboxFindOne.mockReset();
   infrastructureMocks.findOneAndUpdate.mockReset();
   infrastructureMocks.updateOne.mockReset();
 });
@@ -1194,6 +1196,8 @@ describe('chat AI edit transaction runtime', () => {
       unrelatedWorkerReceipt: { preserved: true },
     };
     infrastructureMocks.findOne.mockResolvedValue(persistedProject);
+    infrastructureMocks.insertOne.mockResolvedValue({ acknowledged: true });
+    infrastructureMocks.outboxFindOne.mockResolvedValue(null);
     infrastructureMocks.findOneAndUpdate.mockImplementation(async (
       filter: Record<string, unknown>,
       update: { $set: Record<string, unknown>; $unset?: Record<string, unknown>; $inc: Record<string, number> },
@@ -1211,8 +1215,16 @@ describe('chat AI edit transaction runtime', () => {
     });
     infrastructureMocks.getDatabase.mockResolvedValue({
       collection: (name: string) => {
-        if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
-        return { findOneAndUpdate: infrastructureMocks.findOneAndUpdate, findOne: infrastructureMocks.findOne };
+        if (name === COLLECTIONS.PROJECTS) {
+          return {
+            findOneAndUpdate: infrastructureMocks.findOneAndUpdate,
+            findOne: infrastructureMocks.findOne,
+          };
+        }
+        return {
+          findOne: infrastructureMocks.outboxFindOne,
+          insertOne: infrastructureMocks.insertOne,
+        };
       },
     });
 
@@ -1231,7 +1243,12 @@ describe('chat AI edit transaction runtime', () => {
       beforeProjectRevision: { value: 7 },
       afterProjectRevision: { value: 8 },
       rangeObservation: 'EXACT',
+      downstreamInvalidation: {
+        status: 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING',
+      },
     });
+    expect(infrastructureMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(infrastructureMocks.findOneAndUpdate.mock.invocationCallOrder[0]!);
     expect(restored.project).toMatchObject({ projectRevision: 8, unrelatedWorkerReceipt: { preserved: true } });
     expect(restored.project.metadata).toBeUndefined();
   });

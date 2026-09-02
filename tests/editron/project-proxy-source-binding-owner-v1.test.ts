@@ -32,6 +32,8 @@ const persistence = vi.hoisted(() => ({
   assetFindOne: vi.fn(),
   collection: vi.fn(),
   getDatabase: vi.fn(),
+  insertOne: vi.fn(),
+  outboxFindOne: vi.fn(),
   projectFindOne: vi.fn(),
   projectUpdateOne: vi.fn(),
 }));
@@ -98,6 +100,8 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
     persistence.assetFindOne.mockReset();
     persistence.collection.mockReset();
     persistence.getDatabase.mockReset();
+    persistence.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistence.outboxFindOne.mockReset().mockResolvedValue(null);
     persistence.projectFindOne.mockReset();
     persistence.projectUpdateOne.mockReset();
     persistence.projectUpdateOne.mockResolvedValue({
@@ -107,6 +111,12 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
     persistence.collection.mockImplementation((name: string) => {
       if (name === 'mediaAssets') {
         return { findOne: persistence.assetFindOne };
+      }
+      if (name === 'editron_project_render_snapshot_invalidation_outbox_v1') {
+        return {
+          findOne: persistence.outboxFindOne,
+          insertOne: persistence.insertOne,
+        };
       }
       return {
         findOne: persistence.projectFindOne,
@@ -443,6 +453,7 @@ describe('ProjectService verified proxy source-binding owner V1', () => {
       .toEqual((storedProject.overlays[1] as ClipOverlay).sourceVersionPinV1);
     expect(saved.find((overlay) => overlay.id === 30)?.sourceVersionPinV1)
       .toBeUndefined();
+    expect(persistence.insertOne).toHaveBeenCalledOnce();
   });
 
   it('keeps generic project updates outside the protected binding field', async () => {

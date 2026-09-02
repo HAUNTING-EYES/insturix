@@ -14,6 +14,8 @@ const persistenceMocks = vi.hoisted(() => ({
   endSession: vi.fn(),
   findOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
+  insertOne: vi.fn(),
+  outboxFindOne: vi.fn(),
   updateOne: vi.fn(),
   withTransaction: vi.fn(),
 }));
@@ -25,12 +27,18 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
     MEDIA_ASSETS: "editron_prev.media_assets",
   },
   getDatabase: vi.fn(async () => ({
-    collection: vi.fn(() => ({
-      findOne: persistenceMocks.findOne,
-      findOneAndUpdate: persistenceMocks.findOneAndUpdate,
-      updateOne: persistenceMocks.updateOne,
-      bulkWrite: persistenceMocks.bulkWrite,
-    })),
+    collection: vi.fn((name: string) => name
+      === "editron_project_render_snapshot_invalidation_outbox_v1"
+      ? {
+          findOne: persistenceMocks.outboxFindOne,
+          insertOne: persistenceMocks.insertOne,
+        }
+      : {
+          findOne: persistenceMocks.findOne,
+          findOneAndUpdate: persistenceMocks.findOneAndUpdate,
+          updateOne: persistenceMocks.updateOne,
+          bulkWrite: persistenceMocks.bulkWrite,
+        }),
   })),
   connectToDatabase: vi.fn(async () => ({
     client: {
@@ -43,6 +51,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
       collection: vi.fn(() => ({
         bulkWrite: persistenceMocks.bulkWrite,
         findOne: persistenceMocks.findOne,
+        insertOne: persistenceMocks.insertOne,
         updateOne: persistenceMocks.updateOne,
       })),
     },
@@ -217,6 +226,8 @@ describe("Editron project save payload compaction", () => {
     persistenceMocks.endSession.mockReset();
     persistenceMocks.findOne.mockReset();
     persistenceMocks.findOneAndUpdate.mockReset();
+    persistenceMocks.insertOne.mockReset().mockResolvedValue({ acknowledged: true });
+    persistenceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
     persistenceMocks.updateOne.mockReset();
     persistenceMocks.withTransaction.mockReset();
     persistenceMocks.withTransaction.mockImplementation(async (work) => work());
@@ -583,6 +594,32 @@ describe("Editron project save payload compaction", () => {
     expect(receipt.revision).toEqual(
       expect.objectContaining({ schemaVersion: 1, value: 8 }),
     );
+    const insertedOutbox = persistenceMocks.insertOne.mock.calls[0]?.[0];
+    const timelineReceipt = persistenceMocks.updateOne.mock.calls[0]?.[1]
+      .$push.timelineRangeChangeReceipts.$each[0];
+    expect(insertedOutbox).toMatchObject({
+      status: "AWAITING_PROJECT_COMMIT",
+      receipt: {
+        ownerId: "user_1",
+        projectId: "proj_1",
+        operation: "REPLACE_EDITOR_STATE",
+        beforeRevision: { value: 7 },
+        afterRevision: { value: 8 },
+      },
+    });
+    expect(timelineReceipt.downstreamInvalidation).toEqual({
+      status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+      affectedFrameRangesBefore: [],
+      projectRenderSnapshotInvalidation: {
+        schemaVersion: 1,
+        invalidationId: insertedOutbox.receipt.receiptId,
+        receiptHash: insertedOutbox.receipt.receiptHash,
+        beforeRevision: insertedOutbox.receipt.beforeRevision,
+        afterRevision: insertedOutbox.receipt.afterRevision,
+      },
+    });
+    expect(persistenceMocks.insertOne.mock.invocationCallOrder[0])
+      .toBeLessThan(persistenceMocks.updateOne.mock.invocationCallOrder[0]!);
   });
 
   it("rejects whole-state persistence without the caller's observed revision before database work", async () => {
@@ -603,6 +640,44 @@ describe("Editron project save payload compaction", () => {
       {},
     )).rejects.toMatchObject({ code: "PROJECT_MUTATION_WRITE_FAILED" });
     expect(persistenceMocks.findOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("makes a failed render-invalidation enqueue abort before the project CAS", async () => {
+    const updatedAt = "2026-08-09T01:00:30.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      fps: 30,
+      durationInFrames: 0,
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.insertOne.mockRejectedValueOnce(new Error("outbox unavailable"));
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service"
+    );
+
+    await expect(projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      },
+      {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+      },
+    )).rejects.toThrow("Project render invalidation could not be durably enqueued");
+    expect(persistenceMocks.outboxFindOne).toHaveBeenCalledTimes(2);
     expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 

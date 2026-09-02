@@ -195,6 +195,15 @@ import {
   type ProjectArtifactInvalidationDerivativeClassV1,
 } from "./project-artifact-invalidation-v1";
 import {
+  createProjectRenderSnapshotInvalidationOutboxV1,
+  createProjectRenderSnapshotInvalidationReceiptV1,
+  enqueueProjectRenderSnapshotInvalidationOutboxV1,
+  projectRenderSnapshotInvalidationLinkV1,
+  PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1,
+  type ProjectRenderSnapshotInvalidationLinkV1,
+  type ProjectRenderSnapshotInvalidationOutboxCollectionV1,
+} from "./project-render-snapshot-invalidation-v1";
+import {
   assertProjectVideoSpeedRampStateV1,
   classifyVerifiedVideoSourceRateCompatibilityV1,
   createProjectVideoSourceTimeTransformV1,
@@ -418,6 +427,17 @@ export interface ProjectTimelineOverlayTemporalChangeV1 {
  * invalidation status is intentionally non-passing until the Stage-2 media /
  * evidence owner can materialize actual artifact invalidations.
  */
+export type ProjectTimelineDownstreamInvalidationV1 =
+  | {
+      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN";
+      affectedFrameRangesBefore: readonly TimelineFrameRangeV1[];
+    }
+  | {
+      status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING";
+      affectedFrameRangesBefore: readonly TimelineFrameRangeV1[];
+      projectRenderSnapshotInvalidation: ProjectRenderSnapshotInvalidationLinkV1;
+    };
+
 export interface ProjectTimelineRangeChangeReceiptV1 {
   schemaVersion: 1;
   receiptId: string;
@@ -443,10 +463,7 @@ export interface ProjectTimelineRangeChangeReceiptV1 {
   sourceTimeTransform?: ProjectVideoSourceTimeTransformV1 | null;
   splitChildren: readonly TimelineRangeCutSplitChildV1[];
   ripple: ProjectTimelineRippleEffectV1 | null;
-  downstreamInvalidation: {
-    status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN";
-    affectedFrameRangesBefore: readonly TimelineFrameRangeV1[];
-  };
+  downstreamInvalidation: ProjectTimelineDownstreamInvalidationV1;
 }
 
 export interface ProjectTimelineRangeCutCommandV1 {
@@ -8386,6 +8403,41 @@ export class ProjectService {
     });
   }
 
+  private async enqueueProjectRenderSnapshotInvalidationBeforeCommitV1(input: {
+    ownerId: string;
+    projectId: string;
+    operation: "REPLACE_EDITOR_STATE" | "RESTORE_CHECKPOINT_STATE";
+    beforeRevision: ProjectRevisionV1;
+    afterRevision: ProjectRevisionV1;
+    committedAt: Date;
+    db: Awaited<ReturnType<typeof getDatabase>>;
+  }): Promise<ProjectRenderSnapshotInvalidationLinkV1> {
+    const receipt = createProjectRenderSnapshotInvalidationReceiptV1({
+      ownerId: input.ownerId,
+      projectId: input.projectId,
+      operation: input.operation,
+      beforeRevision: input.beforeRevision,
+      afterRevision: input.afterRevision,
+      issuedAt: input.committedAt,
+    });
+    const outbox = createProjectRenderSnapshotInvalidationOutboxV1(receipt);
+    const collection = input.db.collection(
+      PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1,
+    ) as unknown as ProjectRenderSnapshotInvalidationOutboxCollectionV1;
+    try {
+      await enqueueProjectRenderSnapshotInvalidationOutboxV1({
+        outbox,
+        collection,
+      });
+    } catch (error) {
+      throw new ProjectMutationWriteError(
+        "Project render invalidation could not be durably enqueued before mutation: "
+          + (error instanceof Error ? error.message : "UNKNOWN"),
+      );
+    }
+    return projectRenderSnapshotInvalidationLinkV1(receipt);
+  }
+
   /**
    * Checkpoint-only exact-state restore. The checkpoint store owns state
    * capture and hashing; ProjectService alone owns the final project write.
@@ -8480,6 +8532,16 @@ export class ProjectService {
       input.expectedRevision,
       committedAt,
     ).revision;
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "RESTORE_CHECKPOINT_STATE",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
       receiptId: `timeline-checkpoint-restore_${nanoid(18)}`,
       projectId,
@@ -8491,6 +8553,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlays: currentProject.overlays ?? [],
       afterOverlays: prospectiveOverlays,
+      projectRenderSnapshotInvalidation,
       changedPaths: [
         ...Object.keys(input.setFields),
         ...input.unsetFields,
@@ -8689,6 +8752,16 @@ export class ProjectService {
       value: expectedRevision.value + 1,
       compatibilityUpdatedAt: committedAt.toISOString(),
     };
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: input.userId,
+        projectId: input.projectId,
+        operation: "REPLACE_EDITOR_STATE",
+        beforeRevision: currentRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt = createOverlayFamilyTimelineChangeReceiptV1({
       receiptId: `timeline-editor-state_${nanoid(18)}`,
       projectId: input.projectId,
@@ -8700,6 +8773,7 @@ export class ProjectService {
       committedAt: committedAt.toISOString(),
       beforeOverlays: currentProject.overlays ?? [],
       afterOverlays: mergedOverlays,
+      projectRenderSnapshotInvalidation,
       changedPaths: [
         "overlays",
         "aspectRatio",
@@ -16694,6 +16768,7 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
   committedAt: string;
   beforeOverlays: readonly Overlay[];
   afterOverlays: readonly Overlay[];
+  projectRenderSnapshotInvalidation?: ProjectRenderSnapshotInvalidationLinkV1;
   changedPaths: readonly string[];
 }): ProjectTimelineRangeChangeReceiptV1 {
   const beforeFrameRanges = overlayFamilyFrameRangesV1(input.beforeOverlays, "stored family");
@@ -16728,10 +16803,17 @@ function createOverlayFamilyTimelineChangeReceiptV1(input: {
     sourceTimeTransform: null,
     splitChildren: [],
     ripple: null,
-    downstreamInvalidation: {
-      status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
-      affectedFrameRangesBefore: writeFrameRanges,
-    },
+    downstreamInvalidation: input.projectRenderSnapshotInvalidation
+      ? {
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
+          affectedFrameRangesBefore: writeFrameRanges,
+          projectRenderSnapshotInvalidation:
+            structuredClone(input.projectRenderSnapshotInvalidation),
+        }
+      : {
+          status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+          affectedFrameRangesBefore: writeFrameRanges,
+        },
   };
 }
 
