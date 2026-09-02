@@ -17489,3 +17489,78 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5E assembly/family admission checkpoint
+
+Commits `f615c7e6d`, `f63e78b10` and `18d3458e4` close the current Queue 5
+admission slices for auto-edit assembly, caption replacement, background-music
+replacement and beat-synchronized cut alignment. All three commits are pushed
+on `infrastructure-improvs-+Editron`.
+
+`AUTO_EDIT_ASSEMBLY` still uses the existing single ProjectService form owner:
+exact source cuts, handle bounds, identity isolation, dependency exclusion,
+Director lease, ripple-range locks and one project-revision CAS are unchanged.
+The owner now authenticates the post-assembly affected tail—including the new
+clip identities—against current media/source/right/audio/predecessor evidence,
+durably enqueues project-snapshot invalidation, binds both links to the timeline
+receipt and only then attempts CAS. A negative test proves failed media
+admission produces neither invalidation nor a project write. Its focused gate
+passed 73/73 tests with full TypeScript and targeted quiet ESLint.
+
+Caption and background-music family replacement continue to reject any
+non-family mutation, stale revision, Director lease or overlapping timeline
+lock. Caption replacement now stores a sealed zero-media prerequisite receipt,
+which positively proves media non-applicability instead of omitting the check.
+Background-music replacement authenticates the candidate sound asset, music
+rights, audio evidence and predecessor lineage. Both enqueue durable snapshot
+invalidation before CAS and persist the two links. Their focused gate passed
+21/21 tests with full TypeScript and targeted quiet ESLint.
+
+The authoritative `ALIGN_CUTS_TO_BEATS` writer no longer derives visual source
+handles by rounding `asset.duration * project fps`. It now requires a completed
+verified source-time binding, exact representable source-frame count and
+supported same-rate timing for every candidate video source. Missing assets,
+incomplete timing, unsupported VFR/event rebinding, rate mismatch or invalid
+frame count returns a typed `SAFE_STOP`; no project state changes. Queue 3–4
+must later replace those current stops with timestamp-addressed VFR/mixed-rate
+consumption. The existing creative form owner and CKG constraints remain
+unchanged: measured beats, speech-boundary priority, bounded snap and the
+four-lock humanization rule still determine candidate placement.
+
+After exact handle validation, beat alignment authenticates the music source
+plus affected video state, durably invalidates render/delivery snapshots and
+then performs its existing CAS. The chat path accurately reports an
+authoritative safe stop and never converts it into success. Its focused gate
+passed 20/20 tests with full TypeScript and targeted quiet ESLint. The chat
+path's early rounded-duration computation remains advisory planning only; it
+cannot authorize the final write, but should be moved onto the Queue 3–4 exact
+timestamp consumer to avoid avoidable preview/commit disagreement.
+
+These are focused mocked-store gates, not live Atlas/R2 evidence and not
+universal Queue 5 closure. The remaining Queue 5 order is now:
+
+1. Classify and enforce generated-composition writers, pipeline delivery
+   writers, and metadata/analysis/lease owners without duplicating their
+   creative-form owners.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   authoritative legacy checkpoint migration/recapture; never synthesize
+   historical evidence.
+3. Add source-qualified live-database cut/retime/duration/assembly/family
+   proofs, run the aggregate Queue 5 mutation-owner suite and full-repository
+   quiet ESLint.
+4. Preserve the external live lane as unresolved until deployed indexes/cron,
+   R2 exact PUT/GET/DELETE, live provider deletion and genuine unbound-row
+   reconstruction or retirement are proved.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
