@@ -9,6 +9,7 @@ import type {
 import {
   canonicalizeEditronJsonV1,
   hashEditronCanonicalJsonV1,
+  hashEditronPersistedJsonV1,
 } from './canonical-json-v1';
 import { assertMediaSourceVersionV1, type MediaSourceVersionV1 } from './media-source-version-v1';
 import { assertProjectVideoSourceVersionPinV1 } from './project-video-source-version-pin-v1';
@@ -122,7 +123,7 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
       overlayId: overlay.id,
       overlayType: overlay.type,
       assetId,
-      overlayFingerprintSha256: hashEditronCanonicalJsonV1(overlay),
+      overlayFingerprintSha256: hashEditronPersistedJsonV1(overlay),
       source: {
         disposition: 'QUALIFIED_MEDIA_SOURCE_VERSION',
         sourceVersionSha256: sourceVersion.sourceVersionSha256,
@@ -257,7 +258,7 @@ function sequenceEntry(overlay: Overlay, asset: StoredAssetV1): ProjectWholeStat
     overlayId: overlay.id,
     overlayType: 'mg-sequence',
     assetId: asset.assetId,
-    overlayFingerprintSha256: hashEditronCanonicalJsonV1(overlay),
+    overlayFingerprintSha256: hashEditronPersistedJsonV1(overlay),
     source: { disposition: 'PROJECT_GENERATED_SEQUENCE', sourceIdentitySha256: hashEditronCanonicalJsonV1({
       assetId: asset.assetId, sequenceId: asset.sequenceId, frameCount: asset.frameCount,
       fps: asset.fps, r2Prefix: asset.r2Prefix, receiptSha256,

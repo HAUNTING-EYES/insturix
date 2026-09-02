@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { withAtomicOverlayUpdateReceipt } from '@/lib/editron/engine/overlay-atomic-receipts';
+import { hashEditronCanonicalJsonV1 } from '@/lib/editron/services/canonical-json-v1';
 import { createMediaSourceStorageVersionV1 } from '@/lib/editron/services/media-source-storage-version-v1';
 import { createMediaSourceVersionV1 } from '@/lib/editron/services/media-source-version-v1';
 import {
@@ -118,6 +120,29 @@ describe('project whole-state media prerequisite V1', () => {
       },
       predecessor: { disposition: 'ORIGINAL_SOURCE', receiptSha256: null },
     });
+  });
+
+  it('fingerprints the persisted shape of atomic overlays without accepting array holes', async () => {
+    const asset = {
+      assetId: 'video_1', userId: 'user_1', type: 'video', source: 'user-upload',
+      sourceVersionV1: source('video_1', 'video'),
+    };
+    const updated = withAtomicOverlayUpdateReceipt(video(), {
+      styles: { opacity: 0.75 },
+    }, { source: 'project-service-update-overlay-at-revision-v1' });
+    const receipt = await issueProjectWholeStateMediaPrerequisiteV1({
+      ...SCOPE,
+      operation: 'UPDATE_OVERLAY',
+      overlays: [updated],
+    }, ports([asset]));
+    expect(receipt.mediaEntries[0]?.overlayFingerprintSha256).toBe(
+      hashEditronCanonicalJsonV1(JSON.parse(JSON.stringify(updated))),
+    );
+
+    await expect(issueProjectWholeStateMediaPrerequisiteV1({
+      ...SCOPE,
+      overlays: [video({ metadata: { invalid: [undefined] } })],
+    }, ports([asset]))).rejects.toThrow('EDITRON_JSON_ARRAY_UNDEFINED_INVALID');
   });
 
   it('supports stable string overlay identities and rejects cross-type duplicates', async () => {
