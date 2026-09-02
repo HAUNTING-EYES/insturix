@@ -16952,3 +16952,76 @@ under the founder's authorization; (3) implement Queue 6 serially; and (4)
 certify the agency verticals serially unless the founder explicitly authorizes
 additional parallel execution. Human-only review remains deferred to the end
 of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 4W checkpoint
+
+Commits `5705d5893`, `31cbca2db`, `4825afda4`, `387d02acb`,
+`8c46c193a`, `9dbc9661b` and `03747e6b1` continue the Phase 4V
+project-snapshot invalidation chain through scheduled materialization, cleanup
+retention/recovery and explicit standard-render lifecycle migration. All
+listed commits are pushed on `infrastructure-improvs-+Editron`.
+
+The authenticated invalidation cron now reads the exact ProjectService commit
+link, activates only that receipt, fences matching project-snapshot renders
+and persists partial or complete derivative-class progress. Standard render
+cleanup is a separate transaction-required owner. It preserves completed
+history until the job retention deadline, immediately hands stale provider
+output to the existing leased cleanup consumer, closes proven
+`NOT_ATTEMPTED` rows without inventing a provider deletion, keeps ambiguous
+provider outcomes unresolved, and leaves chapter parents with the chapter
+cleanup owner. A second bounded pass selects only actionable handoffs or
+completed deletion receipts, so future-retained artifacts and ambiguous
+provider outcomes cannot starve the queue. The cron executes invalidation
+before cleanup; shared plumbing is not described as one cross-collection
+transaction.
+
+Pre-lifecycle standard render migration is now explicit and non-inferential.
+A row is promoted to `ACTIVE` only when its complete project-snapshot binding,
+delivery manifest, authenticated requester tuple and live ProjectService
+revision satisfy the existing current-render validator. Genuinely unbound,
+malformed-contract and stale-project rows receive canonical hashed blocked
+assessments and remain non-authoritative. Partial lifecycle state and a lost
+compare-and-set fail loudly. A bounded protected hourly sweep and matching
+candidate index are registered. This is safe classification, not fabricated
+reconstruction or silent retirement of unbound provider work.
+
+Focused closure passed the 26-test cleanup/schema set, the 17-test scheduled
+cleanup recovery set, the 30-test migration/current-render set and the 10-test
+migration runtime set. Targeted quiet ESLint, repeated full 8-GB TypeScript
+checks and `git diff --check` passed before the pushes. No provider render,
+provider deletion, wallet mutation, project-content edit, paid-cohort rerun or
+model inference occurred in this checkpoint.
+
+This closes the local worker, retention scheduling, cleanup handoff/retry
+plumbing and migration-classification implementation. It does not establish a
+deployed cron/index, real Atlas transaction, private R2 object lifecycle,
+Remotion/S3 deletion or safe retirement/reconstruction for any genuine
+unbound row. Those require exact temporary live fixtures or source-backed
+operator evidence; no customer row may be inferred or silently promoted.
+
+The remaining Queue 5 order is now:
+
+1. Run and preserve exact live Atlas/private-R2 lifecycle evidence, verify
+   deployed indexes/cron bindings and either reconstruct or safely retire any
+   genuinely unbound render only from source-backed evidence. Live provider
+   deletion remains separately required for the provider cleanup claim.
+2. Finish operation-specific source, rights and predecessor prerequisites for
+   media-bearing whole-state/checkpoint mutations without reopening their
+   closed revision, actor, timebase, range, lock or invalidation checks.
+3. Classify durable invalidation and applicable prerequisites for every
+   remaining direct and specialized ProjectService writer; metadata-only and
+   lease-only owners must explicitly record non-applicability.
+4. Run the aggregate Queue 5 mutation-owner suite and full-repository quiet
+   ESLint before considering Queue 5 closed.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, deployed/live closure,
+successor readiness receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the four Queue 5 items above serially;
+(2) return to unfinished Queues 3 and 4, which alone may be worked in parallel
+under the founder's authorization; (3) implement Queue 6 serially; and (4)
+certify agency verticals serially unless the founder explicitly authorizes
+additional parallel execution. Human-only review remains deferred to the end
+of the authorized technical queue.
