@@ -30,13 +30,28 @@ type InvalidationOutboxCollection = Readonly<{
   insertOne: (document: DocumentRecord) => Promise<{ acknowledged: true }>;
 }>;
 
+type MediaAssetsCollection = Readonly<Record<string, never>>;
+
+type MediaPrerequisiteReceiptCollection = Readonly<{
+  findOne: (filter: Query) => Promise<DocumentRecord | null>;
+  updateOne: (
+    filter: Query,
+    update: Readonly<{ $setOnInsert?: DocumentRecord }>,
+    options?: Readonly<{ upsert?: boolean }>,
+  ) => Promise<{ acknowledged: true }>;
+}>;
+
 type TestDatabase<T extends DocumentRecord> = Readonly<{
   collection: <Name extends string>(name: Name) =>
     Name extends "projects"
       ? ProjectCollection<T>
       : Name extends "editron_project_render_snapshot_invalidation_outbox_v1"
         ? InvalidationOutboxCollection
-        : never;
+        : Name extends "mediaAssets"
+          ? MediaAssetsCollection
+          : Name extends "editron_project_whole_state_media_prerequisites_v1"
+            ? MediaPrerequisiteReceiptCollection
+            : never;
 }>;
 
 /**
@@ -48,6 +63,7 @@ type TestDatabase<T extends DocumentRecord> = Readonly<{
 export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
   private project: T;
   private readonly invalidationOutboxes = new Map<string, DocumentRecord>();
+  private readonly mediaPrerequisiteReceipts = new Map<string, DocumentRecord>();
   private nextConflictMutation: ((current: T) => T) | null = null;
   private updateAttemptCount = 0;
 
@@ -56,7 +72,10 @@ export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
   }
 
   asDatabase(): TestDatabase<T> {
-    const collection = (name: string): ProjectCollection<T> | InvalidationOutboxCollection => {
+    const collection = (name: string): ProjectCollection<T>
+      | InvalidationOutboxCollection
+      | MediaAssetsCollection
+      | MediaPrerequisiteReceiptCollection => {
       if (name === "projects") {
         return {
           findOne: (filter: Query, _options?: unknown) => this.findOne(filter),
@@ -68,6 +87,16 @@ export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
         return {
           findOne: async (filter: Query) => this.findInvalidationOutbox(filter),
           insertOne: async (document: DocumentRecord) => this.insertInvalidationOutbox(document),
+        };
+      }
+      if (name === "mediaAssets") return {};
+      if (name === "editron_project_whole_state_media_prerequisites_v1") {
+        return {
+          findOne: async (filter: Query) => this.findMediaPrerequisiteReceipt(filter),
+          updateOne: async (
+            filter: Query,
+            update: Readonly<{ $setOnInsert?: DocumentRecord }>,
+          ) => this.upsertMediaPrerequisiteReceipt(filter, update),
         };
       }
       throw new Error(`UNSUPPORTED_PROJECT_SERVICE_TEST_COLLECTION:${name}`);
@@ -114,6 +143,30 @@ export class StatefulProjectServicePersistenceV1<T extends DocumentRecord> {
       throw error;
     }
     this.invalidationOutboxes.set(id, clone(document));
+    return { acknowledged: true };
+  }
+
+  private findMediaPrerequisiteReceipt(filter: Query): DocumentRecord | null {
+    const id = filter._id;
+    return typeof id === "string"
+      ? clone(this.mediaPrerequisiteReceipts.get(id) ?? null)
+      : null;
+  }
+
+  private upsertMediaPrerequisiteReceipt(
+    filter: Query,
+    update: Readonly<{ $setOnInsert?: DocumentRecord }>,
+  ): { acknowledged: true } {
+    const id = filter._id;
+    if (typeof id !== "string") {
+      throw new Error("PROJECT_SERVICE_TEST_MEDIA_PREREQUISITE_ID_MISSING");
+    }
+    if (!this.mediaPrerequisiteReceipts.has(id)) {
+      if (!update.$setOnInsert) {
+        throw new Error("PROJECT_SERVICE_TEST_MEDIA_PREREQUISITE_INSERT_MISSING");
+      }
+      this.mediaPrerequisiteReceipts.set(id, clone(update.$setOnInsert));
+    }
     return { acknowledged: true };
   }
 

@@ -7,7 +7,7 @@ import {
 const persistenceState = vi.hoisted(() => ({ database: null as unknown }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "mediaAssets" },
   getDatabase: vi.fn(async () => {
     if (!persistenceState.database) throw new Error("PROJECT_SERVICE_TEST_DATABASE_NOT_INSTALLED");
     return persistenceState.database;

@@ -17,7 +17,7 @@ type Persistence = StatefulProjectServicePersistenceV1<JsonRecord>;
 const persistenceState = vi.hoisted(() => ({ database: null as unknown }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
-  COLLECTIONS: { PROJECTS: 'projects' },
+  COLLECTIONS: { PROJECTS: 'projects', MEDIA_ASSETS: 'mediaAssets' },
   getDatabase: vi.fn(async () => {
     if (!persistenceState.database) throw new Error('PROJECT_SERVICE_TEST_DATABASE_NOT_INSTALLED');
     return persistenceState.database;
@@ -172,6 +172,40 @@ function createMultiProjectHarness() {
             return persistence.asDatabase()
               .collection('editron_project_render_snapshot_invalidation_outbox_v1')
               .insertOne(document);
+          },
+        };
+      }
+      if (name === 'mediaAssets') return {};
+      if (name === 'editron_project_whole_state_media_prerequisites_v1') {
+        return {
+          findOne: async (filter: JsonRecord) => {
+            for (const persistence of projects.values()) {
+              const receipt = await persistence.asDatabase()
+                .collection('editron_project_whole_state_media_prerequisites_v1')
+                .findOne(filter);
+              if (receipt) return receipt;
+            }
+            return null;
+          },
+          updateOne: async (filter: JsonRecord, update: JsonRecord) => {
+            const setOnInsert = update.$setOnInsert;
+            const receipt = setOnInsert && typeof setOnInsert === 'object'
+              && !Array.isArray(setOnInsert)
+              ? (setOnInsert as JsonRecord).receipt
+              : null;
+            const projectId = receipt && typeof receipt === 'object' && !Array.isArray(receipt)
+              ? (receipt as JsonRecord).projectId
+              : null;
+            if (typeof projectId !== 'string') {
+              throw new Error('PROJECT_SERVICE_TEST_MEDIA_PREREQUISITE_PROJECT_ID_MISSING');
+            }
+            const persistence = projects.get(projectId);
+            if (!persistence) {
+              throw new Error('PROJECT_SERVICE_TEST_MEDIA_PREREQUISITE_PROJECT_NOT_INSTALLED');
+            }
+            return persistence.asDatabase()
+              .collection('editron_project_whole_state_media_prerequisites_v1')
+              .updateOne(filter, update);
           },
         };
       }

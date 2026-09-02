@@ -8,7 +8,7 @@ const persistenceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
-  COLLECTIONS: { PROJECTS: "projects" },
+  COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "mediaAssets" },
   getDatabase: vi.fn(async () => ({
     collection: vi.fn((name: string) => name
       === "editron_project_render_snapshot_invalidation_outbox_v1"
@@ -22,6 +22,25 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
         }),
   })),
   connectToDatabase: vi.fn(),
+}));
+
+vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
+  loadProjectWholeStateMediaPrerequisiteByLinkV1: vi.fn(),
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1: vi.fn(async (input: any) => ({
+    ...input,
+    mediaEntries: input.overlays.map((overlay: any) => ({ overlayId: overlay.id })),
+    candidateMediaSetSha256: "c".repeat(64),
+    candidateMediaContentSha256: "e".repeat(64),
+    receiptSha256: "d".repeat(64),
+  })),
+  projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
+    status: "MATERIALIZED",
+    collection: "editron_project_whole_state_media_prerequisites_v1",
+    receiptSha256: receipt.receiptSha256,
+    candidateMediaSetSha256: receipt.candidateMediaSetSha256,
+    candidateMediaContentSha256: receipt.candidateMediaContentSha256,
+    mediaEntryCount: receipt.mediaEntries.length,
+  }),
 }));
 
 vi.mock("@/lib/editron/services/asset-resolver", () => ({
