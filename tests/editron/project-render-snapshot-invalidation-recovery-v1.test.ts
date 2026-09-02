@@ -133,13 +133,25 @@ describe("project render snapshot invalidation recovery V1", () => {
   it("protects the cron, preserves incomplete work, and registers production wiring", async () => {
     vi.stubEnv("CRON_SECRET", "snapshot-secret");
     const runner = vi.fn(async () => ({
-      scanned: 1,
-      awaitingCommit: 0,
-      pending: 1,
-      materialized: 0,
-      abandoned: 0,
-      errors: 0,
-      results: [],
+      invalidation: {
+        scanned: 1,
+        awaitingCommit: 0,
+        pending: 1,
+        materialized: 0,
+        abandoned: 0,
+        errors: 0,
+        results: [],
+      },
+      cleanup: {
+        candidates: 0,
+        handoffCreated: 0,
+        handoffPending: 0,
+        cleanupDone: 0,
+        providerOutcomeUnresolved: 0,
+        chapterOwnerRequired: 0,
+        errors: 0,
+        results: [],
+      },
     }));
     const request = (token?: string) => new Request("https://editron.example.test/api/cron/recover", {
       headers: token ? { authorization: token } : undefined,
@@ -173,5 +185,6 @@ describe("project render snapshot invalidation recovery V1", () => {
     });
     const mongo = readFileSync(resolve(REPO_ROOT, "lib/editron/db/mongodb.ts"), "utf8");
     expect(mongo).toContain("project_render_snapshot_invalidation_recovery_v1");
+    expect(mongo).toContain("project_render_snapshot_cleanup_recovery_v1");
   });
 });

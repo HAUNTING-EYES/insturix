@@ -234,6 +234,17 @@ export async function initializeIndexes(): Promise<void> {
       },
       name: 'billing_recovery_unknown_job_v1',
     },
+    {
+      key: {
+        'artifactCleanup.state': 1,
+        artifactState: 1,
+        chapterOrchestration: 1,
+        projectRenderSourceCleanupOutboxId: 1,
+        artifactInvalidatedAt: 1,
+        _id: 1,
+      },
+      name: 'project_render_snapshot_cleanup_recovery_v1',
+    },
   ]);
 
   await db.collection(PROJECT_RENDER_SNAPSHOT_INVALIDATION_OUTBOX_COLLECTION_V1).createIndexes([
