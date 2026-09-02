@@ -17646,3 +17646,72 @@ The binding order remains: (1) finish the remaining Queue 5 owners serially;
 Queue 6 serially; and (5) certify agency verticals serially unless the founder
 explicitly authorizes more parallel execution. Human-only review remains
 deferred to the end of the authorized technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5G audio-rights owner checkpoint
+
+Commit `7b23a52d5` closes the current Queue 5 admission slice for the
+ProjectService audio-rights attestation owner. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+The owner no longer trusts caller-supplied overlays or storyboard scenes as
+the state to persist. It reloads the exact current project revision, derives
+only the declared rights changes from persisted overlays and linked persisted
+storyboards, and rejects duplicate storyboard commands. Each attestation must
+be a valid current-version user attestation bound to the exact current user,
+asset and commit timestamp. Assets outside the current project, incompatible
+media families, missing exact project ranges, active Director mutation leases
+and overlapping timeline locks fail before mutation.
+
+Before the Mongo transaction begins, the owner durably enqueues whole-project
+render-snapshot invalidation for the exact before/after revision. The
+transaction then atomically updates matched user-upload assets, rederived
+storyboard copies, rederived project overlays, the project revision and a
+bounded hashed rights receipt that links the affected ranges to that
+invalidation. A stale project compare-and-set rolls back all companion writes.
+This changes export-rights policy only; it does not add or duplicate any
+creative-form owner.
+
+The focused rights/persistence gate passed 77/77 tests, including caller
+content injection, forged attestation identity, stale revision, missing
+source, wrong media family, transactional companion writes and unavailable
+invalidation. Full 8-GB TypeScript, targeted quiet ESLint and
+`git diff --check` passed before the push. No provider call, storage spend,
+customer project mutation, historical cohort rerun or model inference
+occurred.
+
+This is not live Atlas transaction/outbox proof and not universal Queue 5
+closure. A pre-transaction invalidation row can remain unreferenced when the
+later transaction fails; bounded retention/recovery remains required. The
+post-retime source-event rebinding method is read-only and therefore is not a
+mutation owner; its eventual timestamp-addressed consumption remains Queue
+3-4 work.
+
+The remaining Queue 5 order is now:
+
+1. Complete a fresh method-level classification of ProjectService specialized
+   writers. Enforce active-state MG/generated-composition edges and record
+   explicit operation-specific non-applicability for metadata-only,
+   analysis-only, proof-only and lease-only owners rather than fabricating
+   media prerequisites.
+2. Add bounded retention/recovery for unreferenced whole-state, direct,
+   cut/retime/family/generated/delivery/rights prerequisite receipts and an
+   authoritative legacy-checkpoint migration or recapture rule. Historical
+   evidence must never be synthesized.
+3. Run the aggregate Queue 5 mutation-owner suite, source-qualified live
+   database mutation proofs and full-repository quiet ESLint before
+   considering Queue 5 locally implemented.
+4. Keep deployed indexes/cron, R2 exact PUT/GET/DELETE, live provider deletion
+   and genuine unbound-row reconstruction or retirement explicitly unresolved
+   until proved in the authorized environment.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish Queue 5 serially; (2) run aggregate
+Queue 5 verification; (3) return to unfinished Queues 3 and 4, where parallel
+execution is permitted but not required; (4) implement Queue 6 serially; and
+(5) certify agency verticals serially unless the founder explicitly
+authorizes more parallel execution. Human-only review remains deferred to the
+end of the authorized technical queue.
