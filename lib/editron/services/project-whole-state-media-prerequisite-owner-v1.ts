@@ -116,7 +116,12 @@ export async function issueProjectWholeStateMediaPrerequisiteV1(input: Readonly<
       if (!validSourceRightsEvidence(authorization.receipt)) {
         fail('PROJECT_WHOLE_STATE_MEDIA_RIGHTS_RECEIPT_INVALID');
       }
-      rightsEvidence = authorization.receipt;
+      rightsEvidence = {
+        receiptSha256: authorization.receipt.receiptSha256,
+        sourceMediaRightsStateSha256V1: authorization.receipt.sourceMediaRightsStateSha256V1,
+        sourceMediaRightsRecordSha256: authorization.receipt.sourceMediaRightsRecordSha256,
+        evaluatedAt: authorization.receipt.evaluatedAt,
+      };
       rightsBySource.set(sourceVersion.sourceVersionSha256, rightsEvidence);
     }
     mediaEntries.push({

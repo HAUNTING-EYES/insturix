@@ -58,6 +58,8 @@ function ports(assets: Record<string, unknown>[]): ProjectWholeStateMediaPrerequ
     authorizeSourceRights: vi.fn(async () => ({
       disposition: 'AUTHORIZED' as const,
       receipt: {
+        schemaVersion: 1,
+        authority: { ownerId: 'source-rights-owner-v1' },
         receiptSha256: 'b'.repeat(64),
         sourceMediaRightsStateSha256V1: 'c'.repeat(64),
         sourceMediaRightsRecordSha256: 'd'.repeat(64),
@@ -120,6 +122,8 @@ describe('project whole-state media prerequisite V1', () => {
       },
       predecessor: { disposition: 'ORIGINAL_SOURCE', receiptSha256: null },
     });
+    expect(receipt.mediaEntries[0]?.rights).not.toHaveProperty('schemaVersion');
+    expect(receipt.mediaEntries[0]?.rights).not.toHaveProperty('authority');
   });
 
   it('fingerprints the persisted shape of atomic overlays without accepting array holes', async () => {
