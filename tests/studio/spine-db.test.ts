@@ -23,6 +23,20 @@ const purge = async () => {
 };
 
 describe.skipIf(!canRun)("spine db — projects, events, operations, claims", () => {
+  it("stamps the accepted Brand Vault revision on create and refreshes it on re-verify", { timeout: 30000 }, async () => {
+    const { getOrCreateProject, getProject } = await import("@/lib/studio/persist/db");
+    const id = `proj_rev_${crypto.randomUUID().slice(0, 8)}`;
+    const created = await getOrCreateProject({ projectId: id, organizationId: null, brandId: "br_x", title: "T", acceptedBrandRevision: "rec_1" });
+    expect(created.acceptedBrandRevision).toBe("rec_1");
+    /* a later turn re-verified against a newer vault record -> stamp refreshes */
+    await getOrCreateProject({ projectId: id, organizationId: null, brandId: "br_x", title: "T", acceptedBrandRevision: "rec_2" });
+    const reread = await getProject(id);
+    expect(reread?.acceptedBrandRevision).toBe("rec_2");
+    /* creation WITHOUT a revision leaves the field null, never a guess */
+    const bare = await getOrCreateProject({ projectId: `proj_rev_${crypto.randomUUID().slice(0, 8)}`, organizationId: null, brandId: null, title: "T" });
+    expect(bare.acceptedBrandRevision).toBeNull();
+  });
+
   afterAll(async () => {
     if (canRun && mongoose.connection.readyState === 1) {
       await purge();

@@ -66,9 +66,11 @@ export async function POST(req: Request) {
      * request-scoped brandId is verified against the caller's accepted Brand
      * Vault records BEFORE it is stamped onto a Project. No cross-brand
      * fallback: deny outright. */
+    let acceptedBrandRevision: string | null = null;
     if (request.brandId) {
       try {
-        await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: request.brandId });
+        const scope = await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: request.brandId });
+        acceptedBrandRevision = scope.recordId ?? scope.acceptedRecord?.id ?? null;
       } catch (error) {
         if (error instanceof BrandScopeAuthorizationError) {
           return NextResponse.json({ error: "brand_access_denied", brandId: request.brandId }, { status: 403 });
@@ -82,6 +84,7 @@ export async function POST(req: Request) {
       organizationId: orgId ?? null,
       brandId: request.brandId ?? null,
       title: request.text.trim().slice(0, 80) || "Studio draft",
+      acceptedBrandRevision,
     });
     /* old TF sessions: their chat history enters the log BEFORE this turn's
      * first event, so imported and new messages stay in true order; the drain

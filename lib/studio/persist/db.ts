@@ -152,14 +152,23 @@ export async function getOrCreateProject(input: {
   organizationId: string | null;
   brandId: string | null;
   title: string;
+  /** exact accepted Brand Vault record — plan §17 Phase 4 first bullet:
+   *  the project pins the brand truth it was created against */
+  acceptedBrandRevision?: string | null;
 }): Promise<SpineProject> {
   await connectSpine();
   const projectId = input.projectId ?? `proj_${crypto.randomUUID()}`;
-  const doc = (await ProjectModel.findByIdAndUpdate(
-    projectId,
-    { $setOnInsert: { organizationId: input.organizationId, brandId: input.brandId, title: input.title, phase: "planning" } },
-    { upsert: true, new: true },
-  ).lean()) as unknown as ProjectLean;
+  const stamp = input.brandId && input.acceptedBrandRevision ? input.acceptedBrandRevision : null;
+  /* $setOnInsert keeps creation idempotent; a NEWER accepted revision on a
+   * later turn refreshes the stamp only when the caller actually re-verified
+   * it against the vault (routes pass the record they just authorized) */
+  const setOnInsert: Record<string, unknown> = { organizationId: input.organizationId, brandId: input.brandId, title: input.title, phase: "planning" };
+  /* $set (not $setOnInsert) for the stamp: Mongo forbids the same path in
+   * both operators, and $set applies on insert AND update — so creation
+   * stamps it and a later re-verified revision refreshes it */
+  const update: Record<string, unknown> = { $setOnInsert: setOnInsert };
+  if (stamp) update.$set = { acceptedBrandRevision: stamp };
+  const doc = (await ProjectModel.findByIdAndUpdate(projectId, update, { upsert: true, new: true }).lean()) as unknown as ProjectLean;
   return toSpineProject(doc);
 }
 

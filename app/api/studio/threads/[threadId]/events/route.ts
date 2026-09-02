@@ -36,12 +36,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
        * below fills the log with the session's chat history (§10) */
       const session = await tfdb.getSession(projectId, userId, orgId ?? null).catch(() => null);
       if (session) {
-        const meta = (session.projectMeta ?? {}) as { projectName?: string; title?: string; brandBinding?: { brandId?: string } };
+        const meta = (session.projectMeta ?? {}) as { projectName?: string; title?: string; brandBinding?: { brandId?: string; version?: number } };
         project = await getOrCreateProject({
           projectId,
           organizationId: orgId ?? null,
           brandId: meta.brandBinding?.brandId ?? null,
           title: meta.projectName ?? meta.title ?? "Imported ThinkForge session",
+          acceptedBrandRevision: meta.brandBinding?.version != null ? String(meta.brandBinding.version) : null,
         });
       }
     }

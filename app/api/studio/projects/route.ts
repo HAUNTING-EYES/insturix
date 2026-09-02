@@ -71,9 +71,11 @@ export async function POST(req: Request) {
   try {
     /* §19: brand-scoped create — a brandId the caller has no accepted Brand
      * Vault record for is denied outright, never silently stamped. */
+    let acceptedBrandRevision: string | null = null;
     if (parsed.data.brandId) {
       try {
-        await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: parsed.data.brandId });
+        const scope = await authorizeBrandScope({ userId, orgId: orgId ?? null, brandId: parsed.data.brandId });
+        acceptedBrandRevision = scope.recordId ?? scope.acceptedRecord?.id ?? null;
       } catch (error) {
         if (error instanceof BrandScopeAuthorizationError) {
           return NextResponse.json({ error: "brand_access_denied", brandId: parsed.data.brandId }, { status: 403 });
@@ -87,6 +89,7 @@ export async function POST(req: Request) {
       organizationId: orgId ?? null,
       brandId: parsed.data.brandId ?? null,
       title: parsed.data.title ?? "New project",
+      acceptedBrandRevision,
     });
     return NextResponse.json({ projectId: project.projectId, title: project.title, phase: project.phase });
   } catch (error) {
