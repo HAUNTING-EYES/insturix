@@ -177,3 +177,15 @@ Account shell (§7 / Phase 3 completion).
 
 Remaining queue: #7 Brands place + Account shell (Phase 3 completion),
 #5 status three-axis model (blocked on Phase 6 write-side).
+
+## 2026-09-03 (later) — remediation #7 closed; T10 verification loop
+
+- T10-v2 scored 0.67 (was 0.33): vault + consent probes now 0/55 wrong;
+  remaining failure = one probe + one adv trust break, both traced to
+  scan-timing ambiguity. Copy fixed (Re-scan + 'nothing scanned until
+  you press it' + 'only these — the scan settled the rest'), setup.png
+  recaptured, T10-v3 launched.
+- **#7 done**: Brands place (`/studio/brands` + `/api/studio/brands`,
+  read-side vault + assignments) and Account rail item. §7 place list
+  complete. Phase 3 exit re-checked: no mock records in real mode.
+- Queue left: #5 (three-axis status, blocked on Phase 6 write-side).
