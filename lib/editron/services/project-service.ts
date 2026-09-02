@@ -4931,6 +4931,40 @@ export class ProjectService {
           endFrame: cut.newDurationInFrames,
         }
       : null;
+    const persistedOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(cut.overlays as Overlay[]),
+      "project-service-timeline-range-cut",
+    );
+    const affectedPostCutOverlays = persistedOverlays.filter((overlay) => {
+      const frameRange = overlayTimelineFrameRangeV1(overlay);
+      if (!frameRange) {
+        throw new ProjectMutationWriteError(
+          "Timeline cut media admission requires exact post-cut overlay ranges.",
+        );
+      }
+      return frameRange.endFrame > removedRange.startFrame;
+    });
+    const wholeStateMediaPrerequisite =
+      await materializeProjectWholeStateMediaPrerequisiteInMongoV1({
+        operation: "CUT_TIMELINE_RANGE",
+        tenantId: project.orgId ?? project.userId,
+        userId,
+        projectOwnerId: project.userId,
+        orgId: project.orgId ?? null,
+        projectId,
+        projectRevision: appliedBaseRevision,
+        overlays: affectedPostCutOverlays,
+      }, db, COLLECTIONS.MEDIA_ASSETS);
+    const projectRenderSnapshotInvalidation =
+      await this.enqueueProjectRenderSnapshotInvalidationBeforeCommitV1({
+        ownerId: userId,
+        projectId,
+        operation: "CUT_TIMELINE_RANGE",
+        beforeRevision: appliedBaseRevision,
+        afterRevision,
+        committedAt,
+        db,
+      });
     const timelineChangeReceipt: ProjectTimelineRangeChangeReceiptV1 = {
       schemaVersion: 1,
       receiptId: `timeline-cut_${nanoid(18)}`,
@@ -4959,14 +4993,13 @@ export class ProjectService {
         deltaFrames: cut.timelineCoordinateTransform.shiftAfterRemovedRangeFrames,
       },
       downstreamInvalidation: {
-        status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+        status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
         affectedFrameRangesBefore: [affectedRangeBefore],
+        projectRenderSnapshotInvalidation,
       },
+      wholeStateMediaPrerequisite:
+        projectWholeStateMediaPrerequisiteLinkV1(wholeStateMediaPrerequisite),
     };
-    const persistedOverlays = stampPersistedOverlays(
-      assetResolver.stripUrlsForLLM(cut.overlays as Overlay[]),
-      "project-service-timeline-range-cut",
-    );
     const filter: Record<string, unknown> = {
       projectId,
       userId,
@@ -8419,7 +8452,8 @@ export class ProjectService {
       | "RESTORE_CHECKPOINT_STATE"
       | "ADD_OVERLAY"
       | "UPDATE_OVERLAY"
-      | "DELETE_OVERLAY";
+      | "DELETE_OVERLAY"
+      | "CUT_TIMELINE_RANGE";
     beforeRevision: ProjectRevisionV1;
     afterRevision: ProjectRevisionV1;
     committedAt: Date;

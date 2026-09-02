@@ -13,12 +13,12 @@ export function stage25ProjectServiceConflictFixtureV1(input: {
     overlays: [
       {
         id: 1,
-        type: "video",
+        type: "shape",
         from: 0,
         row: 0,
         durationInFrames: 240,
-        sourceStartFrame: 100,
-        videoStartTime: 100,
+        content: "rectangle",
+        styles: { fill: "#111111", opacity: 1 },
       },
       {
         id: 2,

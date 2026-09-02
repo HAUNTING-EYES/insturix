@@ -7,6 +7,10 @@ const persistenceMocks = vi.hoisted(() => ({
   updateOne: vi.fn(),
 }));
 
+const mediaPrerequisiteMocks = vi.hoisted(() => ({
+  materialize: vi.fn(),
+}));
+
 vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: { PROJECTS: "projects", MEDIA_ASSETS: "mediaAssets" },
   getDatabase: vi.fn(async () => ({
@@ -26,13 +30,8 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
 
 vi.mock("@/lib/editron/services/project-whole-state-media-prerequisite-runtime-v1", () => ({
   loadProjectWholeStateMediaPrerequisiteByLinkV1: vi.fn(),
-  materializeProjectWholeStateMediaPrerequisiteInMongoV1: vi.fn(async (input: any) => ({
-    ...input,
-    mediaEntries: input.overlays.map((overlay: any) => ({ overlayId: overlay.id })),
-    candidateMediaSetSha256: "c".repeat(64),
-    candidateMediaContentSha256: "e".repeat(64),
-    receiptSha256: "d".repeat(64),
-  })),
+  materializeProjectWholeStateMediaPrerequisiteInMongoV1:
+    mediaPrerequisiteMocks.materialize,
   projectWholeStateMediaPrerequisiteLinkV1: (receipt: any) => ({
     status: "MATERIALIZED",
     collection: "editron_project_whole_state_media_prerequisites_v1",
@@ -164,6 +163,13 @@ describe("ProjectService timeline range cut V1", () => {
     persistenceMocks.outboxFindOne.mockReset().mockResolvedValue(null);
     persistenceMocks.outboxInsertOne.mockReset().mockResolvedValue({ acknowledged: true });
     persistenceMocks.updateOne.mockReset();
+    mediaPrerequisiteMocks.materialize.mockReset().mockImplementation(async (input: any) => ({
+      ...input,
+      mediaEntries: input.overlays.map((overlay: any) => ({ overlayId: overlay.id })),
+      candidateMediaSetSha256: "c".repeat(64),
+      candidateMediaContentSha256: "e".repeat(64),
+      receiptSha256: "d".repeat(64),
+    }));
   });
 
   it("persists one full ripple receipt with its exact writer revision", async () => {
@@ -247,14 +253,76 @@ describe("ProjectService timeline range cut V1", () => {
           deltaFrames: -30,
         },
         downstreamInvalidation: {
-          status: "UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN",
+          status: "DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING",
           affectedFrameRangesBefore: [{ startFrame: 30, endFrame: 240 }],
+          projectRenderSnapshotInvalidation: {
+            schemaVersion: 1,
+            invalidationId: expect.stringMatching(
+              /^project-snapshot-invalidation_[a-f0-9]{64}$/,
+            ),
+            receiptHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            beforeRevision: { value: 7 },
+            afterRevision: { value: 8 },
+          },
+        },
+        wholeStateMediaPrerequisite: {
+          status: "MATERIALIZED",
+          collection: "editron_project_whole_state_media_prerequisites_v1",
+          receiptSha256: "d".repeat(64),
+          candidateMediaSetSha256: "c".repeat(64),
+          candidateMediaContentSha256: "e".repeat(64),
+          mediaEntryCount: 2,
         },
       });
       expect(update.$push.timelineRangeChangeReceipts.$slice).toBe(-200);
+      const prerequisiteInput = mediaPrerequisiteMocks.materialize.mock.calls[0]?.[0] as {
+        operation: string;
+        projectRevision: { value: number };
+        overlays: Array<{ id: number }>;
+      };
+      expect(prerequisiteInput.operation).toBe("CUT_TIMELINE_RANGE");
+      expect(prerequisiteInput.projectRevision.value).toBe(7);
+      expect(prerequisiteInput.overlays.map(({ id }) => id).sort((a, b) => a - b)).toEqual([2, 3]);
+      expect(mediaPrerequisiteMocks.materialize.mock.calls[0]?.[2]).toBe("mediaAssets");
+      expect(mediaPrerequisiteMocks.materialize.mock.invocationCallOrder[0]).toBeLessThan(
+        persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0],
+      );
+      expect(persistenceMocks.outboxInsertOne.mock.invocationCallOrder[0]).toBeLessThan(
+        persistenceMocks.updateOne.mock.invocationCallOrder[0],
+      );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("blocks before invalidation or CAS when cut media evidence is unavailable", async () => {
+    const project = projectFixture();
+    persistenceMocks.findOne.mockResolvedValueOnce(project);
+    mediaPrerequisiteMocks.materialize.mockRejectedValueOnce(
+      new Error("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING"),
+    );
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    const captured = await projectService.captureMutationReceipts(async () => {
+      await expect(projectService.cutTimelineRangeV1(
+        "user_timeline_cut",
+        "proj_timeline_cut",
+        {
+          expectedRevision: {
+            schemaVersion: 1,
+            value: 7,
+            compatibilityUpdatedAt: "2026-08-25T00:00:00.000Z",
+          },
+          actorKind: "AGENT",
+          startFrame: 30,
+          endFrame: 60,
+        },
+      )).rejects.toThrow("PROJECT_WHOLE_STATE_MEDIA_AUDIO_EVIDENCE_MISSING");
+    });
+
+    expect(captured.receipts).toEqual([]);
+    expect(persistenceMocks.outboxInsertOne).not.toHaveBeenCalled();
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
   });
 
   it("fails closed on a lost compare-and-swap and publishes no receipt", async () => {

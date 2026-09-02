@@ -76,6 +76,7 @@ const materialSchema = z.object({
     'RESTORE_CHECKPOINT_STATE',
     'ADD_OVERLAY',
     'UPDATE_OVERLAY',
+    'CUT_TIMELINE_RANGE',
   ]),
   projectId: identifier,
   userId: identifier,

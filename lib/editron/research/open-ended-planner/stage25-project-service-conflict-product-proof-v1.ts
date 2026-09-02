@@ -160,7 +160,8 @@ export async function executeStage25ProjectServiceConflictProductProofV1(input: 
       limitations: [
         'The range lock is cut-specific; this does not certify a generic lock honored by every writer.',
         'The bounded conflict trial includes UPDATE_OVERLAY and CUT_TIMELINE_RANGE, not every ProjectService writer.',
-        'UPDATE_OVERLAY now durably enqueues project-snapshot invalidation; CUT_TIMELINE_RANGE remains unmaterialized.',
+        'UPDATE_OVERLAY and CUT_TIMELINE_RANGE durably enqueue project-snapshot invalidation before their project writes.',
+        'The bounded cut conflict fixture is intentionally non-media; media/audio cut admission is covered by the dedicated prerequisite and range-cut suites.',
         realMongo
           ? 'The durable proof uses an isolated loopback single-node mongod, not Atlas, a replica set, or a multi-user deployed product.'
           : 'The focused test uses a stateful persistence double and is not durable-database evidence.',
@@ -536,7 +537,7 @@ function projectFixture(
     overlays: [
       {
         id: 1,
-        type: OverlayType.VIDEO,
+        type: OverlayType.SHAPE,
         from: 0,
         row: 0,
         durationInFrames: 240,
@@ -546,10 +547,8 @@ function projectFixture(
         width: 1920,
         isDragging: false,
         rotation: 0,
-        content: 'stage25-conflict-source.mp4',
-        styles: {},
-        sourceStartFrame: 100,
-        videoStartTime: 100,
+        content: 'rectangle',
+        styles: { fill: '#111111', opacity: 1 },
       },
       {
         id: 2,
@@ -764,7 +763,13 @@ function assertCutReceiptTruth(receipt: ProjectTimelineRangeChangeReceiptV1): tr
     || receipt.timelineCoordinateTransform?.removedRange.startFrame !== 30
     || receipt.timelineCoordinateTransform.removedRange.endFrame !== 60
     || receipt.downstreamInvalidation.status
-      !== 'UNMATERIALIZED_NO_DURABLE_ARTIFACT_CHAIN'
+      !== 'DURABLE_PROJECT_SNAPSHOT_INVALIDATION_PENDING'
+    || receipt.downstreamInvalidation.projectRenderSnapshotInvalidation.beforeRevision.value
+      !== receipt.beforeProjectRevision.value
+    || receipt.downstreamInvalidation.projectRenderSnapshotInvalidation.afterRevision.value
+      !== receipt.afterProjectRevision.value
+    || receipt.wholeStateMediaPrerequisite?.status !== 'MATERIALIZED'
+    || receipt.wholeStateMediaPrerequisite.mediaEntryCount !== 0
     || hashCanonicalJsonV1(
       receipt.downstreamInvalidation.affectedFrameRangesBefore,
     ) !== hashCanonicalJsonV1(expectedWrite)) {
