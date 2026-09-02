@@ -17355,3 +17355,69 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5C video-retime admission checkpoint
+
+Commit `c75946584` closes current media/right/audio/predecessor admission and
+durable project-snapshot invalidation for `APPLY_VIDEO_SPEED_RAMP` and
+`RETIME_VIDEO_SOURCE_RANGE`. The commit is pushed on
+`infrastructure-improvs-+Editron`.
+
+Both writers retain their existing exact source-time binding, source-handle
+and project-rate checks. The speed-ramp writer now also reads the authoritative
+Director and timeline-range lock state, rejects an active Director lease or an
+overlapping range lock before source/evidence work, materializes the canonical
+prerequisite for the exact updated clip, durably enqueues invalidation and only
+then attempts its overlay CAS. The source-range retime owner applies the same
+admission order to the exact post-retime target plus deterministic shifted
+ripple-tail overlays returned by its existing retime owner.
+
+The same timeline receipts bind the source-time transform, media-prerequisite
+link and exact before/after invalidation link. Focused negative proofs confirm
+that Director/range locks prevent source and evidence work, and that missing
+media/audio evidence for either writer produces no invalidation enqueue,
+project CAS or mutation receipt. Mixed rate, VFR, insufficient handles,
+overlapping dependent overlays and stale revisions remain fail-closed.
+
+The three-suite retime/prerequisite gate passed 23/23 tests. Targeted quiet
+ESLint, full 8-GB TypeScript and `git diff --check` passed before the push. No
+provider call, render, storage spend, wallet mutation, customer project edit,
+historical paid-cohort rerun or model inference occurred.
+
+This is not universal Queue 5 closure. The focused retime integration suite
+stubs the already-tested Mongo prerequisite owner and durable outbox storage;
+source-qualified live-database retime proof remains part of aggregate closure.
+Duration correction/reconciliation, auto-edit, caption, BGM/beat, generated
+composition, delivery and metadata/analysis/lease writers still require their
+operation-specific classification and enforcement.
+
+The remaining Queue 5 order is now:
+
+1. Continue with duration correction/reconciliation and auto-edit assembly,
+   then the remaining family, generated-composition, delivery and
+   metadata/analysis/lease writers. Enforce applicable source, rights, audio,
+   predecessor, revision, range, lock and invalidation prerequisites; record
+   explicit non-applicability where evidence is not relevant.
+2. Add bounded retention/recovery for unreferenced prerequisite receipts and
+   an authoritative legacy checkpoint migration/recapture rule; never
+   synthesize historical evidence.
+3. Add source-qualified live-database cut/retime proofs, run the aggregate
+   Queue 5 mutation-owner suite and full-repository quiet ESLint before
+   considering Queue 5 locally implemented.
+4. Preserve the external live lane as unresolved until deployed indexes/cron
+   are verified, R2 entitlement permits exact PUT/GET/DELETE, live provider
+   deletion is proved, and genuine unbound rows—if any—receive source-backed
+   reconstruction or retirement evidence.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, which alone may be worked in parallel under the founder's current
+authorization; (4) implement Queue 6 serially; and (5) certify agency
+verticals serially unless the founder explicitly authorizes more parallel
+execution. Human-only review remains deferred to the end of the authorized
+technical queue.
