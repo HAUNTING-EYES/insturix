@@ -217,19 +217,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
             ? [{ ref: scriptArtifact.sourceRef.externalId, role: "script" }]
             : [];
         const abort = new AbortController();
-        let confirmTurnId: string | null = null;
-        handleRef.current = {
-          turnId: "t_real",
-          answer: (a) => {
-            if (!confirmTurnId) return;
-            void fetch(`/api/studio/turns/${confirmTurnId}/confirm`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ accepted: a.accepted }),
-            });
-          },
-          interrupt: () => abort.abort(),
-        };
+        /* real confirms resolve by re-posting the turn with the accepted quote
+         * (answerConfirm) — the old /confirm endpoint left with the confirm
+         * registry, so the real path carries no handle */
         try {
           for await (const ev of runRealTurn(
             {
@@ -248,11 +238,9 @@ export function StudioSession({ deliverableId }: { deliverableId?: string }) {
           )) {
             applyEvent(ev);
             if (ev.type === "turn.confirm_required") {
-              confirmTurnId = ev.turnId;
-              /* serverless: the paused stream may not resume (separate
-               * instance owns the registry) — close it; the card's answer
-               * posts to the confirm endpoint and, until the continuation
-               * rework, the turn ends here honestly. */
+              /* serverless: the paused stream may not resume on another
+               * instance — close it; the card's answer re-posts the original
+               * ask with the accepted quote and the turn continues there. */
               if (ev.quote) {
                 try {
                   const cr = await fetch("/api/user/credits?wallet=auto");
