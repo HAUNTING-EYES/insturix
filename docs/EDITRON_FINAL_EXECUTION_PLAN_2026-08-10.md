@@ -17564,3 +17564,85 @@ authorization; (4) implement Queue 6 serially; and (5) certify agency
 verticals serially unless the founder explicitly authorizes more parallel
 execution. Human-only review remains deferred to the end of the authorized
 technical queue.
+
+## 2026-09-02 vertical-convergence Phase 5F generated/delivery admission checkpoint
+
+Commits `cecfe02a3`, `4c2c0183d`, `a787a122e`, `3daf8328a`,
+`8318040a4`, `a8537ec42` and `62e50a2d7` close the current Queue 5
+admission slices for generated motion-graphic delivery, generated-composition
+promotion, pipeline-audio delivery and single-target pipeline-video
+regeneration. All commits are pushed on
+`infrastructure-improvs-+Editron`.
+
+Generated MG delivery and a passing generated-composition promotion now bind
+their operation-specific media or explicit zero-media prerequisite, exact
+current revision and affected project range, reject active Director or
+overlapping range locks, durably enqueue project-snapshot invalidation and
+only then attempt the existing ProjectService compare-and-set. Their existing
+render/form owners remain authoritative; this work does not add a competing
+creative-form planner.
+
+Pipeline-audio attachment now authenticates the actual candidate audio media,
+rights, playable-audio evidence and predecessor lineage before durable
+snapshot invalidation and project CAS. Destructive beat-aligned picture cuts
+remain a separate authoritative mutation after audio attachment rather than
+being hidden inside the delivery write. The combined focused audio gate passed
+45/45 tests.
+
+Pipeline-video regeneration is no longer impossible by construction. A
+ProjectService admission first reserves one exact current overlay and advances
+the project revision. Before any credit check or provider dispatch, the route
+creates the deterministic target-invalidation outbox, the existing render-job
+owner scans and fences both legacy target-bound artifacts and whole-project
+snapshot renders whose sealed target index contains that overlay, and
+ProjectService persists the completed invalidation checkpoint. Unresolved or
+malformed render rows stop the request before spending. A retry recovers the
+same owner-issued prerequisite without advancing the revision again.
+
+After generation, the worker registers the result under the exact user and
+ProjectService independently requires the materialized target-invalidation
+receipt, exact fps/range/revision/locks, current replacement-media admission
+and a new whole-project snapshot invalidation before replacing the overlay by
+CAS. The core video/invalidation gate passed 32/32 tests; the route, worker,
+render-fence and adjacent accounting/dispatch gates passed their focused
+suites, full 8-GB TypeScript, targeted quiet ESLint and `git diff --check`.
+No provider call, storage spend, customer project mutation, historical cohort
+rerun or model inference occurred.
+
+This is not live end-to-end pipeline-video proof and not universal Queue 5
+closure. Generated video registration still needs the Queue 3-4 production
+source-version/timestamp/audio qualification chain before the real media
+prerequisite can authorize delivery. The target invalidation cleanup receipt
+is materialized, but deployed cleanup/retention and live provider deletion are
+still external evidence blockers.
+
+The remaining Queue 5 order is now:
+
+1. Classify and enforce the remaining specialized mutation owners, beginning
+   with audio-rights attestation, post-retime source-event rebinding and any
+   active-state MG/generated-composition edge. Metadata-only, analysis-only,
+   proof-only and lease-only owners must record explicit non-applicability
+   rather than fabricate source, audio or range evidence.
+2. Add bounded retention/recovery for unreferenced whole-state, direct,
+   cut/retime/family/generated/delivery prerequisite receipts and an
+   authoritative legacy-checkpoint migration or recapture rule. Historical
+   evidence must never be synthesized.
+3. Run a fresh method-level ProjectService classification, the aggregate Queue
+   5 mutation-owner suite, source-qualified live-database mutation proofs and
+   full-repository quiet ESLint before considering Queue 5 locally
+   implemented.
+4. Keep deployed indexes/cron, R2 exact PUT/GET/DELETE, live provider deletion
+   and genuine unbound-row reconstruction or retirement explicitly unresolved
+   until they are proved in the authorized environment.
+
+Queue 5 remains `ACTIVE_PARTIAL`; Queues 3 and 4 remain `ACTIVE_PARTIAL`;
+Stage 2.5 remains `MODIFY`; Stage 3 remains `BLOCKED_NOT_AUTHORIZED`. No
+universal mutation-safety, agency-class certification, successor readiness
+receipt or `GO` is claimed.
+
+The binding order remains: (1) finish the remaining Queue 5 owners serially;
+(2) run aggregate Queue 5 verification; (3) return to unfinished Queues 3 and
+4, where parallel execution is permitted but not required; (4) implement
+Queue 6 serially; and (5) certify agency verticals serially unless the founder
+explicitly authorizes more parallel execution. Human-only review remains
+deferred to the end of the authorized technical queue.
